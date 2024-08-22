@@ -1,5 +1,6 @@
 from dataclasses import asdict
 from datetime import timedelta
+from typing import TYPE_CHECKING
 
 from temporalio.client import (
     Schedule,
@@ -10,7 +11,7 @@ from temporalio.client import (
     ScheduleSpec,
     ScheduleState,
 )
-
+from temporalio.common import RetryPolicy
 from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
 from posthog.temporal.common.client import async_connect, sync_connect
 from posthog.temporal.common.schedule import (
@@ -28,7 +29,6 @@ from posthog.temporal.common.schedule import (
     unpause_schedule,
 )
 from posthog.temporal.utils import ExternalDataWorkflowInputs
-from posthog.warehouse.models import ExternalDataSource
 import temporalio
 from temporalio.client import Client as TemporalClient
 from asgiref.sync import async_to_sync
@@ -36,17 +36,19 @@ from asgiref.sync import async_to_sync
 from django.conf import settings
 import s3fs
 
-from posthog.warehouse.models.external_data_schema import ExternalDataSchema
+if TYPE_CHECKING:
+    from posthog.warehouse.models import ExternalDataSource
+    from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 
 
-def get_sync_schedule(external_data_schema: ExternalDataSchema):
+def get_sync_schedule(external_data_schema: "ExternalDataSchema"):
     inputs = ExternalDataWorkflowInputs(
         team_id=external_data_schema.team_id,
         external_data_schema_id=external_data_schema.id,
         external_data_source_id=external_data_schema.source_id,
     )
 
-    sync_frequency = get_sync_frequency(external_data_schema)
+    sync_frequency, jitter = get_sync_frequency(external_data_schema)
 
     return Schedule(
         action=ScheduleActionStartWorkflow(
@@ -54,32 +56,34 @@ def get_sync_schedule(external_data_schema: ExternalDataSchema):
             asdict(inputs),
             id=str(external_data_schema.id),
             task_queue=str(DATA_WAREHOUSE_TASK_QUEUE),
+            retry_policy=RetryPolicy(
+                initial_interval=timedelta(seconds=10),
+                maximum_interval=timedelta(seconds=60),
+                maximum_attempts=3,
+                non_retryable_error_types=["NondeterminismError"],
+            ),
         ),
         spec=ScheduleSpec(
-            intervals=[
-                ScheduleIntervalSpec(every=sync_frequency, offset=timedelta(hours=external_data_schema.created_at.hour))
-            ],
-            jitter=timedelta(hours=2),
+            intervals=[ScheduleIntervalSpec(every=sync_frequency)],
+            jitter=jitter,
         ),
         state=ScheduleState(note=f"Schedule for external data source: {external_data_schema.pk}"),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
 
 
-def get_sync_frequency(external_data_schema: ExternalDataSchema):
-    if external_data_schema.sync_frequency == ExternalDataSchema.SyncFrequency.DAILY:
-        return timedelta(days=1)
-    elif external_data_schema.sync_frequency == ExternalDataSchema.SyncFrequency.WEEKLY:
-        return timedelta(weeks=1)
-    elif external_data_schema.sync_frequency == ExternalDataSchema.SyncFrequency.MONTHLY:
-        return timedelta(days=30)
-    else:
-        raise ValueError(f"Unknown sync frequency: {external_data_schema.source.sync_frequency}")
+def get_sync_frequency(external_data_schema: "ExternalDataSchema") -> tuple[timedelta, timedelta]:
+    if external_data_schema.sync_frequency_interval <= timedelta(hours=1):
+        return (external_data_schema.sync_frequency_interval, timedelta(minutes=1))
+    if external_data_schema.sync_frequency_interval <= timedelta(hours=12):
+        return (external_data_schema.sync_frequency_interval, timedelta(minutes=30))
+
+    return (external_data_schema.sync_frequency_interval, timedelta(hours=1))
 
 
 def sync_external_data_job_workflow(
-    external_data_schema: ExternalDataSchema, create: bool = False
-) -> ExternalDataSchema:
+    external_data_schema: "ExternalDataSchema", create: bool = False
+) -> "ExternalDataSchema":
     temporal = sync_connect()
 
     schedule = get_sync_schedule(external_data_schema)
@@ -93,8 +97,8 @@ def sync_external_data_job_workflow(
 
 
 async def a_sync_external_data_job_workflow(
-    external_data_schema: ExternalDataSchema, create: bool = False
-) -> ExternalDataSchema:
+    external_data_schema: "ExternalDataSchema", create: bool = False
+) -> "ExternalDataSchema":
     temporal = await async_connect()
 
     schedule = get_sync_schedule(external_data_schema)
@@ -107,17 +111,17 @@ async def a_sync_external_data_job_workflow(
     return external_data_schema
 
 
-def trigger_external_data_source_workflow(external_data_source: ExternalDataSource):
+def trigger_external_data_source_workflow(external_data_source: "ExternalDataSource"):
     temporal = sync_connect()
     trigger_schedule(temporal, schedule_id=str(external_data_source.id))
 
 
-def trigger_external_data_workflow(external_data_schema: ExternalDataSchema):
+def trigger_external_data_workflow(external_data_schema: "ExternalDataSchema"):
     temporal = sync_connect()
     trigger_schedule(temporal, schedule_id=str(external_data_schema.id))
 
 
-async def a_trigger_external_data_workflow(external_data_schema: ExternalDataSchema):
+async def a_trigger_external_data_workflow(external_data_schema: "ExternalDataSchema"):
     temporal = await async_connect()
     await a_trigger_schedule(temporal, schedule_id=str(external_data_schema.id))
 
@@ -153,7 +157,7 @@ def delete_external_data_schedule(schedule_id: str):
         raise
 
 
-async def a_delete_external_data_schedule(external_data_source: ExternalDataSource):
+async def a_delete_external_data_schedule(external_data_source: "ExternalDataSource"):
     temporal = await async_connect()
     try:
         await a_delete_schedule(temporal, schedule_id=str(external_data_source.id))
@@ -185,4 +189,10 @@ def delete_data_import_folder(folder_path: str):
 
 
 def is_any_external_data_job_paused(team_id: int) -> bool:
-    return ExternalDataSource.objects.filter(team_id=team_id, status=ExternalDataSource.Status.PAUSED).exists()
+    from posthog.warehouse.models import ExternalDataSource
+
+    return (
+        ExternalDataSource.objects.exclude(deleted=True)
+        .filter(team_id=team_id, status=ExternalDataSource.Status.PAUSED)
+        .exists()
+    )

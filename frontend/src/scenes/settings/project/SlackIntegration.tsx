@@ -1,16 +1,53 @@
 import { IconTrash } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import api from 'lib/api'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { getSlackAppManifest, integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { SlackIntegrationView } from 'lib/integrations/SlackIntegrationHelpers'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { useState } from 'react'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+// Modified version of https://app.slack.com/app-settings/TSS5W8YQZ/A03KWE2FJJ2/app-manifest to match current instance
+const getSlackAppManifest = (): any => ({
+    display_information: {
+        name: 'PostHog',
+        description: 'Product Insights right where you need them',
+        background_color: '#f54e00',
+    },
+    features: {
+        app_home: {
+            home_tab_enabled: false,
+            messages_tab_enabled: false,
+            messages_tab_read_only_enabled: true,
+        },
+        bot_user: {
+            display_name: 'PostHog',
+            always_online: false,
+        },
+        unfurl_domains: [window.location.hostname],
+    },
+    oauth_config: {
+        redirect_urls: [`${window.location.origin.replace('http://', 'https://')}/integrations/slack/callback`],
+        scopes: {
+            bot: ['channels:read', 'chat:write', 'groups:read', 'links:read', 'links:write'],
+        },
+    },
+    settings: {
+        event_subscriptions: {
+            request_url: `${window.location.origin.replace('http://', 'https://')}/api/integrations/slack/events`,
+            bot_events: ['link_shared'],
+        },
+        org_deploy_enabled: false,
+        socket_mode_enabled: false,
+        token_rotation_enabled: false,
+    },
+})
+
 export function SlackIntegration(): JSX.Element {
-    const { slackIntegrations, addToSlackButtonUrl } = useValues(integrationsLogic)
+    const { slackIntegrations, slackAvailable } = useValues(integrationsLogic)
     const { deleteIntegration } = useActions(integrationsLogic)
     const [showSlackInstructions, setShowSlackInstructions] = useState(false)
     const { user } = useValues(userLogic)
@@ -49,7 +86,7 @@ export function SlackIntegration(): JSX.Element {
 
             <div className="space-y-2">
                 {slackIntegrations?.map((integration) => (
-                    <SlackIntegrationView
+                    <IntegrationView
                         key={integration.id}
                         integration={integration}
                         suffix={
@@ -66,8 +103,8 @@ export function SlackIntegration(): JSX.Element {
                 ))}
 
                 <div>
-                    {addToSlackButtonUrl() ? (
-                        <Link to={addToSlackButtonUrl() || ''}>
+                    {slackAvailable ? (
+                        <Link to={api.integrations.authorizeUrl({ kind: 'slack' })} disableClientSideRouting>
                             <img
                                 alt="Connect to Slack workspace"
                                 height="40"

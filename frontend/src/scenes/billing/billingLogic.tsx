@@ -190,7 +190,7 @@ export const billingLogic = kea<billingLogicType>([
                     return parseBillingResponse(response)
                 },
 
-                updateBillingLimits: async (limits: { [key: string]: string | null }) => {
+                updateBillingLimits: async (limits: { [key: string]: number | null }) => {
                     const response = await api.update('api/billing', { custom_limits_usd: limits })
 
                     lemonToast.success('Billing limits updated')
@@ -198,6 +198,12 @@ export const billingLogic = kea<billingLogicType>([
                 },
 
                 deactivateProduct: async (key: string) => {
+                    // clear upgrade params from URL
+                    const currentURL = new URL(window.location.href)
+                    currentURL.searchParams.delete('upgraded')
+                    currentURL.searchParams.delete('products')
+                    router.actions.push(currentURL.pathname + currentURL.search)
+
                     actions.resetUnsubscribeError()
                     try {
                         const response = await api.getResponse('api/billing/deactivate?products=' + key)
@@ -304,13 +310,10 @@ export const billingLogic = kea<billingLogicType>([
                 }
                 let projectedTotal = 0
                 for (const product of billing.products || []) {
-                    const billingLimit: string =
+                    const billingLimit =
                         billing?.custom_limits_usd?.[product.type] ||
-                        (product.usage_key ? billing?.custom_limits_usd?.[product.usage_key] || '0' : '0')
-                    projectedTotal += Math.min(
-                        parseFloat(product.projected_amount_usd || '0'),
-                        parseFloat(billingLimit)
-                    )
+                        (product.usage_key ? billing?.custom_limits_usd?.[product.usage_key] || 0 : 0)
+                    projectedTotal += Math.min(parseFloat(product.projected_amount_usd || '0'), billingLimit)
                 }
                 return projectedTotal
             },
@@ -545,6 +548,13 @@ export const billingLogic = kea<billingLogicType>([
             if (_search.products) {
                 const products = _search.products.split(',')
                 actions.setScrollToProductKey(products[0])
+            }
+            if (_search.billing_error) {
+                actions.setBillingAlert({
+                    status: 'error',
+                    title: 'Error',
+                    message: _search.billing_error,
+                })
             }
             actions.setRedirectPath()
             actions.setIsOnboarding()

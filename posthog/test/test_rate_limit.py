@@ -28,6 +28,7 @@ class TestUserAPI(APIBaseTest):
         cache.clear()
 
         self.personal_api_key = generate_random_token_personal()
+        self.hashed_personal_api_key = hash_key_value(self.personal_api_key)
         PersonalAPIKey.objects.create(
             label="X",
             user=self.user,
@@ -69,6 +70,7 @@ class TestUserAPI(APIBaseTest):
                 "scope": "burst",
                 "rate": "5/minute",
                 "path": "/api/projects/TEAM_ID/feature_flags",
+                "hashed_personal_api_key": self.hashed_personal_api_key,
             },
         )
 
@@ -104,6 +106,7 @@ class TestUserAPI(APIBaseTest):
                     "scope": "sustained",
                     "rate": "5/hour",
                     "path": "/api/projects/TEAM_ID/feature_flags",
+                    "hashed_personal_api_key": self.hashed_personal_api_key,
                 },
             )
 
@@ -143,13 +146,14 @@ class TestUserAPI(APIBaseTest):
                 "scope": "clickhouse_burst",
                 "rate": "5/minute",
                 "path": "/api/projects/TEAM_ID/events",
+                "hashed_personal_api_key": self.hashed_personal_api_key,
             },
         )
 
     @patch("posthog.rate_limit.BurstRateThrottle.rate", new="5/minute")
     @patch("posthog.rate_limit.statsd.incr")
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
-    def test_rate_limits_are_based_on_the_team_not_user(self, rate_limit_enabled_mock, incr_mock):
+    def test_rate_limits_are_based_on_api_key_not_user(self, rate_limit_enabled_mock, incr_mock):
         self.client.logout()
         for _ in range(5):
             response = self.client.get(
@@ -174,6 +178,7 @@ class TestUserAPI(APIBaseTest):
                 "scope": "burst",
                 "rate": "5/minute",
                 "path": f"/api/projects/TEAM_ID/feature_flags",
+                "hashed_personal_api_key": self.hashed_personal_api_key,
             },
         )
 
@@ -189,21 +194,7 @@ class TestUserAPI(APIBaseTest):
         response = self.client.get(
             f"/api/projects/{self.team.pk}/feature_flags", headers={"authorization": f"Bearer {new_personal_api_key}"}
         )
-        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
-
-        self.assertEqual(
-            len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]),
-            1,
-        )
-        incr_mock.assert_any_call(
-            "rate_limit_exceeded",
-            tags={
-                "team_id": self.team.pk,
-                "scope": "burst",
-                "rate": "5/minute",
-                "path": f"/api/projects/TEAM_ID/feature_flags",
-            },
-        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # Create a new team
         new_team = create_team(organization=self.organization)
@@ -264,6 +255,7 @@ class TestUserAPI(APIBaseTest):
                 "scope": "burst",
                 "rate": "5/minute",
                 "path": f"/api/organizations/ORG_ID/plugins",
+                "hashed_personal_api_key": self.hashed_personal_api_key,
             },
         )
 
@@ -311,7 +303,7 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
         response = self.client.post(f"/api/login")
-        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS, response.content)
 
         self.assertEqual(
             len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]),
@@ -324,6 +316,7 @@ class TestUserAPI(APIBaseTest):
                 "scope": "burst",
                 "rate": "5/minute",
                 "path": "/api/login",
+                "hashed_personal_api_key": None,
             },
         )
 

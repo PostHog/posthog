@@ -25,7 +25,7 @@ def generate_template_bytecode(obj: Any) -> Any:
 
 class InputsSchemaItemSerializer(serializers.Serializer):
     type = serializers.ChoiceField(
-        choices=["string", "boolean", "dictionary", "choice", "json", "integration", "integration_field"]
+        choices=["string", "boolean", "dictionary", "choice", "json", "integration", "integration_field", "email"]
     )
     key = serializers.CharField()
     label = serializers.CharField(required=False)  # type: ignore
@@ -60,7 +60,7 @@ class InputsItemSerializer(serializers.Serializer):
         name: str = schema["key"]
         item_type = schema["type"]
 
-        if schema.get("required") and not value:
+        if schema.get("required") and (value is None or value == ""):
             raise serializers.ValidationError({"inputs": {name: f"This field is required."}})
 
         if not value:
@@ -79,10 +79,23 @@ class InputsItemSerializer(serializers.Serializer):
         elif item_type == "integration":
             if not isinstance(value, int):
                 raise serializers.ValidationError({"inputs": {name: f"Value must be an Integration ID."}})
+        elif item_type == "email":
+            if not isinstance(value, dict):
+                raise serializers.ValidationError({"inputs": {name: f"Value must be an Integration ID."}})
+            for key in ["from", "to", "subject"]:
+                if not value.get(key):
+                    raise serializers.ValidationError({"inputs": {name: f"Missing value for '{key}'."}})
+
+            if not value.get("text") and not value.get("html"):
+                raise serializers.ValidationError({"inputs": {name: f"Either 'text' or 'html' is required."}})
 
         try:
             if value:
-                if item_type in ["string", "dictionary", "json"]:
+                if item_type in ["string", "dictionary", "json", "email"]:
+                    if item_type == "email" and isinstance(value, dict):
+                        # We want to exclude the "design" property
+                        value = {key: value[key] for key in value if key != "design"}
+
                     attrs["bytecode"] = generate_template_bytecode(value)
         except Exception as e:
             raise serializers.ValidationError({"inputs": {name: f"Invalid template: {str(e)}"}})
@@ -121,7 +134,7 @@ def compile_hog(hog: str, supported_functions: Optional[set[str]] = None) -> lis
     # Attempt to compile the hog
     try:
         program = parse_program(hog)
-        return create_bytecode(program, supported_functions=supported_functions or {"fetch"})
+        return create_bytecode(program, supported_functions=supported_functions or {"fetch", "postHogCapture"})
     except Exception as e:
         logger.error(f"Failed to compile hog {e}", exc_info=True)
         raise serializers.ValidationError({"hog": "Hog code has errors."})

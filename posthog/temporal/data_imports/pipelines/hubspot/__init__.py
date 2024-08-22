@@ -84,6 +84,7 @@ def hubspot(
             crm_objects,
             name=endpoint,
             write_disposition="replace",
+            table_format="delta",
         )(
             object_type=OBJECT_TYPE_SINGULAR[endpoint],
             api_key=api_key,

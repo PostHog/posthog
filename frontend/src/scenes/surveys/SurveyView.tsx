@@ -4,6 +4,7 @@ import { TZLabel } from '@posthog/apps-common'
 import { IconGraph } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonDivider, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { PageHeader } from 'lib/components/PageHeader'
 import { dayjs } from 'lib/dayjs'
@@ -12,13 +13,12 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 import { useEffect, useState } from 'react'
-import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema'
-import { InsightType, PropertyFilterType, PropertyOperator, Survey, SurveyQuestionType, SurveyType } from '~/types'
+import { ActivityScope, PropertyFilterType, PropertyOperator, Survey, SurveyQuestionType, SurveyType } from '~/types'
 
-import { SURVEY_EVENT_NAME } from './constants'
+import { SURVEY_EVENT_NAME, SurveyQuestionLabel } from './constants'
 import { SurveyDisplaySummary } from './Survey'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { SurveyFormAppearance } from './SurveyFormAppearance'
@@ -284,11 +284,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                             {survey.questions[0].question && (
                                                 <>
                                                     <span className="card-secondary mt-4">Type</span>
-                                                    <span>
-                                                        {survey.questions.length > 1
-                                                            ? 'Multiple questions'
-                                                            : capitalizeFirstLetter(survey.questions[0].type)}
-                                                    </span>
+                                                    <span>{SurveyQuestionLabel[survey.questions[0].type]}</span>
                                                     <span className="card-secondary mt-4">
                                                         {pluralize(
                                                             survey.questions.length,
@@ -396,6 +392,11 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                 key: 'overview',
                                 label: 'Overview',
                             },
+                            {
+                                label: 'History',
+                                key: 'History',
+                                content: <ActivityLog scope={ActivityScope.SURVEY} id={survey.id} />,
+                            },
                         ]}
                     />
                 </>
@@ -422,6 +423,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         surveyOpenTextResults,
         surveyOpenTextResultsReady,
         surveyNPSScore,
+        surveyAsInsightURL,
     } = useValues(surveyLogic)
 
     return (
@@ -500,22 +502,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                     type="primary"
                     data-attr="survey-results-explore"
                     icon={<IconGraph />}
-                    to={urls.insightNew({
-                        insight: InsightType.TRENDS,
-                        events: [
-                            { id: 'survey sent', name: 'survey sent', type: 'events' },
-                            { id: 'survey shown', name: 'survey shown', type: 'events' },
-                            { id: 'survey dismissed', name: 'survey dismissed', type: 'events' },
-                        ],
-                        properties: [
-                            {
-                                key: '$survey_id',
-                                value: survey.id,
-                                operator: PropertyOperator.Exact,
-                                type: PropertyFilterType.Event,
-                            },
-                        ],
-                    })}
+                    to={surveyAsInsightURL}
                 >
                     Explore results
                 </LemonButton>

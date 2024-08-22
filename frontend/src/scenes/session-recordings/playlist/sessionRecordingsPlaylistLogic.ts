@@ -5,18 +5,17 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { isAnyPropertyfilter } from 'lib/components/PropertyFilters/utils'
-import { UniversalFiltersGroup, UniversalFilterValue } from 'lib/components/UniversalFilters/UniversalFilters'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
-import { isActionFilter, isEventFilter } from 'lib/components/UniversalFilters/utils'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { isActionFilter, isEventFilter, isRecordingPropertyFilter } from 'lib/components/UniversalFilters/utils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { objectClean, objectsEqual } from 'lib/utils'
+import { objectClean } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
 
 import {
     AnyPropertyFilter,
     DurationType,
+    EntityTypes,
     FilterableLogLevel,
     FilterLogicalOperator,
     FilterType,
@@ -78,25 +77,7 @@ export const defaultRecordingDurationFilter: RecordingDurationFilter = {
     operator: PropertyOperator.GreaterThan,
 }
 
-export const DEFAULT_SIMPLE_RECORDING_FILTERS: SimpleFiltersType = {
-    events: [],
-    properties: [],
-}
-
-export const DEFAULT_RECORDING_FILTERS: RecordingFilters = {
-    session_recording_duration: defaultRecordingDurationFilter,
-    properties: [],
-    events: [],
-    actions: [],
-    date_from: '-3d',
-    date_to: null,
-    console_logs: [],
-    snapshot_source: null,
-    console_search_query: '',
-    operand: FilterLogicalOperator.And,
-}
-
-export const DEFAULT_RECORDING_UNIVERSAL_FILTERS: RecordingUniversalFilters = {
+export const DEFAULT_RECORDING_FILTERS: RecordingUniversalFilters = {
     filter_test_accounts: false,
     date_from: '-3d',
     date_to: null,
@@ -104,12 +85,12 @@ export const DEFAULT_RECORDING_UNIVERSAL_FILTERS: RecordingUniversalFilters = {
     duration: [defaultRecordingDurationFilter],
 }
 
-const DEFAULT_PERSON_RECORDING_FILTERS: RecordingFilters = {
+const DEFAULT_PERSON_RECORDING_FILTERS: RecordingUniversalFilters = {
     ...DEFAULT_RECORDING_FILTERS,
     date_from: '-30d',
 }
 
-export const getDefaultFilters = (personUUID?: PersonUUID): RecordingFilters => {
+export const getDefaultFilters = (personUUID?: PersonUUID): RecordingUniversalFilters => {
     return personUUID ? DEFAULT_PERSON_RECORDING_FILTERS : DEFAULT_RECORDING_FILTERS
 }
 
@@ -127,8 +108,7 @@ const capturePartialFilters = (filters: Partial<RecordingFilters>): void => {
 }
 
 export function convertUniversalFiltersToLegacyFilters(universalFilters: RecordingUniversalFilters): RecordingFilters {
-    const nestedFilters = universalFilters.filter_group.values[0] as UniversalFiltersGroup
-    const filters = nestedFilters.values as UniversalFilterValue[]
+    const filters = filtersFromUniversalFilterGroups(universalFilters)
 
     const properties: AnyPropertyFilter[] = []
     const events: FilterType['events'] = []
@@ -153,6 +133,20 @@ export function convertUniversalFiltersToLegacyFilters(universalFilters: Recordi
                     if (value) {
                         snapshot_source = f
                     }
+                } else if (f.key === 'visited_page') {
+                    events.push({
+                        id: '$pageview',
+                        name: '$pageview',
+                        type: EntityTypes.EVENTS,
+                        properties: [
+                            {
+                                type: PropertyFilterType.Event,
+                                key: '$current_url',
+                                value: f.value,
+                                operator: f.operator,
+                            },
+                        ],
+                    })
                 }
             } else {
                 properties.push(f)
@@ -172,7 +166,7 @@ export function convertUniversalFiltersToLegacyFilters(universalFilters: Recordi
         console_search_query,
         console_logs,
         snapshot_source,
-        operand: nestedFilters.type,
+        operand: universalFilters.filter_group.type,
     }
 }
 
@@ -208,15 +202,15 @@ export function convertLegacyFiltersToUniversalFilters(
         : []
 
     return {
-        date_from: filters.date_from || DEFAULT_RECORDING_UNIVERSAL_FILTERS['date_from'],
-        date_to: filters.date_to || DEFAULT_RECORDING_UNIVERSAL_FILTERS['date_to'],
+        date_from: filters.date_from || DEFAULT_RECORDING_FILTERS['date_from'],
+        date_to: filters.date_to || DEFAULT_RECORDING_FILTERS['date_to'],
         filter_test_accounts:
             filters.filter_test_accounts == undefined
-                ? DEFAULT_RECORDING_UNIVERSAL_FILTERS['filter_test_accounts']
+                ? DEFAULT_RECORDING_FILTERS['filter_test_accounts']
                 : filters.filter_test_accounts,
         duration: filters.session_recording_duration
             ? [{ ...filters.session_recording_duration, key: filters.duration_type_filter || 'duration' }]
-            : DEFAULT_RECORDING_UNIVERSAL_FILTERS['duration'],
+            : DEFAULT_RECORDING_FILTERS['duration'],
         filter_group: {
             type: FilterLogicalOperator.And,
             values: [
@@ -242,11 +236,8 @@ export interface SessionRecordingPlaylistLogicProps {
     personUUID?: PersonUUID
     updateSearchParams?: boolean
     autoPlay?: boolean
-    hideSimpleFilters?: boolean
-    universalFilters?: RecordingUniversalFilters
-    advancedFilters?: RecordingFilters
-    simpleFilters?: RecordingFilters
-    onFiltersChange?: (filters: RecordingUniversalFilters, legacyFilters: RecordingFilters) => void
+    filters?: RecordingUniversalFilters
+    onFiltersChange?: (filters: RecordingUniversalFilters) => void
     pinnedRecordings?: (SessionRecordingType | string)[]
     onPinnedChange?: (recording: SessionRecordingType, pinned: boolean) => void
 }
@@ -280,9 +271,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     }),
 
     actions({
-        setUniversalFilters: (filters: Partial<RecordingUniversalFilters>) => ({ filters }),
-        setAdvancedFilters: (filters: Partial<RecordingFilters>) => ({ filters }),
-        setSimpleFilters: (filters: SimpleFiltersType) => ({ filters }),
+        setFilters: (filters: Partial<RecordingUniversalFilters>) => ({ filters }),
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
         setShowSettings: (showSettings: boolean) => ({ showSettings }),
         setOrderBy: (orderBy: SessionOrderingType) => ({ orderBy }),
@@ -300,16 +289,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         toggleShowOtherRecordings: (show?: boolean) => ({ show }),
     }),
     propsChanged(({ actions, props }, oldProps) => {
-        if (!objectsEqual(props.advancedFilters, oldProps.advancedFilters)) {
-            actions.setAdvancedFilters(props.advancedFilters || {})
-        }
-        if (!objectsEqual(props.simpleFilters, oldProps.simpleFilters)) {
-            actions.setSimpleFilters(props.simpleFilters || {})
-        }
-
         // If the defined list changes, we need to call the loader to either load the new items or change the list
         if (props.pinnedRecordings !== oldProps.pinnedRecordings) {
             actions.loadPinnedRecordings()
+        }
+        if (props.filters && props.filters !== oldProps.filters) {
+            actions.setFilters(props.filters)
         }
     }),
 
@@ -458,38 +443,16 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 },
             },
         ],
-        simpleFilters: [
-            props.simpleFilters ?? DEFAULT_SIMPLE_RECORDING_FILTERS,
+        filters: [
+            props.filters ?? getDefaultFilters(props.personUUID),
             {
-                setSimpleFilters: (state, { filters }) => ({
-                    ...state,
-                    ...filters,
-                }),
-                resetFilters: () => DEFAULT_SIMPLE_RECORDING_FILTERS,
-            },
-        ],
-        advancedFilters: [
-            props.advancedFilters ?? getDefaultFilters(props.personUUID),
-            {
-                setAdvancedFilters: (state, { filters }) => {
+                setFilters: (state, { filters }) => {
                     return {
                         ...state,
                         ...filters,
                     }
                 },
                 resetFilters: () => getDefaultFilters(props.personUUID),
-            },
-        ],
-        universalFilters: [
-            props.universalFilters ?? DEFAULT_RECORDING_UNIVERSAL_FILTERS,
-            {
-                setUniversalFilters: (state, { filters }) => {
-                    return {
-                        ...state,
-                        ...filters,
-                    }
-                },
-                resetFilters: () => DEFAULT_RECORDING_UNIVERSAL_FILTERS,
             },
         ],
         showFilters: [
@@ -571,9 +534,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             {
                 loadSessionRecordingsFailure: () => true,
                 loadSessionRecordingSuccess: () => false,
-                setUniversalFilters: () => false,
+                setFilters: () => false,
                 setAdvancedFilters: () => false,
-                setSimpleFilters: () => false,
                 loadNext: () => false,
                 loadPrev: () => false,
             },
@@ -584,21 +546,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             actions.loadSessionRecordings()
             actions.loadPinnedRecordings()
         },
-        setSimpleFilters: ({ filters }) => {
+        setFilters: ({ filters }) => {
             actions.loadSessionRecordings()
-            props.onFiltersChange?.(values.filters, values.legacyFilters)
-            capturePartialFilters(filters)
-            actions.loadEventsHaveSessionId()
-        },
-        setAdvancedFilters: ({ filters }) => {
-            actions.loadSessionRecordings()
-            props.onFiltersChange?.(values.filters, values.legacyFilters)
-            capturePartialFilters(filters)
-            actions.loadEventsHaveSessionId()
-        },
-        setUniversalFilters: ({ filters }) => {
-            actions.loadSessionRecordings()
-            props.onFiltersChange?.(values.filters, values.legacyFilters)
+            props.onFiltersChange?.(values.filters)
             capturePartialFilters(filters)
             actions.loadEventsHaveSessionId()
         },
@@ -609,7 +559,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
         resetFilters: () => {
             actions.loadSessionRecordings()
-            props.onFiltersChange?.(values.filters, values.legacyFilters)
+            props.onFiltersChange?.(values.filters)
         },
 
         maybeLoadSessionRecordings: ({ direction }) => {
@@ -635,28 +585,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         },
     })),
     selectors({
-        useUniversalFiltering: [
-            (s) => [s.featureFlags],
-            (featureFlags) => !!featureFlags[FEATURE_FLAGS.SESSION_REPLAY_UNIVERSAL_FILTERS],
-        ],
-
         logicProps: [() => [(_, props) => props], (props): SessionRecordingPlaylistLogicProps => props],
-
-        filters: [
-            (s) => [s.simpleFilters, s.advancedFilters, s.universalFilters, s.featureFlags],
-            (simpleFilters, advancedFilters, universalFilters, featureFlags): RecordingUniversalFilters => {
-                if (featureFlags[FEATURE_FLAGS.SESSION_REPLAY_UNIVERSAL_FILTERS]) {
-                    return universalFilters
-                }
-
-                return convertLegacyFiltersToUniversalFilters(simpleFilters, advancedFilters)
-            },
-        ],
-        legacyFilters: [
-            (s) => [s.simpleFilters, s.advancedFilters],
-            (simpleFilters, advancedFilters): RecordingFilters =>
-                combineRecordingFilters(simpleFilters, advancedFilters),
-        ],
 
         matchingEventsMatchType: [
             (s) => [s.filters],
@@ -669,6 +598,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
                 const eventFilters = filterValues.filter(isEventFilter)
                 const actionFilters = filterValues.filter(isActionFilter)
+                const hasVisitedPageFilter = filterValues
+                    .filter(isRecordingPropertyFilter)
+                    .some((f) => f.key === 'visited_page')
 
                 const hasEvents = !!eventFilters.length
                 const hasActions = !!actionFilters.length
@@ -678,7 +610,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     .filter(Boolean) as string[]
                 const hasSimpleEventsFilters = !!simpleEventsFilters.length
 
-                if (hasActions) {
+                if (hasActions || hasVisitedPageFilter) {
                     return { matchType: 'backend', filters }
                 }
                 if (!hasEvents) {
@@ -738,7 +670,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
                 return (
                     groupFilters.length +
-                    (equal(filters.duration[0], defaultFilters.session_recording_duration) ? 0 : 1) +
+                    (equal(filters.duration[0], defaultFilters.duration[0]) ? 0 : 1) +
                     (filters.date_from === defaultFilters.date_from && filters.date_to === defaultFilters.date_to
                         ? 0
                         : 1)
@@ -803,8 +735,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             const params: Params = objectClean({
                 ...router.values.searchParams,
                 filters: values.filters ?? undefined,
-                simpleFilters: values.simpleFilters ?? undefined,
-                advancedFilters: values.advancedFilters ?? undefined,
                 sessionRecordingId: values.selectedRecordingId ?? undefined,
             })
 
@@ -813,9 +743,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
         return {
             setSelectedRecordingId: () => buildURL(false),
-            setUniversalFilters: () => buildURL(true),
-            setAdvancedFilters: () => buildURL(true),
-            setSimpleFilters: () => buildURL(true),
+            setFilters: () => buildURL(true),
             resetFilters: () => buildURL(true),
         }
     }),
@@ -831,23 +759,17 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 actions.setSelectedRecordingId(nulledSessionRecordingId)
             }
 
+            // Support legacy URLs. Can be removed shortly after release
             if (params.simpleFilters || params.advancedFilters) {
-                if (params.simpleFilters && !equal(params.simpleFilters, values.simpleFilters)) {
-                    actions.setSimpleFilters(params.simpleFilters)
-                }
-                if (params.advancedFilters && !equal(params.advancedFilters, values.advancedFilters)) {
-                    actions.setAdvancedFilters(params.advancedFilters)
-                }
-
-                if (values.useUniversalFiltering && !equal(params.filters, values.universalFilters)) {
-                    actions.setUniversalFilters(
+                if (!equal(params.filters, values.filters)) {
+                    actions.setFilters(
                         convertLegacyFiltersToUniversalFilters(params.simpleFilters, params.advancedFilters)
                     )
                 }
             }
-            if (values.useUniversalFiltering && params.filters && !equal(params.filters, values.filters)) {
-                actions.setUniversalFilters(params.filters)
-                actions.setAdvancedFilters(convertUniversalFiltersToLegacyFilters(params.filters))
+
+            if (params.filters && !equal(params.filters, values.filters)) {
+                actions.setFilters(params.filters)
             }
         }
         return {

@@ -1820,6 +1820,7 @@
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
+         "posthog_organization"."logo_media_id",
          "posthog_organization"."created_at",
          "posthog_organization"."updated_at",
          "posthog_organization"."plugins_access_level",
@@ -1845,6 +1846,7 @@
   SELECT "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
+         "posthog_organization"."logo_media_id",
          "posthog_organization"."created_at",
          "posthog_organization"."updated_at",
          "posthog_organization"."plugins_access_level",
@@ -1909,8 +1911,9 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_featureflag"
+  INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_featureflag"."created_by_id" = "posthog_user"."id")
-  WHERE ("posthog_featureflag"."team_id" = 2
+  WHERE ("posthog_team"."project_id" = 2
          AND "posthog_featureflag"."id" = 2)
   LIMIT 21
   '''

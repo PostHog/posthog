@@ -271,6 +271,7 @@ const propertyFilterMapping: Partial<Record<PropertyFilterType, TaxonomicFilterG
     [PropertyFilterType.Element]: TaxonomicFilterGroupType.Elements,
     [PropertyFilterType.Session]: TaxonomicFilterGroupType.SessionProperties,
     [PropertyFilterType.HogQL]: TaxonomicFilterGroupType.HogQLExpression,
+    [PropertyFilterType.Recording]: TaxonomicFilterGroupType.Replay,
 }
 
 export const filterToTaxonomicFilterType = (

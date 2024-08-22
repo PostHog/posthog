@@ -1,5 +1,5 @@
 import { IconCheckCircle, IconChevronDown, IconDocument, IconInfo, IconPlus } from '@posthog/icons'
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
@@ -45,7 +45,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
     const productRef = useRef<HTMLDivElement | null>(null)
     const { billing, redirectPath, isUnlicensedDebug, billingError } = useValues(billingLogic)
     const {
-        customLimitUsd,
+        hasCustomLimitSet,
         showTierBreakdown,
         billingGaugeItems,
         isPricingModalOpen,
@@ -92,7 +92,9 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
 
     // Used when a product is offered for free to beta users, so we want to show usage but
     // there is no pricing (aka tiers) and no free_allotment
-    const isTemporaryFreeProduct = !product.tiered && !product.free_allocation && !product.inclusion_only
+    const isTemporaryFreeProduct =
+        (!product.tiered && !product.free_allocation && !product.inclusion_only) ||
+        (product.tiered && product.tiers?.length === 1 && product.tiers[0].unit_amount_usd === '0')
 
     return (
         <div
@@ -106,7 +108,12 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     <div className="flex gap-4 items-center justify-between">
                         {getProductIcon(product.name, product.icon_key, 'text-2xl')}
                         <div>
-                            <h3 className="font-bold mb-0">{product.name}</h3>
+                            <h3 className="font-bold mb-0 flex items-center gap-x-2">
+                                {product.name}{' '}
+                                {isTemporaryFreeProduct && (
+                                    <LemonTag type="highlight">included with your plan</LemonTag>
+                                )}
+                            </h3>
                             <div>{product.description}</div>
                         </div>
                         <div className="flex grow justify-end gap-x-2 items-center">
@@ -145,7 +152,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                         <LemonButton
                                                             fullWidth
                                                             onClick={() => {
-                                                                setSurveyResponse(product.type, '$survey_response_1')
+                                                                setSurveyResponse('$survey_response_1', product.type)
                                                                 reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, product.type)
                                                             }}
                                                         >
@@ -171,7 +178,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                 <div className="px-8 pb-8 sm:pb-0">
                     {product.percentage_usage > 1 && (
                         <LemonBanner className="mt-6" type="error">
-                            You have exceeded the {customLimitUsd ? 'billing limit' : 'free tier limit'} for this
+                            You have exceeded the {hasCustomLimitSet ? 'billing limit' : 'free tier limit'} for this
                             product.
                         </LemonBanner>
                     )}
@@ -197,7 +204,28 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         ) : (
                             !isUnlicensedDebug && (
                                 <>
-                                    {product.tiered ? (
+                                    {isTemporaryFreeProduct ? (
+                                        <div className="grow">
+                                            <div className="grow">
+                                                <BillingGauge items={billingGaugeItems} product={product} />
+                                                <FeatureFlagUsageNotice product={product} />
+                                            </div>
+                                            {/* TODO: rms: remove this notice after August 8 2024 */}
+                                            {product.type == ProductKey.DATA_WAREHOUSE &&
+                                                [
+                                                    'free-20240530-beta-users-initial',
+                                                    'free-20240813-beta-users-initial',
+                                                ].includes(currentPlan?.plan_key || '') &&
+                                                new Date() < new Date('2024-09-04') && (
+                                                    <LemonBanner type="info" className="mb-6">
+                                                        <p>
+                                                            Free usage for beta users until September 2, 2024. Then, get
+                                                            2 million rows free every month.
+                                                        </p>
+                                                    </LemonBanner>
+                                                )}
+                                        </div>
+                                    ) : product.tiered ? (
                                         <>
                                             <div className="flex w-full items-center gap-x-8">
                                                 {product.subscribed && (
@@ -290,24 +318,6 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                 </div>
                                             </Tooltip>
                                         </div>
-                                    ) : isTemporaryFreeProduct ? (
-                                        <div className="grow">
-                                            <div className="grow">
-                                                <BillingGauge items={billingGaugeItems} product={product} />
-                                                <FeatureFlagUsageNotice product={product} />
-                                            </div>
-                                            {/* TODO: rms: remove this notice after August 8 2024 */}
-                                            {product.type == ProductKey.DATA_WAREHOUSE &&
-                                                currentPlan?.plan_key === 'free-20240530-beta-users-initial' &&
-                                                new Date() < new Date('2024-08-08') && (
-                                                    <LemonBanner type="info" className="mb-6">
-                                                        <p>
-                                                            Free usage for beta users until August 8, 2024. Then, get 30
-                                                            million rows free every month.
-                                                        </p>
-                                                    </LemonBanner>
-                                                )}
-                                        </div>
                                     ) : null}
                                 </>
                             )
@@ -361,7 +371,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         </div>
                     )}
                 </div>
-                <BillingLimit product={product} />
+                {!isTemporaryFreeProduct && <BillingLimit product={product} />}
                 {showUpgradeCard && (
                     <div
                         data-attr={`upgrade-card-${product.type}`}

@@ -1,7 +1,7 @@
 import './FeatureFlag.scss'
 
 import { IconCollapse, IconExpand, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonDialog, LemonSegmentedButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonDialog, LemonSegmentedButton, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { router } from 'kea-router'
@@ -55,6 +55,7 @@ import {
     NotebookNodeType,
     PropertyFilterType,
     PropertyOperator,
+    QueryBasedInsightModel,
     ReplayTabs,
     Resource,
 } from '~/types'
@@ -379,10 +380,9 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 checked={value}
                                             />
                                             <div className="text-muted text-sm pl-7">
-                                                If your feature flag is applied prior to an identify or authentication
-                                                event, use this to ensure that feature flags are not reset after a
-                                                person is identified. This ensures the experience for the anonymous
-                                                person is carried forward to the authenticated person.{' '}
+                                                If your feature flag is applied before identifying the user, use this to
+                                                ensure that the flag value remains consistent for the same user.
+                                                Depending on your setup, this option might not always be suitable.{' '}
                                                 <Link
                                                     to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
                                                     target="_blank"
@@ -617,7 +617,7 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
     } = featureFlag
     const { generateUsageDashboard, enrichUsageDashboard } = useActions(featureFlagLogic)
     const { featureFlagLoading } = useValues(featureFlagLogic)
-    let dashboard: DashboardType | null = null
+    let dashboard: DashboardType<QueryBasedInsightModel> | null = null
     if (dashboardId) {
         // FIXME: Refactor out into <ConnectedDashboard />, as React hooks under conditional branches are no good
         const dashboardLogicValues = useValues(
@@ -722,15 +722,21 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
         aggregationTargetName,
         featureFlag,
     } = useValues(featureFlagLogic)
-    const { distributeVariantsEqually, addVariant, removeVariant, setMultivariateEnabled } =
-        useActions(featureFlagLogic)
+    const {
+        distributeVariantsEqually,
+        addVariant,
+        removeVariant,
+        setMultivariateEnabled,
+        setFeatureFlag,
+        saveFeatureFlag,
+    } = useActions(featureFlagLogic)
 
     const filterGroups: FeatureFlagGroupType[] = featureFlag.filters.groups || []
 
     const confirmRevertMultivariateEnabled = (): void => {
         LemonDialog.open({
             title: 'Change value type?',
-            description: 'The existing vaiants will be lost',
+            description: 'The existing variants will be lost',
             primaryButton: {
                 children: 'Confirm',
                 type: 'primary',
@@ -750,7 +756,35 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
             {readOnly ? (
                 <>
                     <div className="flex flex-col mb-4">
-                        <span className="card-secondary">Type</span>
+                        <span className="card-secondary">Status</span>
+                        <LemonSwitch
+                            onChange={(newValue) => {
+                                LemonDialog.open({
+                                    title: `${newValue === true ? 'Enable' : 'Disable'} this flag?`,
+                                    description: `This flag will be immediately ${
+                                        newValue === true ? 'rolled out to' : 'rolled back from'
+                                    } the users matching the release conditions.`,
+                                    primaryButton: {
+                                        children: 'Confirm',
+                                        type: 'primary',
+                                        onClick: () => {
+                                            const updatedFlag = { ...featureFlag, active: newValue }
+                                            setFeatureFlag(updatedFlag)
+                                            saveFeatureFlag(updatedFlag)
+                                        },
+                                        size: 'small',
+                                    },
+                                    secondaryButton: {
+                                        children: 'Cancel',
+                                        type: 'tertiary',
+                                        size: 'small',
+                                    },
+                                })
+                            }}
+                            label="Enabled"
+                            checked={featureFlag.active}
+                        />
+                        <span className="card-secondary mt-4">Type</span>
                         <span>
                             {featureFlag.filters.multivariate
                                 ? 'Multiple variants with rollout percentages (A/B/C test)'

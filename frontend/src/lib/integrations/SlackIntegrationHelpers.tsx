@@ -1,7 +1,6 @@
 import { LemonBanner, LemonButton, LemonInputSelect, LemonInputSelectOption, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
-import { IconSlack, IconSlackExternal } from 'lib/lemon-ui/icons'
+import { IconSlackExternal } from 'lib/lemon-ui/icons'
 import { useMemo } from 'react'
 
 import { IntegrationType, SlackChannelType } from '~/types'
@@ -95,36 +94,5 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                 </LemonBanner>
             ) : null}
         </>
-    )
-}
-
-export function SlackIntegrationView({
-    integration,
-    suffix,
-}: {
-    integration: IntegrationType
-    suffix?: JSX.Element
-}): JSX.Element {
-    return (
-        <div className="rounded border flex justify-between items-center p-2 bg-bg-light">
-            <div className="flex items-center gap-4 ml-2">
-                <IconSlack className="text-2xl" />
-                <div>
-                    <div>
-                        Connected to <strong>{integration.config.team.name}</strong> workspace
-                    </div>
-                    {integration.created_by ? (
-                        <UserActivityIndicator
-                            at={integration.created_at}
-                            by={integration.created_by}
-                            prefix="Updated"
-                            className="text-muted"
-                        />
-                    ) : null}
-                </div>
-            </div>
-
-            {suffix}
-        </div>
     )
 }

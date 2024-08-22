@@ -247,7 +247,10 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                             value: 5,
                                         },
                                         ...(question.display === 'number'
-                                            ? [{ label: '0 - 10 (Net Promoter Score)', value: 10 }]
+                                            ? [
+                                                  { label: '1 - 7 (7 Point Likert Scale)', value: 7 },
+                                                  { label: '0 - 10 (Net Promoter Score)', value: 10 },
+                                              ]
                                             : []),
                                     ]}
                                     onChange={(val) => {

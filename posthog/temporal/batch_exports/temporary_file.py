@@ -243,7 +243,15 @@ RecordsSinceLastFlush = int
 BytesSinceLastFlush = int
 FlushCounter = int
 FlushCallable = collections.abc.Callable[
-    [BatchExportTemporaryFile, RecordsSinceLastFlush, BytesSinceLastFlush, FlushCounter, LastInsertedAt, IsLast],
+    [
+        BatchExportTemporaryFile,
+        RecordsSinceLastFlush,
+        BytesSinceLastFlush,
+        FlushCounter,
+        LastInsertedAt,
+        IsLast,
+        Exception | None,
+    ],
     collections.abc.Awaitable[None],
 ]
 
@@ -306,6 +314,7 @@ class BatchExportWriter(abc.ABC):
         self.bytes_total = 0
         self.bytes_since_last_flush = 0
         self.flush_counter = 0
+        self.error = None
 
     @contextlib.asynccontextmanager
     async def open_temporary_file(self, current_flush_counter: int = 0):
@@ -325,6 +334,9 @@ class BatchExportWriter(abc.ABC):
 
             try:
                 yield
+            except Exception as e:
+                self.error = e
+                raise
             finally:
                 self.track_bytes_written(temp_file)
 
@@ -401,6 +413,7 @@ class BatchExportWriter(abc.ABC):
             self.flush_counter,
             last_inserted_at,
             is_last,
+            self.error,
         )
         self.batch_export_file.reset()
 

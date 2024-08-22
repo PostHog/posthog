@@ -1,3 +1,5 @@
+from typing import Optional
+
 from freezegun import freeze_time
 from parameterized import parameterized
 
@@ -105,6 +107,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         include_scroll_depth=False,
         properties=None,
         session_table_version: SessionTableVersion = SessionTableVersion.V1,
+        filter_test_accounts: Optional[bool] = False,
     ):
         modifiers = HogQLQueryModifiers(sessionTableVersion=session_table_version)
         query = WebStatsTableQuery(
@@ -115,6 +118,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             doPathCleaning=bool(path_cleaning_filters),
             includeBounceRate=include_bounce_rate,
             includeScrollDepth=include_scroll_depth,
+            filterTestAccounts=filter_test_accounts,
         )
         self.team.path_cleaning_filters = path_cleaning_filters or []
         runner = WebStatsTableQueryRunner(team=self.team, query=query, modifiers=modifiers)
@@ -183,11 +187,26 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self._create_events([("test", [("2023-12-02", s1, "/"), ("2023-12-03", s1, "/login")])])
 
         results = self._run_web_stats_table_query(
-            "2023-12-01", "2023-12-03", session_table_version=session_table_version
+            "2023-12-01", "2023-12-03", session_table_version=session_table_version, filter_test_accounts=True
         ).results
 
         self.assertEqual(
             [],
+            results,
+        )
+
+    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
+    def test_dont_filter_test_accounts(self, session_table_version: SessionTableVersion):
+        s1 = str(uuid7("2023-12-02"))
+        # Create 1 test account
+        self._create_events([("test", [("2023-12-02", s1, "/"), ("2023-12-03", s1, "/login")])])
+
+        results = self._run_web_stats_table_query(
+            "2023-12-01", "2023-12-03", session_table_version=session_table_version, filter_test_accounts=False
+        ).results
+
+        self.assertEqual(
+            [["/", 1, 1], ["/login", 1, 1]],
             results,
         )
 
@@ -874,3 +893,100 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [[None, 1.0, 1.0]],
             results,
         )
+
+    def test_same_user_multiple_sessions(self):
+        d1 = "d1"
+        s1 = str(uuid7("2024-07-30"))
+        s2 = str(uuid7("2024-07-30"))
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[d1],
+            properties={
+                "name": d1,
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d1,
+            timestamp="2024-07-30",
+            properties={"$session_id": s1, "utm_source": "google", "$pathname": "/path"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d1,
+            timestamp="2024-07-30",
+            properties={"$session_id": s2, "utm_source": "google", "$pathname": "/path"},
+        )
+
+        # Try this with a query that uses session properties
+        results_session = self._run_web_stats_table_query(
+            "all",
+            "2024-07-31",
+            breakdown_by=WebStatsBreakdown.INITIAL_UTM_SOURCE,
+        ).results
+        assert [["google", 1, 2]] == results_session
+
+        # Try this with a query that uses event properties
+        results_event = self._run_web_stats_table_query(
+            "all",
+            "2024-07-31",
+            breakdown_by=WebStatsBreakdown.PAGE,
+        ).results
+        assert [["/path", 1, 2]] == results_event
+
+        # Try this with a query using the bounce rate
+        results_event = self._run_web_stats_table_query(
+            "all", "2024-07-31", breakdown_by=WebStatsBreakdown.PAGE, include_bounce_rate=True
+        ).results
+        assert [["/path", 1, 2, None]] == results_event
+
+        # Try this with a query using the scroll depth
+        results_event = self._run_web_stats_table_query(
+            "all",
+            "2024-07-31",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            include_bounce_rate=True,
+            include_scroll_depth=True,
+        ).results
+        assert [["/path", 1, 2, None, None, None]] == results_event
+
+    def test_no_session_id(self):
+        d1 = "d1"
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[d1],
+            properties={
+                "name": d1,
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d1,
+            timestamp="2024-07-30",
+            properties={"utm_source": "google", "$pathname": "/path"},
+        )
+
+        # Don't show session property breakdowns type of sessions with no session id
+        results = self._run_web_stats_table_query(
+            "all",
+            "2024-07-31",
+            breakdown_by=WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
+        ).results
+        assert [] == results
+        results = self._run_web_stats_table_query(
+            "all",
+            "2024-07-31",
+            breakdown_by=WebStatsBreakdown.INITIAL_PAGE,
+        ).results
+        assert [] == results
+
+        # Do show event property breakdowns of events of events with no session id
+        results = self._run_web_stats_table_query(
+            "all",
+            "2024-07-31",
+            breakdown_by=WebStatsBreakdown.PAGE,
+        ).results
+        assert [["/path", 1, 1]] == results

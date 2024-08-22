@@ -136,7 +136,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     33: ErrorCodeMeta("CANNOT_READ_ALL_DATA"),
     34: ErrorCodeMeta("TOO_MANY_ARGUMENTS_FOR_FUNCTION"),
     35: ErrorCodeMeta("TOO_FEW_ARGUMENTS_FOR_FUNCTION"),
-    36: ErrorCodeMeta("BAD_ARGUMENTS"),
+    36: ErrorCodeMeta("BAD_ARGUMENTS", user_safe=True),
     37: ErrorCodeMeta("UNKNOWN_ELEMENT_IN_AST"),
     38: ErrorCodeMeta("CANNOT_PARSE_DATE", user_safe=True),
     39: ErrorCodeMeta("TOO_LARGE_SIZE_COMPRESSED"),

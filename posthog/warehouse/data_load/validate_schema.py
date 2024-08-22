@@ -66,37 +66,13 @@ def dlt_to_hogql_type(dlt_type: TDataType | None) -> str:
     return hogql_type.__name__
 
 
-async def validate_schema(
-    credential: DataWarehouseCredential, table_name: str, new_url_pattern: str, team_id: int, row_count: int
-) -> dict:
-    params = {
-        "credential": credential,
-        "name": table_name,
-        "format": "Parquet",
-        "url_pattern": new_url_pattern,
-        "team_id": team_id,
-        "row_count": row_count,
-    }
-
-    table = DataWarehouseTable(**params)
-    table.columns = await sync_to_async(table.get_columns)(safe_expose_ch_error=False)
-
-    return {
-        "credential": credential,
-        "name": table_name,
-        "format": "Parquet",
-        "url_pattern": new_url_pattern,
-        "team_id": team_id,
-        "row_count": row_count,
-    }
-
-
 async def validate_schema_and_update_table(
     run_id: str,
     team_id: int,
     schema_id: uuid.UUID,
     table_schema: TSchemaTables,
     row_count: int,
+    table_format: DataWarehouseTable.TableFormat,
 ) -> None:
     """
 
@@ -112,6 +88,10 @@ async def validate_schema_and_update_table(
     """
 
     logger = await bind_temporal_worker_logger(team_id=team_id)
+
+    if row_count == 0:
+        logger.warn("Skipping `validate_schema_and_update_table` due to `row_count` being 0")
+        return
 
     job: ExternalDataJob = await get_external_data_job(job_id=run_id)
 
@@ -135,18 +115,20 @@ async def validate_schema_and_update_table(
     try:
         logger.info(f"Row count for {_schema_name} ({_schema_id}) are {row_count}")
 
-        data = await validate_schema(
-            credential=credential,
-            table_name=table_name,
-            new_url_pattern=new_url_pattern,
-            team_id=team_id,
-            row_count=row_count,
-        )
+        table_params = {
+            "credential": credential,
+            "name": table_name,
+            "format": table_format,
+            "url_pattern": new_url_pattern,
+            "team_id": team_id,
+            "row_count": row_count,
+        }
 
         # create or update
         table_created: DataWarehouseTable | None = await get_table_by_schema_id(_schema_id, team_id)
         if table_created:
-            table_created.credential = data.get("credential")
+            table_created.credential = table_params.get("credential")
+            table_created.format = table_params.get("format")
             table_created.url_pattern = new_url_pattern
             if incremental:
                 table_created.row_count = await sync_to_async(table_created.get_count)()
@@ -155,9 +137,24 @@ async def validate_schema_and_update_table(
             await asave_datawarehousetable(table_created)
 
         if not table_created:
-            table_created = await acreate_datawarehousetable(external_data_source_id=job.pipeline.id, **data)
+            table_created = await acreate_datawarehousetable(external_data_source_id=job.pipeline.id, **table_params)
 
         assert isinstance(table_created, DataWarehouseTable) and table_created is not None
+
+        # Temp fix #2 for Delta tables without table_format
+        try:
+            await sync_to_async(table_created.get_columns)()
+        except Exception as e:
+            if table_format == DataWarehouseTable.TableFormat.DeltaS3Wrapper:
+                logger.exception("get_columns exception with DeltaS3Wrapper format - trying Delta format", exc_info=e)
+
+                table_created.format = DataWarehouseTable.TableFormat.Delta
+                await sync_to_async(table_created.get_columns)()
+                await asave_datawarehousetable(table_created)
+
+                logger.info("Delta format worked - updating table to use Delta")
+            else:
+                raise
 
         for schema in table_schema.values():
             if schema.get("resource") == _schema_name:

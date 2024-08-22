@@ -8,6 +8,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from statshog.defaults.django import statsd
+import posthoganalytics
 
 from ee.clickhouse.queries.experiments.funnel_experiment_result import (
     ClickhouseFunnelExperimentResult,
@@ -125,6 +126,20 @@ def _experiment_results_cached(
 
     timestamp = now()
     fresh_result_package = {"result": result, "last_refresh": now(), "is_cached": False}
+
+    # Event to detect experiment significance flip-flopping
+    posthoganalytics.capture(
+        experiment.created_by.email,
+        "experiment result calculated",
+        properties={
+            "experiment_id": experiment.id,
+            "name": experiment.name,
+            "goal_type": experiment.filters.get("insight", "FUNNELS"),
+            "significant": result.get("significant"),
+            "significance_code": result.get("significance_code"),
+            "probability": result.get("probability"),
+        },
+    )
 
     update_cached_state(
         experiment.team.pk,
@@ -258,20 +273,55 @@ class ExperimentSerializer(serializers.ModelSerializer):
         if extra_keys:
             raise ValidationError(f"Can't update keys: {', '.join(sorted(extra_keys))} on Experiment")
 
-        if "feature_flag_variants" in validated_data.get("parameters", {}):
-            if len(validated_data["parameters"]["feature_flag_variants"]) != len(feature_flag.variants):
-                raise ValidationError("Can't update feature_flag_variants on Experiment")
-
-            for variant in validated_data["parameters"]["feature_flag_variants"]:
-                if (
-                    len([ff_variant for ff_variant in feature_flag.variants if ff_variant["key"] == variant["key"]])
-                    != 1
-                ):
+        # if an experiment has launched, we cannot edit its variants anymore.
+        if not instance.is_draft:
+            if "feature_flag_variants" in validated_data.get("parameters", {}):
+                if len(validated_data["parameters"]["feature_flag_variants"]) != len(feature_flag.variants):
                     raise ValidationError("Can't update feature_flag_variants on Experiment")
+
+                for variant in validated_data["parameters"]["feature_flag_variants"]:
+                    if (
+                        len([ff_variant for ff_variant in feature_flag.variants if ff_variant["key"] == variant["key"]])
+                        != 1
+                    ):
+                        raise ValidationError("Can't update feature_flag_variants on Experiment")
 
         properties = validated_data.get("filters", {}).get("properties")
         if properties:
             raise ValidationError("Experiments do not support global filter properties")
+
+        if instance.is_draft:
+            # if feature flag variants have changed, update the feature flag.
+            if validated_data.get("parameters"):
+                variants = validated_data["parameters"].get("feature_flag_variants", [])
+                aggregation_group_type_index = validated_data["parameters"].get("aggregation_group_type_index")
+
+                global_filters = validated_data.get("filters")
+                properties = []
+                if global_filters:
+                    properties = global_filters.get("properties", [])
+                    if properties:
+                        raise ValidationError("Experiments do not support global filter properties")
+
+                default_variants = [
+                    {"key": "control", "name": "Control Group", "rollout_percentage": 50},
+                    {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
+                ]
+
+                filters = {
+                    "groups": [{"properties": properties, "rollout_percentage": 100}],
+                    "multivariate": {"variants": variants or default_variants},
+                    "aggregation_group_type_index": aggregation_group_type_index,
+                }
+
+                existing_flag_serializer = FeatureFlagSerializer(
+                    feature_flag,
+                    data={"filters": filters},
+                    partial=True,
+                    context=self.context,
+                )
+                existing_flag_serializer.is_valid(raise_exception=True)
+                existing_flag_serializer.save()
 
         if instance.is_draft and has_start_date:
             feature_flag.active = True

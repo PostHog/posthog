@@ -1,9 +1,12 @@
 import asyncio
+import contextlib
 import datetime as dt
 import functools
+import io
 import json
 import os
 import uuid
+from unittest import mock
 
 import aioboto3
 import botocore.exceptions
@@ -26,9 +29,11 @@ from posthog.temporal.batch_exports.batch_exports import (
 from posthog.temporal.batch_exports.s3_batch_export import (
     FILE_FORMAT_EXTENSIONS,
     HeartbeatDetails,
+    IntermittentUploadPartTimeoutError,
     S3BatchExportInputs,
     S3BatchExportWorkflow,
     S3InsertInputs,
+    S3MultiPartUpload,
     get_s3_key,
     insert_into_s3_activity,
     s3_default_fields,
@@ -359,6 +364,89 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
 
     with override_settings(
         BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2
+    ):  # 5MB, the minimum for Multipart uploads
+        records_exported = await activity_environment.run(insert_into_s3_activity, insert_inputs)
+
+    events_to_export_created, persons_to_export_created = generate_test_data
+    assert records_exported == len(events_to_export_created) or records_exported == len(persons_to_export_created)
+
+    await assert_clickhouse_records_in_s3(
+        s3_compatible_client=minio_client,
+        clickhouse_client=clickhouse_client,
+        bucket_name=bucket_name,
+        key_prefix=prefix,
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        batch_export_model=model,
+        exclude_events=exclude_events,
+        include_events=None,
+        compression=compression,
+        file_format=file_format,
+        is_backfill=False,
+    )
+
+
+@pytest.mark.parametrize("model", [model for model in TEST_S3_MODELS if model is not None])
+async def test_insert_into_s3_activity_puts_data_into_s3_using_async(
+    clickhouse_client,
+    bucket_name,
+    minio_client,
+    activity_environment,
+    compression,
+    exclude_events,
+    file_format,
+    data_interval_start,
+    data_interval_end,
+    model: BatchExportModel | BatchExportSchema,
+    generate_test_data,
+    ateam,
+):
+    """Test that the insert_into_s3_activity function ends up with data into S3.
+
+    We use the generate_test_events_in_clickhouse function to generate several sets
+    of events. Some of these sets are expected to be exported, and others not. Expected
+    events are those that:
+    * Are created for the team_id of the batch export.
+    * Are created in the date range of the batch export.
+    * Are not duplicates of other events that are in the same batch.
+    * Do not have an event name contained in the batch export's exclude_events.
+
+    Once we have these events, we pass them to the assert_clickhouse_records_in_s3 function to check
+    that they appear in the expected S3 bucket and key.
+    """
+    if isinstance(model, BatchExportModel) and model.name == "persons" and exclude_events is not None:
+        pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
+
+    prefix = str(uuid.uuid4())
+
+    batch_export_schema: BatchExportSchema | None = None
+    batch_export_model: BatchExportModel | None = None
+    if isinstance(model, BatchExportModel):
+        batch_export_model = model
+    elif model is not None:
+        batch_export_schema = model
+
+    insert_inputs = S3InsertInputs(
+        bucket_name=bucket_name,
+        region="us-east-1",
+        prefix=prefix,
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        aws_access_key_id="object_storage_root_user",
+        aws_secret_access_key="object_storage_root_password",
+        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+        compression=compression,
+        exclude_events=exclude_events,
+        file_format=file_format,
+        batch_export_schema=batch_export_schema,
+        batch_export_model=batch_export_model,
+    )
+
+    with override_settings(
+        BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2,
+        ASYNC_ARROW_STREAMING_TEAM_IDS=[str(ateam.pk)],
     ):  # 5MB, the minimum for Multipart uploads
         records_exported = await activity_environment.run(insert_into_s3_activity, insert_inputs)
 
@@ -1250,4 +1338,179 @@ async def test_insert_into_s3_activity_heartbeats(
         team_id=ateam.pk,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
+    )
+
+
+async def test_s3_multi_part_upload_raises_retryable_exception(bucket_name, s3_key_prefix):
+    """Test a retryable exception is raised instead of a `RequestTimeout`.
+
+    Even though they should be retryable, `RequestTimeout`s are wrapped by `ClientError`, which
+    are all non-retryable. So, we assert our own exception is raised instead.
+    """
+    s3_upload = S3MultiPartUpload(
+        bucket_name=bucket_name,
+        key=s3_key_prefix,
+        encryption=None,
+        kms_key_id=None,
+        region_name="us-east-1",
+        aws_access_key_id="object_storage_root_user",
+        aws_secret_access_key="object_storage_root_password",
+        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+    )
+
+    async def faulty_upload_part(*args, **kwargs):
+        raise botocore.exceptions.ClientError(
+            error_response={
+                "Error": {"Code": "RequestTimeout", "Message": "Oh no!"},
+                "ResponseMetadata": {"MaxAttemptsReached": True, "RetryAttempts": 2},  # type: ignore
+            },
+            operation_name="UploadPart",
+        )
+
+    class FakeSession(aioboto3.Session):
+        @contextlib.asynccontextmanager
+        async def client(self, *args, **kwargs):
+            client = self._session.create_client(*args, **kwargs)
+            client.upload_part = faulty_upload_part
+
+            yield client
+
+    s3_upload._session = FakeSession()
+
+    with pytest.raises(IntermittentUploadPartTimeoutError):
+        await s3_upload.upload_part(io.BytesIO(b"1010"), rewind=False)  # type: ignore
+
+
+@pytest.mark.parametrize("model", [TEST_S3_MODELS[1], TEST_S3_MODELS[2], None])
+async def test_s3_export_workflow_with_request_timeouts(
+    clickhouse_client,
+    ateam,
+    minio_client,
+    bucket_name,
+    interval,
+    s3_batch_export,
+    s3_key_prefix,
+    data_interval_end,
+    data_interval_start,
+    model: BatchExportModel | BatchExportSchema | None,
+    generate_test_data,
+):
+    """Test the S3BatchExport Workflow end-to-end when a `RequestTimeout` occurs.
+
+    We run the S3 batch export workflow with a mocked session that will raise a `ClientError` due
+    to a `RequestTimeout` on the first run of the batch export. The second run should work normally.
+    """
+    batch_export_schema: BatchExportSchema | None = None
+    batch_export_model: BatchExportModel | None = None
+    if isinstance(model, BatchExportModel):
+        batch_export_model = model
+    elif model is not None:
+        batch_export_schema = model
+
+    raised = False
+
+    class FakeSession(aioboto3.Session):
+        @contextlib.asynccontextmanager
+        async def client(self, *args, **kwargs):
+            client = self._session.create_client(*args, **kwargs)
+
+            async with client as client:
+                original_upload_part = client.upload_part
+
+                async def faulty_upload_part(*args, **kwargs):
+                    nonlocal raised
+
+                    if not raised:
+                        raised = True
+                        raise botocore.exceptions.ClientError(
+                            error_response={
+                                "Error": {"Code": "RequestTimeout", "Message": "Oh no!"},
+                                "ResponseMetadata": {"MaxAttemptsReached": True, "RetryAttempts": 2},  # type: ignore
+                            },
+                            operation_name="UploadPart",
+                        )
+                    else:
+                        return await original_upload_part(*args, **kwargs)
+
+                client.upload_part = faulty_upload_part
+
+                yield client
+
+    workflow_id = str(uuid.uuid4())
+    inputs = S3BatchExportInputs(
+        team_id=ateam.pk,
+        batch_export_id=str(s3_batch_export.id),
+        data_interval_end=data_interval_end.isoformat(),
+        batch_export_model=batch_export_model,
+        batch_export_schema=batch_export_schema,
+        interval=interval,
+        **s3_batch_export.destination.config,
+    )
+
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[S3BatchExportWorkflow],
+            activities=[
+                start_batch_export_run,
+                insert_into_s3_activity,
+                finish_batch_export_run,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with mock.patch("posthog.temporal.batch_exports.s3_batch_export.aioboto3.Session", FakeSession):
+                await activity_environment.client.execute_workflow(
+                    S3BatchExportWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=2),
+                    execution_timeout=dt.timedelta(seconds=10),
+                )
+
+    runs = await afetch_batch_export_runs(batch_export_id=s3_batch_export.id)
+    assert len(runs) == 2
+    # Sort by `last_updated_at` as earlier run should be the failed run.
+    runs.sort(key=lambda r: r.last_updated_at)
+
+    run = runs[0]
+    (events_to_export_created, persons_to_export_created) = generate_test_data
+    assert run.status == "FailedRetryable"
+    assert run.records_completed is None
+
+    run = runs[1]
+    (events_to_export_created, persons_to_export_created) = generate_test_data
+    assert run.status == "Completed"
+    assert run.records_completed == len(events_to_export_created) or run.records_completed == len(
+        persons_to_export_created
+    )
+
+    assert runs[0].data_interval_end == runs[1].data_interval_end
+
+    expected_key_prefix = s3_key_prefix.format(
+        table=batch_export_model.name if batch_export_model is not None else "events",
+        year=data_interval_end.year,
+        # All of these must include leading 0s.
+        month=data_interval_end.strftime("%m"),
+        day=data_interval_end.strftime("%d"),
+        hour=data_interval_end.strftime("%H"),
+        minute=data_interval_end.strftime("%M"),
+        second=data_interval_end.strftime("%S"),
+    )
+
+    objects = await minio_client.list_objects_v2(Bucket=bucket_name, Prefix=expected_key_prefix)
+    key = objects["Contents"][0].get("Key")
+    assert len(objects.get("Contents", [])) == 1
+    assert key.startswith(expected_key_prefix)
+
+    await assert_clickhouse_records_in_s3(
+        s3_compatible_client=minio_client,
+        clickhouse_client=clickhouse_client,
+        bucket_name=bucket_name,
+        key_prefix=expected_key_prefix,
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        batch_export_model=model,
     )

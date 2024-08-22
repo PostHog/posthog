@@ -534,7 +534,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     team=self.team,
                     data={
                         "date_from": "-14d",
-                        "breakdowns": [{"value": "$some_property"}],
+                        "breakdowns": [{"property": "$some_property"}],
                         "events": [
                             {
                                 "id": "sign up",
@@ -582,7 +582,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     team=self.team,
                     data={
                         "date_from": "-14d",
-                        "breakdowns": [{"value": "$some_property"}],
+                        "breakdowns": [{"property": "$some_property"}],
                         "events": [
                             {
                                 "id": "sign up",
@@ -630,7 +630,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     team=self.team,
                     data={
                         "date_from": "-14d",
-                        "breakdowns": [{"value": "$some_property"}],
+                        "breakdowns": [{"property": "$some_property"}],
                         "events": [
                             {
                                 "id": "sign up",
@@ -1406,8 +1406,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     data={
                         "display": TRENDS_TABLE,
                         "breakdowns": [
-                            {"value": "$browser"},
-                            {"value": "$variant"},
+                            {"property": "$browser"},
+                            {"property": "$variant"},
                         ],
                         "events": [{"id": "sign up"}],
                     },
@@ -1544,7 +1544,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     team=self.team,
                     data={
                         "display": TRENDS_TABLE,
-                        "breakdowns": [{"value": "$browser"}],
+                        "breakdowns": [{"property": "$browser"}],
                         "events": [{"id": "sign up"}],
                     },
                 ),
@@ -1611,7 +1611,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         filters: list[dict[str, Any]] = [
             {"breakdown": "$some_property"},
-            {"breakdowns": [{"value": "$some_property"}]},
+            {"breakdowns": [{"property": "$some_property"}]},
         ]
         for breakdown_filter in filters:
             with freeze_time("2020-01-04T13:00:01Z"):
@@ -1821,7 +1821,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     data={
                         "display": TRENDS_TABLE,
                         "interval": "week",
-                        "breakdowns": [{"value": "$some_property"}],
+                        "breakdowns": [{"property": "$some_property"}],
                         "events": [
                             {
                                 "id": "sign up",
@@ -1850,7 +1850,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     data={
                         "display": TRENDS_TABLE,
                         "interval": "day",
-                        "breakdowns": [{"value": "$some_property"}],
+                        "breakdowns": [{"property": "$some_property"}],
                         "events": [
                             {
                                 "id": "sign up",
@@ -2002,7 +2002,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     data={
                         "display": TRENDS_TABLE,
                         "interval": "week",
-                        "breakdowns": [{"type": "person", "value": "$some_prop"}],
+                        "breakdowns": [{"type": "person", "property": "$some_prop"}],
                         "events": [
                             {
                                 "id": "sign up",
@@ -2110,7 +2110,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     data={
                         "display": TRENDS_TABLE,
                         "interval": "day",
-                        "breakdowns": [{"value": "$some_property"}],
+                        "breakdowns": [{"property": "$some_property"}],
                         "events": [
                             {
                                 "id": "sign up",
@@ -3392,7 +3392,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             breakdown_filter: dict[str, Any] = (
                 {"breakdown": "$some_property"}
                 if breakdown_type == "single"
-                else {"breakdowns": [{"value": "$some_property"}]}
+                else {"breakdowns": [{"property": "$some_property"}]}
             )
 
             with freeze_time("2020-01-04T13:00:01Z"):
@@ -4554,7 +4554,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     "breakdowns": [
                         {
                             "type": "person",
-                            "value": "name",
+                            "property": "name",
                         }
                     ]
                 }
@@ -4673,7 +4673,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "date_from": "-14d",
                         "breakdowns": [
                             {
-                                "value": "name",
+                                "property": "name",
                                 "type": "person",
                             }
                         ],
@@ -4779,7 +4779,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "date_from": "-14d",
                         "breakdowns": [
                             {
-                                "value": "name",
+                                "property": "name",
                                 "type": "person",
                             }
                         ],
@@ -4934,7 +4934,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     team=self.team,
                     data={
                         "date_from": "-14d",
-                        "breakdowns": [{"type": "person", "value": "name"}],
+                        "breakdowns": [{"type": "person", "property": "name"}],
                         "display": "ActionsPie",
                         "events": [
                             {
@@ -5006,7 +5006,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "breakdowns": [
                             {
                                 "type": "person",
-                                "value": "name",
+                                "property": "name",
                             }
                         ],
                     }
@@ -5121,7 +5121,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "breakdowns": [
                             {
                                 "type": "person",
-                                "value": "name",
+                                "property": "name",
                             },
                         ],
                     },
@@ -5233,7 +5233,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         data={
                             "interval": "day",
                             "events": [{"id": "sign up", "math": "dau"}],
-                            "breakdowns": [{"type": "person", "value": "$some_prop"}],
+                            "breakdowns": [{"type": "person", "property": "$some_prop"}],
                         },
                     ),
                     self.team,
@@ -5318,7 +5318,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     team=self.team,
                     data={
                         "date_from": "-14d",
-                        "breakdowns": [{"value": "$some_property"}],
+                        "breakdowns": [{"property": "$some_property"}],
                         "events": [
                             {
                                 "id": "sign up",
@@ -5396,7 +5396,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     team=self.team,
                     data={
                         **action_filter,
-                        "breakdowns": [{"value": "order"}],
+                        "breakdowns": [{"property": "order"}],
                     },
                 ),
                 self.team,
@@ -5406,7 +5406,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     team=self.team,
                     data={
                         **event_filter,
-                        "breakdowns": [{"value": "order"}],
+                        "breakdowns": [{"property": "order"}],
                     },
                 ),
                 self.team,
@@ -5462,7 +5462,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     team=self.team,
                     data={
                         **filter,
-                        "breakdowns": [{"value": "$some_property"}],
+                        "breakdowns": [{"property": "$some_property"}],
                     },
                 ),
                 self.team,
@@ -5561,7 +5561,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     team=self.team,
                     data={
                         **filter,
-                        "breakdowns": [{"value": "$browser"}, {"value": "$variant"}],
+                        "breakdowns": [{"property": "$browser"}, {"property": "$variant"}],
                     },
                 ),
                 self.team,
@@ -5582,7 +5582,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     team=self.team,
                     data={
                         **filter,
-                        "breakdowns": [{"value": "$browser"}, {"value": "$variant"}],
+                        "breakdowns": [{"property": "$browser"}, {"property": "$variant"}],
                         "breakdown_limit": 1,
                     },
                 ),
@@ -5627,7 +5627,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         filters: list[dict[str, Any]] = [
             {"breakdown": "email", "breakdown_type": "person"},
-            {"breakdowns": [{"type": "person", "value": "email"}]},
+            {"breakdowns": [{"type": "person", "property": "email"}]},
         ]
         for breakdown_filter in filters:
             response = self._run(
@@ -5697,7 +5697,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         filters: list[dict[str, Any]] = [
             {"breakdown": "email", "breakdown_type": "person"},
-            {"breakdowns": [{"value": "email", "type": "person"}]},
+            {"breakdowns": [{"property": "email", "type": "person"}]},
         ]
         for breakdown_filter in filters:
             response = self._run(
@@ -5764,7 +5764,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 },
             )
 
-        filters: list[dict[str, Any]] = [{"breakdown": "$current_url"}, {"breakdowns": [{"value": "$current_url"}]}]
+        filters: list[dict[str, Any]] = [{"breakdown": "$current_url"}, {"breakdowns": [{"property": "$current_url"}]}]
         for breakdown_filter in filters:
             with freeze_time("2020-01-05T13:01:01Z"):
                 response = self._run(
@@ -5851,7 +5851,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         filters: list[dict[str, Any]] = [
             {"breakdown": "$current_url"},
-            {"breakdowns": [{"value": "$current_url"}]},
+            {"breakdowns": [{"property": "$current_url"}]},
         ]
         for breakdown_filter in filters:
             with freeze_time("2020-01-05T13:01:01Z"):
@@ -5952,7 +5952,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         filters: list[dict[str, Any]] = [
             {"breakdown": "$some_prop", "breakdown_type": "person"},
-            {"breakdowns": [{"value": "$some_prop", "type": "person"}]},
+            {"breakdowns": [{"property": "$some_prop", "type": "person"}]},
         ]
         for breakdown_filter in filters:
             with freeze_time("2020-01-04T13:01:01Z"):
@@ -5997,7 +5997,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         filters: list[dict[str, Any]] = [
             {"breakdown": "$some_property"},
-            {"breakdowns": [{"value": "$some_property"}]},
+            {"breakdowns": [{"property": "$some_property"}]},
         ]
         for breakdown_filter in filters:
             with freeze_time("2020-01-04T13:01:01Z"):
@@ -6047,7 +6047,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         filters: list[dict[str, Any]] = [
             {"breakdown": "$some_property"},
-            {"breakdowns": [{"value": "$some_property"}]},
+            {"breakdowns": [{"property": "$some_property"}]},
         ]
         for breakdown_filter in filters:
             with freeze_time("2020-01-04T13:01:01Z"):
@@ -6099,7 +6099,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         filters: list[dict[str, Any]] = [
             {"breakdown": "$some_property"},
-            {"breakdowns": [{"value": "$some_property"}]},
+            {"breakdowns": [{"property": "$some_property"}]},
         ]
         for breakdown_filter in filters:
             with freeze_time("2020-01-04T13:01:01Z"):
@@ -6151,7 +6151,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         filters: list[dict[str, Any]] = [
             {"breakdown": "$some_prop", "breakdown_type": "person"},
-            {"breakdowns": [{"value": "$some_prop", "type": "person"}]},
+            {"breakdowns": [{"property": "$some_prop", "type": "person"}]},
         ]
         for breakdown_filter in filters:
             with freeze_time("2020-01-04T13:01:01Z"):

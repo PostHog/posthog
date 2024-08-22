@@ -134,7 +134,7 @@ export class PropertyDefinitionsManager {
                 this.syncEventDefinitions(team, event),
                 this.syncEventProperties(team, event, properties),
                 this.syncPropertyDefinitions(team, event, properties),
-                this.teamManager.setTeamIngestedEvent(team),
+                this.teamManager.setTeamIngestedEvent(team, properties),
             ])
         } finally {
             clearTimeout(timeout)

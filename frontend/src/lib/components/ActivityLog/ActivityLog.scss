@@ -58,6 +58,17 @@
         }
     }
 
+    .ActivityLogRow__description {
+        ul.bullet-list {
+            padding-left: 20px;
+            list-style-type: disc;
+
+            li {
+                display: list-item;
+            }
+        }
+    }
+
     .ActivityLogRow__description__extended {
         margin-top: 0.5rem;
         margin-bottom: 0.5rem;

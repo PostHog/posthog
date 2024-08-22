@@ -6,6 +6,7 @@ import operator
 import os
 import re
 import unittest.mock
+import uuid
 from collections import deque
 from uuid import uuid4
 
@@ -44,6 +45,10 @@ from posthog.temporal.tests.utils.models import (
     acreate_batch_export,
     adelete_batch_export,
     afetch_batch_export_runs,
+)
+from posthog.temporal.tests.utils.persons import (
+    generate_test_person_distinct_id2_in_clickhouse,
+    generate_test_persons_in_clickhouse,
 )
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
@@ -1053,6 +1058,86 @@ async def test_insert_into_snowflake_activity_inserts_data_into_snowflake_table(
         exclude_events=exclude_events,
         batch_export_model=model,
         sort_key="person_id" if batch_export_model is not None and batch_export_model.name == "persons" else "event",
+    )
+
+
+@SKIP_IF_MISSING_REQUIRED_ENV_VARS
+async def test_insert_into_snowflake_activity_merges_data_in_follow_up_runs(
+    clickhouse_client,
+    activity_environment,
+    snowflake_cursor,
+    snowflake_config,
+    generate_test_data,
+    data_interval_start,
+    data_interval_end,
+    ateam,
+):
+    """Test that the `insert_into_snowflake_activity` merges new versions of rows.
+
+    This unit tests looks at the mutability handling capabilities of the aforementioned activity.
+    We will generate a new entry in the persons table for half of the persons exported in a first
+    run of the activity. We expect the new entries to have replaced the old ones in Snowflake after
+    the second run.
+    """
+    model = BatchExportModel(name="persons", schema=None)
+
+    table_name = f"test_insert_activity_table_mutable_{ateam.pk}"
+    insert_inputs = SnowflakeInsertInputs(
+        team_id=ateam.pk,
+        table_name=table_name,
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        batch_export_model=model,
+        **snowflake_config,
+    )
+
+    await activity_environment.run(insert_into_snowflake_activity, insert_inputs)
+
+    await assert_clickhouse_records_in_snowflake(
+        snowflake_cursor=snowflake_cursor,
+        clickhouse_client=clickhouse_client,
+        table_name=table_name,
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        batch_export_model=model,
+        sort_key="person_id",
+    )
+
+    _, persons_to_export_created = generate_test_data
+
+    for old_person in persons_to_export_created[: len(persons_to_export_created) // 2]:
+        new_person_id = uuid.uuid4()
+        new_person, _ = await generate_test_persons_in_clickhouse(
+            client=clickhouse_client,
+            team_id=ateam.pk,
+            start_time=data_interval_start,
+            end_time=data_interval_end,
+            person_id=new_person_id,
+            count=1,
+            properties={"utm_medium": "referral", "$initial_os": "Linux", "new_property": "Something"},
+        )
+
+        await generate_test_person_distinct_id2_in_clickhouse(
+            clickhouse_client,
+            ateam.pk,
+            person_id=uuid.UUID(new_person[0]["id"]),
+            distinct_id=old_person["distinct_id"],
+            version=old_person["version"] + 1,
+            timestamp=old_person["_timestamp"],
+        )
+
+    await activity_environment.run(insert_into_snowflake_activity, insert_inputs)
+
+    await assert_clickhouse_records_in_snowflake(
+        snowflake_cursor=snowflake_cursor,
+        clickhouse_client=clickhouse_client,
+        table_name=table_name,
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        batch_export_model=model,
+        sort_key="person_id",
     )
 
 

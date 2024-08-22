@@ -1,4 +1,4 @@
-import { ActionFilter, FilterLogicalOperator } from '~/types'
+import { ActionFilter, FilterLogicalOperator, RecordingPropertyFilter } from '~/types'
 
 import { isCohortPropertyFilter } from '../PropertyFilters/utils'
 import { UniversalFiltersGroup, UniversalFiltersGroupValue, UniversalFilterValue } from './UniversalFilters'
@@ -17,6 +17,10 @@ export function isEventFilter(filter: UniversalFilterValue): filter is ActionFil
 
 export function isActionFilter(filter: UniversalFilterValue): filter is ActionFilter {
     return filter.type === 'actions'
+}
+
+export function isRecordingPropertyFilter(filter: UniversalFilterValue): filter is RecordingPropertyFilter {
+    return filter.type === 'recording'
 }
 
 export function isEditableFilter(filter: UniversalFilterValue): boolean {

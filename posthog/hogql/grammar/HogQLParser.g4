@@ -15,6 +15,8 @@ varDecl: LET identifier ( COLON EQ_SINGLE expression )? ;
 identifierList: identifier (COMMA identifier)* COMMA?;
 
 statement      : returnStmt
+               | throwStmt
+               | tryCatchStmt
                | ifStmt
                | whileStmt
                | forInStmt
@@ -27,6 +29,9 @@ statement      : returnStmt
                ;
 
 returnStmt     : RETURN expression? SEMICOLON?;
+throwStmt      : THROW expression? SEMICOLON?;
+catchBlock     : CATCH (LPAREN catchVar=identifier (COLON catchType=identifier)? RPAREN)? catchStmt=block;
+tryCatchStmt   : TRY tryStmt=block catchBlock* (FINALLY finallyStmt=block)?;
 ifStmt         : IF LPAREN expression RPAREN statement ( ELSE statement )? ;
 whileStmt      : WHILE LPAREN expression RPAREN statement SEMICOLON?;
 forStmt        : FOR LPAREN
@@ -216,7 +221,7 @@ columnLambdaExpr:
 
 hogqlxTagElement
     : LT identifier hogqlxTagAttribute* SLASH GT                                        # HogqlxTagElementClosed
-    | LT identifier hogqlxTagAttribute* GT hogqlxTagElement? LT SLASH identifier GT     # HogqlxTagElementNested
+    | LT identifier hogqlxTagAttribute* GT (hogqlxTagElement | (LBRACE columnExpr RBRACE))? LT SLASH identifier GT     # HogqlxTagElementNested
     ;
 hogqlxTagAttribute
     :   identifier '=' string
@@ -288,7 +293,7 @@ keywordForAlias
 alias: IDENTIFIER | keywordForAlias;  // |interval| can't be an alias, otherwise 'INTERVAL 1 SOMETHING' becomes ambiguous.
 identifier: IDENTIFIER | interval | keyword;
 enumValue: string EQ_SINGLE numberLiteral;
-placeholder: LBRACE identifier RBRACE;
+placeholder: LBRACE nestedIdentifier RBRACE;
 
 string: STRING_LITERAL | templateString;
 templateString : QUOTE_SINGLE_TEMPLATE stringContents* QUOTE_SINGLE ;

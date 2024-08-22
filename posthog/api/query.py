@@ -4,14 +4,13 @@ import uuid
 from django.http import JsonResponse
 from drf_spectacular.utils import OpenApiResponse
 from pydantic import BaseModel
-from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
+from rest_framework import status
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError, NotAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
-from sentry_sdk import capture_exception
-from rest_framework import status
+from sentry_sdk import capture_exception, set_tag
 
 from posthog.api.documentation import extend_schema
 from posthog.api.mixins import PydanticModelMixin
@@ -25,16 +24,14 @@ from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
 from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
 from posthog.models.user import User
-from posthog.rate_limit import (
-    AIBurstRateThrottle,
-    AISustainedRateThrottle,
-    TeamRateThrottle,
-)
+from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle, PersonalApiKeyRateThrottle
 from posthog.schema import QueryRequest, QueryResponseAlternative, QueryStatusResponse
+from posthog.api.monitoring import monitor, Feature
 
 
-class QueryThrottle(TeamRateThrottle):
+class QueryThrottle(PersonalApiKeyRateThrottle):
     scope = "query"
     rate = "120/hour"
 
@@ -59,6 +56,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             200: QueryResponseAlternative,
         },
     )
+    @monitor(feature=Feature.QUERY, endpoint="query", method="POST")
     def create(self, request, *args, **kwargs) -> Response:
         data = self.get_model(request.data, QueryRequest)
         client_query_id = data.client_query_id or uuid.uuid4().hex
@@ -99,10 +97,13 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         description="(Experimental)",
         responses={200: QueryStatusResponse},
     )
+    @monitor(feature=Feature.QUERY, endpoint="query", method="GET")
     def retrieve(self, request: Request, pk=None, *args, **kwargs) -> JsonResponse:
-        query_status = get_query_status(
-            team_id=self.team.pk, query_id=pk, show_progress=request.query_params.get("showProgress", False)
-        )
+        show_progress: bool = request.query_params.get("show_progress", False) == "true"
+        show_progress = (
+            show_progress or request.query_params.get("showProgress", False) == "true"
+        )  # TODO: Remove this once we have a consistent naming convention
+        query_status = get_query_status(team_id=self.team.pk, query_id=pk, show_progress=show_progress)
         query_status_response = QueryStatusResponse(query_status=query_status)
 
         http_code: int = status.HTTP_202_ACCEPTED
@@ -122,6 +123,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             204: OpenApiResponse(description="Query cancelled"),
         },
     )
+    @monitor(feature=Feature.QUERY, endpoint="query", method="DELETE")
     def destroy(self, request, pk=None, *args, **kwargs):
         cancel_query(self.team.pk, pk)
         return Response(status=204)
@@ -157,3 +159,4 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             return
 
         tag_queries(client_query_id=query_id)
+        set_tag("client_query_id", query_id)

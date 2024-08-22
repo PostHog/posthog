@@ -6,11 +6,19 @@ from typing import Any, Optional, TYPE_CHECKING
 from collections.abc import Callable
 
 from hogvm.python.debugger import debugger, color_bytecode
+from hogvm.python.objects import is_hog_error
 from hogvm.python.operation import Operation, HOGQL_BYTECODE_IDENTIFIER
 from hogvm.python.stl import STL
 from dataclasses import dataclass
 
-from hogvm.python.utils import HogVMException, get_nested_value, like, set_nested_value, calculate_cost
+from hogvm.python.utils import (
+    UncaughtHogVMException,
+    HogVMException,
+    get_nested_value,
+    like,
+    set_nested_value,
+    calculate_cost,
+)
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -39,6 +47,7 @@ def execute_bytecode(
     stack: list = []
     mem_stack: list = []
     call_stack: list[tuple[int, int, int]] = []  # (ip, stack_start, arg_len)
+    throw_stack: list[tuple[int, int, int]] = []  # (call_stack_length, stack_length, catch_ip)
     declared_functions: dict[str, tuple[int, int]] = {}
     mem_used = 0
     max_mem_used = 0
@@ -89,7 +98,7 @@ def execute_bytecode(
         if (ops & 127) == 0:  # every 128th operation
             check_timeout()
         elif debug:
-            debugger(symbol, bytecode, colored_bytecode, ip, stack, call_stack)
+            debugger(symbol, bytecode, colored_bytecode, ip, stack, call_stack, throw_stack)
         match symbol:
             case None:
                 break
@@ -208,18 +217,24 @@ def execute_bytecode(
                     push_stack({})
             case Operation.ARRAY:
                 count = next_token()
-                elems = stack[-count:]
-                stack = stack[:-count]
-                mem_used -= sum(mem_stack[-count:])
-                mem_stack = mem_stack[:-count]
-                push_stack(elems)
+                if count > 0:
+                    elems = stack[-count:]
+                    stack = stack[:-count]
+                    mem_used -= sum(mem_stack[-count:])
+                    mem_stack = mem_stack[:-count]
+                    push_stack(elems)
+                else:
+                    push_stack([])
             case Operation.TUPLE:
                 count = next_token()
-                elems = stack[-count:]
-                stack = stack[:-count]
-                mem_used -= sum(mem_stack[-count:])
-                mem_stack = mem_stack[:-count]
-                push_stack(tuple(elems))
+                if count > 0:
+                    elems = stack[-count:]
+                    stack = stack[:-count]
+                    mem_used -= sum(mem_stack[-count:])
+                    mem_stack = mem_stack[:-count]
+                    push_stack(tuple(elems))
+                else:
+                    push_stack(())
             case Operation.JUMP:
                 count = next_token()
                 ip += count
@@ -254,11 +269,37 @@ def execute_bytecode(
                     if name not in STL:
                         raise HogVMException(f"Unsupported function call: {name}")
 
-                    push_stack(STL[name](name, args, team, stdout, timeout))
+                    push_stack(STL[name](args, team, stdout, timeout.total_seconds()))
+            case Operation.TRY:
+                throw_stack.append((len(call_stack), len(stack), ip + next_token()))
+            case Operation.POP_TRY:
+                if throw_stack:
+                    throw_stack.pop()
+                else:
+                    raise HogVMException("Invalid operation POP_TRY: no try block to pop")
+            case Operation.THROW:
+                exception = pop_stack()
+                if not is_hog_error(exception):
+                    raise HogVMException("Can not throw: value is not of type Error")
+                if throw_stack:
+                    call_stack_len, stack_len, catch_ip = throw_stack.pop()
+                    stack = stack[0:stack_len]
+                    mem_used -= sum(mem_stack[stack_len:])
+                    mem_stack = mem_stack[0:stack_len]
+                    call_stack = call_stack[0:call_stack_len]
+                    push_stack(exception)
+                    ip = catch_ip
+                else:
+                    raise UncaughtHogVMException(
+                        type=exception.get("type"),
+                        message=exception.get("message"),
+                        payload=exception.get("payload"),
+                    )
+
         if ip == last_op:
             break
     if debug:
-        debugger(symbol, bytecode, colored_bytecode, ip, stack, call_stack)
+        debugger(symbol, bytecode, colored_bytecode, ip, stack, call_stack, throw_stack)
     if len(stack) > 1:
         raise HogVMException("Invalid bytecode. More than one value left on stack")
     if len(stack) == 1:

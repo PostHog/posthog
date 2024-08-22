@@ -16,7 +16,10 @@ export const dataWarehouseSourcesTableSyncMethodModalLogic = kea<dataWarehouseSo
     props({ schema: {} } as DataWarehouseSourcesTableSyncMethodModalLogicProps),
     key((props) => props.schema.id),
     connect(() => ({
-        actions: [dataWarehouseSettingsLogic, ['updateSchema', 'updateSchemaSuccess', 'updateSchemaFailure']],
+        actions: [
+            dataWarehouseSettingsLogic,
+            ['updateSchema', 'updateSchemaSuccess', 'updateSchemaFailure', 'loadSources'],
+        ],
     })),
     actions({
         openSyncMethodModal: (schema: ExternalDataSourceSchema) => ({ schema }),
@@ -59,6 +62,7 @@ export const dataWarehouseSourcesTableSyncMethodModalLogic = kea<dataWarehouseSo
     }),
     listeners(({ actions }) => ({
         updateSchemaSuccess: () => {
+            actions.loadSources(null)
             actions.resetSchemaIncrementalFields()
             actions.closeSyncMethodModal()
         },

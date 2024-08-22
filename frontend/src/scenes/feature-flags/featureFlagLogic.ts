@@ -2,7 +2,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { DeepPartialMap, forms, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
-import api from 'lib/api'
+import api, { PaginatedResponse } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
@@ -21,6 +21,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { groupsModel } from '~/models/groupsModel'
+import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import {
     AvailableFeature,
     Breadcrumb,
@@ -30,6 +31,7 @@ import {
     FeatureFlagGroupType,
     FeatureFlagRollbackConditions,
     FeatureFlagType,
+    FilterLogicalOperator,
     FilterType,
     InsightModel,
     InsightType,
@@ -39,6 +41,8 @@ import {
     OrganizationFeatureFlag,
     PropertyFilterType,
     PropertyOperator,
+    QueryBasedInsightModel,
+    RecordingUniversalFilters,
     RolloutConditionType,
     ScheduledChangeOperationType,
     ScheduledChangeType,
@@ -485,14 +489,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
         },
         relatedInsights: [
-            [] as InsightModel[],
+            [] as QueryBasedInsightModel[],
             {
                 loadRelatedInsights: async () => {
                     if (props.id && props.id !== 'new' && values.featureFlag.key) {
-                        const response = await api.get(
+                        const response = await api.get<PaginatedResponse<InsightModel>>(
                             `api/projects/${values.currentTeamId}/insights/?feature_flag=${values.featureFlag.key}&order=-created_at`
                         )
-                        return response.results
+                        return response.results.map((legacyInsight) => getQueryBasedInsightModel(legacyInsight))
                     }
                     return []
                 },
@@ -820,58 +824,64 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         ],
         recordingFilterForFlag: [
             (s) => [s.featureFlag],
-            (featureFlag) => {
+            (featureFlag): Partial<RecordingUniversalFilters> => {
                 const flagKey = featureFlag?.key
                 if (!flagKey) {
                     return {}
                 }
 
-                const defaultEntityFilterOnFlag: Partial<FilterType> = {
-                    events: [
-                        {
-                            id: '$feature_flag_called',
-                            name: '$feature_flag_called',
-                            type: 'events',
-                            properties: [
-                                {
-                                    key: '$feature/' + flagKey,
-                                    type: PropertyFilterType.Event,
-                                    value: ['false'],
-                                    operator: PropertyOperator.IsNot,
-                                },
-                                {
-                                    key: '$feature/' + flagKey,
-                                    type: PropertyFilterType.Event,
-                                    value: 'is_set',
-                                    operator: PropertyOperator.IsSet,
-                                },
-                                {
-                                    key: '$feature_flag',
-                                    type: PropertyFilterType.Event,
-                                    value: flagKey,
-                                    operator: PropertyOperator.Exact,
-                                },
-                            ],
-                        },
-                    ],
-                }
-
-                if (featureFlag.has_enriched_analytics) {
-                    return {
-                        events: [
+                return {
+                    filter_group: {
+                        type: FilterLogicalOperator.And,
+                        values: [
                             {
-                                id: '$feature_interaction',
-                                type: 'events',
-                                order: 0,
-                                name: '$feature_interaction',
-                                properties: [
-                                    { key: 'feature_flag', value: [flagKey], operator: 'exact', type: 'event' },
+                                type: FilterLogicalOperator.And,
+                                values: [
+                                    featureFlag.has_enriched_analytics
+                                        ? {
+                                              id: '$feature_interaction',
+                                              type: 'events',
+                                              order: 0,
+                                              name: '$feature_interaction',
+                                              properties: [
+                                                  {
+                                                      key: 'feature_flag',
+                                                      value: [flagKey],
+                                                      operator: PropertyOperator.Exact,
+                                                      type: PropertyFilterType.Event,
+                                                  },
+                                              ],
+                                          }
+                                        : {
+                                              id: '$feature_flag_called',
+                                              name: '$feature_flag_called',
+                                              type: 'events',
+                                              properties: [
+                                                  {
+                                                      key: '$feature/' + flagKey,
+                                                      type: PropertyFilterType.Event,
+                                                      value: ['false'],
+                                                      operator: PropertyOperator.IsNot,
+                                                  },
+                                                  {
+                                                      key: '$feature/' + flagKey,
+                                                      type: PropertyFilterType.Event,
+                                                      value: 'is_set',
+                                                      operator: PropertyOperator.IsSet,
+                                                  },
+                                                  {
+                                                      key: '$feature_flag',
+                                                      type: PropertyFilterType.Event,
+                                                      value: flagKey,
+                                                      operator: PropertyOperator.Exact,
+                                                  },
+                                              ],
+                                          },
                                 ],
                             },
                         ],
-                    }
+                    },
                 }
-                return defaultEntityFilterOnFlag
             },
         ],
         hasEarlyAccessFeatures: [

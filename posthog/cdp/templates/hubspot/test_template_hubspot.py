@@ -7,7 +7,7 @@ class TestTemplateHubspot(BaseHogFunctionTemplateTest):
 
     def _inputs(self, **kwargs):
         inputs = {
-            "access_token": "TOKEN",
+            "oauth": {"access_token": "TOKEN"},
             "email": "example@posthog.com",
             "properties": {
                 "company": "PostHog",

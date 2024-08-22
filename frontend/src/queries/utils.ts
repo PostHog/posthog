@@ -447,3 +447,14 @@ export function hogql(strings: TemplateStringsArray, ...values: any[]): string {
     return strings.reduce((acc, str, i) => acc + str + (i < strings.length - 1 ? formatHogQlValue(values[i]) : ''), '')
 }
 hogql.identifier = hogQlIdentifier
+
+/**
+ * Wether we have a valid `breakdownFilter` or not.
+ */
+export function isValidBreakdown(breakdownFilter?: BreakdownFilter | null): breakdownFilter is BreakdownFilter {
+    return !!(
+        breakdownFilter &&
+        ((breakdownFilter.breakdown && breakdownFilter.breakdown_type) ||
+            (breakdownFilter.breakdowns && breakdownFilter.breakdowns.length > 0))
+    )
+}

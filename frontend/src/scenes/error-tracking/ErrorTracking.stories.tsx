@@ -7,6 +7,7 @@ import { urls } from 'scenes/urls'
 import { mswDecorator } from '~/mocks/browser'
 
 import { errorTrackingGroupQueryResponse, errorTrackingQueryResponse } from './__mocks__/error_tracking_query'
+import { stringifiedFingerprint } from './utils'
 
 const meta: Meta = {
     title: 'Scenes-App/ErrorTracking',
@@ -20,7 +21,7 @@ const meta: Meta = {
             post: {
                 '/api/projects/:team_id/query': async (req, res, ctx) => {
                     const query = (await req.clone().json()).query
-                    if (query.where) {
+                    if (query.fingerprint) {
                         return res(ctx.json(errorTrackingGroupQueryResponse))
                     }
                     return res(ctx.json(errorTrackingQueryResponse))
@@ -39,7 +40,7 @@ export function ListPage(): JSX.Element {
 
 export function GroupPage(): JSX.Element {
     useEffect(() => {
-        router.actions.push(urls.errorTrackingGroup('TypeError'))
+        router.actions.push(urls.errorTrackingGroup(stringifiedFingerprint(['TypeError'])))
     }, [])
     return <App />
 }

@@ -84,11 +84,13 @@ class TestSessionsAPI(APIBaseTest):
             "Email",
             "Organic Search",
             "Organic Shopping",
+            "Organic Social",
             "Organic Video",
             "Unknown",
             "Paid Unknown",
             "Paid Search",
             "Paid Shopping",
+            "Paid Social",
             "Paid Video",
             "Push",
             "Referral",
@@ -104,6 +106,7 @@ class TestSessionsAPI(APIBaseTest):
             "Paid Unknown",
             "Paid Search",
             "Paid Shopping",
+            "Paid Social",
             "Paid Video",
         }
         assert actual_values == expected_values

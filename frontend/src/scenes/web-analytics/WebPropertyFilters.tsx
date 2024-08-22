@@ -14,9 +14,9 @@ export const WebPropertyFilters = ({
     return (
         <PropertyFilters
             taxonomicGroupTypes={[
-                TaxonomicFilterGroupType.SessionProperties,
                 TaxonomicFilterGroupType.EventProperties,
                 TaxonomicFilterGroupType.PersonProperties,
+                TaxonomicFilterGroupType.SessionProperties,
             ]}
             onChange={(filters) => setWebAnalyticsFilters(filters.filter(isEventPersonOrSessionPropertyFilter))}
             propertyFilters={webAnalyticsFilters}

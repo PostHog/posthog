@@ -2,8 +2,8 @@ import { UniversalFiltersGroup } from 'lib/components/UniversalFilters/Universal
 import { dayjs } from 'lib/dayjs'
 import { range } from 'lib/utils'
 
-import { DataTableNode, DateRange, ErrorTrackingOrder, EventsQuery, InsightVizNode, NodeKind } from '~/queries/schema'
-import { AnyPropertyFilter, BaseMathType, ChartDisplayType } from '~/types'
+import { DataTableNode, DateRange, ErrorTrackingQuery, InsightVizNode, NodeKind } from '~/queries/schema'
+import { AnyPropertyFilter, BaseMathType, ChartDisplayType, PropertyGroupFilter } from '~/types'
 
 export type SparklineConfig = {
     value: number
@@ -38,52 +38,41 @@ export const errorTrackingQuery = ({
     filterTestAccounts,
     filterGroup,
     sparklineSelectedPeriod,
+    columns,
+    limit = 50,
 }: {
-    order: ErrorTrackingOrder
+    order: ErrorTrackingQuery['order']
     dateRange: DateRange
     filterTestAccounts: boolean
     filterGroup: UniversalFiltersGroup
     sparklineSelectedPeriod: string | null
+    columns?: ('error' | 'volume' | 'occurrences' | 'sessions' | 'users' | 'assignee')[]
+    limit?: number
 }): DataTableNode => {
-    const select = [
-        'any(properties) as "context.columns.error"',
-        'properties.$exception_type',
-        'count() as occurrences',
-        'count(distinct $session_id) as sessions',
-        'count(distinct distinct_id) as users',
-        'max(timestamp) as last_seen',
-        'min(timestamp) as first_seen',
-    ]
-
-    const columns = [
-        'context.columns.error',
-        'properties.$exception_type',
-        'occurrences',
-        'sessions',
-        'users',
-        'last_seen',
-        'first_seen',
-    ]
+    const select: string[] = []
+    if (!columns) {
+        columns = ['error', 'occurrences', 'sessions', 'users', 'assignee']
+    }
 
     if (sparklineSelectedPeriod) {
         const { value, displayAs, offsetHours } = parseSparklineSelection(sparklineSelectedPeriod)
         const { labels, data } = generateSparklineProps({ value, displayAs, offsetHours })
 
-        select.splice(2, 0, `<Sparkline data={${data}} labels={[${labels.join(',')}]} /> as "context.columns.volume"`)
-        columns.splice(2, 0, 'context.columns.volume')
+        select.splice(1, 0, `<Sparkline data={${data}} labels={[${labels.join(',')}]} /> as volume`)
+        columns.splice(1, 0, 'volume')
     }
-
-    const orderDirection = order === 'first_seen' ? 'ASC' : 'DESC'
 
     return {
         kind: NodeKind.DataTableNode,
         source: {
-            kind: NodeKind.EventsQuery,
+            kind: NodeKind.ErrorTrackingQuery,
             select: select,
-            orderBy: [`${order} ${orderDirection}`],
-            ...defaultProperties({ dateRange, filterTestAccounts, filterGroup }),
+            order: order,
+            dateRange: dateRange,
+            filterGroup: filterGroup as PropertyGroupFilter,
+            filterTestAccounts: filterTestAccounts,
+            limit: limit,
         },
-        hiddenColumns: ['properties.$exception_type', 'last_seen', 'first_seen'],
         showActions: false,
         showTimings: false,
         columns: columns,
@@ -125,21 +114,23 @@ export const generateSparklineProps = ({
 }
 
 export const errorTrackingGroupQuery = ({
-    group,
+    fingerprint,
     dateRange,
     filterTestAccounts,
     filterGroup,
 }: {
-    group: string
+    fingerprint: string[]
     dateRange: DateRange
     filterTestAccounts: boolean
     filterGroup: UniversalFiltersGroup
-}): EventsQuery => {
+}): ErrorTrackingQuery => {
     return {
-        kind: NodeKind.EventsQuery,
-        select: ['uuid', 'properties', 'timestamp', 'person'],
-        where: [`properties.$exception_type = '${group}'`],
-        ...defaultProperties({ dateRange, filterTestAccounts, filterGroup }),
+        kind: NodeKind.ErrorTrackingQuery,
+        eventColumns: ['uuid', 'properties', 'timestamp', 'person'],
+        fingerprint: fingerprint,
+        dateRange: dateRange,
+        filterGroup: filterGroup as PropertyGroupFilter,
+        filterTestAccounts: filterTestAccounts,
     }
 }
 
@@ -177,25 +168,5 @@ export const errorTrackingGroupBreakdownQuery = ({
             properties: filterGroup.values as AnyPropertyFilter[],
             filterTestAccounts,
         },
-    }
-}
-
-const defaultProperties = ({
-    dateRange,
-    filterTestAccounts,
-    filterGroup,
-}: {
-    dateRange: DateRange
-    filterTestAccounts: boolean
-    filterGroup: UniversalFiltersGroup
-}): Pick<EventsQuery, 'event' | 'after' | 'before' | 'filterTestAccounts' | 'properties'> => {
-    const properties = filterGroup.values as AnyPropertyFilter[]
-
-    return {
-        event: '$exception',
-        after: dateRange.date_from || undefined,
-        before: dateRange.date_to || undefined,
-        filterTestAccounts,
-        properties,
     }
 }

@@ -21,38 +21,38 @@ CREATE OR REPLACE VIEW persons_batch_export ON CLUSTER {settings.CLICKHOUSE_CLUS
     FROM (
         SELECT
             team_id,
-            distinct_id,
-            max(version) AS version,
-            argMax(person_id, person_distinct_id2.version) AS person_id,
-            argMax(_timestamp, person_distinct_id2.version) AS _timestamp
-        FROM
-            person_distinct_id2
-        WHERE
-            team_id = {{team_id:Int64}}
-        GROUP BY
-            team_id,
-            distinct_id
-    ) AS pd
-    INNER JOIN (
-        SELECT
-            team_id,
             id,
             max(version) AS version,
             argMax(properties, person.version) AS properties,
             argMax(_timestamp, person.version) AS _timestamp
         FROM
             person
-        WHERE
+        PREWHERE
             team_id = {{team_id:Int64}}
         GROUP BY
             team_id,
             id
-    ) AS p ON p.id = pd.person_id AND p.team_id = pd.team_id
+    ) AS p
+    INNER JOIN (
+        SELECT
+            team_id,
+            distinct_id,
+            max(version) AS version,
+            argMax(person_id, person_distinct_id2.version) AS person_id,
+            argMax(_timestamp, person_distinct_id2.version) AS _timestamp
+        FROM
+            person_distinct_id2
+        PREWHERE
+            team_id = {{team_id:Int64}}
+        GROUP BY
+            team_id,
+            distinct_id
+    ) AS pd ON p.id = pd.person_id AND p.team_id = pd.team_id
     WHERE
         pd.team_id = {{team_id:Int64}}
         AND p.team_id = {{team_id:Int64}}
-        AND (pd._timestamp  >= {{interval_start:DateTime64}} AND pd._timestamp < {{interval_end:DateTime64}})
-            OR (p._timestamp  >= {{interval_start:DateTime64}} AND p._timestamp < {{interval_end:DateTime64}})
+        AND ((pd._timestamp  >= {{interval_start:DateTime64}} AND pd._timestamp < {{interval_end:DateTime64}})
+            OR (p._timestamp  >= {{interval_start:DateTime64}} AND p._timestamp < {{interval_end:DateTime64}}))
     ORDER BY
         _inserted_at
 )

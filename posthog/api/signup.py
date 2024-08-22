@@ -407,9 +407,9 @@ def process_social_invite_signup(strategy: DjangoStrategy, invite_id: str, email
 
 
 def process_social_domain_jit_provisioning_signup(
-    email: str, full_name: str, user: Optional[User] = None
+    strategy: DjangoStrategy, email: str, full_name: str, user: Optional[User] = None
 ) -> Optional[User]:
-    # Check if the user is on a allowed domain
+    # Check if the user is on an allowed domain
     domain = email.split("@")[-1]
     try:
         logger.info(f"process_social_domain_jit_provisioning_signup", domain=domain)
@@ -429,19 +429,37 @@ def process_social_domain_jit_provisioning_signup(
         )
         if domain_instance.is_verified and domain_instance.jit_provisioning_enabled:
             if not user:
-                user = User.objects.create_and_join(
-                    organization=domain_instance.organization,
-                    email=email,
-                    password=None,
-                    first_name=full_name,
-                    is_email_verified=True,
-                )
-                logger.info(
-                    f"process_social_domain_jit_provisioning_join_complete",
-                    domain=domain,
-                    user=user.email,
-                    organization=domain_instance.organization_id,
-                )
+                try:
+                    invite: OrganizationInvite = OrganizationInvite.objects.get(
+                        target_email=email, organization=domain_instance.organization
+                    )
+                    invite.validate(user=None, email=email)
+
+                    try:
+                        user = strategy.create_user(
+                            email=email, first_name=full_name, password=None, is_email_verified=True
+                        )
+                        assert isinstance(user, User)  # type hinting
+                        invite.use(user, prevalidated=True)
+                    except Exception as e:
+                        capture_exception(e)
+                        message = "Account unable to be created. This account may already exist. Please try again or use different credentials."
+                        raise ValidationError(message, code="unknown", params={"source": "social_create_user"})
+
+                except OrganizationInvite.DoesNotExist:
+                    user = User.objects.create_and_join(
+                        organization=domain_instance.organization,
+                        email=email,
+                        password=None,
+                        first_name=full_name,
+                        is_email_verified=True,
+                    )
+                    logger.info(
+                        f"process_social_domain_jit_provisioning_join_complete",
+                        domain=domain,
+                        user=user.email,
+                        organization=domain_instance.organization_id,
+                    )
             if not user.organizations.filter(pk=domain_instance.organization_id).exists():
                 user.join(organization=domain_instance.organization)
                 logger.info(
@@ -471,7 +489,7 @@ def social_create_user(
             user.set_unusable_password()
             user.is_email_verified = True
             user.save()
-        process_social_domain_jit_provisioning_signup(user.email, user.first_name, user)
+        process_social_domain_jit_provisioning_signup(strategy, user.email, user.first_name, user)
         return {"is_new": False}
 
     backend_processor = "social_create_user"
@@ -501,7 +519,7 @@ def social_create_user(
 
     else:
         # JIT Provisioning?
-        user = process_social_domain_jit_provisioning_signup(email, full_name)
+        user = process_social_domain_jit_provisioning_signup(strategy, email, full_name)
         logger.info(
             f"social_create_user_jit_user",
             full_name_len=len(full_name),

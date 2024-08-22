@@ -7,17 +7,13 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { SceneExport } from 'scenes/sceneTypes'
-import {
-    convertUniversalFiltersToLegacyFilters,
-    sessionRecordingsPlaylistLogic,
-} from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
+import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -39,15 +35,13 @@ function Header(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
     const { reportRecordingPlaylistCreated } = useActions(eventUsageLogic)
-    const hasUniversalFiltering = useFeatureFlag('SESSION_REPLAY_UNIVERSAL_FILTERS')
 
     const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
 
     // NB this relies on `updateSearchParams` being the only prop needed to pick the correct "Recent" tab list logic
     const { filters, totalFiltersCount } = useValues(sessionRecordingsPlaylistLogic({ updateSearchParams: true }))
     const saveFiltersPlaylistHandler = useAsyncHandler(async () => {
-        const existingFilters = hasUniversalFiltering ? filters : convertUniversalFiltersToLegacyFilters(filters)
-        await createPlaylist({ filters: existingFilters }, true)
+        await createPlaylist({ filters }, true)
         reportRecordingPlaylistCreated('filters')
     })
 

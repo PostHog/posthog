@@ -12,7 +12,9 @@ const lastDay = { value: '24h', label: '24h' }
 const lastMonth = { value: 'mStart', label: 'Month' }
 const lastYear = { value: 'yStart', label: 'Year' }
 
-const customOptions = {
+export type SparklineOption = LemonSegmentedButtonOption<string>
+
+const customOptions: Record<string, SparklineOption[]> = {
     dStart: [lastDay, lastHour],
     '-24h': [lastDay, lastHour],
     '-1dStart': [
@@ -24,7 +26,10 @@ const customOptions = {
     all: [lastYear, lastMonth, lastDay],
 }
 
-export type SparklineOption = LemonSegmentedButtonOption<string>
+const DEFAULT_FILTER_GROUP = {
+    type: FilterLogicalOperator.And,
+    values: [{ type: FilterLogicalOperator.And, values: [] }],
+}
 
 export const errorTrackingLogic = kea<errorTrackingLogicType>([
     path(['scenes', 'error-tracking', 'errorTrackingLogic']),
@@ -45,7 +50,7 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
             },
         ],
         filterGroup: [
-            { type: FilterLogicalOperator.And, values: [] } as UniversalFiltersGroup,
+            DEFAULT_FILTER_GROUP as UniversalFiltersGroup,
             { persist: true },
             {
                 setFilterGroup: (_, { filterGroup }) => filterGroup,

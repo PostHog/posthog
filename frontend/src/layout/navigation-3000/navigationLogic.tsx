@@ -399,7 +399,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                           },
                           {
                               identifier: Scene.PersonsManagement,
-                              label: 'People',
+                              label: 'People and groups',
                               icon: <IconPeople />,
                               logic: isUsingSidebar ? personsAndGroupsSidebarLogic : undefined,
                               to: isUsingSidebar ? undefined : urls.persons(),
@@ -455,6 +455,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   label: 'Error tracking',
                                   icon: <IconWarning />,
                                   to: urls.errorTracking(),
+                                  tag: 'alpha' as const,
                               }
                             : null,
                         featureFlags[FEATURE_FLAGS.HEATMAPS_UI]
@@ -486,12 +487,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             icon: <IconChat />,
                             to: urls.surveys(),
                         },
-                        {
-                            identifier: Scene.DataWarehouse,
-                            label: 'Data warehouse',
-                            icon: <IconServer />,
-                            to: isUsingSidebar ? undefined : urls.dataWarehouse(),
-                        },
                         featureFlags[FEATURE_FLAGS.PRODUCT_INTRO_PAGES] !== 'test' || hasOnboardedFeatureFlags
                             ? {
                                   identifier: Scene.EarlyAccessFeatures,
@@ -500,20 +495,19 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   to: urls.earlyAccessFeatures(),
                               }
                             : null,
+                        {
+                            identifier: Scene.DataWarehouse,
+                            label: 'Data warehouse',
+                            icon: <IconServer />,
+                            to: isUsingSidebar ? undefined : urls.dataWarehouse(),
+                        },
                         hasOnboardedAnyProduct
-                            ? featureFlags[FEATURE_FLAGS.PIPELINE_UI]
-                                ? {
-                                      identifier: Scene.Pipeline,
-                                      label: 'Data pipeline',
-                                      icon: <IconDecisionTree />,
-                                      to: urls.pipeline(),
-                                  }
-                                : {
-                                      identifier: Scene.Apps,
-                                      label: 'Data pipeline',
-                                      icon: <IconDecisionTree />,
-                                      to: urls.projectApps(),
-                                  }
+                            ? {
+                                  identifier: Scene.Pipeline,
+                                  label: 'Data pipeline',
+                                  icon: <IconDecisionTree />,
+                                  to: urls.pipeline(),
+                              }
                             : null,
                     ].filter(isNotNil),
                 ]

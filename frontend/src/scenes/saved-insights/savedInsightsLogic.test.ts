@@ -1,22 +1,26 @@
-import { combineUrl, router } from 'kea-router'
+import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 import api from 'lib/api'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { DeleteDashboardForm, deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { DuplicateDashboardForm, duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
-import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { initKeaTests } from '~/test/init'
-import { InsightModel, InsightType, QueryBasedInsightModel } from '~/types'
+import { QueryBasedInsightModel } from '~/types'
 
-import { InsightsResult, savedInsightsLogic } from './savedInsightsLogic'
+import { INSIGHTS_PER_PAGE, InsightsResult, savedInsightsLogic } from './savedInsightsLogic'
 
 jest.spyOn(api, 'create')
 
-const createInsight = (id: number, string = 'hi'): InsightModel =>
+const blankScene = (): any => ({ scene: { component: () => null, logic: null } })
+const scenes: any = { [Scene.SavedInsights]: blankScene }
+
+const createInsight = (id: number, string = 'hi'): QueryBasedInsightModel =>
     ({
         id: id || 1,
         name: `${string} ${id || 1}`,
@@ -34,8 +38,8 @@ const createInsight = (id: number, string = 'hi'): InsightModel =>
         dashboard: null,
         deleted: false,
         saved: true,
-        filters: {},
-    } as any as InsightModel)
+        query: {},
+    } as any as QueryBasedInsightModel)
 const createSavedInsights = (string = 'hello', offset: number): InsightsResult => ({
     count: 3,
     results: [createInsight(1, string), createInsight(2, string), createInsight(3, string)].slice(offset),
@@ -63,7 +67,8 @@ describe('savedInsightsLogic', () => {
             },
         })
         initKeaTests()
-        router.actions.push(urls.savedInsights())
+        sceneLogic({ scenes }).mount()
+        router.actions.push(urls.project(MOCK_TEAM_ID, urls.savedInsights()))
         logic = savedInsightsLogic()
         logic.mount()
     })
@@ -136,7 +141,7 @@ describe('savedInsightsLogic', () => {
                 insights: {
                     results: [],
                     count: 3,
-                    offset: 30,
+                    offset: INSIGHTS_PER_PAGE,
                     filters: partial({ page: 2, search: '' }),
                 },
             })
@@ -181,18 +186,8 @@ describe('savedInsightsLogic', () => {
             })
     })
 
-    describe('redirects old /insights urls to the real URL', () => {
-        it('new mode with ?insight= and no hash params', async () => {
-            router.actions.push(combineUrl('/insights', cleanFilters({ insight: InsightType.FUNNELS })).url)
-            await expectLogic(router).toMatchValues({
-                location: partial({ pathname: urls.insightNew() }),
-                hashParams: { filters: partial({ insight: InsightType.FUNNELS }) },
-            })
-        })
-    })
-
     it('can duplicate and does not use derived name for name', async () => {
-        const sourceInsight = createInsight(123, 'hello') as QueryBasedInsightModel
+        const sourceInsight = createInsight(123, 'hello')
         sourceInsight.name = ''
         sourceInsight.derived_name = 'should be copied'
         await logic.asyncActions.duplicateInsight(sourceInsight)
@@ -204,7 +199,7 @@ describe('savedInsightsLogic', () => {
     })
 
     it('can duplicate using name', async () => {
-        const sourceInsight = createInsight(123, 'hello') as QueryBasedInsightModel
+        const sourceInsight = createInsight(123, 'hello')
         sourceInsight.name = 'should be copied'
         sourceInsight.derived_name = ''
         await logic.asyncActions.duplicateInsight(sourceInsight)
@@ -235,7 +230,7 @@ describe('savedInsightsLogic', () => {
         it('updates the list when an insight is changed', async () => {
             await expectLogic(logic, () => {
                 dashboardsModel.actions.updateDashboardInsight(createInsight(1, 'a new name'))
-            }).toDispatchActions(['setInsight'])
+            }).toDispatchActions(['updateInsight'])
         })
 
         it('adds to the list when a new insight is reported as changed', async () => {

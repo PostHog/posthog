@@ -22,6 +22,8 @@ from posthog.schema import (
     InCohortVia,
     MultipleBreakdownType,
     TrendsQuery,
+)
+from posthog.schema import (
     Breakdown as BreakdownSchema,
 )
 
@@ -120,7 +122,7 @@ class Breakdown:
                 breakdowns.append(
                     self._get_breakdown_col_expr(
                         self._get_multiple_breakdown_alias_name(idx + 1),
-                        value=breakdown.value,
+                        value=breakdown.property,
                         breakdown_type=breakdown.type,
                         normalize_url=breakdown.normalize_url,
                         histogram_bin_count=breakdown.histogram_bin_count,
@@ -168,14 +170,6 @@ class Breakdown:
         Type checking
         """
         return cast(BreakdownFilter, self.query.breakdownFilter)
-
-    @property
-    def hide_other_aggregation(self) -> bool:
-        return (
-            self.query.breakdownFilter.breakdown_hide_other_aggregation or False
-            if self.query.breakdownFilter
-            else False
-        )
 
     def _get_cohort_filter(self, breakdowns: list[str | int] | list[str] | str | int):
         if breakdowns == "all":
@@ -233,7 +227,7 @@ class Breakdown:
                     cast(list[BreakdownSchema], self._breakdown_filter.breakdowns), lookup_values
                 ):
                     actors_filter = self._get_actors_query_where_expr(
-                        breakdown_value=breakdown.value,
+                        breakdown_value=breakdown.property,
                         breakdown_type=breakdown.type,
                         lookup_value=str(
                             lookup_value
@@ -274,6 +268,9 @@ class Breakdown:
         histogram_bin_count: int | None = None,
         group_type_index: int | None = None,
     ):
+        if lookup_value == BREAKDOWN_OTHER_STRING_LABEL:
+            return None
+
         is_numeric_breakdown = isinstance(histogram_bin_count, int)
 
         if breakdown_type == "hogql":
@@ -296,7 +293,11 @@ class Breakdown:
             return ast.Or(
                 exprs=[
                     none_expr,
-                    ast.CompareOperation(left=left, op=ast.CompareOperationOp.Eq, right=ast.Constant(value="")),
+                    ast.CompareOperation(
+                        left=self.get_replace_null_values_transform(left),
+                        op=ast.CompareOperationOp.Eq,
+                        right=ast.Constant(value=""),
+                    ),
                 ]
             )
 
@@ -323,7 +324,11 @@ class Breakdown:
             except json.JSONDecodeError:
                 raise ValueError("Breakdown value must be a valid JSON array if the the bin count is selected.")
 
-        return ast.CompareOperation(left=left, op=ast.CompareOperationOp.Eq, right=ast.Constant(value=lookup_value))
+        return ast.CompareOperation(
+            left=self.get_replace_null_values_transform(left),
+            op=ast.CompareOperationOp.Eq,
+            right=ast.Constant(value=lookup_value),
+        )
 
     def _get_breakdown_values_transform(self, node: ast.Expr, normalize_url: bool | None = None) -> ast.Call:
         if normalize_url:
@@ -375,7 +380,7 @@ class Breakdown:
             group_type_index=group_type_index,
         )
 
-        if histogram_bin_count is not None and not self.ignore_histogram_bin_count:
+        if histogram_bin_count is not None:
             return ast.Alias(
                 alias=alias,
                 expr=ast.Field(chain=properties_chain),
@@ -408,10 +413,3 @@ class Breakdown:
             else None
         )
         return TrendsDisplay(display)
-
-    @property
-    def ignore_histogram_bin_count(self):
-        """
-        For "Total Value" display options `histogram_bin_count` doesn't apply.
-        """
-        return self._trends_display.is_total_value()

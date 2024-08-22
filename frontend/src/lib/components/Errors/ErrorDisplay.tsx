@@ -148,7 +148,7 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
                         <>
                             {$sentry_url ? (
                                 <Link
-                                    className="text-primary-alt hover:underline decoration-primary-alt cursor-pointer"
+                                    className="text-3000 hover:underline decoration-primary-alt cursor-pointer"
                                     to={$sentry_url}
                                     target="_blank"
                                 >

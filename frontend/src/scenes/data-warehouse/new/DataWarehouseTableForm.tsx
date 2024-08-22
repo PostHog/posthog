@@ -35,6 +35,13 @@ const ProviderMappings: Record<
         accessKeyLabel: 'Access key',
         accessSecretLabel: 'Access secret',
     },
+    azure: {
+        fileUrlPatternPlaceholder:
+            'https://your-storage-container.blob.core.windows.net/airbyte/stripe/invoices/*.parquet',
+        accessKeyPlaceholder: 'your-storage-container',
+        accessKeyLabel: 'Storage account name',
+        accessSecretLabel: 'Account key',
+    },
 }
 
 export function DatawarehouseTableForm(): JSX.Element {
@@ -85,6 +92,7 @@ export function DatawarehouseTableForm(): JSX.Element {
                             { label: 'CSV', value: 'CSV' },
                             { label: 'CSV with headers', value: 'CSVWithNames' },
                             { label: 'JSON', value: 'JSONEachRow' },
+                            { label: 'Delta', value: 'Delta' },
                         ]}
                     />
                 </LemonField>

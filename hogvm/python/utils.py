@@ -9,6 +9,22 @@ class HogVMException(Exception):
     pass
 
 
+class UncaughtHogVMException(HogVMException):
+    type: str
+    message: str
+    payload: Any
+
+    def __init__(self, type, message, payload):
+        super().__init__(message)
+        self.type = type
+        self.message = message
+        self.payload = payload
+
+    def __str__(self):
+        msg = self.message.replace("'", "\\'")
+        return f"{self.type}('{msg}')"
+
+
 def like(string, pattern, flags=0):
     pattern = re.escape(pattern).replace("%", ".*")
     re_pattern = re.compile(pattern, flags)
@@ -22,9 +38,11 @@ def get_nested_value(obj, chain, nullish=False) -> Any:
         if nullish and obj is None:
             return None
         if isinstance(key, int):
-            if nullish and len(obj) <= key:
+            if key <= 0:
+                raise HogVMException(f"Hog arrays start from index 1")
+            if nullish and key > len(obj):
                 return None
-            obj = obj[key]
+            obj = obj[key - 1]
         else:
             obj = obj.get(key, None)
     return obj
@@ -44,7 +62,9 @@ def set_nested_value(obj, chain, value) -> Any:
     elif isinstance(obj, list):
         if not isinstance(chain[-1], int):
             raise HogVMException(f"Invalid index: {chain[-1]}")
-        obj[chain[-1]] = value
+        if chain[-1] <= 0:
+            raise HogVMException(f"Hog arrays start from index 1")
+        obj[chain[-1] - 1] = value
     else:
         raise HogVMException(f'Can not set property "{chain[-1]}" on object of type "{type(obj).__name__}"')
 

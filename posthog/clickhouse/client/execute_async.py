@@ -13,7 +13,7 @@ from rest_framework.exceptions import NotFound
 from posthog import celery, redis
 from posthog.clickhouse.client.async_task_chain import add_task_to_on_commit
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.errors import ExposedCHQueryError
+from posthog.errors import ExposedCHQueryError, CHQueryErrorTooManySimultaneousQueries
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.renderers import SafeJSONRenderer
@@ -23,7 +23,6 @@ from posthog.tasks.tasks import process_query_task
 
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
-    from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
 
@@ -42,7 +41,7 @@ class QueryRetrievalError(Exception):
 
 
 class QueryStatusManager:
-    STATUS_TTL_SECONDS = 600  # 10 minutes
+    STATUS_TTL_SECONDS = 60 * 20  # 20 minutes
     KEY_PREFIX_ASYNC_RESULTS = "query_async"
 
     def __init__(self, query_id: str, team_id: int):
@@ -60,7 +59,10 @@ class QueryStatusManager:
 
     def store_query_status(self, query_status: QueryStatus):
         value = SafeJSONRenderer().render(query_status.model_dump(exclude={"clickhouse_query_progress"}))
-        self.redis_client.set(self.results_key, value, ex=self.STATUS_TTL_SECONDS)
+        query_status.expiration_time = datetime.datetime.now(datetime.UTC) + datetime.timedelta(
+            seconds=self.STATUS_TTL_SECONDS
+        )
+        self.redis_client.set(self.results_key, value, exat=int(query_status.expiration_time.timestamp()))
 
     def _store_clickhouse_query_progress_dict(self, query_progress_dict):
         value = json.dumps(query_progress_dict)
@@ -81,7 +83,10 @@ class QueryStatusManager:
             # Don't fail because of progress checking
             return {}
 
-        return json.loads(byte_results) if byte_results is not None else {}
+        if byte_results is None:
+            return {}
+
+        return json.loads(byte_results)
 
     def update_clickhouse_query_progresses(self, clickhouse_query_progresses):
         clickhouse_query_progress_dict = self._get_clickhouse_query_progress_dict()
@@ -89,10 +94,28 @@ class QueryStatusManager:
             clickhouse_query_progress_dict[clickhouse_query_progress["query_id"]] = clickhouse_query_progress
         self._store_clickhouse_query_progress_dict(clickhouse_query_progress_dict)
 
-    def has_results(self):
-        return self._get_results() is not None
+    def has_results(self) -> bool:
+        return self.redis_client.exists(self.results_key) == 1
 
-    def get_query_status(self, show_progress=False) -> QueryStatus:
+    def get_clickhouse_progresses(self) -> Optional[ClickhouseQueryProgress]:
+        try:
+            clickhouse_query_progress_dict = self._get_clickhouse_query_progress_dict()
+            query_progress = {
+                "bytes_read": 0,
+                "rows_read": 0,
+                "estimated_rows_total": 0,
+                "time_elapsed": 0,
+                "active_cpu_time": 0,
+            }
+            for single_query_progress in clickhouse_query_progress_dict.values():
+                for k in query_progress.keys():
+                    query_progress[k] += single_query_progress[k]
+            return ClickhouseQueryProgress(**query_progress)
+        except Exception as e:
+            logger.exception("Clickhouse Status Check Failed", error=e)
+            return None
+
+    def get_query_status(self, show_progress: bool = False) -> QueryStatus:
         byte_results = self._get_results()
 
         if not byte_results:
@@ -101,29 +124,11 @@ class QueryStatusManager:
         query_status = QueryStatus(**json.loads(byte_results))
 
         if show_progress and not query_status.complete:
-            try:
-                clickhouse_query_progress_dict = self._get_clickhouse_query_progress_dict()
-                query_progress = {
-                    "bytes_read": 0,
-                    "rows_read": 0,
-                    "estimated_rows_total": 0,
-                    "time_elapsed": 0,
-                    "active_cpu_time": 0,
-                }
-                for single_query_progress in clickhouse_query_progress_dict.values():
-                    query_progress["bytes_read"] += single_query_progress["bytes_read"]
-                    query_progress["rows_read"] += single_query_progress["rows_read"]
-                    query_progress["estimated_rows_total"] += single_query_progress["estimated_rows_total"]
-                    query_progress["time_elapsed"] += single_query_progress["time_elapsed"]
-                    query_progress["active_cpu_time"] += single_query_progress["active_cpu_time"]
-                query_status.query_progress = ClickhouseQueryProgress(**query_progress)
-            except Exception as e:
-                logger.exception("Clickhouse Status Check Failed", error=e)
-                pass
+            query_status.query_progress = self.get_clickhouse_progresses()
 
         return query_status
 
-    def delete_query_status(self):
+    def delete_query_status(self) -> None:
         logger.info("Deleting redis query key %s", self.results_key)
         self.redis_client.delete(self.results_key)
         self.redis_client.delete(self.clickhouse_query_status_key)
@@ -145,24 +150,29 @@ def execute_process_query(
     team = Team.objects.get(pk=team_id)
     sentry_sdk.set_tag("team_id", team_id)
 
+    is_staff_user = False
     if user_id:
-        user = User.objects.get(pk=user_id)
+        user = User.objects.only("email", "is_staff").get(pk=user_id)
+        is_staff_user = user.is_staff
         sentry_sdk.set_user({"email": user.email, "id": user_id, "username": user.email})
 
     query_status = manager.get_query_status()
 
-    if query_status.complete or query_status.error:
+    if query_status.complete:
         return
 
+    query_status.pickup_time = datetime.datetime.now(datetime.UTC)
+    manager.store_query_status(query_status)
+
     query_status.error = True  # Assume error in case nothing below ends up working
+    query_status.complete = True
 
     trigger = "chained" if "chained" in (query_status.labels or []) else ""
     if trigger == "chained":
         tag_queries(trigger="chaining")
 
-    pickup_time = datetime.datetime.now(datetime.UTC)
     if query_status.start_time:
-        wait_duration = (pickup_time - query_status.start_time) / datetime.timedelta(seconds=1)
+        wait_duration = (query_status.pickup_time - query_status.start_time) / datetime.timedelta(seconds=1)
         QUERY_WAIT_TIME.labels(team=team_id, mode=trigger).observe(wait_duration)
 
     try:
@@ -172,35 +182,40 @@ def execute_process_query(
             query_json=query_json,
             limit_context=limit_context,
             execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            insight_id=query_status.insight_id,
+            dashboard_id=query_status.dashboard_id,
         )
         if isinstance(results, BaseModel):
             results = results.model_dump(by_alias=True)
         logger.info("Got results for team %s query %s", team_id, query_id)
-        query_status.complete = True
         query_status.error = False
         query_status.results = results
-        query_status.end_time = datetime.datetime.now(datetime.UTC)
-        query_status.expiration_time = query_status.end_time + datetime.timedelta(seconds=manager.STATUS_TTL_SECONDS)
-        process_duration = (query_status.end_time - pickup_time) / datetime.timedelta(seconds=1)
+        process_duration = (datetime.datetime.now(datetime.UTC) - query_status.pickup_time) / datetime.timedelta(
+            seconds=1
+        )
         QUERY_PROCESS_TIME.labels(team=team_id).observe(process_duration)
-    except (ExposedHogQLError, ExposedCHQueryError) as err:  # We can expose the error to the user
+    except CHQueryErrorTooManySimultaneousQueries:
+        raise
+    except Exception as err:
         query_status.results = None  # Clear results in case they are faulty
-        query_status.error_message = str(err)
-        logger.exception("Error processing query for team %s query %s", team_id, query_id)
+        if isinstance(err, ExposedHogQLError | ExposedCHQueryError) or is_staff_user:
+            # We can only expose the error message if it's a known safe error OR if the user is PostHog staff
+            query_status.error_message = str(err)
+        logger.exception("Error processing query async", team_id=team_id, query_id=query_id, exc_info=True)
         sentry_sdk.capture_exception(err)
         # Do not raise here, the task itself did its job and we cannot recover
-    except Exception:  # We cannot reveal anything about the error
-        query_status.results = None  # Clear results in case they are faulty
-        logger.exception("Error processing query for team %s query %s", team_id, query_id)
-        raise
     finally:
+        query_status.end_time = datetime.datetime.now(datetime.UTC)
         manager.store_query_status(query_status)
 
 
 def enqueue_process_query_task(
     team: "Team",
-    user: Optional["User"],
+    user_id: Optional[int],
     query_json: dict,
+    *,
+    insight_id: Optional[int] = None,
+    dashboard_id: Optional[int] = None,
     query_id: Optional[str] = None,
     # Attention: This is to pierce through the _manager_ cache, query runner will always refresh
     refresh_requested: bool = False,
@@ -220,12 +235,16 @@ def enqueue_process_query_task(
         return manager.get_query_status()
 
     # Immediately set status, so we don't have race with celery
-    query_status = QueryStatus(id=query_id, team_id=team.id, start_time=datetime.datetime.now(datetime.UTC))
+    query_status = QueryStatus(
+        id=query_id,
+        team_id=team.id,
+        start_time=datetime.datetime.now(datetime.UTC),
+        insight_id=insight_id,
+        dashboard_id=dashboard_id,
+    )
     manager.store_query_status(query_status)
 
-    task_signature = process_query_task.si(
-        team.id, user.id if user else None, query_id, query_json, LimitContext.QUERY_ASYNC
-    )
+    task_signature = process_query_task.si(team.id, user_id, query_id, query_json, LimitContext.QUERY_ASYNC)
 
     if _test_only_bypass_celery:
         task_signature()
@@ -235,7 +254,7 @@ def enqueue_process_query_task(
     return query_status
 
 
-def get_query_status(team_id, query_id, show_progress=False) -> QueryStatus:
+def get_query_status(team_id: int, query_id: str, show_progress: bool = False) -> QueryStatus:
     """
     Abstracts away the manager for any caller and returns a QueryStatus object
     """
@@ -243,7 +262,7 @@ def get_query_status(team_id, query_id, show_progress=False) -> QueryStatus:
     return manager.get_query_status(show_progress=show_progress)
 
 
-def cancel_query(team_id, query_id):
+def cancel_query(team_id: int, query_id: str) -> bool:
     manager = QueryStatusManager(query_id, team_id)
 
     try:

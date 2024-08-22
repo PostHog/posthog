@@ -19,7 +19,7 @@ export interface DataTableLogicProps {
     vizKey: string
     dataKey: string
     query: DataTableNode
-    context?: QueryContext
+    context?: QueryContext<DataTableNode>
     // Override the data logic node key if needed
     dataNodeLogicKey?: string
 }
@@ -68,7 +68,18 @@ export const dataTableLogic = kea<dataTableLogicType>([
     })),
     selectors({
         sourceKind: [(_, p) => [p.query], (query): NodeKind | null => query.source?.kind],
-        sourceFeatures: [(_, p) => [p.query], (query): Set<QueryFeature> => getQueryFeatures(query.source)],
+        sourceFeatures: [
+            (_, p) => [p.query, (_, props) => props.context],
+            (query, context): Set<QueryFeature> => {
+                const sourceFeatures = getQueryFeatures(query.source)
+                if (context?.extraDataTableQueryFeatures) {
+                    for (const feature of context.extraDataTableQueryFeatures) {
+                        sourceFeatures.add(feature)
+                    }
+                }
+                return sourceFeatures
+            },
+        ],
         orderBy: [
             (s, p) => [p.query, s.sourceFeatures],
             (query, sourceFeatures): string[] | null =>

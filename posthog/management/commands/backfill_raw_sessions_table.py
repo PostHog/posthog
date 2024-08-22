@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 from typing import Optional
 
@@ -12,6 +13,7 @@ from posthog.clickhouse.client.execute import sync_execute
 from datetime import datetime, timedelta
 
 from posthog.models.raw_sessions.sql import RAW_SESSION_TABLE_BACKFILL_SELECT_SQL
+import math
 
 logger = structlog.get_logger(__name__)
 
@@ -28,6 +30,7 @@ class BackfillQuery:
     end_date: datetime
     use_offline_workload: bool
     team_id: Optional[int]
+    num_retries: int = 10
 
     def execute(
         self,
@@ -79,11 +82,24 @@ AND and(
             date = self.start_date + timedelta(days=i)
             logging.info("Writing the sessions for day %s", date.strftime("%Y-%m-%d"))
             insert_query = f"""INSERT INTO {TARGET_TABLE} {select_query(select_date=date, team_id=self.team_id)} SETTINGS max_execution_time=3600"""
-            sync_execute(
-                query=insert_query,
-                workload=Workload.OFFLINE if self.use_offline_workload else Workload.DEFAULT,
-                settings=SETTINGS,
-            )
+            for retries in range(self.num_retries + 1):
+                try:
+                    sync_execute(
+                        query=insert_query,
+                        workload=Workload.OFFLINE if self.use_offline_workload else Workload.DEFAULT,
+                        settings=SETTINGS,
+                    )
+                    break
+                except Exception:
+                    if retries >= self.num_retries:
+                        logger.exception(f"Error while inserting {date.strftime('%Y-%m-%d')}. No more retries left.")
+                        raise
+                    # exponential backoff, start at 10 seconds and end up at 30 minutes
+                    seconds_delay = math.floor(10 * 1.68**retries)
+                    logger.exception(
+                        f"Error while inserting {date.strftime('%Y-%m-%d')}. Retrying after {seconds_delay}s delay... ({retries + 1}/{self.num_retries})"
+                    )
+                    time.sleep(seconds_delay)
 
         # print the count of entries in the main sessions table
         if print_counts:

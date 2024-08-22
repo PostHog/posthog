@@ -44,22 +44,27 @@ export function getColorVar(variable: string): string {
     return colorValue.trim()
 }
 
-/** Return a series color value. Hexadecimal format as Chart.js doesn't work with CSS vars.
+/** Returns the color for the given series index.
+ *
+ * The returned colors are in hex format for compatibility with Chart.js. They repeat
+ * after all possible values have been exhausted.
  *
  * @param index The index of the series color.
- * @param numSeries Number of series in the insight being visualized.
- * @param comparePrevious If true, wrapped colors ()
- * @param asBackgroundHighlight If true, add opacity to color
  */
-export function getSeriesColor(
-    index: number | undefined = 0,
-    comparePrevious: boolean | null = false,
-    asBackgroundHighlight?: boolean
-): string {
-    const adjustedIndex = (comparePrevious ? Math.floor(index / 2) : index) % dataColorVars.length
-    const isPreviousPeriodSeries = comparePrevious && index % 2 === 1
-    const baseHex = getColorVar(`data-${dataColorVars[adjustedIndex]}`)
-    return isPreviousPeriodSeries ? `${baseHex}80` : asBackgroundHighlight ? `${baseHex}30` : baseHex
+export function getSeriesColor(index: number = 0): string {
+    const adjustedIndex = index % dataColorVars.length
+    return getColorVar(`data-${dataColorVars[adjustedIndex]}`)
+}
+
+/** Return the background color for the given series index. */
+export function getSeriesBackgroundColor(index: number): string {
+    return `${getSeriesColor(index)}30`
+}
+
+/** Returns the color for the given series index. When comparing against previous ... */
+export function getTrendLikeSeriesColor(index: number, isPrevious: boolean): string {
+    const baseHex = getSeriesColor(index)
+    return isPrevious ? `${baseHex}80` : baseHex
 }
 
 /** Return hexadecimal color value for lifecycle status.

@@ -30,6 +30,7 @@ export interface LemonTabsProps<T extends string | number> {
     tabs: (LemonTab<T> | null | false)[]
     size?: 'small' | 'medium'
     'data-attr'?: string
+    barClassName?: string
 }
 
 interface LemonTabsCSSProperties extends React.CSSProperties {
@@ -41,6 +42,7 @@ export function LemonTabs<T extends string | number>({
     activeKey,
     onChange,
     tabs,
+    barClassName,
     size = 'medium',
     'data-attr': dataAttr,
 }: LemonTabsProps<T>): JSX.Element {
@@ -65,7 +67,7 @@ export function LemonTabs<T extends string | number>({
             }
             data-attr={dataAttr}
         >
-            <ul className="LemonTabs__bar" role="tablist" ref={containerRef}>
+            <ul className={clsx('LemonTabs__bar', barClassName)} role="tablist" ref={containerRef}>
                 {realTabs.map((tab) => {
                     const content = (
                         <>

@@ -18,7 +18,7 @@ export interface LemonSwitchProps {
     /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
     disabledReason?: string | null | false
     'data-attr'?: string
-    tooltip?: string | null
+    tooltip?: string | JSX.Element | null
     handleContent?: React.ReactElement | null
     'aria-label'?: string
 }

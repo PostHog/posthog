@@ -65,7 +65,7 @@ describe('LazyPluginVM', () => {
             const vm = createVM()
             void initializeVm(vm)
 
-            expect(await vm.getProcessEvent()).toEqual('processEvent')
+            expect(await vm.getPluginMethod('processEvent')).toEqual('processEvent')
             expect(await vm.getTask('someTask', PluginTaskType.Schedule)).toEqual(null)
             expect(await vm.getTask('runEveryMinute', PluginTaskType.Schedule)).toEqual('runEveryMinute')
             expect(await vm.getScheduledTasks()).toEqual(mockVM.tasks.schedule)
@@ -109,7 +109,7 @@ describe('LazyPluginVM', () => {
 
             void initializeVm(vm)
 
-            expect(await vm.getProcessEvent()).toEqual(null)
+            expect(await vm.getPluginMethod('processEvent')).toEqual(null)
             expect(await vm.getTask('runEveryMinute', PluginTaskType.Schedule)).toEqual(null)
             expect(await vm.getScheduledTasks()).toEqual({})
         })

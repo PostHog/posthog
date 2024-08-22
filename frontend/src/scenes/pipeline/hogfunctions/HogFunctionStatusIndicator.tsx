@@ -1,7 +1,5 @@
-import { TZLabel } from '@posthog/apps-common'
-import { LemonDropdown, LemonTable, LemonTag, LemonTagProps } from '@posthog/lemon-ui'
+import { LemonDropdown, LemonTag, LemonTagProps } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { dayjs } from 'lib/dayjs'
 
 import { HogWatcherState } from '~/types'
 
@@ -66,12 +64,6 @@ export function HogFunctionStatusIndicator(): JSX.Element | null {
         ? displayMap[hogFunction.status.state]
         : DEFAULT_DISPLAY
 
-    const noRatings = hogFunction.status?.ratings.length === 0
-
-    const averageRating = hogFunction.status?.ratings.length
-        ? hogFunction.status.ratings.reduce((acc, x) => acc + x.rating, 0) / hogFunction.status.ratings.length
-        : 0
-
     return (
         <LemonDropdown
             overlay={
@@ -81,45 +73,7 @@ export function HogFunctionStatusIndicator(): JSX.Element | null {
                             Function status - <LemonTag type={tagType}>{display}</LemonTag>
                         </h2>
 
-                        <p>
-                            Your function has{' '}
-                            {noRatings ? (
-                                <>
-                                    no ratings yet. There are either no recent invocations or data is still being
-                                    gathered.
-                                </>
-                            ) : (
-                                <>
-                                    a rating of <b>{Math.round(averageRating * 100)}%</b>.
-                                </>
-                            )}{' '}
-                            A rating of 100% means the function is running perfectly, with 0% meaning it is failing
-                            every time.
-                        </p>
-
                         <p>{description}</p>
-
-                        <h4>History</h4>
-                        <ul>
-                            <LemonTable
-                                columns={[
-                                    {
-                                        title: 'Timestamp',
-                                        key: 'timestamp',
-                                        render: (_, { timestamp }) => <TZLabel time={dayjs(timestamp)} />,
-                                    },
-                                    {
-                                        title: 'Status',
-                                        key: 'state',
-                                        render: (_, { state }) => {
-                                            const { tagType, display } = displayMap[state] || DEFAULT_DISPLAY
-                                            return <LemonTag type={tagType}>{display}</LemonTag>
-                                        },
-                                    },
-                                ]}
-                                dataSource={hogFunction.status?.states ?? []}
-                            />
-                        </ul>
                     </div>
                 </>
             }

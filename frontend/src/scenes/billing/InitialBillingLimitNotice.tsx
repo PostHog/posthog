@@ -8,9 +8,10 @@ import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
 
 const InitialBillingLimitNoticeContents = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
-    const { currentAndUpgradePlans, customLimitUsd } = useValues(billingProductLogic({ product }))
+    const { currentAndUpgradePlans, hasCustomLimitSet, customLimitUsd } = useValues(billingProductLogic({ product }))
     const initialBillingLimit = currentAndUpgradePlans?.currentPlan?.initial_billing_limit
-    const isUsingInitialBillingLimit = currentAndUpgradePlans?.currentPlan?.initial_billing_limit == customLimitUsd
+    const isUsingInitialBillingLimit =
+        hasCustomLimitSet && currentAndUpgradePlans?.currentPlan?.initial_billing_limit == customLimitUsd
 
     return isUsingInitialBillingLimit ? (
         <LemonBanner

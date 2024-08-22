@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Optional, TypeAlias
 from django.db import models
 
@@ -7,12 +8,13 @@ from posthog.hogql import ast
 from posthog.hogql.database.models import (
     FieldOrTable,
 )
-from posthog.hogql.database.s3_table import S3Table
+from posthog.hogql.database.s3_table import S3Table, build_function_call
 from posthog.models.team import Team
 from posthog.models.utils import (
     CreatedMetaFields,
     DeletedMetaFields,
     UUIDModel,
+    UpdatedMetaFields,
     sane_repr,
 )
 from posthog.schema import DatabaseSerializedFieldType, HogQLQueryModifiers
@@ -65,7 +67,7 @@ class DataWarehouseTableManager(models.Manager):
         )
 
 
-class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
+class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, DeletedMetaFields):
     # loading external_data_source and credentials is easily N+1,
     # so we have a custom object manager meaning people can't forget to load them
     # this also means we _always_ have two joins whenever we load tables
@@ -76,32 +78,38 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         CSVWithNames = "CSVWithNames", "CSVWithNames"
         Parquet = "Parquet", "Parquet"
         JSON = "JSONEachRow", "JSON"
+        Delta = "Delta", "Delta"
+        DeltaS3Wrapper = "DeltaS3Wrapper", "DeltaS3Wrapper"
 
-    name: models.CharField = models.CharField(max_length=128)
-    format: models.CharField = models.CharField(max_length=128, choices=TableFormat.choices)
-    team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
+    name = models.CharField(max_length=128)
+    format = models.CharField(max_length=128, choices=TableFormat.choices)
+    team = models.ForeignKey(Team, on_delete=models.CASCADE)
 
-    url_pattern: models.CharField = models.CharField(max_length=500)
-    credential: models.ForeignKey = models.ForeignKey(
-        DataWarehouseCredential, on_delete=models.CASCADE, null=True, blank=True
-    )
+    url_pattern = models.CharField(max_length=500)
+    credential = models.ForeignKey(DataWarehouseCredential, on_delete=models.CASCADE, null=True, blank=True)
 
-    external_data_source: models.ForeignKey = models.ForeignKey(
-        "ExternalDataSource", on_delete=models.CASCADE, null=True, blank=True
-    )
+    external_data_source = models.ForeignKey("ExternalDataSource", on_delete=models.CASCADE, null=True, blank=True)
 
-    columns: models.JSONField = models.JSONField(
+    columns = models.JSONField(
         default=dict,
         null=True,
         blank=True,
         help_text="Dict of all columns with Clickhouse type (including Nullable())",
     )
 
-    row_count: models.IntegerField = models.IntegerField(
-        null=True, help_text="How many rows are currently synced in this table"
-    )
+    row_count = models.IntegerField(null=True, help_text="How many rows are currently synced in this table")
 
     __repr__ = sane_repr("name")
+
+    def soft_delete(self):
+        from posthog.warehouse.models.join import DataWarehouseJoin
+
+        DataWarehouseJoin.objects.filter(source_table_name=self.name).delete()
+        DataWarehouseJoin.objects.filter(joining_table_name=self.name).delete()
+
+        self.deleted = True
+        self.deleted_at = datetime.now()
+        self.save()
 
     def table_name_without_prefix(self) -> str:
         if self.external_data_source is not None and self.external_data_source.prefix is not None:
@@ -129,18 +137,19 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
 
     def get_columns(self, safe_expose_ch_error=True) -> DataWarehouseTableColumns:
         try:
+            s3_table_func = build_function_call(
+                url=self.url_pattern,
+                format=self.format,
+                access_key=self.credential.access_key,
+                access_secret=self.credential.access_secret,
+            )
+
             result = sync_execute(
-                """DESCRIBE TABLE (
-                SELECT * FROM
-                    s3(%(url_pattern)s, %(access_key)s, %(access_secret)s, %(format)s)
-                LIMIT 1
-            )""",
-                {
-                    "url_pattern": self.url_pattern,
-                    "access_key": self.credential.access_key,
-                    "access_secret": self.credential.access_secret,
-                    "format": self.format,
-                },
+                f"""DESCRIBE TABLE (
+                    SELECT *
+                    FROM {s3_table_func}
+                    LIMIT 1
+                )"""
             )
         except Exception as err:
             capture_exception(err)
@@ -165,15 +174,15 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
 
     def get_count(self, safe_expose_ch_error=True) -> int:
         try:
+            s3_table_func = build_function_call(
+                url=self.url_pattern,
+                format=self.format,
+                access_key=self.credential.access_key,
+                access_secret=self.credential.access_secret,
+            )
+
             result = sync_execute(
-                """SELECT count() FROM
-                s3(%(url_pattern)s, %(access_key)s, %(access_secret)s, %(format)s)""",
-                {
-                    "url_pattern": self.url_pattern,
-                    "access_key": self.credential.access_key,
-                    "access_secret": self.credential.access_secret,
-                    "format": self.format,
-                },
+                f"SELECT count() FROM {s3_table_func}",
             )
         except Exception as err:
             capture_exception(err)

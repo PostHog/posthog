@@ -41,6 +41,7 @@ function errorProperties(properties: Record<string, any>): EventType['properties
         },
         $exception_message: 'ResizeObserver loop limit exceeded',
         $exception_type: 'Error',
+        $exception_fingerprint: 'Error',
         $exception_personURL: 'https://app.posthog.com/person/the-person-id',
         $sentry_event_id: 'id-from-the-sentry-integration',
         $sentry_exception: {

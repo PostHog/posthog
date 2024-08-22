@@ -27,6 +27,7 @@ import {
     InsightQueryNode,
     InsightsQueryBase,
     LifecycleFilter,
+    MathType,
     NodeKind,
     PathsFilter,
     RetentionFilter,
@@ -63,7 +64,7 @@ import {
 
 import { cleanEntityProperties, cleanGlobalProperties } from './cleanProperties'
 
-const reverseInsightMap: Record<
+const insightTypeToNodeKind: Record<
     Exclude<InsightType, InsightType.JSON | InsightType.SQL | InsightType.HOG>,
     InsightNodeKind
 > = {
@@ -82,6 +83,8 @@ const actorsOnlyMathTypes = [
     GroupMathType.UniqueGroup,
     HogQLMathType.HogQL,
 ]
+
+const funnelsMathTypes = [BaseMathType.FirstTimeForUser]
 
 type FilterTypeActionsAndEvents = {
     events?: ActionFilter[]
@@ -121,6 +124,13 @@ export const legacyEntityToNode = (
             shared = {
                 ...shared,
                 math: BaseMathType.UniqueUsers,
+            }
+        } else if (mathAvailability === MathAvailability.FunnelsOnly) {
+            if (funnelsMathTypes.includes(entity.math as any)) {
+                shared = {
+                    ...shared,
+                    math: entity.math as MathType,
+                }
             }
         } else {
             shared = {
@@ -260,7 +270,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
     }
 
     const query: InsightsQueryBase<AnalyticsQueryResponseBase<unknown>> = {
-        kind: reverseInsightMap[filters.insight],
+        kind: insightTypeToNodeKind[filters.insight],
         properties: cleanGlobalProperties(filters.properties),
         filterTestAccounts: filters.filter_test_accounts,
     }
@@ -283,6 +293,8 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             includeMath = MathAvailability.All
         } else if (isStickinessQuery(query)) {
             includeMath = MathAvailability.ActorsOnly
+        } else if (isFunnelsQuery(query)) {
+            includeMath = MathAvailability.FunnelsOnly
         }
 
         const { events, actions, data_warehouse } = filters
@@ -296,22 +308,34 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
 
     // breakdown
     if (isInsightQueryWithBreakdown(query)) {
-        /* handle multi-breakdowns */
         // not undefined or null
         if (filters.breakdowns != null) {
-            if (filters.breakdowns.length === 1) {
-                filters.breakdown_type = filters.breakdowns[0].type
-                filters.breakdown = filters.breakdowns[0].property as string
-            } else {
-                captureException(
-                    'Could not convert multi-breakdown property `breakdowns` - found more than one breakdown'
-                )
+            /* handle multi-breakdowns for funnels */
+            if (isFunnelsFilter(filters)) {
+                if (filters.breakdowns.length === 1) {
+                    filters.breakdown_type = filters.breakdowns[0].type || 'event'
+                    filters.breakdown = filters.breakdowns[0].property as string
+                } else {
+                    captureException(
+                        'Could not convert multi-breakdown property `breakdowns` - found more than one breakdown'
+                    )
+                }
             }
-        }
 
-        /* handle missing breakdown_type */
-        // check for undefined and null values
-        if (filters.breakdown != null && filters.breakdown_type == null) {
+            /* handle multi-breakdowns for trends */
+            if (isTrendsFilter(filters)) {
+                filters.breakdowns = filters.breakdowns.map((b) => ({
+                    ...b,
+                    // Compatibility with legacy funnel breakdowns when someone switches a view from funnels to trends
+                    type: b.type || filters.breakdown_type || 'event',
+                }))
+            }
+        } else if (
+            /* handle missing breakdown_type */
+            // check for undefined and null values
+            filters.breakdown != null &&
+            filters.breakdown_type == null
+        ) {
             filters.breakdown_type = 'event'
         }
 
@@ -412,6 +436,7 @@ export const retentionFilterToQuery = (filters: Partial<RetentionFilterType>): R
         targetEntity: sanitizeRetentionEntity(filters.target_entity),
         period: filters.period,
         showMean: filters.show_mean,
+        cumulative: filters.cumulative,
     })
     // TODO: query.aggregation_group_type_index
 }

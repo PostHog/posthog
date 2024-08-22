@@ -50,6 +50,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         session_table_version: SessionTableVersion = SessionTableVersion.V1,
         compare: bool = True,
         limit_context: Optional[LimitContext] = None,
+        filter_test_accounts: Optional[bool] = False,
     ):
         modifiers = HogQLQueryModifiers(sessionTableVersion=session_table_version)
         query = WebOverviewQuery(
@@ -57,6 +58,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             properties=[],
             compare=compare,
             modifiers=modifiers,
+            filterTestAccounts=filter_test_accounts,
         )
         runner = WebOverviewQueryRunner(team=self.team, query=query, limit_context=limit_context)
         return runner.calculate()
@@ -170,13 +172,12 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
     def test_filter_test_accounts(self, session_table_version: SessionTableVersion):
+        s1 = str(uuid7("2023-12-02"))
         # Create 1 test account
-        self._create_events([("test", [("2023-12-02", "s1"), ("2023-12-03", "s1")])])
+        self._create_events([("test", [("2023-12-02", s1), ("2023-12-03", s1)])])
 
         results = self._run_web_overview_query(
-            "2023-12-01",
-            "2023-12-03",
-            session_table_version=session_table_version,
+            "2023-12-01", "2023-12-03", session_table_version=session_table_version, filter_test_accounts=True
         ).results
 
         visitors = results[0]
@@ -194,6 +195,19 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         bounce = results[4]
         self.assertEqual("bounce rate", bounce.key)
         self.assertEqual(None, bounce.value)
+
+    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
+    def test_dont_filter_test_accounts(self, session_table_version: SessionTableVersion):
+        s1 = str(uuid7("2023-12-02"))
+        # Create 1 test account
+        self._create_events([("test", [("2023-12-02", s1), ("2023-12-03", s1)])])
+
+        results = self._run_web_overview_query(
+            "2023-12-01", "2023-12-03", session_table_version=session_table_version, filter_test_accounts=False
+        ).results
+
+        visitors = results[0]
+        self.assertEqual(1, visitors.value)
 
     @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
     def test_correctly_counts_pageviews_in_long_running_session(self, session_table_version: SessionTableVersion):

@@ -11,6 +11,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from posthog.hogql.database.database import create_hogql_database
+from posthog.api.log_entries import LogEntryMixin
 
 from posthog.warehouse.data_load.service import (
     external_data_workflow_exists,
@@ -23,10 +24,13 @@ from posthog.warehouse.data_load.service import (
     delete_data_import_folder,
 )
 from posthog.warehouse.models.external_data_schema import (
+    filter_mysql_incremental_fields,
     filter_postgres_incremental_fields,
     filter_snowflake_incremental_fields,
-    get_postgres_schemas,
     get_snowflake_schemas,
+    get_sql_schemas_for_source_type,
+    sync_frequency_interval_to_sync_frequency,
+    sync_frequency_to_sync_frequency_interval,
 )
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
@@ -41,6 +45,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     sync_type = serializers.SerializerMethodField(read_only=True)
     incremental_field = serializers.SerializerMethodField(read_only=True)
     incremental_field_type = serializers.SerializerMethodField(read_only=True)
+    sync_frequency = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = ExternalDataSchema
@@ -90,6 +95,9 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
         return SimpleTableSerializer(schema.table, context={"database": hogql_context}).data or None
 
+    def get_sync_frequency(self, schema: ExternalDataSchema):
+        return sync_frequency_interval_to_sync_frequency(schema)
+
     def update(self, instance: ExternalDataSchema, validated_data: dict[str, Any]) -> ExternalDataSchema:
         data = self.context["request"].data
 
@@ -132,7 +140,16 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             validated_data["sync_type_config"] = payload
 
         should_sync = validated_data.get("should_sync", None)
-        sync_frequency = validated_data.get("sync_frequency", None)
+        sync_frequency = data.get("sync_frequency", None)
+        was_sync_frequency_updated = False
+
+        if sync_frequency:
+            sync_frequency_interval = sync_frequency_to_sync_frequency_interval(sync_frequency)
+
+            if sync_frequency_interval != instance.sync_frequency_interval:
+                was_sync_frequency_updated = True
+                validated_data["sync_frequency_interval"] = sync_frequency_interval
+                instance.sync_frequency_interval = sync_frequency_interval
 
         if should_sync is True and sync_type is None and instance.sync_type is None:
             raise ValidationError("Sync type must be set up first before enabling schema")
@@ -148,7 +165,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             if should_sync is True:
                 sync_external_data_job_workflow(instance, create=True)
 
-        if sync_frequency:
+        if was_sync_frequency_updated:
             sync_external_data_job_workflow(instance, create=False)
 
         if trigger_refresh:
@@ -166,13 +183,14 @@ class SimpleExternalDataSchemaSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "should_sync", "last_synced_at"]
 
 
-class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = ExternalDataSchema.objects.all()
     serializer_class = ExternalDataSchemaSerializer
     filter_backends = [filters.SearchFilter]
     search_fields = ["name"]
     ordering = "-created_at"
+    log_source = "external_data_jobs"
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
@@ -180,7 +198,16 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return context
 
     def safely_get_queryset(self, queryset):
-        return queryset.prefetch_related("created_by").order_by(self.ordering)
+        return queryset.exclude(deleted=True).prefetch_related("created_by").order_by(self.ordering)
+
+    def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance: ExternalDataSchema = self.get_object()
+
+        if instance.table:
+            instance.table.soft_delete()
+        instance.soft_delete()
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(methods=["POST"], detail=True)
     def reload(self, request: Request, *args: Any, **kwargs: Any):
@@ -251,7 +278,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         source: ExternalDataSource = instance.source
         incremental_columns: list[IncrementalField] = []
 
-        if source.source_type == ExternalDataSource.Type.POSTGRES:
+        if source.source_type in [ExternalDataSource.Type.POSTGRES, ExternalDataSource.Type.MYSQL]:
             # TODO(@Gilbert09): Move all this into a util and replace elsewhere
             host = source.job_inputs.get("host")
             port = source.job_inputs.get("port")
@@ -280,7 +307,8 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 private_key=ssh_tunnel_auth_type_private_key,
             )
 
-            pg_schemas = get_postgres_schemas(
+            db_schemas = get_sql_schemas_for_source_type(
+                source.source_type,
                 host=host,
                 port=port,
                 database=database,
@@ -290,10 +318,15 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 ssh_tunnel=ssh_tunnel,
             )
 
-            columns = pg_schemas.get(instance.name, [])
+            columns = db_schemas.get(instance.name, [])
+            if source.source_type == ExternalDataSource.Type.POSTGRES:
+                incremental_fields_func = filter_postgres_incremental_fields
+            else:
+                incremental_fields_func = filter_mysql_incremental_fields
+
             incremental_columns = [
                 {"field": name, "field_type": field_type, "label": name, "type": field_type}
-                for name, field_type in filter_postgres_incremental_fields(columns)
+                for name, field_type in incremental_fields_func(columns)
             ]
         elif source.source_type == ExternalDataSource.Type.SNOWFLAKE:
             # TODO(@Gilbert09): Move all this into a util and replace elsewhere

@@ -7,7 +7,7 @@ from collections.abc import Iterator
 from dlt.sources.helpers import requests
 import requests as http_requests
 from .settings import OBJECT_TYPE_PLURAL
-from .auth import refresh_access_token
+from .auth import hubspot_refresh_access_token
 
 BASE_URL = "https://api.hubapi.com/"
 
@@ -130,7 +130,7 @@ def fetch_data(
     except http_requests.exceptions.HTTPError as e:
         if e.response.status_code == 401:
             # refresh token
-            api_key = refresh_access_token(refresh_token)
+            api_key = hubspot_refresh_access_token(refresh_token)
             headers = _get_headers(api_key)
             r = requests.get(url, headers=headers, params=params)
         else:
@@ -171,7 +171,16 @@ def fetch_data(
         if _next:
             next_url = _next["link"]
             # Get the next page response
-            r = requests.get(next_url, headers=headers)
+            try:
+                r = requests.get(next_url, headers=headers)
+            except http_requests.exceptions.HTTPError as e:
+                if e.response.status_code == 401:
+                    # refresh token
+                    api_key = hubspot_refresh_access_token(refresh_token)
+                    headers = _get_headers(api_key)
+                    r = requests.get(next_url, headers=headers)
+                else:
+                    raise
             _data = r.json()
         else:
             _data = None

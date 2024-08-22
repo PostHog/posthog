@@ -1,6 +1,5 @@
 from typing import Optional, cast
 
-
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext, get_breakdown_limit_for_context
 from posthog.hogql.parser import parse_expr, parse_select
@@ -13,8 +12,8 @@ from posthog.hogql_queries.insights.trends.aggregation_operations import (
     AggregationOperations,
 )
 from posthog.hogql_queries.insights.trends.breakdown import (
-    BREAKDOWN_OTHER_STRING_LABEL,
     BREAKDOWN_NULL_STRING_LABEL,
+    BREAKDOWN_OTHER_STRING_LABEL,
     Breakdown,
 )
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
@@ -30,8 +29,8 @@ from posthog.schema import (
     EventsNode,
     HogQLQueryModifiers,
     TrendsQuery,
-    Breakdown as BreakdownSchema,
 )
+from posthog.schema import Breakdown as BreakdownSchema
 
 
 class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
@@ -63,17 +62,14 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
     def build_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         breakdown = self.breakdown
-        events_query: ast.SelectQuery | ast.SelectUnionQuery
+        events_query = self._get_events_subquery(False, is_actors_query=False, breakdown=breakdown)
 
         if self._trends_display.is_total_value():
-            events_query = self._get_events_subquery(False, is_actors_query=False, breakdown=breakdown)
             wrapper_query = self._get_wrapper_query(events_query, breakdown=breakdown)
             return wrapper_query
-        else:
-            event_query = self._get_events_subquery(False, is_actors_query=False, breakdown=breakdown)
-            inner_select = self._inner_select_query(inner_query=event_query, breakdown=breakdown)
-            full_query = self._outer_select_query(inner_query=inner_select, breakdown=breakdown)
-            return full_query
+
+        inner_select = self._inner_select_query(inner_query=events_query, breakdown=breakdown)
+        return self._outer_select_query(inner_query=inner_select, breakdown=breakdown)
 
     def _get_wrapper_query(
         self, events_query: ast.SelectQuery, breakdown: Breakdown
@@ -81,12 +77,24 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         if not breakdown.enabled:
             return events_query
 
-        if breakdown.is_multiple_breakdown:
-            breakdown_inner_select = ast.Alias(
-                alias="breakdown_value", expr=ast.Array(exprs=cast(list[ast.Expr], breakdown.field_exprs))
-            )
-        else:
-            breakdown_inner_select = ast.Alias(alias="breakdown_value", expr=breakdown.field_exprs[0])
+        inner_query = cast(
+            ast.SelectQuery,
+            parse_select(
+                """
+                SELECT
+                    count as total,
+                    breakdown_value as breakdown_value,
+                    row_number() OVER (ORDER BY total DESC) as row_number
+                FROM {events_query}
+                ORDER BY
+                    total DESC,
+                    breakdown_value ASC
+                """,
+                placeholders={
+                    "events_query": self._inner_select_query(inner_query=events_query, breakdown=breakdown),
+                },
+            ),
+        )
 
         return parse_select(
             """
@@ -94,13 +102,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 SUM(total) AS total,
                 {breakdown_select}
             FROM
-                (
-                    SELECT
-                        total,
-                        {breakdown_inner_select},
-                        row_number() OVER (ORDER BY total DESC) as row_number
-                    FROM {events_query}
-                )
+                {inner_query}
             WHERE {breakdown_filter}
             GROUP BY breakdown_value
             ORDER BY
@@ -112,7 +114,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 "breakdown_select": self._breakdown_outer_query_select(
                     breakdown, breakdown_limit=self._get_breakdown_limit() + 1
                 ),
-                "breakdown_inner_select": breakdown_inner_select,
+                "inner_query": inner_query,
                 "events_query": events_query,
                 "breakdown_filter": self._breakdown_outer_query_filter(breakdown),
                 "breakdown_order_by": self._breakdown_query_order_by(breakdown),
@@ -179,16 +181,9 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             ),
         )
 
-        # If it's total value, we should order the results as there's no outer query to do the ordering
         if self._trends_display.is_total_value():
-            default_query.order_by = [ast.OrderExpr(expr=parse_expr("1"), order="DESC")]
-            if breakdown.enabled:
-                if breakdown.is_multiple_breakdown:
-                    default_query.order_by.extend(
-                        [ast.OrderExpr(expr=field, order="DESC") for field in breakdown.field_exprs]
-                    )
-                else:
-                    default_query.order_by.append(ast.OrderExpr(expr=breakdown.field_exprs[0], order="DESC"))
+            if not breakdown.enabled:
+                default_query.order_by = [ast.OrderExpr(expr=parse_expr("1"), order="DESC")]
         else:
             # For cumulative unique users or groups, we want to count each user or group once per query, not per day
             if (
@@ -210,8 +205,12 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         ) or no_modifications is True:
             return default_query
         # Both breakdowns and complex series aggregation
-        elif breakdown.enabled and self._aggregation_operation.requires_query_orchestration():
-            orchestrator = self._aggregation_operation.get_query_orchestrator(
+        elif (
+            breakdown.enabled
+            and self._aggregation_operation.requires_query_orchestration()
+            and not self._aggregation_operation.is_first_time_ever_math()
+        ):
+            orchestrator = self._aggregation_operation.get_actors_query_orchestrator(
                 events_where_clause=events_filter,
                 sample_value=self._sample_value(),
             )
@@ -223,13 +222,22 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             orchestrator.inner_select_query_builder.extend_group_by(breakdown.field_exprs)
 
             orchestrator.parent_select_query_builder.extend_select(breakdown.alias_exprs)
-
             if (
                 self._aggregation_operation.is_total_value
                 and not self._aggregation_operation.is_count_per_actor_variant()
             ):
                 orchestrator.parent_select_query_builder.extend_group_by(breakdown.field_exprs)
 
+            return orchestrator.build()
+        elif breakdown.enabled and self._aggregation_operation.requires_query_orchestration():
+            orchestrator = self._aggregation_operation.get_first_time_math_query_orchestrator(
+                events_where_clause=events_filter,
+                sample_value=self._sample_value(),
+                event_name_filter=self._event_or_action_where_expr(),
+            )
+            orchestrator.events_query_builder.extend_select(breakdown.column_exprs, aggregate=True)
+            orchestrator.parent_query_builder.extend_select(breakdown.alias_exprs)
+            orchestrator.parent_query_builder.extend_group_by(breakdown.field_exprs)
             return orchestrator.build()
         # Breakdowns and session duration math property
         elif breakdown.enabled and self._aggregation_operation.aggregating_on_session_duration():
@@ -285,8 +293,17 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
             return wrapper
         # Just complex series aggregation
+        elif (
+            self._aggregation_operation.requires_query_orchestration()
+            and self._aggregation_operation.is_first_time_ever_math()
+        ):
+            return self._aggregation_operation.get_first_time_math_query_orchestrator(
+                events_where_clause=events_filter,
+                sample_value=self._sample_value(),
+                event_name_filter=self._event_or_action_where_expr(),
+            ).build()
         elif self._aggregation_operation.requires_query_orchestration():
-            return self._aggregation_operation.get_query_orchestrator(
+            return self._aggregation_operation.get_actors_query_orchestrator(
                 events_where_clause=events_filter,
                 sample_value=self._sample_value(),
             ).build()
@@ -459,176 +476,185 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             query.order_by.append(ast.OrderExpr(expr=ast.Field(chain=["day_start"]), order="ASC"))
 
         if breakdown.enabled:
-            assert self.query.breakdownFilter is not None  # type checking
-
-            if breakdown.is_histogram_breakdown:
-                query.ctes = {
-                    "min_max": ast.CTE(
-                        name="min_max",
-                        expr=self._get_events_subquery(
-                            no_modifications=False, is_actors_query=False, breakdown=breakdown
-                        ),
-                        cte_type="subquery",
-                    )
-                }
-
-                if breakdown.is_multiple_breakdown:
-                    breakdown_aliases = [
-                        {
-                            "alias": alias,
-                            "histogram_bin_count": breakdown_schema.histogram_bin_count,
-                        }
-                        for breakdown_schema, alias in zip(
-                            cast(list[BreakdownSchema], self.query.breakdownFilter.breakdowns),
-                            breakdown.multiple_breakdowns_aliases,
-                        )
-                    ]
-                else:
-                    filter_bin_count = cast(int, self.query.breakdownFilter.breakdown_histogram_bin_count)
-
-                    breakdown_aliases = [
-                        {
-                            "alias": breakdown.breakdown_alias,
-                            "histogram_bin_count": filter_bin_count,
-                        }
-                    ]
-
-                breakdown_aliases_with_histograms = [
-                    breakdown_alias
-                    for breakdown_alias in breakdown_aliases
-                    if isinstance(breakdown_alias.get("histogram_bin_count"), int)
-                ]
-
-                query.select.extend(
-                    [
-                        # Using arrays would be more efficient here, _but_ only if there's low cardinality in breakdown_values
-                        # If cardinality is high it'd blow up memory
-                        # Clickhouse is reasonably clever not rereading the same data
-                        parse_expr(
-                            "(select {max} from min_max) as max_nums",
-                            placeholders={
-                                "max": ast.Array(
-                                    exprs=[
-                                        ast.Call(name="max", args=[ast.Field(chain=[histogram_breakdown["alias"]])])
-                                        for histogram_breakdown in breakdown_aliases_with_histograms
-                                    ]
-                                )
-                            },
-                        ),
-                        parse_expr(
-                            "(select {min} from min_max) as min_nums",
-                            placeholders={
-                                "min": ast.Array(
-                                    exprs=[
-                                        ast.Call(name="min", args=[ast.Field(chain=[histogram_breakdown["alias"]])])
-                                        for histogram_breakdown in breakdown_aliases_with_histograms
-                                    ]
-                                )
-                            },
-                        ),
-                        parse_expr(
-                            "arrayMap((max_num, min_num) -> max_num - min_num, arrayZip(max_nums, min_nums)) as diff"
-                        ),
-                        ast.Alias(
-                            alias="bins",
-                            expr=ast.Array(
-                                exprs=[
-                                    ast.Constant(value=alias["histogram_bin_count"])
-                                    for alias in breakdown_aliases_with_histograms
-                                ]
-                            ),
-                        ),
-                        parse_expr(
-                            """
-                                arrayMap(
-                                    i -> arrayMap(x -> [
-                                            ((diff[i] / bins[i]) * x) + min_nums[i],
-                                            ((diff[i] / bins[i]) * (x + 1)) + min_nums[i] + if(x + 1 = bins[i], 0.01, 0)
-                                        ],
-                                        range(bins[i])
-                                    ),
-                                    range(1, {breakdown_count})
-                                ) as buckets
-                            """,
-                            placeholders={
-                                "breakdown_count": ast.Constant(value=len(breakdown_aliases_with_histograms) + 1),
-                            },
-                        ),
-                    ]
-                )
-
-                bucketed_breakdowns: list[ast.Expr] = []
-                for breakdown_alias in breakdown_aliases:
-                    if not isinstance(breakdown_alias.get("histogram_bin_count"), int):
-                        bucketed_breakdowns.append(ast.Field(chain=[breakdown_alias["alias"]]))
-                    else:
-                        alias_to_index = {
-                            breakdown_alias["alias"]: idx
-                            for idx, breakdown_alias in enumerate(breakdown_aliases_with_histograms)
-                        }
-
-                        filter_expr = parse_expr(
-                            """
-                                arrayFilter(
-                                    x -> x[1] <= {alias} and {alias} < x[2],
-                                    buckets[{bucket_index}]
-                                )[1]
-                            """,
-                            placeholders={
-                                "alias": ast.Field(chain=[breakdown_alias["alias"]]),
-                                "bucket_index": ast.Constant(value=alias_to_index[breakdown_alias["alias"]] + 1),
-                            },
-                        )
-
-                        bucketed_breakdowns.append(
-                            parse_expr(
-                                """
-                                    empty({filter}) ? {nil} : {normalized_value}
-                                """,
-                                placeholders={
-                                    "nil": ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
-                                    "filter": filter_expr,
-                                    "normalized_value": breakdown.get_replace_null_values_transform(filter_expr),
-                                },
-                            )
-                        )
-
-                breakdown_array = ast.Array(exprs=bucketed_breakdowns)
-
-                query.select.append(
-                    ast.Alias(
-                        alias="breakdown_value",
-                        expr=breakdown_array
-                        if breakdown.is_multiple_breakdown
-                        else parse_expr("{arr}[1]", placeholders={"arr": breakdown_array}),
-                    )
-                )
-
-                query.group_by.append(ast.Field(chain=["breakdown_value"]))
-            elif breakdown.is_multiple_breakdown:
-                breakdowns_list: list[ast.Expr] = []
-                for alias in breakdown.multiple_breakdowns_aliases:
-                    breakdowns_list.append(
-                        ast.Call(
-                            name="ifNull",
-                            args=[
-                                ast.Call(name="toString", args=[ast.Field(chain=[alias])]),
-                                ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
-                            ],
-                        )
-                    )
-                    query.group_by.append(ast.Field(chain=[alias]))
-                query.select.append(ast.Alias(alias="breakdown_value", expr=ast.Array(exprs=breakdowns_list)))
-            else:
-                query.select.append(ast.Field(chain=[breakdown.breakdown_alias]))
-                query.group_by.append(ast.Field(chain=[breakdown.breakdown_alias]))
-
-            query.order_by.append(ast.OrderExpr(expr=ast.Field(chain=["breakdown_value"]), order="ASC"))
+            query = self._inner_breakdown_subquery(query, breakdown)
 
         if self._trends_display.should_wrap_inner_query():
             query = self._trends_display.wrap_inner_query(query, breakdown.enabled)
             if breakdown.enabled:
                 query.select.append(ast.Field(chain=["breakdown_value"]))
+
+        return query
+
+    def _inner_breakdown_subquery(self, query: ast.SelectQuery, breakdown: Breakdown) -> ast.SelectQuery:
+        assert self.query.breakdownFilter is not None  # type checking
+
+        if not query.group_by:
+            query.group_by = []
+
+        if not query.order_by:
+            query.order_by = []
+
+        if breakdown.is_histogram_breakdown:
+            query.ctes = {
+                "min_max": ast.CTE(
+                    name="min_max",
+                    expr=self._get_events_subquery(no_modifications=False, is_actors_query=False, breakdown=breakdown),
+                    cte_type="subquery",
+                )
+            }
+
+            if breakdown.is_multiple_breakdown:
+                breakdown_aliases = [
+                    {
+                        "alias": alias,
+                        "histogram_bin_count": breakdown_schema.histogram_bin_count,
+                    }
+                    for breakdown_schema, alias in zip(
+                        cast(list[BreakdownSchema], self.query.breakdownFilter.breakdowns),
+                        breakdown.multiple_breakdowns_aliases,
+                    )
+                ]
+            else:
+                filter_bin_count = cast(int, self.query.breakdownFilter.breakdown_histogram_bin_count)
+
+                breakdown_aliases = [
+                    {
+                        "alias": breakdown.breakdown_alias,
+                        "histogram_bin_count": filter_bin_count,
+                    }
+                ]
+
+            breakdown_aliases_with_histograms = [
+                breakdown_alias
+                for breakdown_alias in breakdown_aliases
+                if isinstance(breakdown_alias.get("histogram_bin_count"), int)
+            ]
+
+            query.select.extend(
+                [
+                    # Using arrays would be more efficient here, _but_ only if there's low cardinality in breakdown_values
+                    # If cardinality is high it'd blow up memory
+                    # Clickhouse is reasonably clever not rereading the same data
+                    parse_expr(
+                        "(select {max} from min_max) as max_nums",
+                        placeholders={
+                            "max": ast.Array(
+                                exprs=[
+                                    ast.Call(name="max", args=[ast.Field(chain=[histogram_breakdown["alias"]])])
+                                    for histogram_breakdown in breakdown_aliases_with_histograms
+                                ]
+                            )
+                        },
+                    ),
+                    parse_expr(
+                        "(select {min} from min_max) as min_nums",
+                        placeholders={
+                            "min": ast.Array(
+                                exprs=[
+                                    ast.Call(name="min", args=[ast.Field(chain=[histogram_breakdown["alias"]])])
+                                    for histogram_breakdown in breakdown_aliases_with_histograms
+                                ]
+                            )
+                        },
+                    ),
+                    parse_expr(
+                        "arrayMap((max_num, min_num) -> max_num - min_num, arrayZip(max_nums, min_nums)) as diff"
+                    ),
+                    ast.Alias(
+                        alias="bins",
+                        expr=ast.Array(
+                            exprs=[
+                                ast.Constant(value=alias["histogram_bin_count"])
+                                for alias in breakdown_aliases_with_histograms
+                            ]
+                        ),
+                    ),
+                    parse_expr(
+                        """
+                            arrayMap(
+                                i -> arrayMap(x -> [
+                                        ((diff[i] / bins[i]) * x) + min_nums[i],
+                                        ((diff[i] / bins[i]) * (x + 1)) + min_nums[i] + if(x + 1 = bins[i], 0.01, 0)
+                                    ],
+                                    range(bins[i])
+                                ),
+                                range(1, {breakdown_count})
+                            ) as buckets
+                        """,
+                        placeholders={
+                            "breakdown_count": ast.Constant(value=len(breakdown_aliases_with_histograms) + 1),
+                        },
+                    ),
+                ]
+            )
+
+            bucketed_breakdowns: list[ast.Expr] = []
+            for breakdown_alias in breakdown_aliases:
+                if not isinstance(breakdown_alias.get("histogram_bin_count"), int):
+                    bucketed_breakdowns.append(ast.Field(chain=[breakdown_alias["alias"]]))
+                else:
+                    alias_to_index = {
+                        breakdown_alias["alias"]: idx
+                        for idx, breakdown_alias in enumerate(breakdown_aliases_with_histograms)
+                    }
+
+                    filter_expr = parse_expr(
+                        """
+                            arrayFilter(
+                                x -> x[1] <= {alias} and {alias} < x[2],
+                                buckets[{bucket_index}]
+                            )[1]
+                        """,
+                        placeholders={
+                            "alias": ast.Field(chain=[breakdown_alias["alias"]]),
+                            "bucket_index": ast.Constant(value=alias_to_index[breakdown_alias["alias"]] + 1),
+                        },
+                    )
+
+                    bucketed_breakdowns.append(
+                        parse_expr(
+                            """
+                                empty({filter}) ? {nil} : {normalized_value}
+                            """,
+                            placeholders={
+                                "nil": ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
+                                "filter": filter_expr,
+                                "normalized_value": breakdown.get_replace_null_values_transform(filter_expr),
+                            },
+                        )
+                    )
+
+            breakdown_array = ast.Array(exprs=bucketed_breakdowns)
+
+            query.select.append(
+                ast.Alias(
+                    alias="breakdown_value",
+                    expr=breakdown_array
+                    if breakdown.is_multiple_breakdown
+                    else parse_expr("{arr}[1]", placeholders={"arr": breakdown_array}),
+                )
+            )
+
+            query.group_by.append(ast.Field(chain=["breakdown_value"]))
+        elif breakdown.is_multiple_breakdown:
+            breakdowns_list: list[ast.Expr] = []
+            for alias in breakdown.multiple_breakdowns_aliases:
+                breakdowns_list.append(
+                    ast.Call(
+                        name="ifNull",
+                        args=[
+                            ast.Call(name="toString", args=[ast.Field(chain=[alias])]),
+                            ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
+                        ],
+                    )
+                )
+                query.group_by.append(ast.Field(chain=[alias]))
+            query.select.append(ast.Alias(alias="breakdown_value", expr=ast.Array(exprs=breakdowns_list)))
+        else:
+            query.select.append(ast.Field(chain=[breakdown.breakdown_alias]))
+            query.group_by.append(ast.Field(chain=[breakdown.breakdown_alias]))
+
+        query.order_by.append(ast.OrderExpr(expr=ast.Field(chain=["breakdown_value"]), order="ASC"))
 
         return query
 
@@ -655,14 +681,11 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 ]
             )
 
-        # Series
-        if series_event_name(self.series) is not None:
-            filters.append(
-                parse_expr(
-                    "event = {event}",
-                    placeholders={"event": ast.Constant(value=series_event_name(self.series))},
-                )
-            )
+        # Filter by event or action name
+        if not self._aggregation_operation.is_first_time_ever_math():
+            event_or_action = self._event_or_action_where_expr()
+            if event_or_action is not None:
+                filters.append(event_or_action)
 
         # Filter Test Accounts
         if (
@@ -680,15 +703,6 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         # Series Filters
         if series.properties is not None and series.properties != []:
             filters.append(property_to_expr(series.properties, self.team))
-
-        # Actions
-        if isinstance(series, ActionsNode):
-            try:
-                action = Action.objects.get(pk=int(series.id), team=self.team)
-                filters.append(action_to_expr(action))
-            except Action.DoesNotExist:
-                # If an action doesn't exist, we want to return no events
-                filters.append(parse_expr("1 = 2"))
 
         # Breakdown
         if not ignore_breakdowns and breakdown is not None:
@@ -711,6 +725,25 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             return ast.Constant(value=True)
 
         return ast.And(exprs=filters)
+
+    def _event_or_action_where_expr(self) -> ast.Expr | None:
+        # Event name
+        if series_event_name(self.series) is not None:
+            return parse_expr(
+                "event = {event}",
+                placeholders={"event": ast.Constant(value=series_event_name(self.series))},
+            )
+
+        # Actions
+        if isinstance(self.series, ActionsNode):
+            try:
+                action = Action.objects.get(pk=int(self.series.id), team=self.team)
+                return action_to_expr(action)
+            except Action.DoesNotExist:
+                # If an action doesn't exist, we want to return no events
+                return parse_expr("1 = 2")
+
+        return None
 
     def _sample_value(self) -> ast.RatioExpr:
         if self.query.samplingFactor is None:
@@ -776,9 +809,9 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
     def _breakdown_outer_query_select(self, breakdown: Breakdown, breakdown_limit: int | None = None) -> ast.Expr:
         breakdown_limit_expr = ast.Constant(value=breakdown_limit or self._get_breakdown_limit())
-        other_label_expr = ast.Constant(
-            value=None if breakdown.hide_other_aggregation else BREAKDOWN_OTHER_STRING_LABEL
-        )
+        # We always add the "other" aggregation to tell if we truncated the results
+        # It is then removed later
+        other_label_expr = ast.Constant(value=BREAKDOWN_OTHER_STRING_LABEL)
 
         if breakdown.is_multiple_breakdown:
             return parse_expr(

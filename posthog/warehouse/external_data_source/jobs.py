@@ -13,6 +13,7 @@ def create_external_data_job(
     external_data_source_id: UUID,
     external_data_schema_id: UUID,
     workflow_id: str,
+    workflow_run_id: str,
     team_id: int,
 ) -> ExternalDataJob:
     job = ExternalDataJob.objects.create(
@@ -22,6 +23,7 @@ def create_external_data_job(
         status=ExternalDataJob.Status.RUNNING,
         rows_synced=0,
         workflow_id=workflow_id,
+        workflow_run_id=workflow_run_id,
     )
 
     return job

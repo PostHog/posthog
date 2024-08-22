@@ -8,6 +8,7 @@ import { Members } from './organization/Members'
 import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
 import { OrganizationEmailPreferences } from './organization/OrgEmailPreferences'
+import { OrganizationLogo } from './organization/OrgLogo'
 import { PermissionsGrid } from './organization/Permissions/PermissionsGrid'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import {
@@ -22,6 +23,7 @@ import { HeatmapsSettings } from './project/HeatmapsSettings'
 import { IPAllowListInfo } from './project/IPAllowListInfo'
 import { IPCapture } from './project/IPCapture'
 import { ManagedReverseProxy } from './project/ManagedReverseProxy'
+import { OtherIntegrations } from './project/OtherIntegrations'
 import { PathCleaningFiltersConfig } from './project/PathCleaningFiltersConfig'
 import { PersonDisplayNameProperties } from './project/PersonDisplayNameProperties'
 import { ProjectAccessControl } from './project/ProjectAccessControl'
@@ -110,7 +112,6 @@ export const SettingsMap: SettingSection[] = [
                 id: 'web-vitals-autocapture',
                 title: 'Web vitals autocapture',
                 component: <WebVitalsAutocaptureSettings />,
-                flag: 'WEB_VITALS_AUTOCAPTURE',
             },
             {
                 id: 'autocapture-data-attributes',
@@ -261,6 +262,11 @@ export const SettingsMap: SettingSection[] = [
                 component: <SlackIntegration />,
             },
             {
+                id: 'integration-other',
+                title: 'Other integrations',
+                component: <OtherIntegrations />,
+            },
+            {
                 id: 'integration-ip-allowlist',
                 title: 'Static IP addresses',
                 component: <IPAllowListInfo />,
@@ -302,6 +308,11 @@ export const SettingsMap: SettingSection[] = [
                 id: 'organization-display-name',
                 title: 'Display name',
                 component: <OrganizationDisplayName />,
+            },
+            {
+                id: 'organization-logo',
+                title: 'Logo',
+                component: <OrganizationLogo />,
             },
         ],
     },

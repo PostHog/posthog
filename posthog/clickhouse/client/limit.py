@@ -11,7 +11,7 @@ from posthog import redis
 CONCURRENT_TASKS_LIMIT_EXCEEDED_COUNTER = Counter(
     "posthog_celery_task_concurrency_limit_exceeded",
     "Number of times a Celery task exceeded the concurrency limit",
-    ["task_name", "limit", "key"],
+    ["task_name", "limit"],
 )
 
 # Lua script for atomic check, remove expired if limit hit, and increment with TTL
@@ -64,9 +64,7 @@ def limit_concurrency(max_concurrent_tasks: int, key: Optional[Callable] = None,
                 redis_client.eval(lua_script, 1, running_tasks_key, current_time, task_id, max_concurrent_tasks, ttl)
                 == 0
             ):
-                CONCURRENT_TASKS_LIMIT_EXCEEDED_COUNTER.labels(
-                    task_name=task_name, limit=max_concurrent_tasks, key=dynamic_key
-                ).inc()
+                CONCURRENT_TASKS_LIMIT_EXCEEDED_COUNTER.labels(task_name=task_name, limit=max_concurrent_tasks).inc()
 
                 raise CeleryConcurrencyLimitExceeded(
                     f"Exceeded maximum concurrent tasks limit: {max_concurrent_tasks} for key: {dynamic_key}"

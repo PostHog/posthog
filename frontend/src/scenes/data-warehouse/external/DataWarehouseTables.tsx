@@ -1,9 +1,10 @@
-import { IconBrackets, IconChevronDown, IconDatabase, IconGear } from '@posthog/icons'
+import { IconBrackets, IconDatabase } from '@posthog/icons'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { clsx } from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { DatabaseTableTree, TreeItem } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useState } from 'react'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -11,26 +12,19 @@ import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
 import { DatabaseSchemaTable } from '~/queries/schema'
+import { InsightLogicProps } from '~/types'
 
+import { dataWarehouseSceneLogic } from '../settings/dataWarehouseSceneLogic'
 import { viewLinkLogic } from '../viewLinkLogic'
 import { ViewLinkModal } from '../ViewLinkModal'
-import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 import { DeleteTableModal, TableData } from './TableData'
 
-export const DataWarehouseTables = (): JSX.Element => {
-    // insightLogic
-    const logic = insightLogic({
-        dashboardItemId: 'new',
-        cachedInsight: null,
-    })
-    const { insightProps } = useValues(logic)
-    // insightDataLogic
-    const { query } = useValues(
-        insightDataLogic({
-            ...insightProps,
-        })
-    )
+interface DataWarehousetTablesProps {
+    insightProps: InsightLogicProps
+}
 
+export const DataWarehouseTables = ({ insightProps }: DataWarehousetTablesProps): JSX.Element => {
+    const { query } = useValues(insightDataLogic(insightProps))
     const { setQuery: setInsightQuery } = useActions(insightDataLogic(insightProps))
 
     return (
@@ -99,6 +93,15 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
         <>
             <LemonButton
                 onClick={() => {
+                    void copyToClipboard(table.name, table.name)
+                }}
+                fullWidth
+                data-attr="schema-list-item-copy"
+            >
+                Copy table name
+            </LemonButton>
+            <LemonButton
+                onClick={() => {
                     selectRow(table)
                     toggleSchemaModal()
                 }}
@@ -120,7 +123,7 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
             {table.type == 'view' && (
                 <LemonButton
                     onClick={() => {
-                        router.actions.push(urls.dataWarehouseView(table.id, table.query))
+                        router.actions.push(urls.dataWarehouseView(table.id))
                     }}
                     data-attr="schema-list-item-edit"
                     fullWidth
@@ -225,43 +228,16 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
     return (
         <div
             className={clsx(
-                `bg-bg-light space-y-px rounded border p-2 overflow-y-auto max-h-screen`,
-                !collapsed ? 'min-w-80 flex-1' : 'flex-0'
+                `bg-bg-light space-y-px rounded border p-2 overflow-y-auto`,
+                !collapsed ? 'min-w-80 flex-1' : ''
             )}
         >
             {collapsed ? (
                 <LemonButton icon={<IconDatabase />} onClick={() => setCollapsed(false)} />
             ) : (
                 <>
-                    <LemonButton
-                        size="xsmall"
-                        onClick={() => setCollapsed(true)}
-                        fullWidth
-                        sideIcon={
-                            <div className="flex flex-row gap-1">
-                                <LemonButton
-                                    onClick={(e) => {
-                                        e.stopPropagation()
-                                        router.actions.push(urls.dataWarehouseTable())
-                                    }}
-                                    type="primary"
-                                    size="xsmall"
-                                >
-                                    Link source
-                                </LemonButton>
-                                <LemonButton
-                                    size="xsmall"
-                                    type="primary"
-                                    icon={<IconGear />}
-                                    data-attr="new-data-warehouse-settings-link"
-                                    key="new-data-warehouse-settings-link"
-                                    onClick={() => router.actions.push(urls.dataWarehouseSettings())}
-                                />
-                                <IconChevronDown className="rotate-90 text-xl" />
-                            </div>
-                        }
-                    >
-                        <span className="uppercase text-muted-alt tracking-wider">Schemas</span>
+                    <LemonButton size="xsmall" onClick={() => setCollapsed(true)} fullWidth icon={<IconDatabase />}>
+                        <span className="uppercase text-muted-alt tracking-wider">Sources</span>
                     </LemonButton>
                     <DatabaseTableTree onSelectRow={selectRow} items={treeItems()} selectedRow={selectedRow} />
                 </>

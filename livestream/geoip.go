@@ -7,22 +7,26 @@ import (
 	"github.com/oschwald/maxminddb-golang"
 )
 
-type GeoLocator struct {
+type MaxMindLocator struct {
 	db *maxminddb.Reader
 }
 
-func NewGeoLocator(dbPath string) (*GeoLocator, error) {
+type GeoLocator interface {
+	Lookup(ipString string) (float64, float64, error)
+}
+
+func NewMaxMindGeoLocator(dbPath string) (*MaxMindLocator, error) {
 	db, err := maxminddb.Open(dbPath)
 	if err != nil {
 		return nil, err
 	}
 
-	return &GeoLocator{
+	return &MaxMindLocator{
 		db: db,
 	}, nil
 }
 
-func (g *GeoLocator) Lookup(ipString string) (float64, float64, error) {
+func (g *MaxMindLocator) Lookup(ipString string) (float64, float64, error) {
 	ip := net.ParseIP(ipString)
 	if ip == nil {
 		return 0, 0, errors.New("invalid IP address")

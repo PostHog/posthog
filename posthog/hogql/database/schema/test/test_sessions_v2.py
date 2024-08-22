@@ -1,3 +1,4 @@
+import uuid
 from time import time_ns
 
 import pytest
@@ -24,7 +25,29 @@ class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
             modifiers=modifiers,
         )
 
-    def test_select_star(self):
+    def test_select_star_from_raw_sessions(self):
+        session_id = str(uuid7())
+
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="d1",
+            properties={"$current_url": "https://example.com", "$session_id": session_id},
+        )
+
+        response = self.__execute(
+            parse_select(
+                "select * from raw_sessions",
+                placeholders={"session_id": ast.Constant(value=session_id)},
+            ),
+        )
+
+        self.assertEqual(
+            len(response.results or []),
+            1,
+        )
+
+    def test_select_star_from_sessions(self):
         session_id = str(uuid7())
 
         _create_event(
@@ -183,6 +206,108 @@ class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
         [row1, row2] = response.results or []
         self.assertEqual(row1, (p1.uuid, "source1"))
         self.assertEqual(row2, (p2.uuid, "source2"))
+
+    def test_empty_counts(self):
+        s1 = str(uuid7("2024-07-17"))
+        d1 = "d1"
+        _create_event(
+            event="other_event",
+            team=self.team,
+            distinct_id=d1,
+            properties={"$session_id": s1},
+            timestamp="2024-07-17",
+        )
+
+        response = self.__execute(
+            parse_select(
+                "select uniqMerge(pageview_uniq), uniqMerge(autocapture_uniq), uniqMerge(screen_uniq) from raw_sessions",
+            ),
+        )
+        self.assertEqual(response.results or [], [(0, 0, 0)])
+
+        response = self.__execute(
+            parse_select(
+                "select $pageview_count, $autocapture_count, $screen_count from sessions where id = {session_id}",
+                placeholders={"session_id": ast.Constant(value=s1)},
+            ),
+        )
+        self.assertEqual(response.results or [], [(0, 0, 0)])
+
+    def test_counts(self):
+        s1 = str(uuid7())
+        d1 = "d1"
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id=d1,
+            properties={"$session_id": s1},
+            timestamp="2023-12-02",
+        )
+        for _ in range(2):
+            _create_event(
+                event="$autocapture",
+                team=self.team,
+                distinct_id=d1,
+                properties={"$session_id": s1},
+                timestamp="2023-12-02",
+            )
+        for _ in range(3):
+            _create_event(
+                event="$screen",
+                team=self.team,
+                distinct_id=d1,
+                properties={"$session_id": s1},
+                timestamp="2023-12-02",
+            )
+        response = self.__execute(
+            parse_select(
+                "select $pageview_count, $autocapture_count, $screen_count from sessions where id = {session_id}",
+                placeholders={"session_id": ast.Constant(value=s1)},
+            ),
+        )
+        self.assertEqual(response.results or [], [(1, 2, 3)])
+
+    def test_idempotent_event_counts(self):
+        s1 = str(uuid7())
+        d1 = "d1"
+        pageview_uuid = str(uuid.uuid4())
+        autocapture_uuid = str(uuid.uuid4())
+        screen_uuid = str(uuid.uuid4())
+
+        # simulate inserting the same event multiple times
+        for _ in range(5):
+            _create_event(
+                event="$pageview",
+                team=self.team,
+                distinct_id=d1,
+                properties={"$session_id": s1},
+                timestamp="2023-12-02",
+                event_uuid=pageview_uuid,
+            )
+            _create_event(
+                event="$autocapture",
+                team=self.team,
+                distinct_id=d1,
+                properties={"$session_id": s1},
+                timestamp="2023-12-02",
+                event_uuid=autocapture_uuid,
+            )
+            _create_event(
+                event="$screen",
+                team=self.team,
+                distinct_id=d1,
+                properties={"$session_id": s1},
+                timestamp="2023-12-02",
+                event_uuid=screen_uuid,
+            )
+
+        response = self.__execute(
+            parse_select(
+                "select $pageview_count, $autocapture_count, $screen_count from sessions where id = {session_id}",
+                placeholders={"session_id": ast.Constant(value=s1)},
+            ),
+        )
+        self.assertEqual(response.results or [], [(1, 1, 1)])
 
     def test_bounce_rate(self):
         time = time_ns() // (10**6)

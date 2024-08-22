@@ -31,6 +31,7 @@ export type LemonMenuItemLeaf =
       })
     | (LemonMenuItemBase & {
           to: string
+          disableClientSideRouting?: boolean
           targetBlank?: boolean
           items?: never
           keyboardShortcut?: KeyboardShortcut
@@ -38,6 +39,7 @@ export type LemonMenuItemLeaf =
     | (LemonMenuItemBase & {
           onClick: () => void
           to: string
+          disableClientSideRouting?: boolean
           targetBlank?: boolean
           items?: never
           keyboardShortcut?: KeyboardShortcut

@@ -1,11 +1,10 @@
-import { IconFilter, IconGear } from '@posthog/icons'
+import { IconGear } from '@posthog/icons'
 import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { Playlist, PlaylistSection } from 'lib/components/Playlist/Playlist'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconWithCount } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
@@ -14,7 +13,6 @@ import { urls } from 'scenes/urls'
 import { ReplayTabs, SessionRecordingType } from '~/types'
 
 import { RecordingsUniversalFilters } from '../filters/RecordingsUniversalFilters'
-import { SessionRecordingsFilters } from '../filters/SessionRecordingsFilters'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { SessionRecordingPreview } from './SessionRecordingPreview'
 import {
@@ -34,27 +32,14 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
     const {
         filters,
         pinnedRecordings,
-        totalFiltersCount,
-        useUniversalFiltering,
         matchingEventsMatchType,
         sessionRecordingsResponseLoading,
         otherRecordings,
         sessionSummaryLoading,
-        advancedFilters,
-        simpleFilters,
         activeSessionRecordingId,
         hasNext,
-        universalFilters,
     } = useValues(logic)
-    const {
-        maybeLoadSessionRecordings,
-        summarizeSession,
-        setSelectedRecordingId,
-        setAdvancedFilters,
-        setSimpleFilters,
-        resetFilters,
-        setUniversalFilters,
-    } = useActions(logic)
+    const { maybeLoadSessionRecordings, summarizeSession, setSelectedRecordingId, setFilters } = useActions(logic)
 
     const { featureFlags } = useValues(featureFlagLogic)
     const isTestingSaved = featureFlags[FEATURE_FLAGS.SAVED_NOT_PINNED] === 'test'
@@ -68,30 +53,6 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
 
     const onSummarizeClick = (recording: SessionRecordingType): void => {
         summarizeSession(recording.id)
-    }
-
-    if (!useUniversalFiltering) {
-        headerActions.push({
-            key: 'filters',
-            tooltip: 'Filter recordings',
-            content: (
-                <SessionRecordingsFilters
-                    advancedFilters={advancedFilters}
-                    simpleFilters={simpleFilters}
-                    setAdvancedFilters={setAdvancedFilters}
-                    setSimpleFilters={setSimpleFilters}
-                    hideSimpleFilters={props.hideSimpleFilters}
-                    showPropertyFilters={!props.personUUID}
-                    onReset={resetFilters}
-                />
-            ),
-            icon: (
-                <IconWithCount count={totalFiltersCount}>
-                    <IconFilter />
-                </IconWithCount>
-            ),
-            children: 'Filter',
-        })
     }
 
     headerActions.push({
@@ -146,13 +107,9 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
     return (
         <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
             <div className="h-full space-y-2">
-                {useUniversalFiltering && !notebookNode ? (
-                    <RecordingsUniversalFilters
-                        filters={universalFilters}
-                        setFilters={setUniversalFilters}
-                        className="border"
-                    />
-                ) : null}
+                {!notebookNode && (
+                    <RecordingsUniversalFilters filters={filters} setFilters={setFilters} className="border" />
+                )}
                 <Playlist
                     data-attr="session-recordings-playlist"
                     notebooksHref={urls.replay(ReplayTabs.Recent, filters)}
@@ -210,7 +167,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
 
 const ListEmptyState = (): JSX.Element => {
     const { filters, sessionRecordingsAPIErrored, unusableEventsInFilter } = useValues(sessionRecordingsPlaylistLogic)
-    const { setAdvancedFilters } = useActions(sessionRecordingsPlaylistLogic)
+    const { setFilters } = useActions(sessionRecordingsPlaylistLogic)
 
     return (
         <div className="p-3 text-sm text-muted-alt">
@@ -226,11 +183,7 @@ const ListEmptyState = (): JSX.Element => {
                             <LemonButton
                                 type="secondary"
                                 data-attr="expand-replay-listing-from-default-seven-days-to-twenty-one"
-                                onClick={() => {
-                                    setAdvancedFilters({
-                                        date_from: '-30d',
-                                    })
-                                }}
+                                onClick={() => setFilters({ date_from: '-30d' })}
                             >
                                 Search over the last 30 days
                             </LemonButton>

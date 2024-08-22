@@ -1,0 +1,41 @@
+DateTime(1234334543.0, 'UTC')
+2009-02-11T06:42:23.000Z
+1234334543
+-
+Date(2024, 5, 3)
+2024-05-03
+1714694400
+-
+DateTime(1714739696.0, 'UTC')
+2024-05-03T12:34:56.000Z
+1714739696
+------
+DateTime(1714739696.0, 'Europe/Brussels')
+2024-05-03T14:34:56.000+02:00
+-
+DateTime(1714739696.0, 'Europe/Tallinn')
+2024-05-03T15:34:56.000+03:00
+-
+DateTime(1714739696.0, 'America/New_York')
+2024-05-03T08:34:56.000-04:00
+------
+timestamp:                                 DateTime(1234334543.123, 'UTC')
+toString(timestamp):                       2009-02-11T06:42:23.123Z
+toInt(timestamp):                          1234334543
+toDateTime(toInt(timestamp)):              DateTime(1234334543.0, 'UTC')
+toInt(toDateTime(toInt(timestamp))):       1234334543
+toString(toDateTime(toInt(timestamp))):    2009-02-11T06:42:23.000Z
+toFloat(timestamp):                        1234334543.123
+toDateTime(toFloat(timestamp)):            DateTime(1234334543.123, 'UTC')
+toFloat(toDateTime(toFloat(timestamp))):   1234334543.123
+toString(toDateTime(toFloat(timestamp))):  2009-02-11T06:42:23.123Z
+------
+millisTs:                                  2009-02-11T06:42:23.123Z
+toString(millisTs):                        2009-02-11T06:42:23.123Z
+toInt(millisTs):                           1234334543
+toFloat(millisTs):                         1234334543.123
+toUnixTimestampMilli(millisTs):            1234334543123
+------
+Date(2024, 5, 3)
+2024-05-03
+19846

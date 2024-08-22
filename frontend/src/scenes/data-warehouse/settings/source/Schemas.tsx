@@ -11,7 +11,7 @@ import {
     Spinner,
     Tooltip,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { useEffect } from 'react'
 import { defaultQuery } from 'scenes/data-warehouse/utils'
@@ -24,12 +24,16 @@ import { dataWarehouseSettingsLogic } from '../dataWarehouseSettingsLogic'
 import { dataWarehouseSourcesTableSyncMethodModalLogic } from '../dataWarehouseSourcesTableSyncMethodModalLogic'
 import { dataWarehouseSourceSettingsLogic } from './dataWarehouseSourceSettingsLogic'
 
-export const Schemas = (): JSX.Element => {
-    const { source, sourceLoading } = useValues(dataWarehouseSourceSettingsLogic)
+interface SchemasProps {
+    id: string
+}
+
+export const Schemas = ({ id }: SchemasProps): JSX.Element => {
+    const { source, sourceLoading } = useValues(dataWarehouseSourceSettingsLogic({ id }))
     return (
-        <>
+        <BindLogic logic={dataWarehouseSourceSettingsLogic} props={{ id }}>
             <SchemaTable schemas={source?.schemas ?? []} isLoading={sourceLoading} />
-        </>
+        </BindLogic>
     )
 }
 
@@ -46,8 +50,7 @@ const StatusTagSetting = {
 }
 
 export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Element => {
-    const { reloadSchema, resyncSchema } = useActions(dataWarehouseSettingsLogic)
-    const { updateSchema } = useActions(dataWarehouseSourceSettingsLogic)
+    const { updateSchema, reloadSchema, resyncSchema } = useActions(dataWarehouseSourceSettingsLogic)
     const { schemaReloadingById } = useValues(dataWarehouseSettingsLogic)
 
     return (
@@ -55,6 +58,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
             <LemonTable
                 dataSource={schemas}
                 loading={isLoading}
+                disableTableWhileLoading={false}
                 columns={[
                     {
                         title: 'Schema Name',
@@ -70,14 +74,19 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                             return (
                                 <LemonSelect
                                     className="my-1"
-                                    value={schema.sync_frequency || 'day'}
+                                    value={schema.sync_frequency || '6hour'}
                                     onChange={(value) =>
                                         updateSchema({ ...schema, sync_frequency: value as DataWarehouseSyncInterval })
                                     }
                                     options={[
-                                        { value: 'day' as DataWarehouseSyncInterval, label: 'Daily' },
-                                        { value: 'week' as DataWarehouseSyncInterval, label: 'Weekly' },
-                                        { value: 'month' as DataWarehouseSyncInterval, label: 'Monthly' },
+                                        { value: '5min' as DataWarehouseSyncInterval, label: '5 mins' },
+                                        { value: '30min' as DataWarehouseSyncInterval, label: '30 mins' },
+                                        { value: '1hour' as DataWarehouseSyncInterval, label: '1 hour' },
+                                        { value: '6hour' as DataWarehouseSyncInterval, label: '6 hours' },
+                                        { value: '12hour' as DataWarehouseSyncInterval, label: '12 hours' },
+                                        { value: '24hour' as DataWarehouseSyncInterval, label: 'Daily' },
+                                        { value: '7day' as DataWarehouseSyncInterval, label: 'Weekly' },
+                                        { value: '30day' as DataWarehouseSyncInterval, label: 'Monthly' },
                                     ]}
                                 />
                             )
@@ -150,6 +159,12 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                                     </Link>
                                 )
                             }
+
+                            // Synced but no rows
+                            if (schema.status === 'Completed') {
+                                return <div>No rows to query</div>
+                            }
+
                             return <div>Not yet synced</div>
                         },
                     },
@@ -172,7 +187,16 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                         title: 'Rows Synced',
                         key: 'rows_synced',
                         render: function Render(_, schema) {
-                            return (schema.table?.row_count ?? 0).toLocaleString()
+                            if (schema.table) {
+                                return schema.table.row_count.toLocaleString()
+                            }
+
+                            // Synced but no rows
+                            if (schema.status === 'Completed') {
+                                return 0
+                            }
+
+                            return ''
                         },
                     },
                     {

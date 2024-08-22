@@ -1,8 +1,10 @@
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { getCoreFilterDefinition } from 'lib/taxonomy'
 import { pluralize } from 'lib/utils'
 
-import { InsightActorsQueryOptionsResponse } from '~/queries/schema'
+import { InsightActorsQuery, InsightActorsQueryOptionsResponse } from '~/queries/schema'
+import { isTrendsQuery } from '~/queries/utils'
 import { StepOrderValue } from '~/types'
 
 export const funnelTitle = (props: {
@@ -53,9 +55,29 @@ export const pathsTitle = (props: { mode: pathModes; label: string }): React.Rea
 }
 
 export const cleanedInsightActorsQueryOptions = (
-    insightActorsQueryOptions: InsightActorsQueryOptionsResponse | null
+    insightActorsQueryOptions: InsightActorsQueryOptionsResponse | null,
+    query: InsightActorsQuery
 ): [string, any[]][] => {
-    return Object.entries(insightActorsQueryOptions ?? {}).filter(([, value]) => {
+    const cleanedOptions = Object.entries(insightActorsQueryOptions ?? {}).filter(([, value]) => {
         return Array.isArray(value) && !!value.length
     })
+    const source = query?.source
+    const seriesNames = isTrendsQuery(source) ? source.series.map((s: any) => s.custom_name) : []
+    const cleanedOptionsWithAdjustedSeriesNames: [string, any[]][] = cleanedOptions.map(([key, value]) => {
+        if (key === 'series') {
+            return [
+                key,
+                value.map((v: any, index: number) => ({
+                    ...v,
+                    label:
+                        seriesNames[index] ??
+                        getCoreFilterDefinition(v.label, TaxonomicFilterGroupType.Events)?.label ??
+                        v.label,
+                })),
+            ]
+        }
+        return [key, value]
+    })
+
+    return cleanedOptionsWithAdjustedSeriesNames
 }

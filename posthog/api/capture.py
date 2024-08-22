@@ -1,3 +1,4 @@
+import dataclasses
 import json
 import re
 from random import random
@@ -82,6 +83,12 @@ EVENTS_DROPPED_OVER_QUOTA_COUNTER = Counter(
     "capture_events_dropped_over_quota",
     "Events dropped by capture due to quota-limiting, per resource_type and token.",
     labelnames=[LABEL_RESOURCE_TYPE, "token"],
+)
+
+EVENTS_REJECTED_OVER_QUOTA_COUNTER = Counter(
+    "capture_events_rejected_over_quota",
+    "Events rejected by capture due to quota-limiting, send a quota limiting signal to the client which stops sending us traffic.",
+    labelnames=[LABEL_RESOURCE_TYPE],
 )
 
 PARTITION_KEY_CAPACITY_EXCEEDED_COUNTER = Counter(
@@ -322,9 +329,16 @@ def drop_performance_events(events: list[Any]) -> list[Any]:
     return cleaned_list
 
 
-def drop_events_over_quota(token: str, events: list[Any]) -> list[Any]:
+@dataclasses.dataclass(frozen=True)
+class EventsOverQuotaResult:
+    events: list[Any]
+    events_were_limited: bool
+    recordings_were_limited: bool
+
+
+def drop_events_over_quota(token: str, events: list[Any]) -> EventsOverQuotaResult:
     if not settings.EE_AVAILABLE:
-        return events
+        return EventsOverQuotaResult(events, False, False)
 
     from ee.billing.quota_limiting import QuotaResource, list_limited_team_attributes
 
@@ -336,12 +350,15 @@ def drop_events_over_quota(token: str, events: list[Any]) -> list[Any]:
         QuotaResource.RECORDINGS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
     )
 
+    recordings_were_limited = False
+    events_were_limited = False
     for event in events:
         if event.get("event") in SESSION_RECORDING_EVENT_NAMES:
             EVENTS_RECEIVED_COUNTER.labels(resource_type="recordings").inc()
             if token in limited_tokens_recordings:
                 EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource_type="recordings", token=token).inc()
                 if settings.QUOTA_LIMITING_ENABLED:
+                    recordings_were_limited = True
                     continue
 
         else:
@@ -349,11 +366,14 @@ def drop_events_over_quota(token: str, events: list[Any]) -> list[Any]:
             if token in limited_tokens_events:
                 EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource_type="events", token=token).inc()
                 if settings.QUOTA_LIMITING_ENABLED:
+                    events_were_limited = True
                     continue
 
         results.append(event)
 
-    return results
+    return EventsOverQuotaResult(
+        results, events_were_limited=events_were_limited, recordings_were_limited=recordings_were_limited
+    )
 
 
 def lib_version_from_query_params(request) -> str:
@@ -461,8 +481,12 @@ def get_event(request):
         except Exception as e:
             capture_exception(e)
 
+        # we're not going to change the response for events
+        recordings_were_quota_limited = False
         try:
-            events = drop_events_over_quota(token, events)
+            events_over_quota_result = drop_events_over_quota(token, events)
+            events = events_over_quota_result.events
+            recordings_were_quota_limited = events_over_quota_result.recordings_were_limited
         except Exception as e:
             # NOTE: Whilst we are testing this code we want to track exceptions but allow the events through if anything goes wrong
             capture_exception(e)
@@ -637,10 +661,28 @@ def get_event(request):
             scope.set_tag("ph-team-token", token)
             capture_exception(exc, {"data": data})
         logger.exception("kafka_session_recording_produce_failure", exc_info=exc)
-        pass
+        return cors_response(
+            request,
+            generate_exception_response(
+                "capture",
+                "Unable to store recording snapshot. Please try again. If you are the owner of this app you can check the logs for further details.",
+                code="server_error",
+                type="server_error",
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            ),
+        )
 
     statsd.incr("posthog_cloud_raw_endpoint_success", tags={"endpoint": "capture"})
-    return cors_response(request, JsonResponse({"status": 1}))
+
+    response_body: dict[str, int | list[str]] = {"status": 1}
+    # if this has an unexpected effect we don't want it to have an unexpected effect on all clients at once,
+    # so we check if a random number if less than the given sample rate
+    # that means we can set SAMPLE_RATE to 0 to disable this and 1 to turn on for all clients
+    if recordings_were_quota_limited and random() < settings.RECORDINGS_QUOTA_LIMITING_RESPONSES_SAMPLE_RATE:
+        EVENTS_REJECTED_OVER_QUOTA_COUNTER.labels(resource_type="recordings").inc()
+        response_body["quota_limited"] = ["recordings"]
+
+    return cors_response(request, JsonResponse(response_body))
 
 
 def replace_with_warning(

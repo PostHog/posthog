@@ -1,7 +1,7 @@
 import 'chartjs-adapter-dayjs-3'
 
 import { LegendOptions } from 'chart.js'
-import { _DeepPartialObject } from 'chart.js/types/utils'
+import { DeepPartial } from 'chart.js/dist/types/utils'
 import ChartDataLabels from 'chartjs-plugin-datalabels'
 import ChartjsPluginStacked100, { ExtendedChartData } from 'chartjs-plugin-stacked100'
 import clsx from 'clsx'
@@ -22,7 +22,7 @@ import {
     TooltipModel,
     TooltipOptions,
 } from 'lib/Chart'
-import { getBarColorFromStatus, getGraphColors, getSeriesColor } from 'lib/colors'
+import { getBarColorFromStatus, getGraphColors, getTrendLikeSeriesColor } from 'lib/colors'
 import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
@@ -230,14 +230,13 @@ export interface LineGraphProps {
     labelGroupType: number | 'people' | 'none'
     trendsFilter?: TrendsFilter | null
     formula?: string | null
-    compare?: boolean | null
     showValuesOnSeries?: boolean | null
     showPercentStackView?: boolean | null
     supportsPercentStackView?: boolean
     hideAnnotations?: boolean
     hideXAxis?: boolean
     hideYAxis?: boolean
-    legend?: _DeepPartialObject<LegendOptions<ChartType>>
+    legend?: DeepPartial<LegendOptions<ChartType>>
     yAxisScaleType?: string | null
 }
 
@@ -263,7 +262,6 @@ export function LineGraph_({
     onClick,
     ['data-attr']: dataAttr,
     showPersonsModal = true,
-    compare = false,
     inSurveyView,
     isArea = false,
     incompletenessOffsetFromEnd = -1,
@@ -285,7 +283,7 @@ export function LineGraph_({
     const { aggregationLabel } = useValues(groupsModel)
     const { isDarkModeOn } = useValues(themeLogic)
 
-    const { insightProps, queryBasedInsight } = useValues(insightLogic)
+    const { insightProps, insight } = useValues(insightLogic)
     const { timezone, isTrends, breakdownFilter } = useValues(insightVizDataLogic(insightProps))
 
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -316,9 +314,15 @@ export function LineGraph_({
     }, [])
 
     function processDataset(dataset: ChartDataset<any>): ChartDataset<any> {
+        const isPrevious = !!dataset.compare && dataset.compare_label === 'previous'
+
         const mainColor = dataset?.status
             ? getBarColorFromStatus(dataset.status)
-            : getSeriesColor(dataset.id, compare && !isArea)
+            : getTrendLikeSeriesColor(
+                  // colorIndex is set for trends, seriesIndex is used for stickiness, index is used for retention
+                  dataset?.colorIndex ?? dataset.seriesIndex ?? dataset.index,
+                  isPrevious && !isArea
+              )
         const hoverColor = dataset?.status ? getBarColorFromStatus(dataset.status, true) : mainColor
         const areaBackgroundColor = hexToRGBA(mainColor, 0.5)
         const areaIncompletePattern = createPinstripePattern(areaBackgroundColor, isDarkModeOn)
@@ -390,7 +394,7 @@ export function LineGraph_({
             }
         }
 
-        datasets = datasets.map((dataset) => processDataset(dataset))
+        datasets = datasets.map(processDataset)
 
         const seriesNonZeroMax = Math.max(...datasets.flatMap((d) => d.data).filter((n) => !!n && n !== LOG_ZERO))
         const seriesNonZeroMin = Math.min(...datasets.flatMap((d) => d.data).filter((n) => !!n && n !== LOG_ZERO))
@@ -400,14 +404,13 @@ export function LineGraph_({
             font: {
                 family: '-apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"',
                 size: 12,
-                weight: '500',
+                weight: 'normal',
             },
         }
         const gridOptions: Partial<GridLineOptions> = {
             color: colors.axisLine as Color,
-            borderColor: colors.axisLine as Color,
             tickColor: colors.axisLine as Color,
-            borderDash: [4, 2],
+            tickBorderDash: [4, 2],
         }
 
         const tooltipOptions: Partial<TooltipOptions> = {
@@ -624,7 +627,7 @@ export function LineGraph_({
                                   padding: 10,
                                   font: {
                                       size: 14,
-                                      weight: '600',
+                                      weight: 'bold',
                                   },
                               }
                             : {}),
@@ -777,7 +780,7 @@ export function LineGraph_({
                     dates={datasets[0]?.days || []}
                     chartWidth={chartWidth}
                     chartHeight={chartHeight}
-                    insightNumericId={queryBasedInsight.id || 'new'}
+                    insightNumericId={insight.id || 'new'}
                 />
             ) : null}
         </div>

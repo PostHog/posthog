@@ -32,7 +32,8 @@
   WHERE team_id = 2
     AND cohort_id = 2
     AND version < 0
-    AND sign = 1 SETTINGS optimize_aggregation_in_order = 1
+    AND sign = 1 SETTINGS optimize_aggregation_in_order = 1,
+                          join_algorithm = 'auto'
   '''
 # ---
 # name: TestCohort.test_cohortpeople_with_not_in_cohort_operator
@@ -66,7 +67,8 @@
   WHERE team_id = 2
     AND cohort_id = 2
     AND version < 0
-    AND sign = 1 SETTINGS optimize_aggregation_in_order = 1
+    AND sign = 1 SETTINGS optimize_aggregation_in_order = 1,
+                          join_algorithm = 'auto'
   '''
 # ---
 # name: TestCohort.test_cohortpeople_with_not_in_cohort_operator.1
@@ -115,7 +117,8 @@
            HAVING max(is_deleted) = 0
            AND (((((NOT has(['something1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', ''))))))) SETTINGS optimize_aggregation_in_order = 1)) person ON person.person_id = behavior_query.person_id
      WHERE 1 = 1
-       AND ((((performed_event_condition_X_level_level_0_level_0_level_0_0)))) SETTINGS optimize_aggregation_in_order=1 ) as person
+       AND ((((performed_event_condition_X_level_level_0_level_0_level_0_0)))) SETTINGS optimize_aggregation_in_order = 1,
+                                                                                        join_algorithm = 'auto' ) as person
   UNION ALL
   SELECT person_id,
          cohort_id,
@@ -126,7 +129,8 @@
   WHERE team_id = 2
     AND cohort_id = 2
     AND version < 0
-    AND sign = 1 SETTINGS optimize_aggregation_in_order = 1
+    AND sign = 1 SETTINGS optimize_aggregation_in_order = 1,
+                          join_algorithm = 'auto'
   '''
 # ---
 # name: TestCohort.test_cohortpeople_with_not_in_cohort_operator_and_no_precalculation
@@ -181,7 +185,8 @@
                        HAVING max(is_deleted) = 0
                        AND (((((NOT has(['something1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', ''))))))) SETTINGS optimize_aggregation_in_order = 1)) person ON person.person_id = behavior_query.person_id
                  WHERE 1 = 1
-                   AND ((((performed_event_condition_X_level_level_0_level_0_level_0_0)))) SETTINGS optimize_aggregation_in_order=1 ) ))
+                   AND ((((performed_event_condition_X_level_level_0_level_0_level_0_0)))) SETTINGS optimize_aggregation_in_order = 1,
+                                                                                                    join_algorithm = 'auto' ) ))
   '''
 # ---
 # name: TestCohort.test_cohortpeople_with_not_in_cohort_operator_for_behavioural_cohorts
@@ -211,7 +216,8 @@
           AND event IN ['signup']
         GROUP BY person_id) behavior_query
      WHERE 1 = 1
-       AND (((first_time_condition_X_level_level_0_level_0_0))) SETTINGS optimize_aggregation_in_order=1 ) as person
+       AND (((first_time_condition_X_level_level_0_level_0_0))) SETTINGS optimize_aggregation_in_order = 1,
+                                                                         join_algorithm = 'auto' ) as person
   UNION ALL
   SELECT person_id,
          cohort_id,
@@ -222,7 +228,8 @@
   WHERE team_id = 2
     AND cohort_id = 2
     AND version < 0
-    AND sign = 1 SETTINGS optimize_aggregation_in_order = 1
+    AND sign = 1 SETTINGS optimize_aggregation_in_order = 1,
+                          join_algorithm = 'auto'
   '''
 # ---
 # name: TestCohort.test_cohortpeople_with_not_in_cohort_operator_for_behavioural_cohorts.1
@@ -257,7 +264,8 @@
         GROUP BY person_id) behavior_query
      WHERE 1 = 1
        AND ((((performed_event_condition_X_level_level_0_level_0_level_0_0))
-             AND ((((NOT first_time_condition_X_level_level_0_level_1_level_0_level_0_level_0_0)))))) SETTINGS optimize_aggregation_in_order=1 ) as person
+             AND ((((NOT first_time_condition_X_level_level_0_level_1_level_0_level_0_level_0_0)))))) SETTINGS optimize_aggregation_in_order = 1,
+                                                                                                               join_algorithm = 'auto' ) as person
   UNION ALL
   SELECT person_id,
          cohort_id,
@@ -268,7 +276,8 @@
   WHERE team_id = 2
     AND cohort_id = 2
     AND version < 0
-    AND sign = 1 SETTINGS optimize_aggregation_in_order = 1
+    AND sign = 1 SETTINGS optimize_aggregation_in_order = 1,
+                          join_algorithm = 'auto'
   '''
 # ---
 # name: TestCohort.test_static_cohort_precalculated

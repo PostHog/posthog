@@ -6,7 +6,10 @@ from celery.canvas import Signature
 from celery.schedules import crontab
 from django.conf import settings
 
+from posthog.caching.warming import schedule_warming_for_teams_task
 from posthog.celery import app
+from posthog.tasks.alerts.checks import check_all_alerts_task
+from posthog.tasks.integrations import refresh_integrations
 from posthog.tasks.tasks import (
     calculate_cohort,
     calculate_decide_usage,
@@ -91,6 +94,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     add_periodic_task_with_expiry(sender, 10, redis_heartbeat.s(), "10 sec heartbeat")
 
     add_periodic_task_with_expiry(sender, 20, start_poll_query_performance.s(), "20 sec query performance heartbeat")
+
+    sender.add_periodic_task(
+        crontab(hour="*", minute="0"),
+        schedule_warming_for_teams_task.s(),
+        name="schedule warming for largest teams",
+    )
 
     # Update events table partitions twice a week
     sender.add_periodic_task(
@@ -251,6 +260,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="update survey iteration based on date",
     )
 
+    sender.add_periodic_task(
+        crontab(hour="*", minute="20"),
+        check_all_alerts_task.s(),
+        name="detect alerts' anomalies and notify about them",
+    )
+
     if settings.EE_AVAILABLE:
         # every interval seconds, we calculate N replay embeddings
         # the goal is to process _enough_ every 24 hours that
@@ -322,4 +337,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*/20"),
         calculate_external_data_rows_synced.s(),
         name="calculate external data rows synced",
+    )
+
+    # Check integrations to refresh every minute
+    add_periodic_task_with_expiry(
+        sender,
+        60,
+        refresh_integrations.s(),
+        name="refresh integrations",
     )

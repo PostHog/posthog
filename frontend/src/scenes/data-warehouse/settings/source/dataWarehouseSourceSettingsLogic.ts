@@ -1,40 +1,30 @@
-import { actions, afterMount, kea, key, path, props, reducers, selectors } from 'kea'
+import { lemonToast } from '@posthog/lemon-ui'
+import { actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
-import { urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { Scene } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
+import posthog from 'posthog-js'
 
-import {
-    Breadcrumb,
-    DataWarehouseSettingsTab,
-    ExternalDataJob,
-    ExternalDataSourceSchema,
-    ExternalDataStripeSource,
-} from '~/types'
+import { ExternalDataJob, ExternalDataSourceSchema, ExternalDataStripeSource } from '~/types'
 
 import type { dataWarehouseSourceSettingsLogicType } from './dataWarehouseSourceSettingsLogicType'
 
-export enum DataWarehouseSourceSettingsTabs {
-    Schemas = 'schemas',
-    Syncs = 'syncs',
-}
-
 export interface DataWarehouseSourceSettingsLogicProps {
     id: string
-    parentSettingsTab: DataWarehouseSettingsTab
 }
+
+const REFRESH_INTERVAL = 5000
 
 export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsLogicType>([
     path(['scenes', 'data-warehouse', 'settings', 'source', 'dataWarehouseSourceSettingsLogic']),
     props({} as DataWarehouseSourceSettingsLogicProps),
     key(({ id }) => id),
     actions({
-        setCurrentTab: (tab: DataWarehouseSourceSettingsTabs) => ({ tab }),
-        setParentSettingsTab: (tab: DataWarehouseSettingsTab) => ({ tab }),
         setSourceId: (id: string) => ({ id }),
+        reloadSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
+        resyncSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
+        setCanLoadMoreJobs: (canLoadMoreJobs: boolean) => ({ canLoadMoreJobs }),
     }),
-    loaders(({ values }) => ({
+    loaders(({ actions, values }) => ({
         source: [
             null as ExternalDataStripeSource | null,
             {
@@ -42,10 +32,15 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                     return await api.externalDataSources.get(values.sourceId)
                 },
                 updateSchema: async (schema: ExternalDataSourceSchema) => {
+                    // Optimistic UI updates before sending updates to the backend
+                    const clonedSource = JSON.parse(JSON.stringify(values.source)) as ExternalDataStripeSource
+                    const schemaIndex = clonedSource.schemas.findIndex((n) => n.id === schema.id)
+                    clonedSource.schemas[schemaIndex] = schema
+                    actions.loadSourceSuccess(clonedSource)
+
                     const updatedSchema = await api.externalDataSchemas.update(schema.id, schema)
 
                     const source = values.source
-                    const schemaIndex = source?.schemas.findIndex((n) => n.id === schema.id)
                     if (schemaIndex !== undefined) {
                         source!.schemas[schemaIndex] = updatedSchema
                     }
@@ -58,61 +53,117 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
             [] as ExternalDataJob[],
             {
                 loadJobs: async () => {
-                    return await api.externalDataSources.jobs(values.sourceId)
+                    if (values.jobs.length === 0) {
+                        return await api.externalDataSources.jobs(values.sourceId, null, null)
+                    }
+
+                    const newJobs = await api.externalDataSources.jobs(values.sourceId, null, values.jobs[0].created_at)
+                    return [...newJobs, ...values.jobs]
+                },
+                loadMoreJobs: async () => {
+                    const hasJobs = values.jobs.length >= 0
+                    if (hasJobs) {
+                        const lastJobCreatedAt = values.jobs[values.jobs.length - 1].created_at
+                        const oldJobs = await api.externalDataSources.jobs(values.sourceId, lastJobCreatedAt, null)
+
+                        if (oldJobs.length === 0) {
+                            actions.setCanLoadMoreJobs(false)
+                            return values.jobs
+                        }
+
+                        return [...values.jobs, ...oldJobs]
+                    }
+
+                    return values.jobs
                 },
             },
         ],
     })),
-    reducers({
-        currentTab: [
-            DataWarehouseSourceSettingsTabs.Schemas as DataWarehouseSourceSettingsTabs,
-            {
-                setCurrentTab: (_, { tab }) => tab,
-            },
-        ],
-        parentSettingsTab: [
-            DataWarehouseSettingsTab.Managed as DataWarehouseSettingsTab,
-            {
-                setParentSettingsTab: (_, { tab }) => tab,
-            },
-        ],
+    reducers(({ props }) => ({
         sourceId: [
-            '' as string,
+            props.id,
             {
                 setSourceId: (_, { id }) => id,
             },
         ],
-    }),
-    selectors({
-        breadcrumbs: [
-            (s) => [s.parentSettingsTab, s.sourceId],
-            (parentSettingsTab, sourceId): Breadcrumb[] => [
-                {
-                    key: Scene.DataWarehouse,
-                    name: 'Data Warehouse',
-                    path: urls.dataWarehouse(),
-                },
-                {
-                    key: Scene.DataWarehouseSettings,
-                    name: 'Data Warehouse Settings',
-                    path: urls.dataWarehouseSettings(parentSettingsTab),
-                },
-                {
-                    key: Scene.dataWarehouseSourceSettings,
-                    name: 'Data Warehouse Source Settings',
-                    path: urls.dataWarehouseSourceSettings(sourceId, parentSettingsTab),
-                },
-            ],
+        canLoadMoreJobs: [
+            true as boolean,
+            {
+                setCanLoadMoreJobs: (_, { canLoadMoreJobs }) => canLoadMoreJobs,
+                setSourceId: () => true,
+            },
         ],
-    }),
-    urlToAction(({ actions, values }) => ({
-        '/data-warehouse/settings/:parentTab/:id': ({ parentTab, id }) => {
-            if (id) {
-                actions.setSourceId(id)
-            }
+    })),
 
-            if (parentTab !== values.parentSettingsTab) {
-                actions.setParentSettingsTab(parentTab as DataWarehouseSettingsTab)
+    listeners(({ values, actions, cache }) => ({
+        loadSourceSuccess: () => {
+            clearTimeout(cache.sourceRefreshTimeout)
+
+            cache.sourceRefreshTimeout = setTimeout(() => {
+                actions.loadSource()
+            }, REFRESH_INTERVAL)
+        },
+        loadSourceFailure: () => {
+            clearTimeout(cache.sourceRefreshTimeout)
+
+            cache.sourceRefreshTimeout = setTimeout(() => {
+                actions.loadSource()
+            }, REFRESH_INTERVAL)
+        },
+        loadJobsSuccess: () => {
+            clearTimeout(cache.jobsRefreshTimeout)
+
+            cache.jobsRefreshTimeout = setTimeout(() => {
+                actions.loadJobs()
+            }, REFRESH_INTERVAL)
+        },
+        loadJobsFailure: () => {
+            clearTimeout(cache.jobsRefreshTimeout)
+
+            cache.jobsRefreshTimeout = setTimeout(() => {
+                actions.loadJobs()
+            }, REFRESH_INTERVAL)
+        },
+        reloadSchema: async ({ schema }) => {
+            // Optimistic UI updates before sending updates to the backend
+            const clonedSource = JSON.parse(JSON.stringify(values.source)) as ExternalDataStripeSource
+            const schemaIndex = clonedSource.schemas.findIndex((n) => n.id === schema.id)
+            clonedSource.status = 'Running'
+            clonedSource.schemas[schemaIndex].status = 'Running'
+
+            actions.loadSourceSuccess(clonedSource)
+
+            try {
+                await api.externalDataSchemas.reload(schema.id)
+
+                posthog.capture('schema reloaded', { sourceType: clonedSource.source_type })
+            } catch (e: any) {
+                if (e.message) {
+                    lemonToast.error(e.message)
+                } else {
+                    lemonToast.error('Cant reload schema at this time')
+                }
+            }
+        },
+        resyncSchema: async ({ schema }) => {
+            // Optimistic UI updates before sending updates to the backend
+            const clonedSource = JSON.parse(JSON.stringify(values.source)) as ExternalDataStripeSource
+            const schemaIndex = clonedSource.schemas.findIndex((n) => n.id === schema.id)
+            clonedSource.status = 'Running'
+            clonedSource.schemas[schemaIndex].status = 'Running'
+
+            actions.loadSourceSuccess(clonedSource)
+
+            try {
+                await api.externalDataSchemas.resync(schema.id)
+
+                posthog.capture('schema resynced', { sourceType: clonedSource.source_type })
+            } catch (e: any) {
+                if (e.message) {
+                    lemonToast.error(e.message)
+                } else {
+                    lemonToast.error('Cant refresh schema at this time')
+                }
             }
         },
     })),

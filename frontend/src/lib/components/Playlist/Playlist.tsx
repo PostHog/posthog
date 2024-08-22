@@ -70,7 +70,7 @@ export function Playlist<
     'data-attr': dataAttr,
 }: PlaylistProps<T>): JSX.Element {
     const [controlledActiveItemId, setControlledActiveItemId] = useState<T['id'] | null>(
-        selectInitialItem ? sections[0].items[0].id : null
+        selectInitialItem && sections[0].items[0] ? sections[0].items[0].id : null
     )
     const [listCollapsed, setListCollapsed] = useState<boolean>(false)
     const playlistListRef = useRef<HTMLDivElement>(null)

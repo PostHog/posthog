@@ -6,7 +6,7 @@ settings:
 
 patchedDependencies:
   node-rdkafka@2.17.0:
-    hash: p4aetcvho53cvjti6c3zi7tfaq
+    hash: bugorwxdhlhl2utknko2c5ibqm
     path: patches/node-rdkafka@2.17.0.patch
 
 dependencies:
@@ -43,9 +43,12 @@ dependencies:
   '@posthog/clickhouse':
     specifier: ^1.7.0
     version: 1.7.0
+  '@posthog/cyclotron':
+    specifier: file:../rust/cyclotron-node
+    version: file:../rust/cyclotron-node
   '@posthog/hogvm':
-    specifier: ^1.0.22
-    version: 1.0.22(re2@1.20.3)
+    specifier: ^1.0.32
+    version: 1.0.32(luxon@3.4.4)(re2@1.20.3)
   '@posthog/plugin-scaffold':
     specifier: 1.4.4
     version: 1.4.4
@@ -73,6 +76,9 @@ dependencies:
   aws-sdk:
     specifier: ^2.927.0
     version: 2.1366.0
+  detect-browser:
+    specifier: ^5.3.0
+    version: 5.3.0
   escape-string-regexp:
     specifier: ^4.0.0
     version: 4.0.0
@@ -107,14 +113,14 @@ dependencies:
     specifier: ^6.0.0
     version: 6.0.0
   luxon:
-    specifier: ^1.27.0
-    version: 1.28.1
+    specifier: ^3.4.4
+    version: 3.4.4
   node-fetch:
     specifier: ^2.6.1
     version: 2.6.9
   node-rdkafka:
     specifier: ^2.17.0
-    version: 2.17.0(patch_hash=p4aetcvho53cvjti6c3zi7tfaq)
+    version: 2.17.0(patch_hash=bugorwxdhlhl2utknko2c5ibqm)
   node-schedule:
     specifier: ^2.1.0
     version: 2.1.1
@@ -3110,11 +3116,13 @@ packages:
     engines: {node: '>=12'}
     dev: false
 
-  /@posthog/hogvm@1.0.22(re2@1.20.3):
-    resolution: {integrity: sha512-nTNz7RXmOMAbsTPSpejE7eAsjoLbn8RJv/db//r/k+FwwnYwKcKkw4ix/8vhsiT7V8dXdGm7I8U2kMRd74dbeQ==}
+  /@posthog/hogvm@1.0.32(luxon@3.4.4)(re2@1.20.3):
+    resolution: {integrity: sha512-OjgSzs4fZ1Q0KEiON34/dH9TybfVfallANcgoRiNhUd9KstSm55Ds5cpK6HjGMfRRPpPULuDQ77RH3DBjJ2CCA==}
     peerDependencies:
+      luxon: ^3.4.4
       re2: ^1.21.3
     dependencies:
+      luxon: 3.4.4
       re2: 1.20.3
     dev: false
 
@@ -5137,7 +5145,7 @@ packages:
     resolution: {integrity: sha512-jbokKWGcyU4gl6jAfX97E1gDpY12DJ1cLJZmoDzaAln/shZ+S3KBFBuA2Q6WeUN4gJf/8klnV1EfvhA2lK5IRQ==}
     engines: {node: '>=12.0.0'}
     dependencies:
-      luxon: 3.3.0
+      luxon: 3.4.4
     dev: false
 
   /cross-spawn@7.0.3:
@@ -5401,6 +5409,10 @@ packages:
   /destroy@1.2.0:
     resolution: {integrity: sha512-2sJGJTaXIIaR1w4iJSNoN0hnMY7Gpc/n8D4qSCJw8QqFWXf7cuAgnEHxBpweaVcPevC2l3KpjYCx3NypQQgaJg==}
     engines: {node: '>= 0.8', npm: 1.2.8000 || >= 1.4.16}
+    dev: false
+
+  /detect-browser@5.3.0:
+    resolution: {integrity: sha512-53rsFbGdwMwlF7qvCt0ypLM5V5/Mbl0szB7GPN8y9NCcbknYOeVVXdrXEq+90IwAfrrzt6Hd+u2E2ntakICU8w==}
     dev: false
 
   /detect-libc@1.0.3:
@@ -7936,12 +7948,8 @@ packages:
     resolution: {integrity: sha512-Pn9cox5CsMYngeDbmChANltQl+5pi6XmTrraMSzhPmMBbmgcxmqWry0U3PGapCU1yB4/LqCcom7qhHZiF/jGfQ==}
     dev: false
 
-  /luxon@1.28.1:
-    resolution: {integrity: sha512-gYHAa180mKrNIUJCbwpmD0aTu9kV0dREDrwNnuyFAsO1Wt0EVYSZelPnJlbj9HplzXX/YWXHFTL45kvZ53M0pw==}
-    dev: false
-
-  /luxon@3.3.0:
-    resolution: {integrity: sha512-An0UCfG/rSiqtAIiBPO0Y9/zAnHUZxAMiCpTd5h2smgsj7GGmcenvrvww2cqNA8/4A5ZrD1gJpHN2mIHZQF+Mg==}
+  /luxon@3.4.4:
+    resolution: {integrity: sha512-zobTr7akeGHnv7eBOXcRgMeCP6+uyYsczwmeRCauvpvaAltgNyTbLH/+VaEAPUeWBT+1GuNmz4wC/6jtQzbbVA==}
     engines: {node: '>=12'}
     dev: false
 
@@ -8433,7 +8441,7 @@ packages:
     resolution: {integrity: sha512-O5lz91xSOeoXP6DulyHfllpq+Eg00MWitZIbtPfoSEvqIHdl5gfcY6hYzDWnj0qD5tz52PI08u9qUvSVeUBeHw==}
     dev: true
 
-  /node-rdkafka@2.17.0(patch_hash=p4aetcvho53cvjti6c3zi7tfaq):
+  /node-rdkafka@2.17.0(patch_hash=bugorwxdhlhl2utknko2c5ibqm):
     resolution: {integrity: sha512-vFABzRcE5FaH0WqfqJRxDoqeG6P8UEB3M4qFQ7SkwMgQueMMO78+fm8MYfl5hLW3bBYfBekK2BXIIr0lDQtSEQ==}
     engines: {node: '>=6.0.0'}
     requiresBuild: true
@@ -10726,3 +10734,8 @@ packages:
   /yocto-queue@0.1.0:
     resolution: {integrity: sha512-rVksvsnNCdJ/ohGc6xgPwyN8eheCxsiLM8mxuE/t/mOVqJewPuO1miLpTHQiRgTKCLexL4MeAFVagts7HmNZ2Q==}
     engines: {node: '>=10'}
+
+  file:../rust/cyclotron-node:
+    resolution: {directory: ../rust/cyclotron-node, type: directory}
+    name: '@posthog/cyclotron'
+    dev: false

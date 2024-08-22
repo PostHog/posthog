@@ -12,6 +12,21 @@
             "cwd": "${workspaceFolder}",
             "presentation": {
                 "group": "main"
+            },
+            "skipFiles": ["${workspaceFolder}/node_modules/kea-typegen/**/*.js"]
+        },
+        {
+            "name": "Frontend (https)",
+            "command": "pnpm start",
+            "request": "launch",
+            "type": "node-terminal",
+            "cwd": "${workspaceFolder}",
+            "presentation": {
+                "group": "main"
+            },
+            "env": {
+                "LOCAL_HTTPS": "1",
+                "JS_URL": "https://secure.posthog.dev"
             }
         },
         {
@@ -36,7 +51,6 @@
             },
             "envFile": "${workspaceFolder}/.env",
             "console": "integratedTerminal",
-            "python": "${workspaceFolder}/env/bin/python",
             "cwd": "${workspaceFolder}",
             "presentation": {
                 "group": "main"
@@ -63,7 +77,6 @@
                 "CLOUD_DEPLOYMENT": "dev"
             },
             "console": "integratedTerminal",
-            "python": "${workspaceFolder}/env/bin/python",
             "cwd": "${workspaceFolder}",
             "presentation": {
                 "group": "main"
@@ -80,9 +93,8 @@
             },
             "request": "launch",
             "program": "${workspaceFolder}/manage.py",
-            "args": ["run_autoreload_celery"],
+            "args": ["run_autoreload_celery", "--type=worker"],
             "console": "integratedTerminal",
-            "python": "${workspaceFolder}/env/bin/python",
             "cwd": "${workspaceFolder}",
             "env": {
                 "SKIP_ASYNC_MIGRATIONS_SETUP": "0",
@@ -105,7 +117,9 @@
                 "DATABASE_URL": "postgres://posthog:posthog@localhost:5432/posthog",
                 "KAFKA_HOSTS": "localhost:9092",
                 "WORKER_CONCURRENCY": "2",
-                "OBJECT_STORAGE_ENABLED": "True"
+                "OBJECT_STORAGE_ENABLED": "True",
+                "HOG_HOOK_URL": "http://localhost:3300/hoghook",
+                "CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS": ""
             },
             "presentation": {
                 "group": "main"
@@ -130,7 +144,6 @@
                 "PRINT_SQL": "1"
             },
             "console": "integratedTerminal",
-            "python": "${workspaceFolder}/env/bin/python",
             "cwd": "${workspaceFolder}",
             "presentation": {
                 "group": "main"
@@ -187,6 +200,21 @@
                 "Backend (with local billing)",
                 "Celery Threaded Pool",
                 "Frontend",
+                "Plugin Server",
+                "Temporal Worker"
+            ],
+            "stopAll": true,
+            "presentation": {
+                "order": 2,
+                "group": "compound"
+            }
+        },
+        {
+            "name": "PostHog (https)",
+            "configurations": [
+                "Backend",
+                "Celery Threaded Pool",
+                "Frontend (https)",
                 "Plugin Server",
                 "Temporal Worker"
             ],

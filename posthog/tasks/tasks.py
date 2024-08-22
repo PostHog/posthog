@@ -46,7 +46,7 @@ def redis_heartbeat() -> None:
     ),
     retry_backoff=1,
     retry_backoff_max=10,
-    max_retries=3,
+    max_retries=10,
     expires=60 * 10,  # Do not run queries that got stuck for more than this
     reject_on_worker_lost=True,
 )
@@ -60,7 +60,6 @@ def process_query_task(
     query_id: str,
     query_json: dict,
     limit_context: Optional[LimitContext] = None,
-    refresh_requested: bool = False,  # TODO: Remove this parameter after the next deploy
 ) -> None:
     """
     Kick off query
@@ -486,6 +485,7 @@ def clickhouse_mutation_count() -> None:
 def clickhouse_clear_removed_data() -> None:
     from posthog.models.async_deletion.delete_cohorts import AsyncCohortDeletion
     from posthog.models.async_deletion.delete_events import AsyncEventDeletion
+    from posthog.pagerduty.pd import create_incident
 
     runner = AsyncEventDeletion()
 
@@ -493,11 +493,13 @@ def clickhouse_clear_removed_data() -> None:
         runner.mark_deletions_done()
     except Exception as e:
         logger.error("Failed to mark deletions done", error=e, exc_info=True)
+        create_incident("Failed to mark deletions done", "clickhouse_clear_removed_data", severity="error")
 
     try:
         runner.run()
     except Exception as e:
         logger.error("Failed to run deletions", error=e, exc_info=True)
+        create_incident("Failed to run deletions", "clickhouse_clear_removed_data", severity="error")
 
     cohort_runner = AsyncCohortDeletion()
 
@@ -505,11 +507,13 @@ def clickhouse_clear_removed_data() -> None:
         cohort_runner.mark_deletions_done()
     except Exception as e:
         logger.error("Failed to mark cohort deletions done", error=e, exc_info=True)
+        create_incident("Failed to mark cohort deletions done", "clickhouse_clear_removed_data", severity="error")
 
     try:
         cohort_runner.run()
     except Exception as e:
         logger.error("Failed to run cohort deletions", error=e, exc_info=True)
+        create_incident("Failed to run cohort deletions", "clickhouse_clear_removed_data", severity="error")
 
 
 @shared_task(ignore_result=True)

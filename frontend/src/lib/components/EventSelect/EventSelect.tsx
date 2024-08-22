@@ -40,6 +40,9 @@ export const EventSelect = ({
         if (onChange) {
             onChange(selectedEvents.filter((p) => p !== name))
         }
+        if (onItemChange && selectedItems) {
+            onItemChange(selectedItems?.filter((p) => p.name !== name))
+        }
     }
 
     // Add in the toggle popover logic for the passed in element

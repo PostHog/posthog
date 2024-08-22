@@ -1,21 +1,22 @@
 import { TZLabel } from '@posthog/apps-common'
 import { LemonButton, LemonDialog, LemonTable, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import cloudflareLogo from 'public/cloudflare-logo.svg'
-import googleStorageLogo from 'public/google-cloud-storage-logo.png'
-import hubspotLogo from 'public/hubspot-logo.svg'
-import postgresLogo from 'public/postgres-logo.svg'
-import s3Logo from 'public/s3-logo.png'
-import snowflakeLogo from 'public/snowflake-logo.svg'
-import stripeLogo from 'public/stripe-logo.svg'
-import zendeskLogo from 'public/zendesk-logo.svg'
+import IconAwsS3 from 'public/services/aws-s3.png'
+import Iconazure from 'public/services/azure.png'
+import IconCloudflare from 'public/services/cloudflare.png'
+import IconGoogleCloudStorage from 'public/services/google-cloud-storage.png'
+import IconHubspot from 'public/services/hubspot.png'
+import IconMySQL from 'public/services/mysql.png'
+import IconPostgres from 'public/services/postgres.png'
+import IconSalesforce from 'public/services/salesforce.png'
+import IconSnowflake from 'public/services/snowflake.png'
+import IconStripe from 'public/services/stripe.png'
+import IconZendesk from 'public/services/zendesk.png'
 import { urls } from 'scenes/urls'
 
-import { manualLinkSources, ProductKey } from '~/types'
+import { manualLinkSources, PipelineNodeTab, PipelineStage } from '~/types'
 
 import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
 
@@ -27,29 +28,16 @@ const StatusTagSetting = {
 }
 
 export function DataWarehouseManagedSourcesTable(): JSX.Element {
-    const { dataWarehouseSources, dataWarehouseSourcesLoading, sourceReloadingById, currentTab } =
+    const { dataWarehouseSources, dataWarehouseSourcesLoading, sourceReloadingById } =
         useValues(dataWarehouseSettingsLogic)
     const { deleteSource, reloadSource } = useActions(dataWarehouseSettingsLogic)
-
-    if (!dataWarehouseSourcesLoading && dataWarehouseSources?.results.length === 0) {
-        return (
-            <ProductIntroduction
-                productName="Data Warehouse Source"
-                productKey={ProductKey.DATA_WAREHOUSE}
-                thingName="data source"
-                description="Use data warehouse sources to import data from your external data into PostHog."
-                isEmpty={dataWarehouseSources?.results.length == 0}
-                docsURL="https://posthog.com/docs/data-warehouse"
-                action={() => router.actions.push(urls.pipelineNodeDataWarehouseNew())}
-            />
-        )
-    }
 
     return (
         <LemonTable
             dataSource={dataWarehouseSources?.results ?? []}
             loading={dataWarehouseSourcesLoading}
             disableTableWhileLoading={false}
+            pagination={{ pageSize: 10 }}
             columns={[
                 {
                     width: 0,
@@ -63,7 +51,11 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
                     render: function RenderName(_, source) {
                         return (
                             <LemonTableLink
-                                to={urls.dataWarehouseSourceSettings(source.id, currentTab)}
+                                to={urls.pipelineNode(
+                                    PipelineStage.Source,
+                                    `managed-${source.id}`,
+                                    PipelineNodeTab.Schemas
+                                )}
                                 title={source.source_type}
                                 description={source.prefix}
                             />
@@ -182,14 +174,17 @@ export function RenderDataWarehouseSourceIcon({
     const sizePx = size === 'small' ? 30 : 60
 
     const icon = {
-        Stripe: stripeLogo,
-        Hubspot: hubspotLogo,
-        Zendesk: zendeskLogo,
-        Postgres: postgresLogo,
-        Snowflake: snowflakeLogo,
-        aws: s3Logo,
-        'google-cloud': googleStorageLogo,
-        'cloudflare-r2': cloudflareLogo,
+        Stripe: IconStripe,
+        Hubspot: IconHubspot,
+        Zendesk: IconZendesk,
+        Postgres: IconPostgres,
+        MySQL: IconMySQL,
+        Snowflake: IconSnowflake,
+        aws: IconAwsS3,
+        'google-cloud': IconGoogleCloudStorage,
+        'cloudflare-r2': IconCloudflare,
+        azure: Iconazure,
+        Salesforce: IconSalesforce,
     }[type]
 
     return (
@@ -204,7 +199,7 @@ export function RenderDataWarehouseSourceIcon({
                 }
             >
                 <Link to={getDataWarehouseSourceUrl(type)}>
-                    <img src={icon} alt={type} height={sizePx} width={sizePx} />
+                    <img src={icon} alt={type} height={sizePx} width={sizePx} className="rounded" />
                 </Link>
             </Tooltip>
         </div>

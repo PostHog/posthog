@@ -1,18 +1,19 @@
-import { combineUrl, router } from 'kea-router'
+import { router } from 'kea-router'
 import { expectLogic, partial, truth } from 'kea-test-utils'
 import api from 'lib/api'
 import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constants'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
+import { examples } from '~/queries/examples'
+import { queryFromFilters } from '~/queries/nodes/InsightViz/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema'
 import { initKeaTests } from '~/test/init'
 import {
@@ -20,13 +21,15 @@ import {
     DashboardTile,
     DashboardType,
     FilterType,
-    InsightModel,
+    InsightLogicProps,
     InsightShortId,
     InsightType,
     PropertyFilterType,
     PropertyOperator,
+    QueryBasedInsightModel,
 } from '~/types'
 
+import { insightDataLogic } from './insightDataLogic'
 import { createEmptyInsight, insightLogic } from './insightLogic'
 
 const API_FILTERS: Partial<FilterType> = {
@@ -39,6 +42,8 @@ const Insight12 = '12' as InsightShortId
 const Insight42 = '42' as InsightShortId
 const Insight43 = '43' as InsightShortId
 const Insight44 = '44' as InsightShortId
+
+const MOCK_DASHBOARD_ID = 34
 
 const partialInsight43 = {
     id: 43,
@@ -61,15 +66,16 @@ const patchResponseFor = (
         description: id === '42' ? undefined : 'Lorem ipsum.',
         tags: id === '42' ? undefined : ['good'],
         dashboards: payload['dashboards'],
+        dashboard_tiles: id === '43' ? [{ dashboard_id: MOCK_DASHBOARD_ID }] : undefined,
     }
 }
 
-function insightModelWith(properties: Record<string, any>): InsightModel {
+function insightModelWith(properties: Record<string, any>): QueryBasedInsightModel {
     return {
         id: 42,
         short_id: Insight42,
         result: ['result 42'],
-        filters: API_FILTERS,
+        query: queryFromFilters(API_FILTERS),
         dashboards: [],
         dashboard_tiles: [],
         saved: true,
@@ -94,7 +100,7 @@ function insightModelWith(properties: Record<string, any>): InsightModel {
         layouts: {},
         color: null,
         ...properties,
-    } as InsightModel
+    } as QueryBasedInsightModel
 }
 
 const seenQueryIDs: string[] = []
@@ -192,6 +198,23 @@ describe('insightLogic', () => {
                         },
                     ],
                 },
+                '/api/projects/:team/dashboards/34/': {
+                    id: 33,
+                    filters: {},
+                    tiles: [
+                        {
+                            layouts: {},
+                            color: null,
+                            insight: {
+                                id: 42,
+                                short_id: Insight43,
+                                result: 'result!',
+                                filters: { insight: InsightType.TRENDS, interval: 'month' },
+                                tags: ['bla'],
+                            },
+                        },
+                    ],
+                },
             },
             post: {
                 '/api/projects/:team/insights/funnel/': { result: ['result from api'] },
@@ -216,6 +239,7 @@ describe('insightLogic', () => {
         })
         initKeaTests(true, { ...MOCK_DEFAULT_TEAM, test_account_filters_default_checked: true })
         teamLogic.mount()
+        sceneLogic.mount()
         await expectLogic(teamLogic)
             .toFinishAllListeners()
             .toMatchValues({ currentTeam: partial({ test_account_filters_default_checked: true }) })
@@ -302,11 +326,7 @@ describe('insightLogic', () => {
                 await expectLogic(logic)
                     .toDispatchActions([])
                     .toMatchValues({
-                        legacyInsight: partial({
-                            short_id: Insight42,
-                            query: { kind: NodeKind.EventsQuery },
-                        }),
-                        queryBasedInsight: partial({
+                        insight: partial({
                             short_id: Insight42,
                             query: { kind: NodeKind.EventsQuery },
                         }),
@@ -319,15 +339,15 @@ describe('insightLogic', () => {
 
         describe('props with filters, no cached results, respects doNotLoad', () => {
             it('does not make a query', async () => {
-                const insight: Partial<InsightModel> = {
+                const insight: Partial<QueryBasedInsightModel> = {
                     short_id: Insight42,
-                    filters: {
+                    query: queryFromFilters({
                         insight: InsightType.TRENDS,
                         events: [{ id: 3, throw: true }],
                         properties: [
                             { value: 'a', operator: PropertyOperator.Exact, key: 'a', type: PropertyFilterType.Person },
                         ],
-                    },
+                    }),
                 }
                 logic = insightLogic({
                     dashboardItemId: Insight42,
@@ -338,8 +358,7 @@ describe('insightLogic', () => {
 
                 await expectLogic(logic)
                     .toMatchValues({
-                        legacyInsight: insight,
-                        queryBasedInsight: {
+                        insight: {
                             short_id: Insight42,
                             query: {
                                 kind: 'InsightVizNode',
@@ -370,7 +389,7 @@ describe('insightLogic', () => {
             expectLogic(logicUnderTest)
                 .toDispatchActions(['loadInsight'])
                 .toMatchValues({
-                    queryBasedInsight: partial({
+                    insight: partial({
                         short_id: '42',
                     }),
                 })
@@ -417,47 +436,34 @@ describe('insightLogic', () => {
         })
     })
 
-    test('can default filter test accounts to on', async () => {
-        logic = insightLogic({
-            dashboardItemId: 'new',
-        })
-        logic.mount()
-
-        const expectedPartialInsight = {
-            description: '',
-            filters: { filter_test_accounts: true },
-            name: '',
-            result: null,
-            short_id: undefined,
-            tags: [],
-        }
-
-        await expectLogic(logic).toMatchValues({
-            legacyInsight: partial(expectedPartialInsight),
-            savedInsight: {},
-            insightChanged: false,
-        })
-    })
-
     test('keeps saved name, description, tags', async () => {
-        logic = insightLogic({
+        const insightProps: InsightLogicProps = {
             dashboardItemId: Insight43,
-            cachedInsight: { ...createEmptyInsight(Insight43, false), filters: API_FILTERS },
-        })
+            cachedInsight: { ...createEmptyInsight(Insight43), id: 123, query: queryFromFilters(API_FILTERS) },
+        }
+
+        logic = insightLogic(insightProps)
         logic.mount()
+
+        insightDataLogic(insightProps).mount()
 
         const expectedPartialInsight = {
             name: '',
             description: '',
             tags: [],
-            filters: {
-                events: [{ id: 3 }],
-                insight: 'TRENDS',
-                properties: [{ key: 'a', operator: 'exact', type: 'a', value: 'a' }],
-            },
+            query: partial({
+                source: partial({
+                    series: [{ event: 3, kind: NodeKind.EventsNode, math: 'total' }],
+                    kind: NodeKind.TrendsQuery,
+                    properties: {
+                        type: 'AND',
+                        values: [{ type: 'AND', values: [{ key: 'a', operator: 'exact', type: 'a', value: 'a' }] }],
+                    },
+                }),
+            }),
         }
         await expectLogic(logic).toMatchValues({
-            legacyInsight: partial(expectedPartialInsight),
+            insight: partial(expectedPartialInsight),
             savedInsight: partial(expectedPartialInsight),
             insightChanged: false,
         })
@@ -465,7 +471,7 @@ describe('insightLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.setInsightMetadata({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] })
         }).toMatchValues({
-            legacyInsight: partial({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] }),
+            insight: partial({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] }),
             savedInsight: partial({ name: '', description: '', tags: [] }),
             insightChanged: true,
         })
@@ -475,58 +481,78 @@ describe('insightLogic', () => {
         }).toFinishAllListeners()
 
         await expectLogic(logic).toMatchValues({
-            legacyInsight: partial({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] }),
+            insight: partial({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] }),
             savedInsight: partial({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] }),
             insightChanged: false,
         })
     })
 
     test('saveInsight saves new insight and redirects to view mode', async () => {
-        logic = insightLogic({
+        const insightProps: InsightLogicProps = {
             dashboardItemId: 'new',
-        })
+        }
+
+        logic = insightLogic(insightProps)
         logic.mount()
 
+        insightDataLogic(insightProps).mount()
+
         await expectLogic(logic, () => {
-            logic.actions.setFilters(cleanFilters({}))
             logic.actions.saveInsight()
-        }).toDispatchActions(['setFilters', 'saveInsight', router.actionCreators.push(urls.insightView(Insight12))])
+        }).toDispatchActions(['saveInsight', router.actionCreators.push(urls.insightView(Insight12))])
     })
 
     test('saveInsight and updateInsight update the saved insights list', async () => {
         savedInsightsLogic.mount()
-        logic = insightLogic({
+
+        const insightProps: InsightLogicProps = {
             dashboardItemId: Insight42,
             cachedInsight: {
                 short_id: Insight42,
-                filters: { insight: InsightType.FUNNELS },
-                results: {},
+                query: examples.FunnelsQuery,
+                result: {},
             },
-        })
+        }
+
+        logic = insightLogic(insightProps)
         logic.mount()
+
+        insightDataLogic(insightProps).mount()
 
         logic.actions.saveInsight()
         await expectLogic(logic).toDispatchActions([savedInsightsLogic.actionTypes.addInsight])
 
-        logic.actions.updateInsight({ filters: { insight: InsightType.FUNNELS } })
-        await expectLogic(logic).toDispatchActions([savedInsightsLogic.actionTypes.setInsight])
+        logic.actions.updateInsight({ name: 'my new name' })
+        await expectLogic(logic).toDispatchActions([savedInsightsLogic.actionTypes.updateInsight])
     })
 
     test('saveInsight updates dashboards', async () => {
+        const dashLogic = dashboardLogic({ id: MOCK_DASHBOARD_ID })
+        dashLogic.mount()
+        await expectLogic(dashLogic).toDispatchActions(['loadDashboard'])
+
         savedInsightsLogic.mount()
-        logic = insightLogic({
+
+        const insightProps: InsightLogicProps = {
             dashboardItemId: Insight43,
-        })
+        }
+        logic = insightLogic(insightProps)
         logic.mount()
 
+        insightDataLogic(insightProps).mount()
+
         logic.actions.saveInsight()
-        await expectLogic(dashboardsModel).toDispatchActions(['updateDashboardInsight'])
+
+        await expectLogic(dashLogic).toDispatchActions(['loadDashboard'])
     })
 
     test('updateInsight updates dashboards', async () => {
         savedInsightsLogic.mount()
         logic = insightLogic({
             dashboardItemId: Insight43,
+            cachedInsight: {
+                id: 3,
+            },
         })
         logic.mount()
 
@@ -535,27 +561,33 @@ describe('insightLogic', () => {
     })
 
     test('save as new insight', async () => {
-        const url = combineUrl('/insights/42', { insight: InsightType.FUNNELS }).url
-        router.actions.push(url)
         savedInsightsLogic.mount()
 
-        logic = insightLogic({
+        const insightProps: InsightLogicProps = {
             dashboardItemId: Insight42,
             cachedInsight: {
-                filters: { insight: InsightType.FUNNELS },
+                query: examples.InsightFunnels,
             },
-        })
+        }
+
+        logic = insightLogic(insightProps)
         logic.mount()
 
+        insightDataLogic(insightProps).mount()
+
         await expectLogic(logic, () => {
-            logic.actions.saveAsNamingSuccess('New Insight (copy)')
+            logic.actions.saveAsConfirmation('New Insight (copy)')
         })
             .toDispatchActions(['setInsight'])
             .toDispatchActions(savedInsightsLogic, ['loadInsights'])
             .toMatchValues({
-                savedInsight: partial({ filters: partial({ insight: InsightType.FUNNELS }) }),
-                legacyInsight: partial({ id: 12, short_id: Insight12, name: 'New Insight (copy)' }),
-                queryBasedInsight: partial({ id: 12, short_id: Insight12, name: 'New Insight (copy)' }),
+                savedInsight: partial({ query: partial({ source: partial({ kind: NodeKind.FunnelsQuery }) }) }),
+                insight: partial({
+                    id: 12,
+                    short_id: Insight12,
+                    name: 'New Insight (copy)',
+                    query: partial({ source: partial({ kind: NodeKind.FunnelsQuery }) }),
+                }),
                 insightChanged: false,
             })
 
@@ -564,42 +596,6 @@ describe('insightLogic', () => {
             .toMatchValues({
                 location: partial({ pathname: '/insights/12/edit' }),
             })
-    })
-
-    describe('emptyFilters', () => {
-        let theEmptyFiltersLogic: ReturnType<typeof insightLogic.build>
-        beforeEach(() => {
-            const insight = {
-                result: ['result from api'],
-            }
-            theEmptyFiltersLogic = insightLogic({
-                dashboardItemId: undefined,
-                cachedInsight: insight,
-            })
-            theEmptyFiltersLogic.mount()
-            silenceKeaLoadersErrors()
-        })
-        afterEach(resumeKeaLoadersErrors)
-
-        it('does not call the api on update when empty filters and no query', async () => {
-            await expectLogic(theEmptyFiltersLogic, () => {
-                theEmptyFiltersLogic.actions.updateInsight({
-                    name: 'name',
-                    filters: {},
-                    query: undefined,
-                })
-            }).toNotHaveDispatchedActions(['updateInsightSuccess'])
-        })
-
-        it('does call the api on update when empty filters but query is present', async () => {
-            await expectLogic(theEmptyFiltersLogic, () => {
-                theEmptyFiltersLogic.actions.updateInsight({
-                    name: 'name',
-                    filters: {},
-                    query: { kind: NodeKind.DataTableNode } as DataTableNode,
-                })
-            }).toDispatchActions(['updateInsightSuccess'])
-        })
     })
 
     describe('reacts to external changes', () => {
@@ -625,10 +621,7 @@ describe('insightLogic', () => {
             })
                 .toFinishAllListeners()
                 .toMatchValues({
-                    legacyInsight: truth(({ name }) => {
-                        return name === 'new name'
-                    }),
-                    queryBasedInsight: truth(({ name }) => {
+                    insight: truth(({ name }) => {
                         return name === 'new name'
                     }),
                 })
@@ -648,10 +641,7 @@ describe('insightLogic', () => {
             })
                 .toFinishAllListeners()
                 .toMatchValues({
-                    legacyInsight: truth(({ name }) => {
-                        return name === 'original name'
-                    }),
-                    queryBasedInsight: truth(({ name }) => {
+                    insight: truth(({ name }) => {
                         return name === 'original name'
                     }),
                 })
@@ -660,50 +650,46 @@ describe('insightLogic', () => {
         it('reacts to removal from dashboard', async () => {
             await expectLogic(logic, () => {
                 dashboardsModel.actions.tileRemovedFromDashboard({
-                    tile: { insight: { id: 42 } } as DashboardTile,
+                    tile: { insight: { id: 42 } } as DashboardTile<QueryBasedInsightModel>,
                     dashboardId: 3,
                 })
             })
                 .toFinishAllListeners()
                 .toMatchValues({
-                    legacyInsight: expect.objectContaining({ dashboards: [1, 2] }),
-                    queryBasedInsight: expect.objectContaining({ dashboards: [1, 2] }),
+                    insight: expect.objectContaining({ dashboards: [1, 2] }),
                 })
         })
 
         it('does not reacts to removal of a different tile from dashboard', async () => {
             await expectLogic(logic, () => {
                 dashboardsModel.actions.tileRemovedFromDashboard({
-                    tile: { insight: { id: 12 } } as DashboardTile,
+                    tile: { insight: { id: 12 } } as DashboardTile<QueryBasedInsightModel>,
                     dashboardId: 3,
                 })
             })
                 .toFinishAllListeners()
                 .toMatchValues({
-                    legacyInsight: expect.objectContaining({ dashboards: [1, 2, 3] }),
-                    queryBasedInsight: expect.objectContaining({ dashboards: [1, 2, 3] }),
+                    insight: expect.objectContaining({ dashboards: [1, 2, 3] }),
                 })
         })
 
         it('reacts to deletion of dashboard', async () => {
             await expectLogic(logic, () => {
-                dashboardsModel.actions.deleteDashboardSuccess({ id: 3 } as DashboardType)
+                dashboardsModel.actions.deleteDashboardSuccess({ id: 3 } as DashboardType<QueryBasedInsightModel>)
             })
                 .toFinishAllListeners()
                 .toMatchValues({
-                    legacyInsight: expect.objectContaining({ dashboards: [1, 2] }),
-                    queryBasedInsight: expect.objectContaining({ dashboards: [1, 2] }),
+                    insight: expect.objectContaining({ dashboards: [1, 2] }),
                 })
         })
 
         it('does not reacts to deletion of dashboard it is not on', async () => {
             await expectLogic(logic, () => {
-                dashboardsModel.actions.deleteDashboardSuccess({ id: 1034 } as DashboardType)
+                dashboardsModel.actions.deleteDashboardSuccess({ id: 1034 } as DashboardType<QueryBasedInsightModel>)
             })
                 .toFinishAllListeners()
                 .toMatchValues({
-                    legacyInsight: expect.objectContaining({ dashboards: [1, 2, 3] }),
-                    queryBasedInsight: expect.objectContaining({ dashboards: [1, 2, 3] }),
+                    insight: expect.objectContaining({ dashboards: [1, 2, 3] }),
                 })
         })
 
@@ -713,8 +699,7 @@ describe('insightLogic', () => {
             })
                 .toFinishAllListeners()
                 .toMatchValues({
-                    legacyInsight: expect.objectContaining({ dashboards: [1, 2, 3, 1234] }),
-                    queryBasedInsight: expect.objectContaining({ dashboards: [1, 2, 3, 1234] }),
+                    insight: expect.objectContaining({ dashboards: [1, 2, 3, 1234] }),
                 })
         })
 
@@ -724,18 +709,18 @@ describe('insightLogic', () => {
             })
                 .toFinishAllListeners()
                 .toMatchValues({
-                    legacyInsight: expect.objectContaining({ dashboards: [1, 2, 3] }),
-                    queryBasedInsight: expect.objectContaining({ dashboards: [1, 2, 3] }),
+                    insight: expect.objectContaining({ dashboards: [1, 2, 3] }),
                 })
         })
     })
 
     describe('saving query based insights', () => {
         beforeEach(async () => {
-            logic = insightLogic({
-                dashboardItemId: 'new',
-            })
+            const insightProps: InsightLogicProps = { dashboardItemId: 'new' }
+            logic = insightLogic(insightProps)
             logic.mount()
+
+            insightDataLogic(insightProps).mount()
         })
 
         it('sends query when saving', async () => {
@@ -743,8 +728,8 @@ describe('insightLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.setInsight(
-                    { filters: {}, query: { kind: NodeKind.DataTableNode } as DataTableNode },
-                    { overrideFilter: true }
+                    { query: { kind: NodeKind.DataTableNode } as DataTableNode },
+                    { overrideQuery: true }
                 )
                 logic.actions.saveInsight()
             })
@@ -752,14 +737,23 @@ describe('insightLogic', () => {
             const mockCreateCalls = (api.create as jest.Mock).mock.calls
             expect(mockCreateCalls).toEqual([
                 [
-                    `api/projects/${MOCK_TEAM_ID}/insights/`,
-                    {
+                    `api/projects/${MOCK_TEAM_ID}/insights`,
+                    expect.objectContaining({
                         derived_name: 'DataTableNode query',
                         query: {
                             kind: 'DataTableNode',
                         },
                         saved: true,
-                    },
+                    }),
+                    expect.objectContaining({
+                        data: {
+                            derived_name: 'DataTableNode query',
+                            query: {
+                                kind: 'DataTableNode',
+                            },
+                            saved: true,
+                        },
+                    }),
                 ],
             ])
         })

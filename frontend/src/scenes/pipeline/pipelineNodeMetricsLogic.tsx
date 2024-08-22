@@ -66,7 +66,7 @@ export const pipelineNodeMetricsLogic = kea<pipelineNodeMetricsLogicType>([
             null as AppMetricsResponse | null,
             {
                 loadMetrics: async () => {
-                    const params = toParams({ date_from: values.dateRange.from, date_to: values.dateRange.to ?? 'now' })
+                    const params = toParams({ date_from: values.dateRange.from, date_to: values.dateRange.to })
                     return await api.get(
                         `api/projects/${teamLogic.values.currentTeamId}/app_metrics/${props.id}?${params}`
                     )

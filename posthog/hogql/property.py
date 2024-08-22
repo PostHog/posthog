@@ -1,5 +1,4 @@
-import re
-from typing import Literal, Optional, Union, cast
+from typing import Literal, Optional, cast
 
 from pydantic import BaseModel
 
@@ -22,16 +21,28 @@ from posthog.models import (
     Team,
 )
 from posthog.models.event import Selector
-from posthog.models.property import PropertyGroup
+from posthog.models.element import Element
+from posthog.models.property import PropertyGroup, ValueT
 from posthog.models.property.util import build_selector_regex
 from posthog.models.property_definition import PropertyType
 from posthog.schema import (
-    EmptyPropertyFilter,
     FilterLogicalOperator,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
     PropertyOperator,
     RetentionEntity,
+    EventPropertyFilter,
+    PersonPropertyFilter,
+    ElementPropertyFilter,
+    SessionPropertyFilter,
+    CohortPropertyFilter,
+    RecordingPropertyFilter,
+    GroupPropertyFilter,
+    FeaturePropertyFilter,
+    HogQLPropertyFilter,
+    EmptyPropertyFilter,
+    DataWarehousePropertyFilter,
+    DataWarehousePersonPropertyFilter,
 )
 from posthog.warehouse.models import DataWarehouseJoin, DataWarehouseSavedQuery, DataWarehouseTable
 from posthog.utils import get_from_dict_or_attr
@@ -67,8 +78,200 @@ class AggregationFinder(TraversingVisitor):
                 self.visit(arg)
 
 
+def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team: Team) -> ValueT | bool:
+    if value != "true" and value != "false":
+        return value
+    if property.type == "person":
+        property_types = PropertyDefinition.objects.filter(
+            team=team,
+            name=property.key,
+            type=PropertyDefinition.Type.PERSON,
+        )
+    elif property.type == "group":
+        property_types = PropertyDefinition.objects.filter(
+            team=team,
+            name=property.key,
+            type=PropertyDefinition.Type.GROUP,
+            group_type_index=property.group_type_index,
+        )
+    elif property.type == "data_warehouse_person_property":
+        if not isinstance(expr, ast.Field):
+            raise Exception(f"Requires a Field expression")
+
+        key = expr.chain[-2]
+
+        # TODO: pass id of table item being filtered on instead of searching through joins
+        current_join: DataWarehouseJoin | None = (
+            DataWarehouseJoin.objects.filter(Q(deleted__isnull=True) | Q(deleted=False))
+            .filter(team=team, source_table_name="persons", field_name=key)
+            .first()
+        )
+
+        if not current_join:
+            raise Exception(f"Could not find join for key {key}")
+
+        prop_type = None
+
+        maybe_view = (
+            DataWarehouseSavedQuery.objects.filter(Q(deleted__isnull=True) | Q(deleted=False))
+            .filter(team=team, name=current_join.joining_table_name)
+            .first()
+        )
+
+        if maybe_view:
+            prop_type_dict = maybe_view.columns.get(property.key, None)
+            prop_type = prop_type_dict.get("hogql")
+
+        maybe_table = (
+            DataWarehouseTable.objects.filter(Q(deleted__isnull=True) | Q(deleted=False))
+            .filter(team=team, name=current_join.joining_table_name)
+            .first()
+        )
+
+        if maybe_table:
+            prop_type_dict = maybe_table.columns.get(property.key, None)
+            prop_type = prop_type_dict.get("hogql")
+
+        if not maybe_view and not maybe_table:
+            raise Exception(f"Could not find table or view for key {key}")
+
+        if prop_type == "BooleanDatabaseField":
+            if value == "true":
+                value = True
+            if value == "false":
+                value = False
+
+        return value
+
+    else:
+        property_types = PropertyDefinition.objects.filter(
+            team=team,
+            name=property.key,
+            type=PropertyDefinition.Type.EVENT,
+        )
+    property_type = property_types[0].property_type if len(property_types) > 0 else None
+
+    if property_type == PropertyType.Boolean:
+        if value == "true":
+            return True
+        if value == "false":
+            return False
+    return value
+
+
+def _expr_to_compare_op(
+    expr: ast.Expr, value: ValueT, operator: PropertyOperator, property: Property, is_json_field: bool, team: Team
+) -> ast.Expr:
+    if operator == PropertyOperator.IS_SET:
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.NotEq,
+            left=expr,
+            right=ast.Constant(value=None),
+        )
+    elif operator == PropertyOperator.IS_NOT_SET:
+        exprs: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=expr,
+                right=ast.Constant(value=None),
+            )
+        ]
+
+        if is_json_field:
+            if not isinstance(expr, ast.Field):
+                raise Exception(f"Requires a Field expression")
+
+            field = ast.Field(chain=expr.chain[:-1])
+
+            exprs.append(
+                ast.Not(
+                    expr=ast.Call(
+                        name="JSONHas",
+                        args=[field, ast.Constant(value=property.key)],
+                    )
+                )
+            )
+
+        return ast.Or(exprs=exprs)
+    elif operator == PropertyOperator.ICONTAINS:
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.ILike,
+            left=expr,
+            right=ast.Constant(value=f"%{value}%"),
+        )
+    elif operator == PropertyOperator.NOT_ICONTAINS:
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.NotILike,
+            left=expr,
+            right=ast.Constant(value=f"%{value}%"),
+        )
+    elif operator == PropertyOperator.REGEX:
+        return ast.Call(
+            name="ifNull",
+            args=[
+                ast.Call(name="match", args=[ast.Call(name="toString", args=[expr]), ast.Constant(value=value)]),
+                ast.Constant(value=0),
+            ],
+        )
+    elif operator == PropertyOperator.NOT_REGEX:
+        return ast.Call(
+            name="ifNull",
+            args=[
+                ast.Call(
+                    name="not",
+                    args=[
+                        ast.Call(name="match", args=[ast.Call(name="toString", args=[expr]), ast.Constant(value=value)])
+                    ],
+                ),
+                ast.Constant(value=1),
+            ],
+        )
+    elif operator == PropertyOperator.EXACT or operator == PropertyOperator.IS_DATE_EXACT:
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=expr,
+            right=ast.Constant(value=_handle_bool_values(value, expr, property, team)),
+        )
+    elif operator == PropertyOperator.IS_NOT:
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.NotEq,
+            left=expr,
+            right=ast.Constant(value=_handle_bool_values(value, expr, property, team)),
+        )
+    elif operator == PropertyOperator.LT or operator == PropertyOperator.IS_DATE_BEFORE:
+        return ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=expr, right=ast.Constant(value=value))
+    elif operator == PropertyOperator.GT or operator == PropertyOperator.IS_DATE_AFTER:
+        return ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=expr, right=ast.Constant(value=value))
+    elif operator == PropertyOperator.LTE:
+        return ast.CompareOperation(op=ast.CompareOperationOp.LtEq, left=expr, right=ast.Constant(value=value))
+    elif operator == PropertyOperator.GTE:
+        return ast.CompareOperation(op=ast.CompareOperationOp.GtEq, left=expr, right=ast.Constant(value=value))
+    else:
+        raise NotImplementedError(f"PropertyOperator {operator} not implemented")
+
+
 def property_to_expr(
-    property: Union[BaseModel, PropertyGroup, Property, dict, list, ast.Expr],
+    property: (
+        list
+        | dict
+        | PropertyGroup
+        | PropertyGroupFilter
+        | PropertyGroupFilterValue
+        | Property
+        | ast.Expr
+        | EventPropertyFilter
+        | PersonPropertyFilter
+        | ElementPropertyFilter
+        | SessionPropertyFilter
+        | CohortPropertyFilter
+        | RecordingPropertyFilter
+        | GroupPropertyFilter
+        | FeaturePropertyFilter
+        | HogQLPropertyFilter
+        | EmptyPropertyFilter
+        | DataWarehousePropertyFilter
+        | DataWarehousePersonPropertyFilter
+    ),
     team: Team,
     scope: Literal["event", "person", "session", "replay", "replay_entity", "replay_pdi"] = "event",
 ) -> ast.Expr:
@@ -170,16 +373,11 @@ def property_to_expr(
         else:
             chain = ["properties"]
 
-        if property.type == "session":
-            properties_field = None
-        else:
-            properties_field = ast.Field(chain=chain)
-
-        field = ast.Field(chain=[*chain, property.key])
+        expr: ast.Expr = ast.Field(chain=[*chain, property.key])
 
         if isinstance(value, list):
             if len(value) == 0:
-                return ast.Constant(value=True)
+                return ast.Constant(value=1)
             elif len(value) == 1:
                 value = value[0]
             else:
@@ -206,164 +404,14 @@ def property_to_expr(
                     return ast.And(exprs=exprs)
                 return ast.Or(exprs=exprs)
 
-        if operator == PropertyOperator.IS_SET:
-            return ast.CompareOperation(
-                op=ast.CompareOperationOp.NotEq,
-                left=field,
-                right=ast.Constant(value=None),
-            )
-        elif operator == PropertyOperator.IS_NOT_SET:
-            return ast.Or(
-                exprs=[
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=field,
-                        right=ast.Constant(value=None),
-                    )
-                ]
-                + (
-                    []
-                    if not properties_field or properties_field == field
-                    else [
-                        ast.Not(
-                            expr=ast.Call(
-                                name="JSONHas",
-                                args=[properties_field, ast.Constant(value=property.key)],
-                            )
-                        )
-                    ]
-                )
-            )
-        elif operator == PropertyOperator.ICONTAINS:
-            return ast.CompareOperation(
-                op=ast.CompareOperationOp.ILike,
-                left=field,
-                right=ast.Constant(value=f"%{value}%"),
-            )
-        elif operator == PropertyOperator.NOT_ICONTAINS:
-            return ast.CompareOperation(
-                op=ast.CompareOperationOp.NotILike,
-                left=field,
-                right=ast.Constant(value=f"%{value}%"),
-            )
-        elif operator == PropertyOperator.REGEX:
-            return ast.Call(
-                name="ifNull",
-                args=[
-                    ast.Call(name="match", args=[ast.Call(name="toString", args=[field]), ast.Constant(value=value)]),
-                    ast.Constant(value=0),
-                ],
-            )
-        elif operator == PropertyOperator.NOT_REGEX:
-            return ast.Call(
-                name="ifNull",
-                args=[
-                    ast.Call(
-                        name="not",
-                        args=[
-                            ast.Call(
-                                name="match", args=[ast.Call(name="toString", args=[field]), ast.Constant(value=value)]
-                            )
-                        ],
-                    ),
-                    ast.Constant(value=1),
-                ],
-            )
-        elif operator == PropertyOperator.EXACT or operator == PropertyOperator.IS_DATE_EXACT:
-            op = ast.CompareOperationOp.Eq
-        elif operator == PropertyOperator.IS_NOT:
-            op = ast.CompareOperationOp.NotEq
-        elif operator == PropertyOperator.LT or operator == PropertyOperator.IS_DATE_BEFORE:
-            op = ast.CompareOperationOp.Lt
-        elif operator == PropertyOperator.GT or operator == PropertyOperator.IS_DATE_AFTER:
-            op = ast.CompareOperationOp.Gt
-        elif operator == PropertyOperator.LTE:
-            op = ast.CompareOperationOp.LtEq
-        elif operator == PropertyOperator.GTE:
-            op = ast.CompareOperationOp.GtEq
-        else:
-            raise NotImplementedError(f"PropertyOperator {operator} not implemented")
-
-        # For Boolean and untyped properties, treat "true" and "false" as boolean values
-        if (
-            (op == ast.CompareOperationOp.Eq or op == ast.CompareOperationOp.NotEq)
-            and team is not None
-            and (value == "true" or value == "false")
-        ):
-            if property.type == "person":
-                property_types = PropertyDefinition.objects.filter(
-                    team=team,
-                    name=property.key,
-                    type=PropertyDefinition.Type.PERSON,
-                )
-            elif property.type == "group":
-                property_types = PropertyDefinition.objects.filter(
-                    team=team,
-                    name=property.key,
-                    type=PropertyDefinition.Type.GROUP,
-                    group_type_index=property.group_type_index,
-                )
-            elif property.type == "data_warehouse_person_property":
-                key = chain[-1]
-
-                # TODO: pass id of table item being filtered on instead of searching through joins
-                current_join: DataWarehouseJoin | None = (
-                    DataWarehouseJoin.objects.filter(Q(deleted__isnull=True) | Q(deleted=False))
-                    .filter(team=team, source_table_name="persons", field_name=key)
-                    .first()
-                )
-
-                if not current_join:
-                    raise Exception(f"Could not find join for key {key}")
-
-                prop_type = None
-
-                maybe_view = (
-                    DataWarehouseSavedQuery.objects.filter(Q(deleted__isnull=True) | Q(deleted=False))
-                    .filter(team=team, name=current_join.joining_table_name)
-                    .first()
-                )
-
-                if maybe_view:
-                    prop_type_dict = maybe_view.columns.get(property.key, None)
-                    prop_type = prop_type_dict.get("hogql")
-
-                maybe_table = (
-                    DataWarehouseTable.objects.filter(Q(deleted__isnull=True) | Q(deleted=False))
-                    .filter(team=team, name=current_join.joining_table_name)
-                    .first()
-                )
-
-                if maybe_table:
-                    prop_type_dict = maybe_table.columns.get(property.key, None)
-                    prop_type = prop_type_dict.get("hogql")
-
-                if not maybe_view and not maybe_table:
-                    raise Exception(f"Could not find table or view for key {key}")
-
-                if prop_type == "BooleanDatabaseField":
-                    if value == "true":
-                        value = True
-                    if value == "false":
-                        value = False
-
-                return ast.CompareOperation(op=op, left=field, right=ast.Constant(value=value))
-
-            else:
-                property_types = PropertyDefinition.objects.filter(
-                    team=team,
-                    name=property.key,
-                    type=PropertyDefinition.Type.EVENT,
-                )
-            property_type = property_types[0].property_type if len(property_types) > 0 else None
-
-            if property_type == PropertyType.Boolean:
-                if value == "true":
-                    value = True
-                if value == "false":
-                    value = False
-
-        return ast.CompareOperation(op=op, left=field, right=ast.Constant(value=value))
+        return _expr_to_compare_op(
+            expr=expr,
+            value=value,
+            operator=operator,
+            team=team,
+            property=property,
+            is_json_field=property.type != "session",
+        )
 
     elif property.type == "element":
         if scope == "person":
@@ -407,10 +455,29 @@ def property_to_expr(
             return expr
 
         if property.key == "href":
-            return element_chain_key_filter("href", str(value), operator)
+            return _expr_to_compare_op(
+                expr=ast.Field(chain=["elements_chain_href"]),
+                value=value,
+                operator=operator,
+                team=team,
+                property=property,
+                is_json_field=False,
+            )
 
         if property.key == "text":
-            return element_chain_key_filter("text", str(value), operator)
+            return parse_expr(
+                "arrayExists(text -> {compare}, elements_chain_texts)",
+                {
+                    "compare": _expr_to_compare_op(
+                        expr=ast.Field(chain=["text"]),
+                        value=value,
+                        operator=operator,
+                        team=team,
+                        property=property,
+                        is_json_field=False,
+                    )
+                },
+            )
 
         raise NotImplementedError(f"property_to_expr for type element not implemented for key {property.key}")
     elif property.type == "cohort" or property.type == "static-cohort" or property.type == "precalculated-cohort":
@@ -449,21 +516,49 @@ def action_to_expr(action: Action) -> ast.Expr:
                 exprs.append(tag_name_to_expr(step.tag_name))
             if step.href is not None:
                 if step.href_matching == "regex":
-                    operator = PropertyOperator.REGEX
+                    exprs.append(
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Regex,
+                            left=ast.Field(chain=["elements_chain_href"]),
+                            right=ast.Constant(value=step.href),
+                        )
+                    )
                 elif step.href_matching == "contains":
-                    operator = PropertyOperator.ICONTAINS
+                    exprs.append(
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.ILike,
+                            left=ast.Field(chain=["elements_chain_href"]),
+                            right=ast.Constant(value=f"%{step.href}%"),
+                        )
+                    )
                 else:
-                    operator = PropertyOperator.EXACT
-                exprs.append(element_chain_key_filter("href", step.href, operator))
+                    exprs.append(
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=ast.Field(chain=["elements_chain_href"]),
+                            right=ast.Constant(value=step.href),
+                        )
+                    )
             if step.text is not None:
+                value = step.text
                 if step.text_matching == "regex":
-                    operator = PropertyOperator.REGEX
+                    match = ast.CompareOperationOp.Regex
                 elif step.text_matching == "contains":
-                    operator = PropertyOperator.ICONTAINS
+                    match = ast.CompareOperationOp.ILike
+                    value = f"%{value}%"
                 else:
-                    operator = PropertyOperator.EXACT
-                exprs.append(element_chain_key_filter("text", step.text, operator))
+                    match = ast.CompareOperationOp.Eq
 
+                exprs.append(
+                    parse_expr(
+                        "arrayExists(x -> {match}, elements_chain_texts)",
+                        {
+                            "match": ast.CompareOperation(
+                                op=match, left=ast.Field(chain=["x"]), right=ast.Constant(value=value)
+                            )
+                        },
+                    )
+                )
         if step.url:
             if step.url_matching == "exact":
                 expr = parse_expr(
@@ -512,45 +607,43 @@ def entity_to_expr(entity: RetentionEntity) -> ast.Expr:
     )
 
 
-def element_chain_key_filter(key: str, text: str, operator: PropertyOperator):
-    escaped = text.replace('"', r"\"")
-    if operator == PropertyOperator.IS_SET or operator == PropertyOperator.IS_NOT_SET:
-        value = r'[^"]+'
-    elif operator == PropertyOperator.ICONTAINS or operator == PropertyOperator.NOT_ICONTAINS:
-        value = rf'[^"]*{re.escape(escaped)}[^"]*'
-    elif operator == PropertyOperator.REGEX or operator == PropertyOperator.NOT_REGEX:
-        value = escaped
-    elif operator == PropertyOperator.EXACT or operator == PropertyOperator.IS_NOT:
-        value = re.escape(escaped)
-    else:
-        raise NotImplementedError(f"element_href_to_expr not implemented for operator {operator}")
-
-    regex = f'({key}="{value}")'
-    if operator == PropertyOperator.ICONTAINS or operator == PropertyOperator.NOT_ICONTAINS:
-        expr = parse_expr("elements_chain =~* {regex}", {"regex": ast.Constant(value=str(regex))})
-    else:
-        expr = parse_expr("elements_chain =~ {regex}", {"regex": ast.Constant(value=str(regex))})
-
-    if (
-        operator == PropertyOperator.IS_NOT_SET
-        or operator == PropertyOperator.NOT_ICONTAINS
-        or operator == PropertyOperator.IS_NOT
-        or operator == PropertyOperator.NOT_REGEX
-    ):
-        expr = ast.Call(name="not", args=[expr])
-    return expr
-
-
 def tag_name_to_expr(tag_name: str):
     regex = rf"(^|;){tag_name}(\.|$|;|:)"
     expr = parse_expr("elements_chain =~ {regex}", {"regex": ast.Constant(value=str(regex))})
     return expr
 
 
-def selector_to_expr(selector: str):
-    regex = build_selector_regex(Selector(selector, escape_slashes=False))
-    expr = parse_expr("elements_chain =~ {regex}", {"regex": ast.Constant(value=regex)})
-    return expr
+def selector_to_expr(selector_string: str):
+    selector = Selector(selector_string, escape_slashes=False)
+    exprs = []
+    regex = build_selector_regex(selector)
+    exprs.append(parse_expr("elements_chain =~ {regex}", {"regex": ast.Constant(value=regex)}))
+
+    useful_elements: list[ast.Expr] = []
+    for part in selector.parts:
+        if "tag_name" in part.data:
+            if part.data["tag_name"] in Element.USEFUL_ELEMENTS:
+                useful_elements.append(ast.Constant(value=part.data["tag_name"]))
+
+        if "attr_id" in part.data:
+            id_expr = parse_expr(
+                "indexOf(elements_chain_ids, {value}) > 0", {"value": ast.Constant(value=part.data["attr_id"])}
+            )
+            if len(selector.parts) == 1 and len(part.data.keys()) == 1:
+                # OPTIMIZATION: if there's only one selector part and that only filters on an ID, we don't need to also query elements_chain separately
+                return id_expr
+            exprs.append(id_expr)
+    if len(useful_elements) > 0:
+        exprs.append(
+            parse_expr(
+                "arrayCount(x -> x IN {value}, elements_chain_elements) > 0",
+                {"value": ast.Array(exprs=useful_elements)},
+            )
+        )
+
+    if len(exprs) == 1:
+        return exprs[0]
+    return ast.And(exprs=exprs)
 
 
 def get_property_type(property):

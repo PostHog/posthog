@@ -1,7 +1,7 @@
 import { Hub } from '../src/types'
 import { createHub } from '../src/utils/db/hub'
 import { PostgresUse } from '../src/utils/db/postgres'
-import { disablePlugin, getPluginAttachmentRows, getPluginConfigRows, getPluginRows } from '../src/utils/db/sql'
+import { disablePlugin, getActivePluginRows, getPluginAttachmentRows, getPluginConfigRows } from '../src/utils/db/sql'
 import { commonOrganizationId } from './helpers/plugins'
 import { resetTestDatabase } from './helpers/sql'
 
@@ -66,7 +66,7 @@ describe('sql', () => {
         expect(rows1).toEqual([expectedRow])
     })
 
-    test('getPluginRows', async () => {
+    test('getActivePluginRows', async () => {
         const rowsExpected = [
             {
                 error: null,
@@ -92,7 +92,7 @@ describe('sql', () => {
             },
         ]
 
-        const rows1 = await getPluginRows(hub)
+        const rows1 = await getActivePluginRows(hub)
         expect(rows1).toEqual(rowsExpected)
         await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,
@@ -100,7 +100,7 @@ describe('sql', () => {
             undefined,
             'testTag'
         )
-        const rows2 = await getPluginRows(hub)
+        const rows2 = await getActivePluginRows(hub)
         expect(rows2).toEqual(rowsExpected)
     })
 

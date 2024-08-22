@@ -4,7 +4,6 @@ from typing import Optional
 
 import posthoganalytics
 import structlog
-from asgiref.sync import sync_to_async
 from celery import shared_task
 from django.conf import settings
 from django.utils import timezone
@@ -159,22 +158,21 @@ def send_fatal_plugin_error(
         message.send(send_async=False)
 
 
-@shared_task(**EMAIL_TASK_KWARGS)
-async def send_batch_export_run_failure(
+def send_batch_export_run_failure(
     batch_export_run_id: str,
 ) -> None:
-    logger = structlog.get_logger("django")
+    logger = structlog.get_logger(__name__)
 
-    is_email_available_result = await sync_to_async(is_email_available)(with_absolute_urls=True)
+    is_email_available_result = is_email_available(with_absolute_urls=True)
     if not is_email_available_result:
         logger.warning("Email service is not available")
-        return
+        return None
 
-    batch_export_run: BatchExportRun = await sync_to_async(
-        BatchExportRun.objects.select_related("batch_export__team").get
-    )(id=batch_export_run_id)
+    batch_export_run: BatchExportRun = BatchExportRun.objects.select_related("batch_export__team").get(
+        id=batch_export_run_id
+    )
     team: Team = batch_export_run.batch_export.team
-    logger = logger.new(team_id=team.id)
+    logger = logger.bind(team_id=team.id, batch_export_id=batch_export_run.batch_export.id)
 
     logger.info("Preparing notification email for batch export run %s", batch_export_run_id)
 
@@ -185,7 +183,7 @@ async def send_batch_export_run_failure(
         f"batch_export_run_email_batch_export_{batch_export_run.batch_export.id}_last_updated_at_{last_updated_at_date}"
     )
 
-    message = await sync_to_async(EmailMessage)(
+    message = EmailMessage(
         campaign_key=campaign_key,
         subject=f"PostHog: {batch_export_run.batch_export.name} batch export run failure",
         template_name="batch_export_run_failure",
@@ -202,11 +200,9 @@ async def send_batch_export_run_failure(
     memberships = OrganizationMembership.objects.select_related("user", "organization").filter(
         organization_id=team.organization_id
     )
-    all_memberships: list[OrganizationMembership] = await sync_to_async(list)(memberships)  # type: ignore
-    for membership in all_memberships:
-        has_notification_settings_enabled = await sync_to_async(membership.user.notification_settings.get)(
-            "batch_export_run_failure", True
-        )
+
+    for membership in memberships:
+        has_notification_settings_enabled = membership.user.notification_settings.get("batch_export_run_failure", True)
 
         if has_notification_settings_enabled is False:
             logger.warning("User doesn't have batch export notifications enabled")
@@ -226,7 +222,7 @@ async def send_batch_export_run_failure(
 
         for membership in memberships_to_email:
             message.add_recipient(email=membership.user.email, name=membership.user.first_name)
-        await sync_to_async(message.send)(send_async=True)
+        message.send(send_async=False)
     else:
         logger.info("No available recipients for notification email")
 

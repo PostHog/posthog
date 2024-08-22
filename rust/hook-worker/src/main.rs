@@ -2,12 +2,13 @@
 use axum::routing::get;
 use axum::Router;
 use envconfig::Envconfig;
+use hook_common::pgqueue::PgQueue;
+use hook_common::retry::RetryPolicy;
 use std::future::ready;
 
+use common_metrics::{serve, setup_metrics_routes};
 use health::HealthRegistry;
-use hook_common::{
-    metrics::serve, metrics::setup_metrics_routes, pgqueue::PgQueue, retry::RetryPolicy,
-};
+use hook_common::kafka_producer::create_kafka_producer;
 use hook_worker::config::Config;
 use hook_worker::error::WorkerError;
 use hook_worker::worker::WebhookWorker;
@@ -44,6 +45,13 @@ async fn main() -> Result<(), WorkerError> {
     .await
     .expect("failed to initialize queue");
 
+    let kafka_liveness = liveness
+        .register("rdkafka".to_string(), time::Duration::seconds(30))
+        .await;
+    let kafka_producer = create_kafka_producer(&config.kafka, kafka_liveness)
+        .await
+        .expect("failed to create kafka producer");
+
     let worker = WebhookWorker::new(
         &config.worker_name,
         &queue,
@@ -53,6 +61,9 @@ async fn main() -> Result<(), WorkerError> {
         config.max_concurrent_jobs,
         retry_policy_builder.provide(),
         config.allow_internal_ips,
+        kafka_producer,
+        config.cdp_function_callbacks_topic.to_owned(),
+        config.hog_mode,
         worker_liveness,
     );
 

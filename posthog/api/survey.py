@@ -1,5 +1,5 @@
 from contextlib import contextmanager
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlparse
 
 import nh3
@@ -26,10 +26,14 @@ from posthog.client import sync_execute
 from posthog.models import Action
 from posthog.constants import AvailableFeature
 from posthog.exceptions import generate_exception_response
+from posthog.models.activity_logging.activity_log import Change, changes_between, load_activity, log_activity, Detail
+from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.feedback.survey import Survey
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.utils_cors import cors_response
+from loginas.utils import is_impersonated_session
 
 SURVEY_TARGETING_FLAG_PREFIX = "survey-targeting-"
 ALLOWED_LINK_URL_SCHEMES = ["https", "mailto"]
@@ -297,11 +301,31 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         self._add_user_survey_interacted_filters(instance)
         self._associate_actions(instance, validated_data.get("conditions"))
 
+        team = Team.objects.get(id=self.context["team_id"])
+        log_activity(
+            organization_id=team.organization_id,
+            team_id=self.context["team_id"],
+            user=self.context["request"].user,
+            was_impersonated=is_impersonated_session(self.context["request"]),
+            item_id=instance.id,
+            scope="Survey",
+            activity="created",
+            detail=Detail(name=instance.name),
+        )
+
         return instance
 
     def update(self, instance: Survey, validated_data):
+        before_update = Survey.objects.get(pk=instance.pk)
+        changes = []
         if validated_data.get("remove_targeting_flag"):
             if instance.targeting_flag:
+                # Manually delete the flag and log the change
+                # The `changes_between` method won't catch this because the flag (and underlying ForeignKey relationship)
+                # will have been deleted by the time the `changes_between` method is called, so we need to log the change manually
+                changes.append(
+                    Change(type="Survey", field="targeting_flag", action="deleted", before=instance.targeting_flag)
+                )
                 instance.targeting_flag.delete()
                 validated_data["targeting_flag_id"] = None
             validated_data.pop("remove_targeting_flag")
@@ -314,14 +338,33 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             new_filters = validated_data["targeting_flag_filters"]
             if instance.targeting_flag:
                 existing_targeting_flag = instance.targeting_flag
+                existing_targeting_flag_filters = existing_targeting_flag.filters
                 serialized_data_filters = {
-                    **existing_targeting_flag.filters,
+                    **existing_targeting_flag_filters,
                     **new_filters,
                 }
+                # Log the existing filter change
+                # The `changes_between` method won't catch this because the flag (and underlying ForeignKey relationship)
+                # will have been deleted by the time the `changes_between` method is called, so we need to log the change manually
+                changes.append(
+                    Change(
+                        type="Survey",
+                        field="targeting_flag_filters",
+                        action="changed",
+                        before=existing_targeting_flag_filters,
+                        after=new_filters,
+                    )
+                )
                 self._create_or_update_targeting_flag(instance.targeting_flag, serialized_data_filters)
             else:
                 new_flag = self._create_or_update_targeting_flag(
                     None, new_filters, instance.name, bool(instance.start_date)
+                )
+                # Log the new filter change
+                # The `changes_between` method won't catch this because the flag (and underlying ForeignKey relationship)
+                # will have been deleted by the time the `changes_between` method is called, so we need to log the change manually
+                changes.append(
+                    Change(type="Survey", field="targeting_flag_filters", action="created", after=new_filters)
                 )
                 validated_data["targeting_flag_id"] = new_flag.id
             validated_data.pop("targeting_flag_filters")
@@ -336,15 +379,39 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             instance.targeting_flag.save()
 
         iteration_count = validated_data.get("iteration_count")
-        if instance.current_iteration is not None and instance.current_iteration > iteration_count > 0:
+        if (
+            instance.current_iteration is not None
+            and iteration_count is not None
+            and instance.current_iteration > iteration_count > 0
+        ):
             raise serializers.ValidationError(
-                f"Cannot change survey recurrence to {validated_data.get('iteration_count')}, should be at least {instance.current_iteration}"
+                f"Cannot change survey recurrence to {iteration_count}, should be at least {instance.current_iteration}"
             )
 
         instance.iteration_count = iteration_count
         instance.iteration_frequency_days = validated_data.get("iteration_frequency_days")
 
         instance = super().update(instance, validated_data)
+
+        team = Team.objects.get(id=self.context["team_id"])
+        # `changes_between` will not catch changes to the ForeignKey relationships
+        # so it's useful for any changes to the Survey model itself, but not for the related models
+        non_foreign_table_relation_changes = changes_between(
+            "Survey",
+            previous=before_update,
+            current=instance,
+        )
+        changes.extend(non_foreign_table_relation_changes)
+        log_activity(
+            organization_id=team.organization_id,
+            team_id=self.context["team_id"],
+            user=self.context["request"].user,
+            was_impersonated=is_impersonated_session(self.context["request"]),
+            item_id=instance.id,
+            scope="Survey",
+            activity="updated",
+            detail=Detail(changes=changes, name=instance.name),
+        )
 
         self._add_user_survey_interacted_filters(instance, end_date)
         self._associate_actions(instance, validated_data.get("conditions"))
@@ -475,12 +542,23 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if related_internal_targeting_flag:
             related_internal_targeting_flag.delete()
 
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team_id,
+            user=cast(User, self.request.user),
+            was_impersonated=is_impersonated_session(request),
+            item_id=instance.id,
+            scope="Survey",
+            activity="deleted",
+            detail=Detail(name=instance.name),
+        )
+
         return super().destroy(request, *args, **kwargs)
 
     @action(methods=["GET"], detail=False)
     def responses_count(self, request: request.Request, **kwargs):
-        earliest_survey_creation_date = Survey.objects.filter(team_id=self.team_id).aggregate(Min("created_at"))[
-            "created_at__min"
+        earliest_survey_start_date = Survey.objects.filter(team_id=self.team_id).aggregate(Min("start_date"))[
+            "start_date__min"
         ]
         data = sync_execute(
             f"""
@@ -489,7 +567,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             WHERE event = 'survey sent' AND team_id = %(team_id)s AND timestamp >= %(timestamp)s
             GROUP BY survey_id
         """,
-            {"team_id": self.team_id, "timestamp": earliest_survey_creation_date},
+            {"team_id": self.team_id, "timestamp": earliest_survey_start_date},
         )
 
         counts = {}
@@ -497,6 +575,34 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             counts[survey_id] = count
 
         return Response(counts)
+
+    @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
+    def all_activity(self, request: request.Request, **kwargs):
+        limit = int(request.query_params.get("limit", "10"))
+        page = int(request.query_params.get("page", "1"))
+
+        activity_page = load_activity(scope="Survey", team_id=self.team_id, limit=limit, page=page)
+
+        return activity_page_response(activity_page, limit, page, request)
+
+    @action(methods=["GET"], detail=True, required_scopes=["activity_log:read"])
+    def activity(self, request: request.Request, **kwargs):
+        limit = int(request.query_params.get("limit", "10"))
+        page = int(request.query_params.get("page", "1"))
+
+        item_id = kwargs["pk"]
+
+        if not Survey.objects.filter(id=item_id, team_id=self.team_id).exists():
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        activity_page = load_activity(
+            scope="Survey",
+            team_id=self.team_id,
+            item_ids=[item_id],
+            limit=limit,
+            page=page,
+        )
+        return activity_page_response(activity_page, limit, page, request)
 
 
 class SurveyAPISerializer(serializers.ModelSerializer):

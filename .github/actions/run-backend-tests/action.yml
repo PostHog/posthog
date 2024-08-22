@@ -186,6 +186,8 @@ runs:
           id: run-temporal-tests
           if: ${{ inputs.segment == 'Temporal' }}
           shell: bash
+          env:
+              AWS_S3_ALLOW_UNSAFE_RENAME: 'true'
           run: |
               pytest posthog/temporal -m "not async_migrations" \
                   --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \

@@ -54,7 +54,9 @@ export async function startDownload(
             )
         }
         if (exportContext['columns'].includes('person')) {
-            exportContext['columns'] = exportContext['columns'].map((c: string) => (c === 'person' ? 'person.id' : c))
+            exportContext['columns'] = exportContext['columns'].map((c: string) =>
+                c === 'person' ? 'person.distinct_ids.0' : c
+            )
         }
         exportContext['columns'] = exportContext['columns'].filter((n: string) => !columnDisallowList.includes(n))
     }

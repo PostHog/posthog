@@ -245,6 +245,23 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitReturnStmt(self, ctx: HogQLParser.ReturnStmtContext):
         return ast.ReturnStatement(expr=self.visit(ctx.expression()) if ctx.expression() else None)
 
+    def visitThrowStmt(self, ctx: HogQLParser.ThrowStmtContext):
+        return ast.ThrowStatement(expr=self.visit(ctx.expression()) if ctx.expression() else None)
+
+    def visitCatchBlock(self, ctx: HogQLParser.CatchBlockContext):
+        return (
+            self.visit(ctx.catchVar) if ctx.catchVar else None,
+            self.visit(ctx.catchType) if ctx.catchType else None,
+            self.visit(ctx.catchStmt),
+        )
+
+    def visitTryCatchStmt(self, ctx: HogQLParser.TryCatchStmtContext):
+        return ast.TryCatchStatement(
+            try_stmt=self.visit(ctx.tryStmt),
+            catches=[self.visit(catch) for catch in ctx.catchBlock()],
+            finally_stmt=self.visit(ctx.finallyStmt) if ctx.finallyStmt else None,
+        )
+
     def visitIfStmt(self, ctx: HogQLParser.IfStmtContext):
         return ast.IfStatement(
             expr=self.visit(ctx.expression()),
@@ -1085,6 +1102,12 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
                 if a.name == "source":
                     raise SyntaxError(f"Nested HogQLX tags cannot have a source attribute")
             attributes.append(ast.HogQLXAttribute(name="source", value=source))
+        if ctx.columnExpr():
+            source = self.visit(ctx.columnExpr())
+            for a in attributes:
+                if a.name == "source":
+                    raise SyntaxError(f"Nested HogQLX tags cannot have a source attribute")
+            attributes.append(ast.HogQLXAttribute(name="source", value=source))
         return ast.HogQLXTag(kind=opening, attributes=attributes)
 
     def visitHogqlxTagAttribute(self, ctx: HogQLParser.HogqlxTagAttributeContext):
@@ -1097,8 +1120,8 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             return ast.HogQLXAttribute(name=name, value=ast.Constant(value=True))
 
     def visitPlaceholder(self, ctx: HogQLParser.PlaceholderContext):
-        name = self.visit(ctx.identifier())
-        return ast.Placeholder(field=name)
+        nested = self.visit(ctx.nestedIdentifier()) if ctx.nestedIdentifier() else []
+        return ast.Placeholder(chain=nested)
 
     def visitColumnExprTemplateString(self, ctx: HogQLParser.ColumnExprTemplateStringContext):
         return self.visit(ctx.templateString())

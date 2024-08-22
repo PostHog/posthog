@@ -1,4 +1,5 @@
 import { Hub, Plugin, PluginAttachmentDB, PluginCapabilities, PluginConfig, PluginConfigId } from '../../types'
+import { InlinePluginDescription } from '../../worker/vm/inline/inline'
 import { PostgresUse } from './postgres'
 
 function pluginConfigsInForceQuery(specificField?: keyof PluginConfig): string {
@@ -58,6 +59,49 @@ const PLUGIN_SELECT = `SELECT
         LEFT JOIN posthog_pluginsourcefile psf__site_ts
             ON (psf__site_ts.plugin_id = posthog_plugin.id AND psf__site_ts.filename = 'site.ts')`
 
+const PLUGIN_UPSERT_RETURNING = `INSERT INTO posthog_plugin
+    (
+        name,
+        url,
+        tag,
+        from_json,
+        from_web,
+        error,
+        plugin_type,
+        organization_id,
+        is_global,
+        capabilities,
+        public_jobs,
+        is_stateless,
+        log_level,
+        description,
+        is_preinstalled,
+        config_schema,
+        updated_at,
+        created_at
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, NOW(), NOW())
+    ON CONFLICT (url)
+    DO UPDATE SET
+        name = $1,
+        tag = $3,
+        from_json = $4,
+        from_web = $5,
+        error = $6,
+        plugin_type = $7,
+        organization_id = $8,
+        is_global = $9,
+        capabilities = $10,
+        public_jobs = $11,
+        is_stateless = $12,
+        log_level = $13,
+        description = $14,
+        is_preinstalled = $15,
+        config_schema = $16,
+        updated_at = NOW()
+    RETURNING *
+`
+
 export async function getPlugin(hub: Hub, pluginId: number): Promise<Plugin | undefined> {
     const result = await hub.db.postgres.query(
         PostgresUse.COMMON_READ,
@@ -68,14 +112,14 @@ export async function getPlugin(hub: Hub, pluginId: number): Promise<Plugin | un
     return result.rows[0]
 }
 
-export async function getPluginRows(hub: Hub): Promise<Plugin[]> {
+export async function getActivePluginRows(hub: Hub): Promise<Plugin[]> {
     const { rows }: { rows: Plugin[] } = await hub.db.postgres.query(
         PostgresUse.COMMON_READ,
         `${PLUGIN_SELECT}
         WHERE posthog_plugin.id IN (${pluginConfigsInForceQuery('plugin_id')}
         GROUP BY posthog_pluginconfig.plugin_id)`,
         undefined,
-        'getPluginRows'
+        'getActivePluginRows'
     )
 
     return rows
@@ -123,4 +167,54 @@ export async function disablePlugin(hub: Hub, pluginConfigId: PluginConfigId): P
         'disablePlugin'
     )
     await hub.db.redisPublish(hub.PLUGINS_RELOAD_PUBSUB_CHANNEL, 'reload!')
+}
+
+// Given an inline plugin description, upsert it into the known plugins table, returning the full
+// Plugin object. Matching is done based on plugin url, not id, since that varies by region.
+export async function upsertInlinePlugin(hub: Hub, inline: InlinePluginDescription): Promise<Plugin> {
+    const fullPlugin: Plugin = {
+        id: 0,
+        name: inline.name,
+        url: inline.url,
+        tag: inline.tag,
+        from_json: false,
+        from_web: false,
+        error: undefined,
+        plugin_type: 'inline',
+        organization_id: undefined,
+        is_global: inline.is_global,
+        capabilities: inline.capabilities,
+        public_jobs: undefined,
+        is_stateless: inline.is_stateless,
+        log_level: inline.log_level,
+        description: inline.description,
+        is_preinstalled: inline.is_preinstalled,
+        config_schema: inline.config_schema,
+    }
+
+    const { rows }: { rows: Plugin[] } = await hub.db.postgres.query(
+        PostgresUse.COMMON_WRITE,
+        `${PLUGIN_UPSERT_RETURNING}`,
+        [
+            fullPlugin.name,
+            fullPlugin.url,
+            fullPlugin.tag,
+            fullPlugin.from_json,
+            fullPlugin.from_web,
+            fullPlugin.error,
+            fullPlugin.plugin_type,
+            fullPlugin.organization_id,
+            fullPlugin.is_global,
+            fullPlugin.capabilities,
+            fullPlugin.public_jobs,
+            fullPlugin.is_stateless,
+            fullPlugin.log_level,
+            fullPlugin.description,
+            fullPlugin.is_preinstalled,
+            JSON.stringify(fullPlugin.config_schema),
+        ],
+        'upsertInlinePlugin'
+    )
+
+    return rows[0]
 }

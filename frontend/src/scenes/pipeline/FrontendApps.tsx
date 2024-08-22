@@ -1,5 +1,6 @@
 import { LemonTable, LemonTableColumn } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
@@ -20,6 +21,10 @@ export function FrontendApps(): JSX.Element {
 
     return (
         <>
+            <PageHeader
+                caption="Extend your web app with custom functionality."
+                buttons={<NewButton stage={PipelineStage.SiteApp} />}
+            />
             <ProductIntroduction
                 productName="Site apps"
                 thingName="site app"

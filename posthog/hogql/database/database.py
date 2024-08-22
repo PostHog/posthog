@@ -1,6 +1,6 @@
 import dataclasses
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, ClassVar, Optional, TypeAlias, cast, Union
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, TypeAlias, cast, Union
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.db.models import Q
@@ -82,6 +82,7 @@ from posthog.schema import (
     PersonsOnEventsMode,
     SessionTableVersion,
 )
+from posthog.utils import get_instance_region
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.external_data_source import ExternalDataSource
@@ -248,7 +249,9 @@ def create_hogql_database(
             join_function=join_with_persons_table,
         )
 
-    if modifiers.sessionTableVersion in [SessionTableVersion.V2]:
+    if modifiers.sessionTableVersion == SessionTableVersion.V2 or (
+        get_instance_region() == "EU" and modifiers.sessionTableVersion == SessionTableVersion.AUTO
+    ):
         raw_sessions = RawSessionsTableV2()
         database.raw_sessions = raw_sessions
         sessions = SessionsTableV2()
@@ -367,9 +370,8 @@ def create_hogql_database(
             else:
                 warehouse_tables = define_mappings(
                     warehouse_tables,
-                    lambda team, warehouse_modifier: DataWarehouseTable.objects.filter(
-                        team_id=team.pk, name=warehouse_modifier.table_name
-                    )
+                    lambda team, warehouse_modifier: DataWarehouseTable.objects.exclude(deleted=True)
+                    .filter(team_id=team.pk, name=warehouse_modifier.table_name)
                     .select_related("credential", "external_data_source")
                     .latest("created_at"),
                 )
@@ -442,6 +444,14 @@ def create_hogql_database(
                             join_table=joining_table,
                             join_function=join.join_function(),
                         )
+                elif isinstance(person_field, ast.LazyJoin):
+                    person_field.join_table.fields[join.field_name] = LazyJoin(  # type: ignore
+                        from_field=from_field,
+                        to_field=to_field,
+                        join_table=joining_table,
+                        join_function=join.join_function(),
+                    )
+
         except Exception as e:
             capture_exception(e)
 
@@ -485,7 +495,7 @@ def serialize_database(
         elif isinstance(table, Table):
             field_input = table.fields
 
-        fields = serialize_fields(field_input, context, table_key)
+        fields = serialize_fields(field_input, context, table_key, table_type="posthog")
         fields_dict = {field.name: field for field in fields}
         tables[table_key] = DatabaseSchemaPostHogTable(fields=fields_dict, id=table_key, name=table_key)
 
@@ -501,7 +511,11 @@ def serialize_database(
         else []
     )
     warehouse_schemas = (
-        list(ExternalDataSchema.objects.filter(table_id__in=[table.id for table in warehouse_tables]).all())
+        list(
+            ExternalDataSchema.objects.exclude(deleted=True)
+            .filter(table_id__in=[table.id for table in warehouse_tables])
+            .all()
+        )
         if len(warehouse_tables) > 0
         else []
     )
@@ -513,7 +527,7 @@ def serialize_database(
         if isinstance(table, Table):
             field_input = table.fields
 
-        fields = serialize_fields(field_input, context, table_key, warehouse_table.columns)
+        fields = serialize_fields(field_input, context, table_key, warehouse_table.columns, table_type="external")
         fields_dict = {field.name: field for field in fields}
 
         # Schema
@@ -569,7 +583,7 @@ def serialize_database(
         if view is None:
             continue
 
-        fields = serialize_fields(view.fields, context, view_name)
+        fields = serialize_fields(view.fields, context, view_name, table_type="external")
         fields_dict = {field.name: field for field in fields}
 
         saved_query: list[DataWarehouseSavedQuery] = list(
@@ -609,7 +623,11 @@ HOGQL_CHARACTERS_TO_BE_WRAPPED = ["@", "-", "!", "$", "+"]
 
 
 def serialize_fields(
-    field_input, context: HogQLContext, table_name: str, db_columns: Optional[DataWarehouseTableColumns] = None
+    field_input,
+    context: HogQLContext,
+    table_name: str,
+    db_columns: Optional[DataWarehouseTableColumns] = None,
+    table_type: Literal["posthog"] | Literal["external"] = "posthog",
 ) -> list[DatabaseSchemaField]:
     from posthog.hogql.database.models import SavedQuery
     from posthog.hogql.resolver import resolve_types_from_table
@@ -634,7 +652,7 @@ def serialize_fields(
         else:
             hogql_value = str(field_key)
 
-        if field_key == "team_id":
+        if field_key == "team_id" and table_type == "posthog":
             pass
         elif isinstance(field, DatabaseField):
             if field.hidden:

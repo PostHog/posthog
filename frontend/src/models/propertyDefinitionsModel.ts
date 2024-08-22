@@ -13,6 +13,7 @@ import {
     PropertyDefinition,
     PropertyDefinitionState,
     PropertyDefinitionType,
+    PropertyFilterType,
     PropertyFilterValue,
     PropertyType,
 } from '~/types'
@@ -20,6 +21,17 @@ import {
 import type { propertyDefinitionsModelType } from './propertyDefinitionsModelType'
 
 export type PropertyDefinitionStorage = Record<string, PropertyDefinition | PropertyDefinitionState>
+
+/** These property filter types get suggestions based on events – filter value suggestions look just a few days back. */
+export const PROPERTY_FILTER_TYPES_WITH_TEMPORAL_SUGGESTIONS = [PropertyFilterType.Event, PropertyFilterType.Feature]
+/** These property filter types get suggestions based on persons and groups – filter value suggestions ignore time. */
+export const PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS = [
+    PropertyFilterType.Person,
+    PropertyFilterType.Group,
+    // As of August 2024, session property values also aren't time-sensitive, but this may change
+    // (see RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER)
+    PropertyFilterType.Session,
+]
 
 // List of property definitions that are calculated on the backend. These
 // are valid properties that do not exist on events.
@@ -115,35 +127,24 @@ const checkOrLoadPropertyDefinition = (
     return null
 }
 
-const getEndpoint = (
+const constructValuesEndpoint = (
+    endpoint: string | undefined,
     teamId: number,
     type: PropertyDefinitionType,
     propertyKey: string,
     eventNames: string[] | undefined,
     newInput: string | undefined
 ): string => {
+    const basePath =
+        type === PropertyDefinitionType.Session ? `api/projects/${teamId}/${type}s/values` : `api/${type}/values`
+    const path = endpoint ? endpoint : basePath + `?key=${encodeURIComponent(propertyKey)}`
+
     let eventParams = ''
     for (const eventName of eventNames || []) {
         eventParams += `&event_name=${eventName}`
     }
 
-    if (type === PropertyDefinitionType.Session) {
-        return (
-            `api/projects/${teamId}/${type}s/values/?key=` +
-            encodeURIComponent(propertyKey) +
-            (newInput ? '&value=' + encodeURIComponent(newInput) : '') +
-            eventParams
-        )
-    }
-
-    return (
-        'api/' +
-        type +
-        '/values/?key=' +
-        encodeURIComponent(propertyKey) +
-        (newInput ? '&value=' + encodeURIComponent(newInput) : '') +
-        eventParams
-    )
+    return path + (newInput ? '&value=' + encodeURIComponent(newInput) : '') + eventParams
 }
 
 export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
@@ -361,7 +362,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             }
 
             const propValues: PropValue[] = await api.get(
-                endpoint || getEndpoint(values.currentTeamId, type, propertyKey, eventNames, newInput),
+                constructValuesEndpoint(endpoint, values.currentTeamId, type, propertyKey, eventNames, newInput),
                 methodOptions
             )
             breakpoint()

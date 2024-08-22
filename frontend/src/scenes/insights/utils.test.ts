@@ -340,11 +340,11 @@ describe('formatBreakdownLabel()', () => {
         const breakdownFilter: BreakdownFilter = {
             breakdowns: [
                 {
-                    value: 'demographic',
+                    property: 'demographic',
                     type: 'event',
                 },
                 {
-                    value: '$browser',
+                    property: '$browser',
                     type: 'event',
                 },
             ],
@@ -362,11 +362,11 @@ describe('formatBreakdownLabel()', () => {
         const breakdownFilter: BreakdownFilter = {
             breakdowns: [
                 {
-                    value: 'demographic',
+                    property: 'demographic',
                     type: 'event',
                 },
                 {
-                    value: '$browser',
+                    property: '$browser',
                     type: 'event',
                 },
             ],
@@ -376,6 +376,78 @@ describe('formatBreakdownLabel()', () => {
         expect(formatBreakdownLabel('Chrome', breakdownFilter, [], identity, 1)).toEqual('Chrome')
         expect(formatBreakdownLabel(10, breakdownFilter, [], identity, 2)).toEqual('10')
         expect(formatBreakdownLabel(10, breakdownFilter, [], () => '10s', 0)).toEqual('10s')
+    })
+
+    it('handles stringified numbers', () => {
+        const formatter = (_breakdown: any, v: any): any => `${v}s`
+
+        const breakdownFilter1: BreakdownFilter = {
+            breakdown: '$session_duration',
+            breakdown_type: 'session',
+        }
+        expect(formatBreakdownLabel('661', breakdownFilter1, undefined, formatter)).toEqual('661s')
+
+        const breakdownFilter2: BreakdownFilter = {
+            breakdowns: [
+                {
+                    property: '$session_duration',
+                    type: 'session',
+                },
+            ],
+        }
+        expect(formatBreakdownLabel('661', breakdownFilter2, undefined, formatter, 0)).toEqual('661s')
+    })
+
+    it('handles array first', () => {
+        const formatter = (_: any, value: any, type: any): any => (type === 'session' ? `${value}s` : value)
+
+        const breakdownFilter1: BreakdownFilter = {
+            breakdown: '$session_duration',
+            breakdown_type: 'session',
+        }
+        expect(formatBreakdownLabel(['661'], breakdownFilter1, undefined, formatter)).toEqual('661s')
+
+        const breakdownFilter2: BreakdownFilter = {
+            breakdowns: [
+                {
+                    property: '$session_duration',
+                    type: 'session',
+                },
+            ],
+        }
+        expect(formatBreakdownLabel('661', breakdownFilter2, undefined, formatter, 0)).toEqual('661s')
+    })
+
+    it('handles group breakdowns', () => {
+        const formatter = jest.fn((_, v) => v)
+
+        const breakdownFilter1: BreakdownFilter = {
+            breakdown: 'name',
+            breakdown_group_type_index: 0,
+            breakdown_type: 'group',
+        }
+        expect(formatBreakdownLabel('661', breakdownFilter1, undefined, formatter)).toEqual('661')
+        expect(formatter).toHaveBeenCalledWith('name', 661, 'group', 0)
+
+        formatter.mockClear()
+
+        const breakdownFilter2: BreakdownFilter = {
+            breakdowns: [{ property: 'name', type: 'group', group_type_index: 0 }],
+        }
+        expect(formatBreakdownLabel(['661'], breakdownFilter2, undefined, formatter, 0)).toEqual('661')
+        expect(formatter).toHaveBeenCalledWith('name', 661, 'group', 0)
+
+        formatter.mockClear()
+
+        const breakdownFilter3: BreakdownFilter = {
+            breakdowns: [
+                { property: 'name', type: 'group', group_type_index: 0 },
+                { property: 'test', type: 'group', group_type_index: 1 },
+            ],
+        }
+        expect(formatBreakdownLabel(['661', '662'], breakdownFilter3, undefined, formatter, 0)).toEqual('661::662')
+        expect(formatter).toHaveBeenNthCalledWith(1, 'name', 661, 'group', 0)
+        expect(formatter).toHaveBeenNthCalledWith(2, 'test', 662, 'group', 1)
     })
 })
 

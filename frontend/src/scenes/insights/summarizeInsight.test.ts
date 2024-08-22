@@ -594,15 +594,15 @@ describe('summarizing insights', () => {
                     breakdowns: [
                         {
                             type: 'event',
-                            value: '$browser',
+                            property: '$browser',
                         },
                         {
                             type: 'person',
-                            value: 'custom_prop',
+                            property: 'custom_prop',
                         },
                         {
                             type: 'session',
-                            value: '$session_duration',
+                            property: '$session_duration',
                         },
                     ],
                 },

@@ -11,7 +11,7 @@ export const isURLNormalizeable = (propertyName: string): boolean => {
     return ['$current_url', '$pathname'].includes(propertyName)
 }
 
-export function isMultipleBreakdownType(breakdownType: BreakdownType): breakdownType is MultipleBreakdownType {
+export function isMultipleBreakdownType(breakdownType?: BreakdownType | null): breakdownType is MultipleBreakdownType {
     const types: MultipleBreakdownType[] = ['person', 'event', 'group', 'session', 'hogql']
-    return (types as string[]).includes(breakdownType)
+    return !!breakdownType && (types as string[]).includes(breakdownType)
 }

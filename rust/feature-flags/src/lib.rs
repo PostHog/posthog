@@ -1,5 +1,6 @@
 pub mod api;
 pub mod config;
+pub mod database;
 pub mod flag_definitions;
 pub mod flag_matching;
 pub mod property_matching;
