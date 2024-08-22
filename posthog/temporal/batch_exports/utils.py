@@ -8,11 +8,13 @@ import uuid
 
 import orjson
 import pyarrow as pa
+import structlog
 
 from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import aupdate_batch_export_run
 
 T = typing.TypeVar("T")
+logger = structlog.get_logger()
 
 
 def peek_first_and_rewind(
@@ -131,7 +133,12 @@ class JsonScalar(pa.ExtensionScalar):
                 return orjson.loads(value.encode("utf-8"))
             except:
                 # Fallback if it's something orjson can't handle
-                return json.loads(value)
+                try:
+                    return json.loads(value)
+                except json.JSONDecodeError:
+                    logger.exception("Failed to decode: %s", value)
+                    raise
+
         else:
             return None
 
