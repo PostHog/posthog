@@ -1,22 +1,27 @@
 use maxminddb::Reader;
 use once_cell::sync::Lazy;
 use serde_json::Value;
-use std::collections::HashMap;
 use std::net::IpAddr;
-use std::path::PathBuf;
 use std::str::FromStr;
+use std::{collections::HashMap, path::Path};
 use tracing::log::{error, info};
 
 static GEOIP: Lazy<Option<Reader<Vec<u8>>>> = Lazy::new(|| {
-    let base_path = "/Users/dylan/github.com/PostHog/posthog".to_string();
-    let geoip_path = PathBuf::from(base_path).join("share/GeoLite2-City.mmdb");
+    // TODO this feels hacky, and should be configurable.  Maybe not worth doing?
+    // Let's test it in CI
+    let geoip_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("share")
+        .join("GeoLite2-City.mmdb");
 
     info!("Attempting to open GeoIP database at: {:?}", geoip_path);
 
     match Reader::open_readfile(&geoip_path) {
         Ok(reader) => Some(reader),
         Err(e) => {
-            // TODO do we need to log this as an error? Django throw this to Sentry.
             error!("Failed to open GeoIP database at {:?}: {}", geoip_path, e);
             None
         }

@@ -3,6 +3,7 @@ use once_cell::sync::Lazy;
 use std::net::SocketAddr;
 use std::str::FromStr;
 
+// TODO rewrite this to follow the AppConfig pattern in other files
 #[derive(Envconfig, Clone, Debug)]
 pub struct Config {
     #[envconfig(default = "127.0.0.1:3001")]
