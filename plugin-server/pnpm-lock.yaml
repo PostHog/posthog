@@ -43,6 +43,9 @@ dependencies:
   '@posthog/clickhouse':
     specifier: ^1.7.0
     version: 1.7.0
+  '@posthog/cyclotron':
+    specifier: file:../rust/cyclotron-node
+    version: file:../rust/cyclotron-node
   '@posthog/hogvm':
     specifier: ^1.0.32
     version: 1.0.32(luxon@3.4.4)(re2@1.20.3)
@@ -10731,3 +10734,8 @@ packages:
   /yocto-queue@0.1.0:
     resolution: {integrity: sha512-rVksvsnNCdJ/ohGc6xgPwyN8eheCxsiLM8mxuE/t/mOVqJewPuO1miLpTHQiRgTKCLexL4MeAFVagts7HmNZ2Q==}
     engines: {node: '>=10'}
+
+  file:../rust/cyclotron-node:
+    resolution: {directory: ../rust/cyclotron-node, type: directory}
+    name: '@posthog/cyclotron'
+    dev: false

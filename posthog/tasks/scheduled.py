@@ -96,7 +96,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     add_periodic_task_with_expiry(sender, 20, start_poll_query_performance.s(), "20 sec query performance heartbeat")
 
     sender.add_periodic_task(
-        crontab(hour="*", minute="*/30"),
+        crontab(hour="*", minute="0"),
         schedule_warming_for_teams_task.s(),
         name="schedule warming for largest teams",
     )

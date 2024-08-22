@@ -7,6 +7,7 @@ ALTER TABLE {table_name} on CLUSTER '{cluster}'
 ADD COLUMN IF NOT EXISTS
 page_screen_autocapture_uniq_up_to
 AggregateFunction(uniqUpTo(1), Nullable(UUID))
+AFTER maybe_has_session_replay
 """
 
 BASE_RAW_SESSIONS_ADD_PAGEVIEW_AUTOCAPTURE_SCREEN_UP_TO_2_COLUMN_SQL = (
