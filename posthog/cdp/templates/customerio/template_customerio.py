@@ -12,6 +12,8 @@ template: HogFunctionTemplate = HogFunctionTemplate(
 let action := inputs.action
 let name := event.name
 
+// TODO: test if this works
+// let hasIdentifier := arrayExists(x -> not empty(x), values(inputs.identifiers))
 let hasIdentifier := false
 
 for (let key, value in inputs.identifiers) {
