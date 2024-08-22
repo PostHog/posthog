@@ -18,6 +18,7 @@ from posthog.errors import wrap_query_error
 from posthog.settings import TEST
 from posthog.utils import generate_short_id, patchable
 from prometheus_client import Counter, Gauge
+from sentry_sdk import set_tag
 
 QUERY_ERROR_COUNTER = Counter(
     "clickhouse_query_failure",
@@ -126,10 +127,15 @@ def sync_execute(
         query_id = validated_client_query_id()
         core_settings = {**default_settings(), **(settings or {})}
         tags["query_settings"] = core_settings
+
+        query_type = tags.get("query_type", "Other")
+        set_tag("query_type", query_type)
+
         settings = {
             **core_settings,
             "log_comment": json.dumps(tags, separators=(",", ":")),
         }
+
         try:
             result = client.execute(
                 prepared_sql,
@@ -145,8 +151,6 @@ def sync_execute(
             raise err from e
         finally:
             execution_time = perf_counter() - start_time
-
-            query_type = tags.get("query_type", "Other")
 
             QUERY_EXECUTION_TIME_GAUGE.labels(query_type=query_type).set(execution_time * 1000.0)
 
