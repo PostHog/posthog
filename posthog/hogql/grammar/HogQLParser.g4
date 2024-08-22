@@ -210,8 +210,6 @@ columnExpr
     | columnIdentifier                                                                    # ColumnExprIdentifier
     ;
 
-//columnArgList: columnArgExpr (COMMA columnArgExpr)* COMMA?;
-//columnArgExpr: columnLambdaExpr | columnExpr;
 columnLambdaExpr:
     ( LPAREN identifier (COMMA identifier)* COMMA? RPAREN
     |        identifier (COMMA identifier)* COMMA?

@@ -195,6 +195,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                     upvalues[i].value = stack[upvalues[i].location]
                 }
             } else {
+                // upvalues are sorted by location, so we can break early
                 break
             }
         }
@@ -503,17 +504,16 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 break
             }
             case Operation.CALLABLE: {
-                const name = next() // TODO: do we need it? it could change as the variable is reassigned
+                const name = next()
                 const argCount = next()
                 const upvalueCount = next()
                 const bodyLength = next()
-                const callable = {
-                    __hogCallable__: 'local',
+                const callable = newHogCallable('local', {
                     name,
                     argCount,
                     upvalueCount,
                     ip: frame.ip + 1,
-                } satisfies HogCallable
+                })
                 pushStack(callable)
                 frame.ip += bodyLength
                 break
@@ -591,18 +591,18 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                         ip: funcIp,
                         stackStart: stack.length - argLen,
                         argCount: argLen,
-                        closure: newHogClosure({
-                            __hogCallable__: 'stl',
-                            name: name,
-                            argCount: argLen,
-                            upvalueCount: 0,
-                            ip: -1,
-                        } satisfies HogCallable),
+                        closure: newHogClosure(
+                            newHogCallable('stl', {
+                                name: name,
+                                argCount: argLen,
+                                upvalueCount: 0,
+                                ip: -1,
+                            })
+                        ),
                     } satisfies CallFrame
                     callStack.push(frame)
                     continue // resume the loop without incrementing frame.ip
                 } else {
-                    // Shortcut for calling STL functions (can also be done with an STL function closure)
                     if (temp > stack.length) {
                         throw new HogVMException('Not enough arguments on the stack')
                     }
