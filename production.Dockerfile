@@ -33,7 +33,6 @@ RUN corepack enable && pnpm --version && \
     rm -rf /tmp/pnpm-store
 
 COPY frontend/ frontend/
-COPY ee/frontend/ ee/frontend/
 COPY ./bin/ ./bin/
 COPY babel.config.js tsconfig.json webpack.config.js tailwind.config.js ./
 RUN pnpm build
@@ -113,7 +112,6 @@ ENV PATH=/python-runtime/bin:$PATH \
 COPY manage.py manage.py
 COPY hogvm hogvm/
 COPY posthog posthog/
-COPY ee ee/
 COPY --from=frontend-build /code/frontend/dist /code/frontend/dist
 RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 SECRET_KEY='unsafe secret key for collectstatic only' DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
 
@@ -202,7 +200,6 @@ COPY --chown=posthog:posthog gunicorn.config.py ./
 COPY --chown=posthog:posthog ./bin ./bin/
 COPY --chown=posthog:posthog manage.py manage.py
 COPY --chown=posthog:posthog posthog posthog/
-COPY --chown=posthog:posthog ee ee/
 COPY --chown=posthog:posthog hogvm hogvm/
 
 # Keep server command backwards compatible
