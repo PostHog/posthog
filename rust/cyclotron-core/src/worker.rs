@@ -1,13 +1,15 @@
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use std::sync::Mutex;
+use tokio::sync::RwLock;
 use uuid::Uuid;
 
 use crate::{
+    get_metadata,
     ops::worker::{dequeue_jobs, dequeue_with_vm_state, flush_job, get_vm_state, set_heartbeat},
-    Job, JobState, JobUpdate, PoolConfig, QueueError,
+    Job, JobState, JobUpdate, PoolConfig, QueueError, SHARD_ID_KEY,
 };
 
 // The worker's interface to the underlying queue system - a worker can do everything except
@@ -24,13 +26,33 @@ pub struct Worker {
     // All dequeued job IDs that haven't been flushed yet. The idea is this lets us
     // manage, on the rust side of any API boundary, the "pending" update of any given
     // job, such that a user can progressively build up a full update, and then flush it,
-    // rather than having to track the update state on their side and submit it all at once
-    // TODO - we don't handle people "forgetting" to abort a job, because we expect that to
-    //       only happen if a process dies (in which case the job queue janitor should handle
-    //       it)... this is a memory leak, but I think it's ok.
-    // TRICKY - this is a sync mutex, because we never hold it across an await point, and that
-    // radically simplifies using this for FFI (because there's no message passing across runtimes)
-    pending: Arc<Mutex<HashMap<Uuid, JobUpdate>>>,
+    // rather than having to track the update state on their side and submit it all at once.
+    // This also lets us "hide" all the locking logic, which we're not totally settled on yet.
+
+    // TRICKY - this is a sync mutex, because that simplifies using the manager in an FFI
+    // context (since most functions below can be sync). We have to be careful never to
+    // hold a lock across an await point, though.
+    pending: Mutex<HashMap<Uuid, JobUpdate>>,
+    // Metadata includes things like shard_id, which is likely to be used in latency sensitive
+    // contexts like reporting metrics. For this reason, we cache it, and are also careful to make
+    // the "happy path" of cache hits fast. For this reason, we use tokio::RwLock, to let us hold
+    // the lock over DB fetches. This does make things a bit awkward for FFI callers.
+    metadata: RwLock<HashMap<String, MetadataCacheEntry>>,
+}
+
+struct MetadataCacheEntry {
+    pub value: Option<String>,
+    pub last_set: DateTime<Utc>,
+}
+
+impl MetadataCacheEntry {
+    pub fn new(value: Option<String>, last_set: DateTime<Utc>) -> Self {
+        Self { value, last_set }
+    }
+
+    pub fn is_expired(&self) -> bool {
+        (Utc::now() - self.last_set).num_seconds() > 60
+    }
 }
 
 impl Worker {
@@ -38,15 +60,57 @@ impl Worker {
         let pool = config.connect().await?;
         Ok(Self {
             pool,
-            pending: Arc::new(Mutex::new(HashMap::new())),
+            pending: Default::default(),
+            metadata: Default::default(),
         })
     }
 
     pub fn from_pool(pool: PgPool) -> Self {
         Self {
             pool,
-            pending: Arc::new(Mutex::new(HashMap::new())),
+            pending: Default::default(),
+            metadata: Default::default(),
         }
+    }
+
+    pub async fn shard_id(&self) -> Result<Option<String>, QueueError> {
+        let metadata = self.metadata.read().await;
+        // A None value here means we've never hit the DB. A Some(None) means we got no result.
+        let shard_id = match metadata.get(SHARD_ID_KEY) {
+            Some(entry) => {
+                if entry.is_expired() {
+                    drop(metadata);
+                    self.fetch_metadata(SHARD_ID_KEY).await?
+                } else {
+                    entry.value.clone()
+                }
+            }
+            None => {
+                drop(metadata);
+                self.fetch_metadata(SHARD_ID_KEY).await?
+            }
+        };
+        Ok(shard_id)
+    }
+
+    // Actually hit the DB to fetch some metadata
+    async fn fetch_metadata(&self, key: &str) -> Result<Option<String>, QueueError> {
+        let mut metadata = self.metadata.write().await;
+
+        // Multiple tasks can race to update metadata, so double check someone didn't beat us
+        // to it
+        if let Some(entry) = metadata.get(key) {
+            if !entry.is_expired() {
+                return Ok(entry.value.clone());
+            }
+        }
+
+        let value = get_metadata(&self.pool, key).await?;
+        metadata.insert(
+            key.to_string(),
+            MetadataCacheEntry::new(value.clone(), Utc::now()),
+        );
+        Ok(value)
     }
 
     /// Dequeues jobs from the queue, and returns them. Job sorting happens at the queue level,

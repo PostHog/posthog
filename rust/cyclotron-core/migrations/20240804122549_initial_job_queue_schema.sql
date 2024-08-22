@@ -77,6 +77,14 @@ CREATE INDEX idx_queue_queue_name ON cyclotron_jobs(queue_name);
 -- Control tables
 ---------------------------------------------------------------------
 
+-- A simple key/value store, mostly used to let the janitor tell workers things like shard ID. This is
+-- a backchannel we should be careful to use sparingly, it just saves us from duplicating constants
+-- in N+1 config files.
+CREATE TABLE IF NOT EXISTS cyclotron_metadata (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
 
 -- These are just a starting point, supporting overriding the state for a given team, function or queue
 -- For now these are entirely unused

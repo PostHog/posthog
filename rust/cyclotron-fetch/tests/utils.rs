@@ -44,6 +44,7 @@ pub async fn get_app_test_context(db: PgPool) -> AppContext {
         concurrency_limit,
         liveness,
         config,
+        metric_labels: Default::default(),
     }
 }
 

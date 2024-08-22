@@ -38,6 +38,9 @@ pub struct Config {
     #[envconfig(default = "default_janitor_id")]
     pub janitor_id: String,
 
+    #[envconfig(default = "default")]
+    pub shard_id: String, // A fixed shard-id. When a janitor starts up, it will write this to the shard metadata, and workers may use it when reporting metrics
+
     #[envconfig(default = "10")]
     pub janitor_max_touches: i16,
 
@@ -65,6 +68,7 @@ impl Config {
             stall_timeout: Duration::seconds(self.janitor_stall_timeout_seconds as i64),
             max_touches: self.janitor_max_touches,
             id: self.janitor_id.clone(),
+            shard_id: self.shard_id.clone(),
         };
 
         JanitorConfig {
@@ -83,4 +87,5 @@ pub struct JanitorSettings {
     pub stall_timeout: Duration,
     pub max_touches: i16,
     pub id: String,
+    pub shard_id: String,
 }

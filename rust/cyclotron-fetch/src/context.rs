@@ -1,6 +1,6 @@
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
-use cyclotron_core::{PoolConfig, Worker};
+use cyclotron_core::{PoolConfig, Worker, SHARD_ID_KEY};
 use health::HealthHandle;
 use tokio::sync::Semaphore;
 
@@ -12,6 +12,7 @@ pub struct AppContext {
     pub concurrency_limit: Arc<Semaphore>,
     pub liveness: HealthHandle,
     pub config: AppConfig,
+    pub metric_labels: RwLock<Vec<(String, String)>>,
 }
 
 impl AppContext {
@@ -50,6 +51,31 @@ impl AppContext {
             concurrency_limit,
             liveness,
             config,
+            metric_labels: RwLock::new(vec![]),
         })
+    }
+
+    // Worker metric labels rely on some values derived from the DB, so need
+    // to be intermittently updated.
+    pub async fn update_labels(&self) -> Result<(), FetchError> {
+        let shard_id = self
+            .worker
+            .shard_id()
+            .await?
+            .unwrap_or("unknown".to_string());
+
+        *self.metric_labels.write().unwrap() = vec![
+            (SHARD_ID_KEY.to_string(), shard_id),
+            ("worker_id".to_string(), self.config.worker_id.clone()),
+            ("queue_served".to_string(), self.config.queue_served.clone()),
+        ];
+        Ok(())
+    }
+
+    // *Relatively* cheap, compared to the update above, but
+    // still, better to grab at the top of your fn and then
+    // reuse
+    pub fn metric_labels(&self) -> Vec<(String, String)> {
+        self.metric_labels.read().unwrap().clone()
     }
 }

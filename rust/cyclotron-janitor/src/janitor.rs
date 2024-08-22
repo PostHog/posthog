@@ -1,11 +1,14 @@
-use chrono::Utc;
 use cyclotron_core::{
-    delete_completed_jobs, delete_failed_jobs, delete_poison_pills, reset_stalled_jobs, QueueError,
+    delete_completed_jobs, delete_failed_jobs, delete_poison_pills, reset_stalled_jobs,
+    set_metadata, QueueError, SHARD_ID_KEY,
 };
 use sqlx::PgPool;
 use tracing::{info, warn};
 
-use crate::config::{JanitorConfig, JanitorSettings};
+use crate::{
+    config::{JanitorConfig, JanitorSettings},
+    metrics_constants::*,
+};
 
 // The janitor reports it's own metrics, this is mostly for testing purposes
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -19,7 +22,7 @@ pub struct CleanupResult {
 pub struct Janitor {
     pool: PgPool,
     settings: JanitorSettings,
-    metrics_labels: Vec<(&'static str, String)>,
+    metrics_labels: Vec<(String, String)>,
 }
 
 impl Janitor {
@@ -27,7 +30,13 @@ impl Janitor {
         let settings = config.settings;
         let pool = config.pool.connect().await?;
 
-        let metrics_labels = vec![("janitor_id", settings.id.clone())];
+        // Janitors define the shard id (and other shard "constants"), so they set it on startup.
+        set_metadata(&pool, SHARD_ID_KEY, &settings.shard_id).await?;
+
+        let metrics_labels = vec![
+            ("janitor_id".to_string(), settings.id.clone()),
+            (SHARD_ID_KEY.to_string(), settings.shard_id.clone()),
+        ];
 
         Ok(Self {
             pool,
@@ -36,8 +45,17 @@ impl Janitor {
         })
     }
 
-    pub fn from_pool(pool: PgPool, settings: JanitorSettings) -> Self {
-        let metrics_labels = vec![("janitor_id", settings.id.clone())];
+    #[doc(hidden)]
+    pub async fn from_pool(pool: PgPool, settings: JanitorSettings) -> Self {
+        let metrics_labels = vec![
+            ("janitor_id".to_string(), settings.id.clone()),
+            (SHARD_ID_KEY.to_string(), settings.shard_id.clone()),
+        ];
+
+        set_metadata(&pool, SHARD_ID_KEY, &settings.shard_id)
+            .await
+            .unwrap();
+
         Self {
             pool,
             settings,
@@ -45,83 +63,55 @@ impl Janitor {
         }
     }
 
-    // TODO - right now, the metrics produced here are pretty rough - just per shard, without
-    // any per-queue or per-worker-type breakdown. It'd be nice to add that, eventually.
     pub async fn run_once(&self) -> Result<CleanupResult, QueueError> {
         info!("Running janitor loop");
-        let start = Utc::now();
-        metrics::counter!("cyclotron_janitor_run_starts", &self.metrics_labels).increment(1);
+        let _loop_start = common_metrics::timing_guard(RUN_TIME, &self.metrics_labels);
+        common_metrics::inc(RUN_STARTS, &self.metrics_labels, 1);
 
-        let before = Utc::now();
-        let completed = delete_completed_jobs(&self.pool).await?;
-        let taken = Utc::now() - before;
-        metrics::histogram!(
-            "cyclotron_janitor_completed_jobs_cleanup_duration_ms",
-            &self.metrics_labels
-        )
-        .record(taken.num_milliseconds() as f64);
-        metrics::counter!(
-            "cyclotron_janitor_completed_jobs_deleted",
-            &self.metrics_labels
-        )
-        .increment(completed);
+        let completed = {
+            let _time = common_metrics::timing_guard(COMPLETED_TIME, &self.metrics_labels);
+            delete_completed_jobs(&self.pool).await?
+        };
+        common_metrics::inc(COMPLETED_COUNT, &self.metrics_labels, completed);
 
-        let before = Utc::now();
-        let failed = delete_failed_jobs(&self.pool).await?;
-        let taken = Utc::now() - before;
-        metrics::histogram!(
-            "cyclotron_janitor_failed_jobs_cleanup_duration_ms",
-            &self.metrics_labels
-        )
-        .record(taken.num_milliseconds() as f64);
-        metrics::counter!(
-            "cyclotron_janitor_failed_jobs_deleted",
-            &self.metrics_labels
-        )
-        .increment(failed);
+        let failed = {
+            let _time = common_metrics::timing_guard(FAILED_TIME, &self.metrics_labels);
+            delete_failed_jobs(&self.pool).await?
+        };
+        common_metrics::inc(FAILED_COUNT, &self.metrics_labels, failed);
 
-        // Note - if we reset stalled jobs before deleting poison pills, we'll never delete poision
-        // pills, since resetting a stalled job clears the locked state.
-        let before = Utc::now();
-        let poisoned = delete_poison_pills(
-            &self.pool,
-            self.settings.stall_timeout,
-            self.settings.max_touches,
-        )
-        .await?;
-        let taken: chrono::Duration = Utc::now() - before;
-        metrics::histogram!(
-            "cyclotron_janitor_poison_pills_cleanup_duration_ms",
-            &self.metrics_labels
-        )
-        .record(taken.num_milliseconds() as f64);
-        metrics::counter!(
-            "cyclotron_janitor_poison_pills_deleted",
-            &self.metrics_labels
-        )
-        .increment(poisoned);
+        let poisoned = {
+            let _time = common_metrics::timing_guard(POISONED_TIME, &self.metrics_labels);
+            delete_poison_pills(
+                &self.pool,
+                self.settings.stall_timeout,
+                self.settings.max_touches,
+            )
+            .await?
+        };
+        common_metrics::inc(POISONED_COUNT, &self.metrics_labels, poisoned);
+
         if poisoned > 0 {
             warn!("Deleted {} poison pills", poisoned);
         }
 
-        let before = Utc::now();
-        let stalled = reset_stalled_jobs(&self.pool, self.settings.stall_timeout).await?;
-        let taken = Utc::now() - before;
-        metrics::histogram!(
-            "cyclotron_janitor_stalled_jobs_reset_duration_ms",
-            &self.metrics_labels
-        )
-        .record(taken.num_milliseconds() as f64);
-        metrics::counter!("cyclotron_janitor_stalled_jobs_reset", &self.metrics_labels)
-            .increment(stalled);
+        let stalled = {
+            let _time = common_metrics::timing_guard(STALLED_TIME, &self.metrics_labels);
+            reset_stalled_jobs(&self.pool, self.settings.stall_timeout).await?
+        };
+        common_metrics::inc(STALLED_COUNT, &self.metrics_labels, stalled);
+
         if stalled > 0 {
             warn!("Reset {} stalled jobs", stalled);
         }
 
-        metrics::counter!("cyclotron_janitor_run_ends", &self.metrics_labels).increment(1);
-        let elapsed = Utc::now() - start;
-        metrics::histogram!("cyclotron_janitor_run_duration_ms", &self.metrics_labels)
-            .record(elapsed.num_milliseconds() as f64);
+        let available = {
+            let _time = common_metrics::timing_guard(QUEUE_DEPTH, &self.metrics_labels);
+            cyclotron_core::count_total_waiting_jobs(&self.pool).await?
+        };
+        common_metrics::guage(QUEUE_DEPTH, &self.metrics_labels, available as f64);
+
+        common_metrics::inc(RUN_ENDS, &self.metrics_labels, 1);
         info!("Janitor loop complete");
         Ok(CleanupResult {
             completed,
