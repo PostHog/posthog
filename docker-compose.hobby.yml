@@ -76,6 +76,9 @@ services:
             OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
             OBJECT_STORAGE_ENABLED: true
         image: $REGISTRY_URL:$POSTHOG_APP_TAG
+        build:
+            dockerfile: production.Dockerfile
+            context: .
     web:
         extends:
             file: docker-compose.base.yml
@@ -84,6 +87,9 @@ services:
         volumes:
             - ./compose:/compose
         image: $REGISTRY_URL:$POSTHOG_APP_TAG
+        build:
+            dockerfile: production.Dockerfile
+            context: .
         environment:
             SENTRY_DSN: $SENTRY_DSN
             SITE_URL: https://$DOMAIN
@@ -104,6 +110,9 @@ services:
             file: docker-compose.base.yml
             service: plugins
         image: $REGISTRY_URL:$POSTHOG_APP_TAG
+        build:
+            dockerfile: production.Dockerfile
+            context: .
         environment:
             SENTRY_DSN: $SENTRY_DSN
             SITE_URL: https://$DOMAIN
@@ -147,6 +156,9 @@ services:
             file: docker-compose.base.yml
             service: asyncmigrationscheck
         image: $REGISTRY_URL:$POSTHOG_APP_TAG
+        build:
+            dockerfile: production.Dockerfile
+            context: .
         environment:
             SENTRY_DSN: $SENTRY_DSN
             SITE_URL: https://$DOMAIN
@@ -193,6 +205,9 @@ services:
         volumes:
             - ./compose:/compose
         image: $REGISTRY_URL:$POSTHOG_APP_TAG
+        build:
+            dockerfile: production.Dockerfile
+            context: .
         environment:
             SENTRY_DSN: $SENTRY_DSN
             SITE_URL: https://$DOMAIN
