@@ -131,45 +131,45 @@ class BaseTestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
             [
                 {
                     "reached_to_step_count": 0,
-                    "conversion_rate": 0,
+                    "conversion_rate": 0.0,
                     "reached_from_step_count": 1,
-                    "timestamp": datetime(2021, 6, 7, 0, 0).replace(tzinfo=ZoneInfo("UTC")),
+                    "timestamp": datetime(2021, 6, 7, 0, 0),
                 },
                 {
                     "reached_to_step_count": 0,
-                    "conversion_rate": 0,
+                    "conversion_rate": 0.0,
                     "reached_from_step_count": 0,
-                    "timestamp": datetime(2021, 6, 8, 0, 0).replace(tzinfo=ZoneInfo("UTC")),
+                    "timestamp": datetime(2021, 6, 8, 0, 0),
                 },
                 {
                     "reached_to_step_count": 0,
-                    "conversion_rate": 0,
+                    "conversion_rate": 0.0,
                     "reached_from_step_count": 0,
-                    "timestamp": datetime(2021, 6, 9, 0, 0).replace(tzinfo=ZoneInfo("UTC")),
+                    "timestamp": datetime(2021, 6, 9, 0, 0),
                 },
                 {
                     "reached_to_step_count": 0,
-                    "conversion_rate": 0,
+                    "conversion_rate": 0.0,
                     "reached_from_step_count": 0,
-                    "timestamp": datetime(2021, 6, 10, 0, 0).replace(tzinfo=ZoneInfo("UTC")),
+                    "timestamp": datetime(2021, 6, 10, 0, 0),
                 },
                 {
                     "reached_to_step_count": 0,
-                    "conversion_rate": 0,
+                    "conversion_rate": 0.0,
                     "reached_from_step_count": 0,
-                    "timestamp": datetime(2021, 6, 11, 0, 0).replace(tzinfo=ZoneInfo("UTC")),
+                    "timestamp": datetime(2021, 6, 11, 0, 0),
                 },
                 {
                     "reached_to_step_count": 0,
-                    "conversion_rate": 0,
+                    "conversion_rate": 0.0,
                     "reached_from_step_count": 0,
-                    "timestamp": datetime(2021, 6, 12, 0, 0).replace(tzinfo=ZoneInfo("UTC")),
+                    "timestamp": datetime(2021, 6, 12, 0, 0),
                 },
                 {
                     "reached_to_step_count": 0,
-                    "conversion_rate": 0,
+                    "conversion_rate": 0.0,
                     "reached_from_step_count": 0,
-                    "timestamp": datetime(2021, 6, 13, 0, 0).replace(tzinfo=ZoneInfo("UTC")),
+                    "timestamp": datetime(2021, 6, 13, 0, 0),
                 },
             ],
         )
@@ -1615,5 +1615,5 @@ class BaseTestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
 
 @patch("posthoganalytics.feature_enabled", new=Mock(return_value=False))
-class BaseTestFunnelTrends(BaseTestFunnelTrends):
+class TestFunnelTrends(BaseTestFunnelTrends):
     pass

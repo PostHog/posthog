@@ -179,7 +179,7 @@ class BaseTestFunnelStrictStepsBreakdown(
         self.assertCountEqual(self._get_actor_ids_at_step(filters, 2, ["Safari"]), [people["person2"].uuid])
 
 
-class TestStrictFunnelGroupBreakdown(
+class BaseTestStrictFunnelGroupBreakdown(
     ClickhouseTestMixin,
     funnel_breakdown_group_test_factory(  # type: ignore
         FunnelOrderType.STRICT,
@@ -189,7 +189,7 @@ class TestStrictFunnelGroupBreakdown(
     pass
 
 
-class TestFunnelStrictStepsConversionTime(
+class BaseTestFunnelStrictStepsConversionTime(
     ClickhouseTestMixin,
     funnel_conversion_time_test_factory(FunnelOrderType.ORDERED, ClickhouseFunnelStrictActors),  # type: ignore
 ):
@@ -197,7 +197,7 @@ class TestFunnelStrictStepsConversionTime(
     pass
 
 
-class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
+class BaseTestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
     def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
@@ -629,4 +629,19 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
 
 @patch("posthoganalytics.feature_enabled", new=Mock(return_value=False))
 class TestFunnelStrictStepsBreakdown(BaseTestFunnelStrictStepsBreakdown):
+    pass
+
+
+@patch("posthoganalytics.feature_enabled", new=Mock(return_value=False))
+class TestFunnelStrictSteps(BaseTestFunnelStrictSteps):
+    pass
+
+
+@patch("posthoganalytics.feature_enabled", new=Mock(return_value=False))
+class TestStrictFunnelGroupBreakdown(BaseTestStrictFunnelGroupBreakdown):
+    pass
+
+
+@patch("posthoganalytics.feature_enabled", new=Mock(return_value=False))
+class TestFunnelStrictStepsConversionTime(BaseTestFunnelStrictStepsConversionTime):
     pass
