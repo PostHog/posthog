@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.parser import parse_select
 from posthog.hogql_queries.insights.funnels import FunnelTrends
 from posthog.hogql_queries.insights.utils.utils import get_start_of_interval_hogql_str
@@ -92,6 +93,8 @@ class FunnelTrendsUDF(FunnelTrends):
         """,
             {"inner_event_query": inner_event_query},
         )
+        # This is necessary so clickhouse doesn't truncate timezone information when passing datetimes to python
+        inner_select.settings = HogQLQuerySettings(date_time_output_format="iso", date_time_input_format="best_effort")
 
         conversion_rate_expr = (
             "if(reached_from_step_count > 0, round(reached_to_step_count / reached_from_step_count * 100, 2), 0)"
