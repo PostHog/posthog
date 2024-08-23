@@ -35,13 +35,19 @@ pub struct Config {
 
     // Generally, this should be equivalent to a "shard id", as only one janitor should be running
     // per shard
-    pub janitor_id: Option<String>,
+    #[envconfig(default = "default_janitor_id")]
+    pub janitor_id: String,
 
     #[envconfig(default = "10")]
     pub janitor_max_touches: i16,
 
     #[envconfig(default = "60")]
     pub janitor_stall_timeout_seconds: u16,
+}
+
+#[allow(dead_code)]
+fn default_worker_id() -> String {
+    Uuid::now_v7().to_string()
 }
 
 impl Config {
@@ -58,10 +64,7 @@ impl Config {
         let settings = JanitorSettings {
             stall_timeout: Duration::seconds(self.janitor_stall_timeout_seconds as i64),
             max_touches: self.janitor_max_touches,
-            id: self
-                .janitor_id
-                .clone()
-                .unwrap_or_else(|| Uuid::now_v7().to_string()),
+            id: self.janitor_id.clone(),
         };
 
         JanitorConfig {

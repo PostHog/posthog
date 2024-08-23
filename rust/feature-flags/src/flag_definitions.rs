@@ -12,7 +12,7 @@ pub const TEAM_FLAGS_CACHE_PREFIX: &str = "posthog:1:team_feature_flags_";
 #[derive(Debug, Deserialize)]
 pub enum GroupTypeIndex {}
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OperatorType {
     Exact,
@@ -32,7 +32,7 @@ pub enum OperatorType {
     IsDateBefore,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PropertyFilter {
     pub key: String,
     // TODO: Probably need a default for value?
@@ -45,26 +45,26 @@ pub struct PropertyFilter {
     pub group_type_index: Option<i8>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct FlagGroupType {
     pub properties: Option<Vec<PropertyFilter>>,
     pub rollout_percentage: Option<f64>,
     pub variant: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct MultivariateFlagVariant {
     pub key: String,
     pub name: Option<String>,
     pub rollout_percentage: f64,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct MultivariateFlagOptions {
     pub variants: Vec<MultivariateFlagVariant>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct FlagFilters {
     pub groups: Vec<FlagGroupType>,
     pub multivariate: Option<MultivariateFlagOptions>,
@@ -73,7 +73,7 @@ pub struct FlagFilters {
     pub super_groups: Option<Vec<FlagGroupType>>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct FeatureFlag {
     pub id: i32,
     pub team_id: i32,
@@ -117,7 +117,7 @@ impl FeatureFlag {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct FeatureFlagList {
     pub flags: Vec<FeatureFlag>,
 }
@@ -188,6 +188,27 @@ impl FeatureFlagList {
             .collect::<Result<Vec<FeatureFlag>, FlagError>>()?;
 
         Ok(FeatureFlagList { flags: flags_list })
+    }
+
+    pub async fn update_flags_in_redis(
+        client: Arc<dyn RedisClient + Send + Sync>,
+        team_id: i32,
+        flags: &FeatureFlagList,
+    ) -> Result<(), FlagError> {
+        let payload = serde_json::to_string(flags).map_err(|e| {
+            tracing::error!("Failed to serialize flags: {}", e);
+            FlagError::DataParsingError
+        })?;
+
+        client
+            .set(format!("{TEAM_FLAGS_CACHE_PREFIX}{}", team_id), payload)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to update Redis cache: {}", e);
+                FlagError::CacheUpdateError
+            })?;
+
+        Ok(())
     }
 }
 

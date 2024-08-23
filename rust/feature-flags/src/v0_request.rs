@@ -6,13 +6,34 @@ use serde_json::Value;
 use tracing::instrument;
 
 use crate::{
-    api::FlagError, database::Client as DatabaseClient, redis::Client as RedisClient, team::Team,
+    api::FlagError, database::Client as DatabaseClient, flag_definitions::FeatureFlagList,
+    redis::Client as RedisClient, team::Team,
 };
+
+#[derive(Deserialize, Default)]
+pub enum Compression {
+    #[default]
+    Unsupported,
+
+    #[serde(rename = "gzip", alias = "gzip-js")]
+    Gzip,
+    // TODO do we want to support this at all? It's not in the spec
+    // #[serde(rename = "base64")]
+    // Base64,
+}
 
 #[derive(Deserialize, Default)]
 pub struct FlagsQueryParams {
     #[serde(alias = "v")]
     pub version: Option<String>,
+
+    pub compression: Option<Compression>,
+
+    #[serde(alias = "ver")]
+    pub lib_version: Option<String>,
+
+    #[serde(alias = "_")]
+    pub sent_at: Option<i64>,
 }
 
 #[derive(Default, Debug, Deserialize, Serialize)]
@@ -71,8 +92,8 @@ impl FlagRequest {
                 // Fallback: Check PostgreSQL if not found in Redis
                 match Team::from_pg(pg_client, token.clone()).await {
                     Ok(team) => {
-                        // Token found in PostgreSQL, update Redis cache
-                        if let Err(e) = Team::update_redis_cache(redis_client, team).await {
+                        // Token found in PostgreSQL, update Redis cache so that we can verify it from Redis next time
+                        if let Err(e) = Team::update_redis_cache(redis_client, &team).await {
                             tracing::warn!("Failed to update Redis cache: {}", e);
                         }
                         Ok(token)
@@ -80,6 +101,27 @@ impl FlagRequest {
                     Err(_) => Err(FlagError::TokenValidationError),
                 }
             }
+        }
+    }
+
+    pub async fn get_team_from_cache_or_pg(
+        &self,
+        token: &str,
+        redis_client: Arc<dyn RedisClient + Send + Sync>,
+        pg_client: Arc<dyn DatabaseClient + Send + Sync>,
+    ) -> Result<Team, FlagError> {
+        match Team::from_redis(redis_client.clone(), token.to_owned()).await {
+            Ok(team) => Ok(team),
+            Err(_) => match Team::from_pg(pg_client, token.to_owned()).await {
+                Ok(team) => {
+                    // If we have the team in postgres, but not redis, update redis so we're faster next time
+                    if let Err(e) = Team::update_redis_cache(redis_client, &team).await {
+                        tracing::warn!("Failed to update Redis cache: {}", e);
+                    }
+                    Ok(team)
+                }
+                Err(_) => Err(FlagError::TokenValidationError),
+            },
         }
     }
 
@@ -95,11 +137,37 @@ impl FlagRequest {
             _ => Ok(distinct_id.chars().take(200).collect()),
         }
     }
+
+    pub async fn get_flags_from_cache_or_pg(
+        &self,
+        team_id: i32,
+        redis_client: Arc<dyn RedisClient + Send + Sync>,
+        pg_client: Arc<dyn DatabaseClient + Send + Sync>,
+    ) -> Result<FeatureFlagList, FlagError> {
+        match FeatureFlagList::from_redis(redis_client.clone(), team_id).await {
+            Ok(flags) => Ok(flags),
+            Err(_) => match FeatureFlagList::from_pg(pg_client, team_id).await {
+                Ok(flags) => {
+                    // If we have the flags in postgres, but not redis, update redis so we're faster next time
+                    // TODO: we have some counters in django for tracking these cache misses
+                    // we should probably do the same here
+                    if let Err(e) =
+                        FeatureFlagList::update_flags_in_redis(redis_client, team_id, &flags).await
+                    {
+                        tracing::warn!("Failed to update Redis cache: {}", e);
+                    }
+                    Ok(flags)
+                }
+                Err(_) => Err(FlagError::TokenValidationError),
+            },
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::api::FlagError;
+    use crate::test_utils::{insert_new_team_in_redis, setup_pg_client, setup_redis_client};
     use crate::v0_request::FlagRequest;
     use bytes::Bytes;
     use serde_json::json;
@@ -146,6 +214,31 @@ mod tests {
         match flag_payload.extract_distinct_id() {
             Ok(id) => assert_eq!(id, "alakazam"),
             _ => panic!("expected distinct id"),
+        };
+    }
+
+    #[tokio::test]
+    async fn token_is_returned_correctly() {
+        let redis_client = setup_redis_client(None);
+        let pg_client = setup_pg_client(None).await;
+        let team = insert_new_team_in_redis(redis_client.clone())
+            .await
+            .expect("Failed to insert new team in Redis");
+
+        let json = json!({
+            "$distinct_id": "alakazam",
+            "token": team.api_token,
+        });
+        let bytes = Bytes::from(json.to_string());
+
+        let flag_payload = FlagRequest::from_bytes(bytes).expect("failed to parse request");
+
+        match flag_payload
+            .extract_and_verify_token(redis_client, pg_client)
+            .await
+        {
+            Ok(extracted_token) => assert_eq!(extracted_token, team.api_token),
+            Err(e) => panic!("Failed to extract and verify token: {:?}", e),
         };
     }
 }

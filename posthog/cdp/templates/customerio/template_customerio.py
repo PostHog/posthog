@@ -1,4 +1,6 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
+from copy import deepcopy
+import dataclasses
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, HogFunctionTemplateMigrator
 
 # Based off of https://customer.io/docs/api/track/#operation/entity
 
@@ -184,3 +186,62 @@ if (res.status >= 400) {
         "filter_test_accounts": True,
     },
 )
+
+
+class TemplateCustomerioMigrator(HogFunctionTemplateMigrator):
+    plugin_url = "https://github.com/PostHog/customerio-plugin"
+
+    @classmethod
+    def migrate(cls, obj):
+        hf = deepcopy(dataclasses.asdict(template))
+
+        host = obj.config.get("host", "track.customer.io")
+        events_to_send = obj.config.get("eventsToSend")
+        token = obj.config.get("customerioToken", "")
+        customerio_site_id = obj.config.get("customerioSiteId", "")
+        anon_option = obj.config.get("sendEventsFromAnonymousUsers", "Send all events")
+        identify_by_email = obj.config.get("identifyByEmail", "No") == "Yes"
+
+        hf["filters"] = {}
+
+        if anon_option == "Send all events":
+            pass
+        elif anon_option == "Only send events from users with emails":
+            # TODO: Add support for general filters
+            hf["filters"]["properties"] = [
+                {
+                    "key": "email",
+                    "value": "is_set",
+                    "operator": "is_set",
+                    "type": "person",
+                }
+            ]
+        elif anon_option == "Only send events from users that have been identified":
+            hf["filters"]["properties"] = [
+                {
+                    "key": "$is_identified",
+                    "value": ["true"],
+                    "operator": "exact",
+                    "type": "event",
+                }
+            ]
+
+        if events_to_send:
+            hf["filters"]["events"] = [
+                {"id": event.strip(), "name": event.strip() or "All events", "type": "events", "order": 0}
+                for event in events_to_send.split(",")
+            ]
+
+        hf["inputs"] = {
+            "action": {"value": "automatic"},
+            "site_id": {"value": customerio_site_id},
+            "token": {"value": token},
+            "host": {"value": host},
+            "identifiers": {"value": {"email": "{person.properties.email}"}}
+            if identify_by_email
+            else {"value": {"id": "{event.distinct_id}"}},
+            "include_all_properties": {"value": True},
+            "attributes": {"value": {}},
+        }
+
+        return hf
