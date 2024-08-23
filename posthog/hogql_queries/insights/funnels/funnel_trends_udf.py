@@ -85,7 +85,8 @@ class FunnelTrendsUDF(FunnelTrends):
                     arraySort(t -> t.1, groupArray(tuple(toFloat(timestamp), {get_start_of_interval_hogql_str(self.context.interval.value, team=self.context.team, source='timestamp')}, {prop_selector}, arrayFilter((x) -> x != 0, [{steps}{exclusions}]))))
                 )) as af_tuple,
                 af_tuple.1 as entrance_period_start,
-                af_tuple.2 as success_bool
+                af_tuple.2 as success_bool,
+                af_tuple.3 as breakdown
             FROM {{inner_event_query}}
             GROUP BY aggregation_target{breakdown_prop}
         """,
@@ -104,13 +105,14 @@ class FunnelTrendsUDF(FunnelTrends):
                 fill.entrance_period_start as entrance_period_start,
                 countIf(data.success_bool is not null) as reached_from_step_count,
                 sum(data.success_bool) as reached_to_step_count,
-                {conversion_rate_expr} as conversion_rate
+                {conversion_rate_expr} as conversion_rate,
+                breakdown as prop
             FROM
                 ({{fill_query}}) as fill
-            LEFT OUTER JOIN
+            CROSS JOIN
                 ({{inner_select}}) as data
-            ON data.entrance_period_start = fill.entrance_period_start
-            GROUP BY entrance_period_start
+            WHERE data.entrance_period_start = fill.entrance_period_start
+            GROUP BY entrance_period_start, data.breakdown
             ORDER BY entrance_period_start
         """,
             {"fill_query": fill_query, "inner_select": inner_select},
