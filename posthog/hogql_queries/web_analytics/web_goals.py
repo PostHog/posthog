@@ -142,6 +142,12 @@ FROM {inner_select}
             results.append([action_name, action_total, action_unique, action_rate])
 
         return WebGoalsQueryResponse(
+            columns=[
+                "context.columns.action_name",
+                "context.columns.total_conversions",
+                "context.columns.converting_users",
+                "context.columns.conversion_rate",
+            ],
             results=results,
             samplingRate=self._sample_rate,
             modifiers=self.modifiers,

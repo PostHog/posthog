@@ -196,6 +196,24 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
             render: PercentageCell,
             align: 'right',
         },
+        total_conversions: {
+            title: 'Total Conversions',
+            render: NumericCell,
+            align: 'right',
+        },
+        conversion_rate: {
+            title: 'Conversion Rate',
+            render: PercentageCell,
+            align: 'right',
+        },
+        converting_users: {
+            title: 'Converting Users',
+            render: NumericCell,
+            align: 'right',
+        },
+        action_name: {
+            title: 'Action',
+        },
     },
 }
 
