@@ -106,14 +106,14 @@ export function convertToHogFunctionInvocationGlobals(
     return context
 }
 
-// Adapted from Materialized SQL column: extract(elements_chain, '(?::|\")href="(.*?)"'),
+// Adapted from SQL: extract(elements_chain, '(?::|\")href="(.*?)"'),
 const hrefRegex = new RE2(/(?::|")href="(.*?)"/)
 function getElementsChainHref(elementsChain: string): string {
     const hrefMatch = hrefRegex.exec(elementsChain)
     return hrefMatch ? hrefMatch[1] : ''
 }
 
-// Adapted from Materialized SQL column: arrayDistinct(extractAll(elements_chain, '(?::|\")text="(.*?)"')),
+// Adapted from SQL: arrayDistinct(extractAll(elements_chain, '(?::|\")text="(.*?)"')),
 const textRegex = new RE2(/(?::|")text="(.*?)"/g)
 function getElementsChainTexts(elementsChain: string): string[] {
     const textMatches = new Set<string>()
@@ -124,7 +124,7 @@ function getElementsChainTexts(elementsChain: string): string[] {
     return Array.from(textMatches)
 }
 
-// Adapted from Materialized SQL column: arrayDistinct(extractAll(elements_chain, '(?::|\")id="(.*?)"')),
+// Adapted from SQL: arrayDistinct(extractAll(elements_chain, '(?::|\")id="(.*?)"')),
 const idRegex = new RE2(/(?::|")id="(.*?)"/g)
 function getElementsChainIds(elementsChain: string): string[] {
     const idMatches = new Set<string>()
@@ -135,7 +135,7 @@ function getElementsChainIds(elementsChain: string): string[] {
     return Array.from(idMatches)
 }
 
-// Adapted from Materialized SQL column: arrayDistinct(extractAll(elements_chain, '(?:^|;)(a|button|form|input|select|textarea|label)(?:\\.|$|:)'))
+// Adapted from SQL: arrayDistinct(extractAll(elements_chain, '(?:^|;)(a|button|form|input|select|textarea|label)(?:\\.|$|:)'))
 const elementRegex = new RE2(/(?:^|;)(a|button|form|input|select|textarea|label)(?:\.|$|:)/g)
 function getElementsChainElements(elementsChain: string): string[] {
     const elementMatches = new Set<string>()
