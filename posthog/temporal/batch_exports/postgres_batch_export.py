@@ -40,6 +40,7 @@ from posthog.temporal.batch_exports.utils import (
     JsonType,
     apeek_first_and_rewind,
     cast_record_batch_json_columns,
+    make_retryable_with_exponential_backoff,
     set_status_to_running_task,
 )
 from posthog.temporal.common.clickhouse import get_client
@@ -110,7 +111,9 @@ class PostgreSQLClient:
         return self._connection
 
     @contextlib.asynccontextmanager
-    async def connect(self) -> typing.AsyncIterator[typing.Self]:
+    async def connect(
+        self,
+    ) -> typing.AsyncIterator[typing.Self]:
         """Manage a PostgreSQL connection.
 
         By using a context manager Pyscopg will take care of closing the connection.
@@ -120,7 +123,12 @@ class PostgreSQLClient:
             # Disable certificate verification for self-signed certificates.
             kwargs["sslrootcert"] = None
 
-        connection = await psycopg.AsyncConnection.connect(
+        connect = make_retryable_with_exponential_backoff(
+            psycopg.AsyncConnection.connect,
+            retryable_exceptions=(psycopg.OperationalError,),
+        )
+
+        connection: psycopg.AsyncConnection = await connect(
             user=self.user,
             password=self.password,
             dbname=self.database,
@@ -129,6 +137,7 @@ class PostgreSQLClient:
             sslmode="prefer" if settings.TEST else "require",
             **kwargs,
         )
+
         async with connection as connection:
             self._connection = connection
             yield self

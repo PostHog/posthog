@@ -164,19 +164,19 @@ class DeletedMetaFields(models.Model):
 class UUIDModel(models.Model):
     """Base Django Model with default autoincremented ID field replaced with UUIDT."""
 
+    id = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
+
     class Meta:
         abstract = True
-
-    id = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 
 
 class UUIDClassicModel(models.Model):
     """Base Django Model with default autoincremented ID field kept and a UUIDT field added."""
 
+    uuid = models.UUIDField(unique=True, default=UUIDT, editable=False)
+
     class Meta:
         abstract = True
-
-    uuid = models.UUIDField(unique=True, default=UUIDT, editable=False)
 
 
 def sane_repr(*attrs: str, include_id=True) -> Callable[[object], str]:

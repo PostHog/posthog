@@ -1,11 +1,8 @@
 use std::sync::Arc;
 
 use chrono::{Duration, Utc};
-use cyclotron_core::{
-    base_ops::{Job, JobInit},
-    error::QueueError,
-    worker::Worker,
-};
+
+use cyclotron_core::{Job, JobInit, QueueError, Worker};
 use cyclotron_fetch::{
     config::AppConfig,
     context::AppContext,

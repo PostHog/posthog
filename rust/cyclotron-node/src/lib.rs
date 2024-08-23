@@ -1,11 +1,6 @@
 use chrono::{DateTime, Utc};
-use cyclotron_core::{
-    base_ops::{JobInit, JobState},
-    manager::{ManagerConfig, QueueManager},
-    worker::Worker,
-    PoolConfig,
-};
 
+use cyclotron_core::{JobInit, JobState, ManagerConfig, PoolConfig, QueueManager, Worker};
 use neon::{
     handle::Handle,
     prelude::{Context, FunctionContext, ModuleContext},
@@ -261,7 +256,7 @@ fn flush_job(mut cx: FunctionContext) -> JsResult<JsPromise> {
         };
         let res = worker.flush_job(job_id).await;
         deferred.settle_with(&channel, move |mut cx| {
-            res.or_else(|e: cyclotron_core::error::QueueError| cx.throw_error(format!("{}", e)))?;
+            res.or_else(|e: cyclotron_core::QueueError| cx.throw_error(format!("{}", e)))?;
             Ok(cx.null())
         });
     };

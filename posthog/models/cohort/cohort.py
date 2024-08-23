@@ -96,10 +96,10 @@ class Cohort(models.Model):
 
     is_static = models.BooleanField(default=False)
 
-    objects = CohortManager()
-
     # deprecated in favor of filters
     groups = models.JSONField(default=list)
+
+    objects = CohortManager()
 
     def __str__(self):
         return self.name

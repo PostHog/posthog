@@ -496,6 +496,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "capabilities": {},
                 "metrics": {},
                 "public_jobs": {},
+                "hog_function_migration_available": False,
             },
         )
         self.assertEqual(Plugin.objects.count(), 1)
@@ -540,6 +541,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "capabilities": {},
                 "metrics": {},
                 "public_jobs": {},
+                "hog_function_migration_available": False,
             },
         )
         self.assertEqual(Plugin.objects.count(), 1)
@@ -586,6 +588,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "capabilities": {},
                 "metrics": {},
                 "public_jobs": {},
+                "hog_function_migration_available": False,
             },
         )
         self.assertEqual(Plugin.objects.count(), 1)
@@ -753,6 +756,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
             "capabilities": {},
             "metrics": {},
             "public_jobs": {},
+            "hog_function_migration_available": False,
         }
 
         assert Plugin.objects.count() == 1

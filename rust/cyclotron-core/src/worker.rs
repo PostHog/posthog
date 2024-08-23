@@ -6,11 +6,8 @@ use std::sync::Mutex;
 use uuid::Uuid;
 
 use crate::{
-    base_ops::{
-        dequeue_jobs, dequeue_with_vm_state, flush_job, set_heartbeat, Job, JobState, JobUpdate,
-    },
-    error::QueueError,
-    PoolConfig,
+    ops::worker::{dequeue_jobs, dequeue_with_vm_state, flush_job, get_vm_state, set_heartbeat},
+    Job, JobState, JobUpdate, PoolConfig, QueueError,
 };
 
 // The worker's interface to the underlying queue system - a worker can do everything except
@@ -90,6 +87,20 @@ impl Worker {
         }
 
         Ok(jobs)
+    }
+
+    /// Retrieve the VM state for a job, if, for example, you dequeued it and then realised you
+    /// need the VM state as well.
+    pub async fn get_vm_state(&self, job_id: Uuid) -> Result<Option<String>, QueueError> {
+        let lock_id = {
+            let pending = self.pending.lock().unwrap();
+            pending
+                .get(&job_id)
+                .ok_or(QueueError::UnknownJobId(job_id))?
+                .lock_id
+        };
+
+        get_vm_state(&self.pool, job_id, lock_id).await
     }
 
     /// NOTE - This function can only be called once, even though the underlying

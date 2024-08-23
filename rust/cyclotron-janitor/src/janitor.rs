@@ -1,9 +1,6 @@
 use chrono::Utc;
 use cyclotron_core::{
-    error::QueueError,
-    janitor_ops::{
-        delete_completed_jobs, delete_failed_jobs, delete_poison_pills, reset_stalled_jobs,
-    },
+    delete_completed_jobs, delete_failed_jobs, delete_poison_pills, reset_stalled_jobs, QueueError,
 };
 use sqlx::PgPool;
 use tracing::{info, warn};
@@ -92,7 +89,7 @@ impl Janitor {
             self.settings.max_touches,
         )
         .await?;
-        let taken = Utc::now() - before;
+        let taken: chrono::Duration = Utc::now() - before;
         metrics::histogram!(
             "cyclotron_janitor_poison_pills_cleanup_duration_ms",
             &self.metrics_labels
