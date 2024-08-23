@@ -71,42 +71,13 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
         .get_team_from_cache_or_pg(&token, state.redis.clone(), state.postgres.clone())
         .await?;
     let distinct_id = request.extract_distinct_id()?;
-
-    // Determine if we need to fetch GeoIP properties
-    let geoip_enabled = !request.geoip_disable.unwrap_or(false);
-    let person_properties = request.person_properties.clone();
-    let person_property_overrides = match (geoip_enabled, person_properties) {
-        (true, Some(mut props)) => {
-            // GeoIP enabled and person properties exist
-            let geoip_props = state.geoip.get_geoip_properties(Some(&ip.to_string()));
-            if !geoip_props.is_empty() {
-                props.extend(geoip_props.into_iter().map(|(k, v)| (k, Value::String(v))));
-            }
-            Some(props)
-        }
-        (true, None) => {
-            // GeoIP enabled but no person properties
-            let geoip_props = state.geoip.get_geoip_properties(Some(&ip.to_string()));
-            if !geoip_props.is_empty() {
-                Some(
-                    geoip_props
-                        .into_iter()
-                        .map(|(k, v)| (k, Value::String(v)))
-                        .collect(),
-                )
-            } else {
-                None
-            }
-        }
-        (false, Some(props)) => {
-            // GeoIP disabled but person properties exist
-            Some(props)
-        }
-        (false, None) => {
-            // GeoIP disabled and no person properties
-            None
-        }
-    };
+    let person_property_overrides = get_person_property_overrides(
+        !request.geoip_disable.unwrap_or(false),
+        request.person_properties.clone(),
+        &ip,
+        &state.geoip.clone(),
+    );
+    // TODO group_property_overrides
 
     let feature_flags_from_cache_or_pg = request
         .get_flags_from_cache_or_pg(team.id, state.redis.clone(), state.postgres.clone())
