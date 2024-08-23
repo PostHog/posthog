@@ -126,7 +126,7 @@ class Insight(models.Model):
         try:
             return {
                 "kind": "InsightVizNode",
-                "source": filter_to_query(self.filters).model_dump(exclude_unset=True, exclude_none=True),
+                "source": filter_to_query(self.filters).model_dump(exclude_none=True),
                 "full": True,
             }
         except Exception as e:
