@@ -7,9 +7,9 @@ import { playerSettingsLogic } from './playerSettingsLogic'
 import { PLAYBACK_SPEEDS } from './sessionRecordingPlayerLogic'
 
 export const PlayerSettings = (): JSX.Element => {
-    const { speed, autoplayDirection, skipInactivitySetting, showMouseTail, showSeekbarPageviews } =
+    const { speed, autoplayDirection, skipInactivitySetting, showMouseTail, showSeekbarTicks } =
         useValues(playerSettingsLogic)
-    const { setSpeed, setAutoplayDirection, setSkipInactivitySetting, setShowMouseTail, setShowSeekbarPageviews } =
+    const { setSpeed, setAutoplayDirection, setSkipInactivitySetting, setShowMouseTail, setShowSeekbarTicks } =
         useActions(playerSettingsLogic)
 
     return (
@@ -62,9 +62,10 @@ export const PlayerSettings = (): JSX.Element => {
                         label: () => (
                             <LemonSwitch
                                 className="px-2 py-1"
-                                checked={showSeekbarPageviews}
-                                onChange={setShowSeekbarPageviews}
-                                label="Seekbar pageviews"
+                                checked={showSeekbarTicks}
+                                onChange={setShowSeekbarTicks}
+                                label="Seekbar ticks"
+                                tooltip="Show $pageview and $screen events on the seekbar"
                                 fullWidth
                             />
                         ),
