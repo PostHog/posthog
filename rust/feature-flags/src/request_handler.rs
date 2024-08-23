@@ -71,42 +71,13 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
         .get_team_from_cache_or_pg(&token, state.redis.clone(), state.postgres.clone())
         .await?;
     let distinct_id = request.extract_distinct_id()?;
-
-    // Determine if we need to fetch GeoIP properties
-    let geoip_enabled = !request.geoip_disable.unwrap_or(false);
-    let person_properties = request.person_properties.clone();
-    let person_property_overrides = match (geoip_enabled, person_properties) {
-        (true, Some(mut props)) => {
-            // GeoIP enabled and person properties exist
-            let geoip_props = state.geoip.get_geoip_properties(Some(&ip.to_string()));
-            if !geoip_props.is_empty() {
-                props.extend(geoip_props.into_iter().map(|(k, v)| (k, Value::String(v))));
-            }
-            Some(props)
-        }
-        (true, None) => {
-            // GeoIP enabled but no person properties
-            let geoip_props = state.geoip.get_geoip_properties(Some(&ip.to_string()));
-            if !geoip_props.is_empty() {
-                Some(
-                    geoip_props
-                        .into_iter()
-                        .map(|(k, v)| (k, Value::String(v)))
-                        .collect(),
-                )
-            } else {
-                None
-            }
-        }
-        (false, Some(props)) => {
-            // GeoIP disabled but person properties exist
-            Some(props)
-        }
-        (false, None) => {
-            // GeoIP disabled and no person properties
-            None
-        }
-    };
+    let person_property_overrides = get_person_property_overrides(
+        !request.geoip_disable.unwrap_or(false),
+        request.person_properties.clone(),
+        &ip,
+        &state.geoip,
+    );
+    let group_property_overrides = request.group_properties.clone();
 
     let feature_flags_from_cache_or_pg = request
         .get_flags_from_cache_or_pg(team.id, state.redis.clone(), state.postgres.clone())
@@ -117,7 +88,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
         feature_flags_from_cache_or_pg,
         Some(state.postgres.clone()),
         person_property_overrides,
-        // group_property_overrides,
+        group_property_overrides,
     )
     .await;
 
@@ -177,20 +148,20 @@ fn decode_request(headers: &HeaderMap, body: Bytes) -> Result<FlagRequest, FlagE
 }
 
 /// Evaluate feature flags for a given distinct_id
-/// Returns a map of feature flag keys to their values
-/// If an error occurs while evaluating a flag, it will be logged and the flag will be omitted from the result
+/// - Returns a map of feature flag keys to their values
+/// - If an error occurs while evaluating a flag, it will be logged and the flag will be omitted from the result
 pub async fn evaluate_feature_flags(
     distinct_id: String,
     feature_flags_from_cache_or_pg: FeatureFlagList,
     database_client: Option<Arc<dyn Client + Send + Sync>>,
     person_property_overrides: Option<HashMap<String, Value>>,
-    // group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
+    group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
 ) -> FlagsResponse {
     let mut matcher = FeatureFlagMatcher::new(
         distinct_id.clone(),
         database_client,
         person_property_overrides,
-        // group_property_overrides,
+        group_property_overrides,
     );
     let mut feature_flags = HashMap::new();
     let mut error_while_computing_flags = false;
@@ -373,6 +344,7 @@ mod tests {
             feature_flag_list,
             Some(pg_client),
             Some(person_properties),
+            None,
         )
         .await;
 

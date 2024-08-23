@@ -4,9 +4,11 @@ use crate::{
     flag_definitions::{FeatureFlag, FlagGroupType, PropertyFilter},
     property_matching::match_property,
 };
+use anyhow::{anyhow, Result};
 use serde_json::Value;
 use sha1::{Digest, Sha1};
 use std::{collections::HashMap, fmt::Write, sync::Arc};
+use tokio::sync::RwLock;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct FeatureFlagMatch {
@@ -20,6 +22,86 @@ pub struct FeatureFlagMatch {
 #[derive(Debug, sqlx::FromRow)]
 pub struct Person {
     pub properties: sqlx::types::Json<HashMap<String, Value>>,
+}
+
+type GroupTypeName = String;
+type GroupTypeIndex = u32;
+type TeamId = i32;
+
+pub struct FlagsMatcherCache {
+    team_id: TeamId,
+    failed_to_fetch_flags: bool,
+    group_types_to_indexes: Arc<RwLock<Option<HashMap<GroupTypeName, GroupTypeIndex>>>>,
+    group_type_index_to_name: Arc<RwLock<Option<HashMap<GroupTypeIndex, GroupTypeName>>>>,
+}
+
+impl FlagsMatcherCache {
+    pub fn new(team_id: TeamId) -> Self {
+        FlagsMatcherCache {
+            team_id,
+            failed_to_fetch_flags: false,
+            group_types_to_indexes: Arc::new(RwLock::new(None)),
+            group_type_index_to_name: Arc::new(RwLock::new(None)),
+        }
+    }
+
+    pub async fn group_types_to_indexes(&self) -> Result<HashMap<GroupTypeName, GroupTypeIndex>> {
+        if self.failed_to_fetch_flags {
+            return Err(anyhow!(
+                "Failed to fetch group type mapping previously, not trying again."
+            ));
+        }
+
+        let cache = self.group_types_to_indexes.read().await;
+        if let Some(ref cached) = *cache {
+            return Ok(cached.clone());
+        }
+        drop(cache);
+
+        let mut cache = self.group_types_to_indexes.write().await;
+        if cache.is_none() {
+            todo!()
+            // match self.fetch_group_type_mapping().await {
+            //     Ok(mapping) => {
+            //         let result = mapping.into_iter().collect();
+            //         *cache = Some(result.clone());
+            //         Ok(result)
+            //     }
+            //     Err(e) => {
+            //         self.failed_to_fetch_flags = true;
+            //         Err(e)
+            //     }
+            // }
+        } else {
+            Ok(cache.as_ref().unwrap().clone())
+        }
+    }
+
+    pub async fn group_type_index_to_name(&self) -> Result<HashMap<GroupTypeIndex, GroupTypeName>> {
+        let cache = self.group_type_index_to_name.read().await;
+        if let Some(ref cached) = *cache {
+            return Ok(cached.clone());
+        }
+        drop(cache);
+
+        let mut cache = self.group_type_index_to_name.write().await;
+        if cache.is_none() {
+            let types_to_indexes = self.group_types_to_indexes().await?;
+            let result: HashMap<GroupTypeIndex, GroupTypeName> =
+                types_to_indexes.into_iter().map(|(k, v)| (v, k)).collect();
+            *cache = Some(result.clone());
+            Ok(result)
+        } else {
+            Ok(cache.as_ref().unwrap().clone())
+        }
+    }
+
+    async fn fetch_group_type_mapping(&self) -> Result<Vec<(GroupTypeName, GroupTypeIndex)>> {
+        todo!()
+        // This would be replaced with actual database fetching logic
+        // For demonstration, we'll just return some dummy data
+        // Ok(vec![("Type1".to_string(), 1), ("Type2".to_string(), 2)])
+    }
 }
 
 // TODO: Rework FeatureFlagMatcher - python has a pretty awkward interface, where we pass in all flags, and then again
@@ -43,7 +125,8 @@ pub struct FeatureFlagMatcher {
     cached_properties: Option<HashMap<String, Value>>,
     person_property_overrides: Option<HashMap<String, Value>>,
     // TODO handle group properties
-    // group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
+    group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
+    cache: Option<Arc<FlagsMatcherCache>>,
 }
 
 const LONG_SCALE: u64 = 0xfffffffffffffff;
@@ -53,7 +136,7 @@ impl FeatureFlagMatcher {
         distinct_id: String,
         database_client: Option<Arc<dyn DatabaseClient + Send + Sync>>,
         person_property_overrides: Option<HashMap<String, Value>>,
-        // group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
+        group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
     ) -> Self {
         FeatureFlagMatcher {
             // flags,
@@ -61,7 +144,8 @@ impl FeatureFlagMatcher {
             database_client,
             cached_properties: None,
             person_property_overrides,
-            // group_property_overrides,
+            group_property_overrides,
+            cache: None, // instantiate this with the team_id?  From where though?
         }
     }
 
@@ -152,15 +236,16 @@ impl FeatureFlagMatcher {
         feature_flag: &FeatureFlag,
         properties: &[PropertyFilter],
     ) -> Result<HashMap<String, Value>, FlagError> {
-        self.get_person_properties(feature_flag.team_id, properties)
-            .await
+        // self.get_person_properties(feature_flag.team_id, properties)
+        //     .await
         // TODO handle group properties, will go something like this
-        // if let Some(group_index) = feature_flag.get_group_type_index() {
-        //     self.get_group_properties(feature_flag.team_id, group_index, properties)
-        // } else {
-        //     self.get_person_properties(feature_flag.team_id, properties)
-        //         .await
-        // }
+        if let Some(group_index) = feature_flag.get_group_type_index() {
+            todo!()
+            // self.get_group_properties(feature_flag.team_id, group_index, properties)
+        } else {
+            self.get_person_properties(feature_flag.team_id, properties)
+                .await
+        }
     }
 
     async fn get_person_properties(
@@ -391,21 +476,25 @@ mod tests {
         ))
         .unwrap();
 
-        let mut matcher = FeatureFlagMatcher::new(distinct_id, Some(client.clone()), None);
+        let mut matcher = FeatureFlagMatcher::new(distinct_id, Some(client.clone()), None, None);
         let match_result = matcher.get_match(&flag).await.unwrap();
         assert_eq!(match_result.matches, true);
         assert_eq!(match_result.variant, None);
 
         // property value is different
         let mut matcher =
-            FeatureFlagMatcher::new(not_matching_distinct_id, Some(client.clone()), None);
+            FeatureFlagMatcher::new(not_matching_distinct_id, Some(client.clone()), None, None);
         let match_result = matcher.get_match(&flag).await.unwrap();
         assert_eq!(match_result.matches, false);
         assert_eq!(match_result.variant, None);
 
         // person does not exist
-        let mut matcher =
-            FeatureFlagMatcher::new("other_distinct_id".to_string(), Some(client.clone()), None);
+        let mut matcher = FeatureFlagMatcher::new(
+            "other_distinct_id".to_string(),
+            Some(client.clone()),
+            None,
+            None,
+        );
         let match_result = matcher.get_match(&flag).await.unwrap();
         assert_eq!(match_result.matches, false);
         assert_eq!(match_result.variant, None);
@@ -433,6 +522,7 @@ mod tests {
             "test_user".to_string(),
             Some(client.clone()),
             Some(overrides),
+            None,
         );
 
         let match_result = matcher.get_match(&flag).await.unwrap();
@@ -443,7 +533,7 @@ mod tests {
     fn test_hashed_identifier() {
         let flag = create_test_flag(1, vec![]);
 
-        let matcher = FeatureFlagMatcher::new("test_user".to_string(), None, None);
+        let matcher = FeatureFlagMatcher::new("test_user".to_string(), None, None, None);
         assert_eq!(
             matcher.hashed_identifier(&flag),
             Some("test_user".to_string())
@@ -492,7 +582,7 @@ mod tests {
             ensure_experience_continuity: false,
         };
 
-        let matcher = FeatureFlagMatcher::new("test_user".to_string(), None, None);
+        let matcher = FeatureFlagMatcher::new("test_user".to_string(), None, None, None);
         let variant = matcher.get_matching_variant(&flag);
         assert!(variant.is_some());
         assert!(["control", "test", "test2"].contains(&variant.unwrap().as_str()));
@@ -508,7 +598,7 @@ mod tests {
             rollout_percentage: Some(100.0),
         };
 
-        let mut matcher = FeatureFlagMatcher::new("test_user".to_string(), None, None);
+        let mut matcher = FeatureFlagMatcher::new("test_user".to_string(), None, None, None);
         let (is_match, reason) = matcher
             .is_condition_match(&flag, &condition, 0)
             .await
