@@ -20,7 +20,7 @@ def migrate_insight_filters_to_query(apps, schema_editor):
         try:
             source = filter_to_query(insight.filters)
             query = InsightVizNode(source=source)
-            insight.query = query.model_dump()
+            insight.query = query.model_dump(exclude_none=True)
 
             # add a migrated_at as filter, so that we can find migrated insights for rolling back
             insight.filters["migrated_at"] = str(migrated_at)
