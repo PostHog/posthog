@@ -232,12 +232,13 @@ def execute_bytecode(
                         )
                     )
                 elif chain[0] in STL and len(chain) == 1:
+                    max_args = STL[chain[0]].maxArgs
                     push_stack(
                         new_hog_closure(
                             new_hog_callable(
                                 type="stl",
                                 name=chain[0],
-                                arg_count=STL[chain[0]].maxArgs,
+                                arg_count=-1 if max_args is None else max_args,
                                 upvalue_count=0,
                                 ip=-1,
                             )
