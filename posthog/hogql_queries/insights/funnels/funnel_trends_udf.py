@@ -3,9 +3,7 @@ from typing import cast
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql_queries.insights.funnels import FunnelTrends
-from posthog.hogql_queries.insights.utils.utils import get_start_of_interval_hogql_str, get_start_of_interval_hogql
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.queries.util import get_earliest_timestamp, get_interval_func_ch
+from posthog.hogql_queries.insights.utils.utils import get_start_of_interval_hogql_str
 from posthog.schema import BreakdownType, BreakdownAttributionType
 from posthog.utils import DATERANGE_MAP
 
@@ -31,6 +29,11 @@ class FunnelTrendsUDF(FunnelTrends):
         )
 
     def get_query(self) -> ast.SelectQuery:
+        # If they're asking for a "to_step" just truncate the funnel
+        funnelsFilter, max_steps = self.context.funnelsFilter, self.context.max_steps
+        to_step = max_steps if funnelsFilter.funnelToStep is None else funnelsFilter.funnelToStep + 1
+        self.context.max_steps_override = to_step
+
         if self.context.funnelsFilter.funnelOrderType == "strict":
             inner_event_query = self._get_inner_event_query_for_udf(
                 entity_name="events", skip_step_filter=True, skip_entity_filter=True
@@ -67,43 +70,24 @@ class FunnelTrendsUDF(FunnelTrends):
 
         breakdown_attribution_string = f"{self.context.breakdownAttributionType}{f'_{self.context.funnelsFilter.breakdownAttributionValue}' if self.context.breakdownAttributionType == BreakdownAttributionType.STEP else ''}"
 
-        # debugging for development
-        '''
-        inner_select = parse_select(
-            f"""
-                    SELECT
-                        {fn}(
-                            {self.context.max_steps},
-                            {self.conversion_window_limit()},
-                            '{breakdown_attribution_string}',
-                            '{self.context.funnelsFilter.funnelOrderType}',
-                            {prop_vals},
-                            arraySort(t -> t.1, groupArray(tuple(toFloat(timestamp), toInt({get_start_of_interval_hogql_str(self.context.interval.value, team=self.context.team, source='timestamp')}), {prop_selector}, arrayFilter((x) -> x != 0, [{steps}{exclusions}]))))
-                        )
-                    FROM {{inner_event_query}}
-                    GROUP BY aggregation_target{breakdown_prop}
-                """,
-            {"inner_event_query": inner_event_query},
-        )
-        return inner_select
-        '''
+        # from_step = funnelsFilter.funnelFromStep or 0
 
         inner_select = parse_select(
             f"""
-                            SELECT
-                                arrayJoin({fn}(
-                                    {self.context.max_steps},
-                                    {self.conversion_window_limit()},
-                                    '{breakdown_attribution_string}',
-                                    '{self.context.funnelsFilter.funnelOrderType}',
-                                    {prop_vals},
-                                    arraySort(t -> t.1, groupArray(tuple(toFloat(timestamp), {get_start_of_interval_hogql_str(self.context.interval.value, team=self.context.team, source='timestamp')}, {prop_selector}, arrayFilter((x) -> x != 0, [{steps}{exclusions}]))))
-                                )) as af_tuple,
-                                af_tuple.1 as entrance_period_start,
-                                af_tuple.2 as success_bool
-                            FROM {{inner_event_query}}
-                            GROUP BY aggregation_target{breakdown_prop}
-                        """,
+            SELECT
+                arrayJoin({fn}(
+                    {max_steps},
+                    {self.conversion_window_limit()},
+                    '{breakdown_attribution_string}',
+                    '{self.context.funnelsFilter.funnelOrderType}',
+                    {prop_vals},
+                    arraySort(t -> t.1, groupArray(tuple(toFloat(timestamp), {get_start_of_interval_hogql_str(self.context.interval.value, team=self.context.team, source='timestamp')}, {prop_selector}, arrayFilter((x) -> x != 0, [{steps}{exclusions}]))))
+                )) as af_tuple,
+                af_tuple.1 as entrance_period_start,
+                af_tuple.2 as success_bool
+            FROM {{inner_event_query}}
+            GROUP BY aggregation_target{breakdown_prop}
+        """,
             {"inner_event_query": inner_event_query},
         )
 
@@ -113,7 +97,6 @@ class FunnelTrendsUDF(FunnelTrends):
 
         fill_query = self._get_fill_query()
 
-        # need to change this to count data is not null
         s = parse_select(
             f"""
             SELECT
@@ -133,64 +116,3 @@ class FunnelTrendsUDF(FunnelTrends):
         )
 
         return cast(ast.SelectQuery, s)
-
-    # The fill query returns all the start_interval dates in the response
-    def _get_fill_query(self) -> str:
-        team, interval, query, now = self.context.team, self.context.interval, self.context.query, self.context.now
-
-        date_range = QueryDateRange(
-            date_range=query.dateRange,
-            team=team,
-            interval=query.interval,
-            now=now,
-        )
-
-        if date_range.date_from() is None:
-            _date_from = get_earliest_timestamp(team.pk)
-        else:
-            _date_from = date_range.date_from()
-        formatted_date_from = (_date_from.strftime("%Y-%m-%d %H:%M:%S"),)
-        formatted_date_to = (date_range.date_to().strftime("%Y-%m-%d %H:%M:%S"),)
-        date_from_as_hogql = ast.Call(
-            name="assumeNotNull",
-            args=[ast.Call(name="toDateTime", args=[(ast.Constant(value=formatted_date_from))])],
-        )
-        date_to_as_hogql = ast.Call(
-            name="assumeNotNull",
-            args=[ast.Call(name="toDateTime", args=[(ast.Constant(value=formatted_date_to))])],
-        )
-        interval_func = get_interval_func_ch(interval.value)
-
-        fill_select: list[ast.Expr] = [
-            ast.Alias(
-                alias="entrance_period_start",
-                expr=ast.ArithmeticOperation(
-                    left=get_start_of_interval_hogql(interval.value, team=team, source=date_from_as_hogql),
-                    right=ast.Call(name=interval_func, args=[ast.Field(chain=["number"])]),
-                    op=ast.ArithmeticOperationOp.Add,
-                ),
-            ),
-        ]
-        fill_select_from = ast.JoinExpr(
-            table=ast.Field(chain=["numbers"]),
-            table_args=[
-                ast.ArithmeticOperation(
-                    left=ast.Call(
-                        name="dateDiff",
-                        args=[
-                            ast.Constant(value=interval.value),
-                            get_start_of_interval_hogql(interval.value, team=team, source=date_from_as_hogql),
-                            get_start_of_interval_hogql(interval.value, team=team, source=date_to_as_hogql),
-                        ],
-                    ),
-                    right=ast.Constant(value=1),
-                    op=ast.ArithmeticOperationOp.Add,
-                )
-            ],
-            alias="period_offsets",
-        )
-        fill_query = ast.SelectQuery(
-            select=fill_select,
-            select_from=fill_select_from,
-        )
-        return fill_query
