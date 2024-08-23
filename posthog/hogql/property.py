@@ -37,6 +37,7 @@ from posthog.schema import (
     SessionPropertyFilter,
     CohortPropertyFilter,
     RecordingPropertyFilter,
+    LogEntryPropertyFilter,
     GroupPropertyFilter,
     FeaturePropertyFilter,
     HogQLPropertyFilter,
@@ -265,6 +266,7 @@ def property_to_expr(
         | SessionPropertyFilter
         | CohortPropertyFilter
         | RecordingPropertyFilter
+        | LogEntryPropertyFilter
         | GroupPropertyFilter
         | FeaturePropertyFilter
         | HogQLPropertyFilter
@@ -343,6 +345,7 @@ def property_to_expr(
         or property.type == "data_warehouse"
         or property.type == "data_warehouse_person_property"
         or property.type == "session"
+        or property.type == "log_entry"
     ):
         if (scope == "person" and property.type != "person") or (scope == "session" and property.type != "session"):
             raise QueryError(f"The '{property.type}' property filter does not work in '{scope}' scope")
@@ -364,7 +367,7 @@ def property_to_expr(
                 raise QueryError("Data warehouse person property filter value must be a string")
         elif property.type == "group":
             chain = [f"group_{property.group_type_index}", "properties"]
-        elif property.type == "data_warehouse":
+        elif property.type in ["data_warehouse", "log_entry"]:
             chain = []
         elif property.type == "session" and scope in ["event", "replay"]:
             chain = ["session"]

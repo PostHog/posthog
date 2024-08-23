@@ -32,27 +32,48 @@ pub struct Config {
     #[envconfig(default = "false")]
     pub allow_internal_ips: bool,
 
-    pub worker_id: Option<String>,              // Default to a UUID
-    pub job_poll_interval_seconds: Option<u32>, // Defaults to 1
-    pub concurrent_requests_limit: Option<u32>, // Defaults to 1000
-    pub fetch_timeout_seconds: Option<u32>,     // Defaults to 30
-    pub max_retry_attempts: Option<u32>,        // Defaults to 10
-    pub queue_served: Option<String>,           // Default to "fetch"
-    pub batch_size: Option<usize>,              // Defaults to 1000
-    pub max_response_bytes: Option<usize>,      // Defaults to 1MB
-    pub retry_backoff_base_ms: Option<u32>,     // Defaults to 4000
+    #[envconfig(default = "default_worker_id")]
+    pub worker_id: String,
+
+    #[envconfig(default = "default")]
+    pub shard_id: String,
+
+    #[envconfig(default = "1")]
+    pub job_poll_interval_seconds: i64,
+
+    #[envconfig(default = "1000")]
+    pub concurrent_requests_limit: u32,
+
+    #[envconfig(default = "30")]
+    pub fetch_timeout_seconds: i64,
+
+    #[envconfig(default = "10")]
+    pub max_retry_attempts: u32,
+
+    #[envconfig(default = "fetch")]
+    pub queue_served: String,
+
+    #[envconfig(default = "1000")]
+    pub batch_size: usize,
+
+    #[envconfig(default = "1000000")]
+    pub max_response_bytes: usize,
+
+    #[envconfig(default = "4000")]
+    pub retry_backoff_base_ms: i64,
 }
 
-// I do this instead of using envconfig's defaults because
-// envconfig doesn't support defaults provided by functions,
-// which is frustrating when I want to use UUIDs, and if I'm
-// going to break out one field, I might as well break out
-// everything into "AppConfig" and "PoolConfig"
+#[allow(dead_code)]
+fn default_worker_id() -> String {
+    Uuid::now_v7().to_string()
+}
+
 #[derive(Debug, Clone)]
 pub struct AppConfig {
     pub host: String,
     pub port: u16,
     pub worker_id: String,
+    pub shard_id: String,
     pub job_poll_interval: Duration, // How long we wait to poll for new jobs, when we're at capacity or find no new jobs
     pub concurrent_requests_limit: u32,
     pub fetch_timeout: Duration,
@@ -66,27 +87,19 @@ pub struct AppConfig {
 
 impl Config {
     pub fn to_components(self) -> (AppConfig, PoolConfig) {
-        let worker_id = self.worker_id.unwrap_or_else(|| Uuid::now_v7().to_string());
-        let job_poll_interval_seconds = self.job_poll_interval_seconds.unwrap_or(1);
-        let concurrent_requests_limit = self.concurrent_requests_limit.unwrap_or(1000);
-        let fetch_timeout_seconds = self.fetch_timeout_seconds.unwrap_or(30);
-        let max_retry_attempts = self.max_retry_attempts.unwrap_or(10);
-        let queue_served = self.queue_served.unwrap_or_else(|| "fetch".to_string());
-
         let app_config = AppConfig {
             host: self.host,
             port: self.port,
-            worker_id,
-            job_poll_interval: Duration::seconds(job_poll_interval_seconds as i64),
-            concurrent_requests_limit,
-            fetch_timeout: Duration::seconds(fetch_timeout_seconds as i64),
-            max_retry_attempts,
-            queue_served,
-            batch_size: self.batch_size.unwrap_or(1000),
-            max_response_bytes: self.max_response_bytes.unwrap_or(1024 * 1024),
-            retry_backoff_base: Duration::milliseconds(
-                self.retry_backoff_base_ms.unwrap_or(4000) as i64
-            ),
+            worker_id: self.worker_id,
+            shard_id: self.shard_id,
+            job_poll_interval: Duration::seconds(self.job_poll_interval_seconds),
+            concurrent_requests_limit: self.concurrent_requests_limit,
+            fetch_timeout: Duration::seconds(self.fetch_timeout_seconds),
+            max_retry_attempts: self.max_retry_attempts,
+            queue_served: self.queue_served,
+            batch_size: self.batch_size,
+            max_response_bytes: self.max_response_bytes,
+            retry_backoff_base: Duration::milliseconds(self.retry_backoff_base_ms),
             allow_internal_ips: self.allow_internal_ips,
         };
 

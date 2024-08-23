@@ -30,9 +30,6 @@ class ActionStepJSON:
 
 
 class Action(models.Model):
-    class Meta:
-        indexes = [models.Index(fields=["team_id", "-updated_at"])]
-
     name = models.CharField(max_length=400, null=True, blank=True)
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     description = models.TextField(blank=True, default="")
@@ -50,6 +47,9 @@ class Action(models.Model):
     # DEPRECATED: these were used before ClickHouse was our database
     is_calculating = models.BooleanField(default=False)
     last_calculated_at = models.DateTimeField(default=timezone.now, blank=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["team_id", "-updated_at"])]
 
     def __str__(self):
         return self.name
