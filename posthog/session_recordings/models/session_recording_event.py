@@ -6,6 +6,14 @@ from posthog.models.team import Team
 
 # DEPRECATED: PostHog model is no longer supported or used
 class SessionRecordingEvent(models.Model):
+    created_at = models.DateTimeField(auto_now_add=True, null=True, blank=True)
+    timestamp = models.DateTimeField(default=timezone.now, blank=True)
+    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    distinct_id = models.CharField(max_length=200)
+    session_id = models.CharField(max_length=200)
+    window_id = models.CharField(max_length=200, null=True, blank=True)
+    snapshot_data = models.JSONField(default=dict)
+
     class Meta:
         indexes = [
             models.Index(fields=["team_id", "session_id"]),
@@ -15,21 +23,13 @@ class SessionRecordingEvent(models.Model):
             #   models.Index(fields=["team_id", "timestamp"]),
         ]
 
-    created_at = models.DateTimeField(auto_now_add=True, null=True, blank=True)
-    timestamp = models.DateTimeField(default=timezone.now, blank=True)
-    team = models.ForeignKey(Team, on_delete=models.CASCADE)
-    distinct_id = models.CharField(max_length=200)
-    session_id = models.CharField(max_length=200)
-    window_id = models.CharField(max_length=200, null=True, blank=True)
-    snapshot_data = models.JSONField(default=dict)
-
 
 class SessionRecordingViewed(models.Model):
-    class Meta:
-        unique_together = (("team_id", "user_id", "session_id"),)
-        indexes = [models.Index(fields=["team_id", "user_id", "session_id"])]
-
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     user = models.ForeignKey("User", on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True, null=True, blank=True)
     session_id = models.CharField(max_length=200)
+
+    class Meta:
+        unique_together = (("team_id", "user_id", "session_id"),)
+        indexes = [models.Index(fields=["team_id", "user_id", "session_id"])]

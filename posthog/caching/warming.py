@@ -125,7 +125,7 @@ def schedule_warming_for_teams_task():
     retry_backoff_max=3,
     max_retries=3,
 )
-def warm_insight_cache_task(insight_id: int, dashboard_id: int):
+def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
     insight = Insight.objects.get(pk=insight_id)
     dashboard = None
 
@@ -146,6 +146,8 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: int):
                 # - in case someone refreshed after this task was triggered
                 # - if insight + dashboard combinations have the same cache key, we prevent needless recalculations
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                insight_id=insight_id,
+                dashboard_id=dashboard_id,
             )
 
             PRIORITY_INSIGHTS_COUNTER.labels(

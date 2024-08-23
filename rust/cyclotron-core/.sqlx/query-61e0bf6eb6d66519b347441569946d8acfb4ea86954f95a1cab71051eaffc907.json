@@ -1,0 +1,18 @@
+{
+    "db_name": "PostgreSQL",
+    "query": "INSERT INTO cyclotron_metadata (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value RETURNING value",
+    "describe": {
+        "columns": [
+            {
+                "ordinal": 0,
+                "name": "value",
+                "type_info": "Text"
+            }
+        ],
+        "parameters": {
+            "Left": ["Text", "Text"]
+        },
+        "nullable": [false]
+    },
+    "hash": "61e0bf6eb6d66519b347441569946d8acfb4ea86954f95a1cab71051eaffc907"
+}

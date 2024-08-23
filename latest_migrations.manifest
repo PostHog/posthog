@@ -5,7 +5,7 @@ contenttypes: 0002_remove_content_type_name
 ee: 0016_rolemembership_organization_member
 otp_static: 0002_throttling
 otp_totp: 0002_auto_20190420_0723
-posthog: 0458_alter_insightviewed_team_alter_insightviewed_user
+posthog: 0459_convert_personsnode_insights_to_actorsquery
 sessions: 0001_initial
 social_django: 0010_uid_db_index
 two_factor: 0007_auto_20201201_1019

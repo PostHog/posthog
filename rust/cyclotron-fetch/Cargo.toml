@@ -15,7 +15,6 @@ uuid = { workspace = true }
 envconfig = { workspace = true }
 axum = { workspace = true }
 thiserror = { workspace = true }
-metrics = { workspace = true }
 cyclotron-core = { path = "../cyclotron-core" }
 common-metrics = { path = "../common/metrics" }
 common-dns = { path = "../common/dns" }
