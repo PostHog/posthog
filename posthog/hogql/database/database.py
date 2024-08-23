@@ -370,9 +370,8 @@ def create_hogql_database(
             else:
                 warehouse_tables = define_mappings(
                     warehouse_tables,
-                    lambda team, warehouse_modifier: DataWarehouseTable.objects.filter(
-                        team_id=team.pk, name=warehouse_modifier.table_name
-                    )
+                    lambda team, warehouse_modifier: DataWarehouseTable.objects.exclude(deleted=True)
+                    .filter(team_id=team.pk, name=warehouse_modifier.table_name)
                     .select_related("credential", "external_data_source")
                     .latest("created_at"),
                 )
@@ -512,7 +511,11 @@ def serialize_database(
         else []
     )
     warehouse_schemas = (
-        list(ExternalDataSchema.objects.filter(table_id__in=[table.id for table in warehouse_tables]).all())
+        list(
+            ExternalDataSchema.objects.exclude(deleted=True)
+            .filter(table_id__in=[table.id for table in warehouse_tables])
+            .all()
+        )
         if len(warehouse_tables) > 0
         else []
     )

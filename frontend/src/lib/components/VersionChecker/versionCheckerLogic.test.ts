@@ -72,11 +72,11 @@ describe('versionCheckerLogic', () => {
     it.each([
         { versionCount: 1, expectation: null },
         {
-            versionCount: 10,
+            versionCount: 11,
             expectation: {
                 latestUsedVersion: '1.0.0',
-                latestAvailableVersion: '1.0.9',
-                numVersionsBehind: 9,
+                latestAvailableVersion: '1.0.10',
+                numVersionsBehind: 10,
                 level: 'info',
             },
         },
@@ -86,7 +86,7 @@ describe('versionCheckerLogic', () => {
                 latestUsedVersion: '1.0.0',
                 latestAvailableVersion: '1.0.14',
                 numVersionsBehind: 14,
-                level: 'warning',
+                level: 'info',
             },
         },
         {
@@ -127,12 +127,7 @@ describe('versionCheckerLogic', () => {
                 { version: '1.9.0', timestamp: '2023-01-01T12:00:00Z' },
                 { version: '1.83.1', timestamp: '2023-01-01T10:00:00Z' },
             ],
-            expectation: {
-                latestAvailableVersion: '1.84.0',
-                latestUsedVersion: '1.83.1',
-                level: 'info',
-                numVersionsBehind: 1,
-            },
+            expectation: null,
         },
         {
             usedVersions: [

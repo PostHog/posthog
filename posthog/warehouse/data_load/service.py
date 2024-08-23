@@ -191,4 +191,8 @@ def delete_data_import_folder(folder_path: str):
 def is_any_external_data_job_paused(team_id: int) -> bool:
     from posthog.warehouse.models import ExternalDataSource
 
-    return ExternalDataSource.objects.filter(team_id=team_id, status=ExternalDataSource.Status.PAUSED).exists()
+    return (
+        ExternalDataSource.objects.exclude(deleted=True)
+        .filter(team_id=team_id, status=ExternalDataSource.Status.PAUSED)
+        .exists()
+    )

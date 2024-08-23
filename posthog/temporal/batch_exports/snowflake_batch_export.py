@@ -12,6 +12,7 @@ import pyarrow as pa
 import snowflake.connector
 from django.conf import settings
 from snowflake.connector.connection import SnowflakeConnection
+from snowflake.connector.errors import OperationalError
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
@@ -77,6 +78,12 @@ class SnowflakeFileNotLoadedError(Exception):
 
 
 class SnowflakeConnectionError(Exception):
+    """Raised when a connection to Snowflake is not established."""
+
+    pass
+
+
+class SnowflakeRetryableConnectionError(Exception):
     """Raised when a connection to Snowflake is not established."""
 
     pass
@@ -178,16 +185,27 @@ class SnowflakeClient:
 
         Methods that require a connection should be ran within this block.
         """
-        connection = await asyncio.to_thread(
-            snowflake.connector.connect,
-            user=self.user,
-            password=self.password,
-            account=self.account,
-            warehouse=self.warehouse,
-            database=self.database,
-            schema=self.schema,
-            role=self.role,
-        )
+        try:
+            connection = await asyncio.to_thread(
+                snowflake.connector.connect,
+                user=self.user,
+                password=self.password,
+                account=self.account,
+                warehouse=self.warehouse,
+                database=self.database,
+                schema=self.schema,
+                role=self.role,
+            )
+
+        except OperationalError as err:
+            if err.errno == 251012:
+                # 251012: Generic retryable error code
+                raise SnowflakeRetryableConnectionError(
+                    "Could not connect to Snowflake but this error may be retried"
+                ) from err
+            else:
+                raise SnowflakeConnectionError(f"Could not connect to Snowflake - {err.errno}: {err.msg}") from err
+
         self._connection = connection
 
         await self.use_namespace()
@@ -758,6 +776,8 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
                 "ProgrammingError",
                 # Raised by Snowflake with an incorrect account name.
                 "ForbiddenError",
+                # Our own exception when we can't connect to Snowflake, usually due to invalid parameters.
+                "SnowflakeConnectionError",
             ],
             finish_inputs=finish_inputs,
         )

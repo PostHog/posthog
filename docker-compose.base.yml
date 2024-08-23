@@ -34,7 +34,7 @@ services:
                     }
 
                     handle @replay-capture {
-                        reverse_proxy replay-capture:8000
+                        reverse_proxy replay-capture:3000
                     }
 
                     handle {
@@ -155,32 +155,31 @@ services:
 
     capture:
         image: ghcr.io/posthog/posthog/capture:master
+        build:
+            context: rust/
+            args:
+                BIN: capture
         restart: on-failure
         environment:
             ADDRESS: '0.0.0.0:3000'
             KAFKA_TOPIC: 'events_plugin_ingestion'
             KAFKA_HOSTS: 'kafka:9092'
             REDIS_URL: 'redis://redis:6379/'
+            CAPTURE_MODE: events
 
     replay-capture:
-        image: ghcr.io/posthog/posthog/replay-capture:master
+        image: ghcr.io/posthog/posthog/capture:master
         build:
-            context: vector/replay-capture
+            context: rust/
+            args:
+                BIN: capture
         restart: on-failure
-        entrypoint: ['sh', '-c']
-        command:
-            - |
-                set -x
-                # seed empty required data files
-                mkdir -p /etc/vector/data
-                echo "token" > /etc/vector/data/quota_limited_teams.csv
-                echo "session_id" > /etc/vector/data/overflow_sessions.csv
-                exec vector -v --watch-config
         environment:
-            KAFKA_EVENTS_TOPIC: session_recording_snapshot_item_events
-            KAFKA_OVERFLOW_TOPIC: session_recording_snapshot_item_overflow
-            KAFKA_BOOSTRAP_SERVERS: 'kafka:9092'
+            ADDRESS: '0.0.0.0:3000'
+            KAFKA_TOPIC: 'session_recording_snapshot_item_events'
+            KAFKA_HOSTS: 'kafka:9092'
             REDIS_URL: 'redis://redis:6379/'
+            CAPTURE_MODE: recordings
 
     plugins:
         command: ./bin/plugin-server --no-restart-loop

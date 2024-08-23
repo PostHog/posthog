@@ -18,6 +18,7 @@ from posthog.models.user import User
 import structlog
 
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
+from posthog.warehouse.util import database_sync_to_async
 
 logger = structlog.get_logger(__name__)
 
@@ -39,29 +40,29 @@ class Integration(models.Model):
         SALESFORCE = "salesforce"
         HUBSPOT = "hubspot"
 
+    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+
+    # The integration type identifier
+    kind = models.CharField(max_length=10, choices=IntegrationKind.choices)
+    # The ID of the integration in the external system
+    integration_id = models.TextField(null=True, blank=True)
+    # Any config that COULD be passed to the frontend
+    config = models.JSONField(default=dict)
+    # Any sensitive config that SHOULD NOT be passed to the frontend
+    sensitive_config = models.JSONField(default=dict)
+
+    errors = models.TextField()
+
+    # Meta
+    created_at = models.DateTimeField(auto_now_add=True, blank=True)
+    created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
+
     class Meta:
         constraints = [
             models.UniqueConstraint(
                 fields=["team", "kind", "integration_id"], name="posthog_integration_kind_id_unique"
             )
         ]
-
-    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
-
-    # The integration type identifier
-    kind: models.CharField = models.CharField(max_length=10, choices=IntegrationKind.choices)
-    # The ID of the integration in the external system
-    integration_id: models.TextField = models.TextField(null=True, blank=True)
-    # Any config that COULD be passed to the frontend
-    config: models.JSONField = models.JSONField(default=dict)
-    # Any sensitive config that SHOULD NOT be passed to the frontend
-    sensitive_config: models.JSONField = models.JSONField(default=dict)
-
-    errors: models.TextField = models.TextField()
-
-    # Meta
-    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
-    created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
 
     @property
     def display_name(self) -> str:
@@ -70,6 +71,19 @@ class Integration(models.Model):
             return dot_get(self.config, oauth_config.name_path, self.integration_id)
 
         return f"ID: {self.integration_id}"
+
+    @property
+    def access_token(self) -> Optional[str]:
+        return self.sensitive_config.get("access_token")
+
+    @property
+    def refresh_token(self) -> Optional[str]:
+        return self.sensitive_config.get("refresh_token")
+
+
+@database_sync_to_async
+def aget_integration_by_id(integration_id: str, team_id: int) -> Integration | None:
+    return Integration.objects.get(id=integration_id, team_id=team_id)
 
 
 @dataclass
@@ -125,7 +139,7 @@ class OauthIntegration:
                 token_url="https://login.salesforce.com/services/oauth2/token",
                 client_id=settings.SALESFORCE_CONSUMER_KEY,
                 client_secret=settings.SALESFORCE_CONSUMER_SECRET,
-                scope="full",
+                scope="full refresh_token",
                 id_path="instance_url",
                 name_path="instance_url",
             )
@@ -308,7 +322,7 @@ class SlackIntegration:
         return sorted(channels, key=lambda x: x["name"])
 
     def _list_channels_by_type(self, type: Literal["public_channel", "private_channel"]) -> list[dict]:
-        max_page = 10
+        max_page = 20
         channels = []
         cursor = None
 

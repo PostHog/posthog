@@ -34,6 +34,7 @@ jobs:
                         - '.github/workflows/rust.yml'
                         - '.github/workflows/rust-docker-build.yml'
                         - '.github/workflows/rust-hook-migrator-docker.yml'
+                        - '.github/workflows/rust-cyclotron-migrator-docker.yml'
                         - 'posthog/management/commands/setup_test_environment.py'
                         - 'posthog/migrations/**'
                         - 'ee/migrations/**'
@@ -168,7 +169,7 @@ jobs:
               if: needs.changes.outputs.rust == 'true'
               run: |
                   echo "Starting cargo test"
-                  cargo test --all-features ${{ matrix.package == 'feature-flags' && '--package feature-flags' || '--workspace --exclude feature-flags' }}
+                  RUST_BACKTRACE=1 cargo test --all-features ${{ matrix.package == 'feature-flags' && '--package feature-flags' || '--workspace --exclude feature-flags' }}
                   echo "Cargo test completed"
 
     linting:

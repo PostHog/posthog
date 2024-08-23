@@ -24,7 +24,7 @@ export function OrganizationLogo(): JSX.Element {
         },
     })
 
-    const isRestricted = !!useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
+    const restrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
 
     return (
         <div className="space-y-4">
@@ -75,13 +75,14 @@ export function OrganizationLogo(): JSX.Element {
                     e.preventDefault()
                     updateOrganization({ logo_media_id: logoMediaId })
                 }}
-                disabled={
-                    isRestricted ||
-                    !currentOrganization ||
-                    logoMediaId == currentOrganization.logo_media_id ||
-                    uploading
+                disabledReason={
+                    !currentOrganization
+                        ? 'Organization not loaded'
+                        : logoMediaId === currentOrganization.logo_media_id
+                        ? 'Logo unchanged'
+                        : restrictionReason
                 }
-                loading={currentOrganizationLoading}
+                loading={currentOrganizationLoading || uploading}
             >
                 Save logo
             </LemonButton>

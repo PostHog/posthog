@@ -227,20 +227,30 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
     elif model.pipeline.source_type == ExternalDataSource.Type.SALESFORCE:
         from posthog.temporal.data_imports.pipelines.salesforce.auth import salesforce_refresh_access_token
         from posthog.temporal.data_imports.pipelines.salesforce import salesforce_source
+        from posthog.models.integration import aget_integration_by_id
 
-        subdomain = model.pipeline.job_inputs.get("salesforce_subdomain")
-        salesforce_access_token = model.pipeline.job_inputs.get("salesforce_access_token", None)
-        refresh_token = model.pipeline.job_inputs.get("salesforce_refresh_token", None)
-        if not refresh_token:
+        salesforce_integration_id = model.pipeline.job_inputs.get("salesforce_integration_id", None)
+
+        if not salesforce_integration_id:
+            raise ValueError(f"Salesforce integration not found for job {model.id}")
+
+        integration = await aget_integration_by_id(integration_id=salesforce_integration_id, team_id=inputs.team_id)
+        salesforce_refresh_token = integration.refresh_token
+
+        if not salesforce_refresh_token:
             raise ValueError(f"Salesforce refresh token not found for job {model.id}")
 
+        salesforce_access_token = integration.access_token
+
         if not salesforce_access_token:
-            salesforce_access_token = salesforce_refresh_access_token(refresh_token)
+            salesforce_access_token = salesforce_refresh_access_token(salesforce_refresh_token)
+
+        salesforce_instance_url = integration.config.get("instance_url")
 
         source = salesforce_source(
-            subdomain=subdomain,
+            instance_url=salesforce_instance_url,
             access_token=salesforce_access_token,
-            refresh_token=refresh_token,
+            refresh_token=salesforce_refresh_token,
             endpoint=schema.name,
             team_id=inputs.team_id,
             job_id=inputs.run_id,
