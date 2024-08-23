@@ -122,7 +122,7 @@ def parse_user_aggregation_with_conversion_window_and_breakdown(
         # At this point, everything left in entered_timestamps is a failure, if it has made it to from_step
         for entered_timestamp in list_of_entered_timestamps:
             if entered_timestamp[0].timestamp not in results and entered_timestamp[from_step + 1].timestamp > 0:
-                results[entered_timestamp[0].timestamp] = (0, prop_val)
+                results[entered_timestamp[0].timestamp] = (-1, prop_val)
 
     # We don't support breakdowns atm - make this support breakdowns
     [loop_prop_val(prop_val) for prop_val in prop_vals]

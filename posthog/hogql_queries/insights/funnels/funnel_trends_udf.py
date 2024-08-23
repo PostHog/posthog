@@ -117,8 +117,8 @@ class FunnelTrendsUDF(FunnelTrends):
                 ({{fill_query}}) as fill
                 CROSS JOIN (SELECT
                     entrance_period_start as entrance_period_start,
-                    countIf(success_bool is not null) as reached_from_step_count,
-                    sum(success_bool) as reached_to_step_count,
+                    countIf(success_bool != 0) as reached_from_step_count,
+                    countIf(success_bool = 1) as reached_to_step_count,
                     breakdown as prop
                 FROM
                     ({{inner_select}})
@@ -139,8 +139,8 @@ class FunnelTrendsUDF(FunnelTrends):
                 f"""
                 SELECT
                     fill.entrance_period_start as entrance_period_start,
-                    countIf(data.success_bool is not null) as reached_from_step_count,
-                    sum(data.success_bool) as reached_to_step_count,
+                    countIf(success_bool != 0) as reached_from_step_count,
+                    countIf(success_bool = 1) as reached_to_step_count,
                     {conversion_rate_expr} as conversion_rate,
                     breakdown as prop
                 FROM
