@@ -36,6 +36,9 @@ mod config;
 pub use config::ManagerConfig;
 pub use config::PoolConfig;
 
+// Meta
+pub use ops::meta::run_migrations;
+
 // Some data is shared between workers and janitors on a given shard, using
 // the metadata table. These keys are reserved for that purpose
 

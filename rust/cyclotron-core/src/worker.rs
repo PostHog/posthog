@@ -6,7 +6,10 @@ use std::sync::Mutex;
 use uuid::Uuid;
 
 use crate::{
-    ops::worker::{dequeue_jobs, dequeue_with_vm_state, flush_job, get_vm_state, set_heartbeat},
+    ops::{
+        meta::run_migrations,
+        worker::{dequeue_jobs, dequeue_with_vm_state, flush_job, get_vm_state, set_heartbeat},
+    },
     Job, JobState, JobUpdate, PoolConfig, QueueError,
 };
 
@@ -47,6 +50,11 @@ impl Worker {
             pool,
             pending: Default::default(),
         }
+    }
+
+    /// Run the latest cyclotron migrations. Panics if the migrations can't be run - failure to run migrations is purposefully fatal.
+    pub async fn run_migrations(&self) {
+        run_migrations(&self.pool).await;
     }
 
     /// Dequeues jobs from the queue, and returns them. Job sorting happens at the queue level,

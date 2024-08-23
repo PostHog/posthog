@@ -75,6 +75,8 @@ async fn main() {
         .await
         .expect("failed to create app context");
 
+    context.worker.run_migrations().await;
+
     let http_server = tokio::spawn(listen(app, bind));
 
     let worker_loop = tokio::spawn(worker_loop(context));
