@@ -51,7 +51,7 @@ export type NewDestinationsLogicProps = {
 export interface Fuse extends FuseClass<NewDestinationItemType> {}
 
 export const newDestinationsLogic = kea<newDestinationsLogicType>([
-    path((id) => ['scenes', 'pipeline', 'newDestinationsLogic', id]),
+    path(() => ['scenes', 'pipeline', 'destinations', 'newDestinationsLogic']),
     connect({
         values: [userLogic, ['user'], featureFlagLogic, ['featureFlags']],
     }),
