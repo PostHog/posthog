@@ -125,7 +125,7 @@ def schedule_warming_for_teams_task():
     retry_backoff_max=3,
     max_retries=3,
 )
-def warm_insight_cache_task(insight_id: int, dashboard_id: int):
+def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
     insight = Insight.objects.get(pk=insight_id)
     dashboard = None
 
