@@ -96,18 +96,16 @@ class PropertyMixin(BaseParamMixin):
             )
         return ret
 
-    def _parse_property_group(self, group: Optional[dict], operator: PropertyOperatorType) -> PropertyGroup:
+    def _parse_property_group(self, group: Optional[dict]) -> PropertyGroup:
         if group and "type" in group and "values" in group:
             return PropertyGroup(
                 PropertyOperatorType(group["type"].upper()),
-                self._parse_property_group_list(group["values"], operator),
+                self._parse_property_group_list(group["values"]),
             )
 
-        return PropertyGroup(operator, cast(list[Property], []))
+        return PropertyGroup(PropertyOperatorType.AND, cast(list[Property], []))
 
-    def _parse_property_group_list(
-        self, prop_list: Optional[list], operator: PropertyOperatorType
-    ) -> Union[list[Property], list[PropertyGroup]]:
+    def _parse_property_group_list(self, prop_list: Optional[list]) -> Union[list[Property], list[PropertyGroup]]:
         if not prop_list:
             # empty prop list
             return cast(list[Property], [])
@@ -126,7 +124,7 @@ class PropertyMixin(BaseParamMixin):
             raise ValidationError("Property list cannot contain both PropertyGroup and Property objects")
 
         if has_property_groups:
-            return [self._parse_property_group(group, operator) for group in prop_list]
+            return [self._parse_property_group(group) for group in prop_list]
         else:
             return self._parse_properties(prop_list)
 
