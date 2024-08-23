@@ -12,7 +12,7 @@ from posthog.auth import (
     TemporaryTokenAuthentication,
 )
 from posthog.exceptions import generate_exception_response
-from posthog.models import Team, Experiment, WebExperiment
+from posthog.models import Team, WebExperiment
 from posthog.utils_cors import cors_response
 
 

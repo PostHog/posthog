@@ -1,8 +1,6 @@
 import json
-from typing import Any
 
 from django.db import models
-from rest_framework import serializers
 from posthog.models import Experiment
 # from posthog.models.experiment import ExperimentManager
 
