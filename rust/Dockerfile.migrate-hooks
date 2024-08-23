@@ -1,4 +1,4 @@
-FROM docker.io/library/rust:1.74.0-buster as builder
+FROM docker.io/library/rust:1.80.1-bullseye as builder
 
 RUN apt update && apt install build-essential cmake -y
 RUN cargo install sqlx-cli@0.7.3 --no-default-features --features native-tls,postgres --root /app/target/release/
