@@ -142,7 +142,7 @@ export function TaxonomicFilter({
                                     e.preventDefault()
                                 }
                             }}
-                            ref={searchInputRef}
+                            inputRef={searchInputRef}
                             onChange={(newValue) => setSearchQuery(newValue)}
                         />
                     </div>

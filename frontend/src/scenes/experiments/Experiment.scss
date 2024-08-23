@@ -22,10 +22,6 @@
         padding-bottom: 1rem;
         margin-top: 0.5rem;
 
-        .ant-form-horizontal {
-            min-height: 32px;
-        }
-
         .border-top {
             border-top-left-radius: 4px;
             border-top-right-radius: 4px;
@@ -75,14 +71,6 @@
         margin-bottom: 1rem;
         border-top: 1px solid var(--border);
     }
-
-    .ant-input-number-disabled {
-        color: black;
-    }
-
-    .ant-input[disabled] {
-        color: black;
-    }
 }
 
 .view-experiment {
@@ -97,12 +85,6 @@
 
     .participants {
         background-color: white;
-
-        .ant-collapse-header {
-            padding-top: 0.5rem;
-            padding-bottom: 0.5rem;
-            padding-left: 0.75rem;
-        }
     }
 
     .variants-list {
@@ -121,11 +103,6 @@
 
     .experiment-result {
         padding-top: 1rem;
-    }
-
-    .ant-collapse-content-box {
-        display: flex;
-        flex-flow: column;
     }
 
     .secondary-progress {

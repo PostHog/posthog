@@ -21,7 +21,6 @@ from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthentic
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.shared import FiltersSerializer
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer
 from posthog.models import Plugin, PluginAttachment, PluginConfig, User
 from posthog.models.activity_logging.activity_log import (
@@ -610,7 +609,6 @@ class PluginConfigSerializer(serializers.ModelSerializer):
             "name",
             "description",
             "deleted",
-            "filters",
         ]
         read_only_fields = [
             "id",
@@ -678,11 +676,6 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         # metrics (for fatal errors) or plugin log entries (for all errors) for
         # error details instead.
         return None
-
-    def validate_filters(self, value: dict) -> dict:
-        serializer = FiltersSerializer(data=value)
-        serializer.is_valid(raise_exception=True)
-        return serializer.validated_data
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> PluginConfig:
         if not can_configure_plugins(self.context["get_organization"]()):
@@ -913,7 +906,7 @@ def _get_secret_fields_for_plugin(plugin: Plugin) -> set[str]:
 
 
 class LegacyPluginConfigViewSet(PluginConfigViewSet):
-    derive_current_team_from_user_only = True
+    param_derived_from_user_current_team = "team_id"
 
 
 class PipelineTransformationsViewSet(PluginViewSet):

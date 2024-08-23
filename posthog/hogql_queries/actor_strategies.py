@@ -45,15 +45,18 @@ class PersonStrategy(ActorStrategy):
     origin_id = "id"
 
     # This is hand written instead of using the ORM because the ORM was blowing up the memory on exports and taking forever
-    def get_actors(self, actor_ids) -> dict[str, dict]:
+    def get_actors(self, actor_ids, order_by: str = "") -> dict[str, dict]:
         # If actor queries start quietly dying again, this might need batching at some point
         # but currently works with 800,000 persondistinctid entries (May 24, 2024)
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """SELECT posthog_person.id, posthog_person.uuid, posthog_person.properties, posthog_person.is_identified, posthog_person.created_at
+        persons_query = """SELECT posthog_person.id, posthog_person.uuid, posthog_person.properties, posthog_person.is_identified, posthog_person.created_at
             FROM posthog_person
             WHERE posthog_person.uuid = ANY(%(uuids)s)
-            AND posthog_person.team_id = %(team_id)s""",
+            AND posthog_person.team_id = %(team_id)s"""
+        if order_by:
+            persons_query += f" ORDER BY {order_by}"
+        with connection.cursor() as cursor:
+            cursor.execute(
+                persons_query,
                 {"uuids": list(actor_ids), "team_id": self.team.pk},
             )
             people = cursor.fetchall()

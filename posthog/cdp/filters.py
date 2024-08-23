@@ -7,24 +7,35 @@ from posthog.models.team.team import Team
 
 
 def hog_function_filters_to_expr(filters: dict, team: Team, actions: dict[int, Action]) -> ast.Expr:
-    test_account_filters_exprs: list[ast.Expr] = []
+    common_filters_expr: list[ast.Expr] = []
     if filters.get("filter_test_accounts", False):
-        test_account_filters_exprs = [property_to_expr(property, team) for property in team.test_account_filters]
+        common_filters_expr = [property_to_expr(property, team) for property in team.test_account_filters]
 
     all_filters = filters.get("events", []) + filters.get("actions", [])
     all_filters_exprs: list[ast.Expr] = []
 
-    if not all_filters and test_account_filters_exprs:
+    # Properties
+    if filters.get("properties"):
+        for prop in filters["properties"]:
+            common_filters_expr.append(property_to_expr(prop, team))
+
+    if not all_filters and common_filters_expr:
         # Always return test filters if set and no other filters
-        return ast.And(exprs=test_account_filters_exprs)
+        return ast.And(exprs=common_filters_expr)
 
     for filter in all_filters:
         exprs: list[ast.Expr] = []
-        exprs.extend(test_account_filters_exprs)
+        exprs.extend(common_filters_expr)
 
         # Events
-        if filter.get("type") == "events" and filter.get("name"):
-            exprs.append(parse_expr("event = {event}", {"event": ast.Constant(value=filter["name"])}))
+        if filter.get("type") == "events" and filter.get("id"):
+            event_name = filter["id"]
+
+            if event_name is None:
+                # all events
+                exprs.append(ast.Constant(value=1))
+            else:
+                exprs.append(parse_expr("event = {event}", {"event": ast.Constant(value=event_name)}))
 
         # Actions
         if filter.get("type") == "actions":

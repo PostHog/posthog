@@ -9,11 +9,11 @@ from posthog.models.tagged_item import build_check
 
 
 class Text(models.Model):
-    body: models.CharField = models.CharField(max_length=4000, null=True, blank=True)
+    body = models.CharField(max_length=4000, null=True, blank=True)
 
-    created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
-    last_modified_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
-    last_modified_by: models.ForeignKey = models.ForeignKey(
+    created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
+    last_modified_at = models.DateTimeField(default=timezone.now)
+    last_modified_by = models.ForeignKey(
         "User",
         on_delete=models.SET_NULL,
         null=True,
@@ -21,7 +21,7 @@ class Text(models.Model):
         related_name="modified_text_tiles",
     )
 
-    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
 
 class DashboardTileManager(models.Manager):
@@ -46,19 +46,19 @@ class DashboardTile(models.Model):
     )
 
     # Tile layout and style
-    layouts: models.JSONField = models.JSONField(default=dict)
-    color: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    layouts = models.JSONField(default=dict)
+    color = models.CharField(max_length=400, null=True, blank=True)
 
     # caching for this dashboard & insight filter combination
-    filters_hash: models.CharField = models.CharField(max_length=400, null=True, blank=True)
-    last_refresh: models.DateTimeField = models.DateTimeField(blank=True, null=True)
-    refreshing: models.BooleanField = models.BooleanField(null=True)
-    refresh_attempt: models.IntegerField = models.IntegerField(null=True, blank=True)
+    filters_hash = models.CharField(max_length=400, null=True, blank=True)
+    last_refresh = models.DateTimeField(blank=True, null=True)
+    refreshing = models.BooleanField(null=True)
+    refresh_attempt = models.IntegerField(null=True, blank=True)
 
-    deleted: models.BooleanField = models.BooleanField(null=True, blank=True)
+    deleted = models.BooleanField(null=True, blank=True)
 
     objects = DashboardTileManager()
-    objects_including_soft_deleted: models.Manager["DashboardTile"] = models.Manager()
+    objects_including_soft_deleted = models.Manager()
 
     class Meta:
         indexes = [models.Index(fields=["filters_hash"], name="query_by_filters_hash_idx")]

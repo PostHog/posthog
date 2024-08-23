@@ -8,6 +8,7 @@ from django.conf import settings
 
 from posthog.caching.warming import schedule_warming_for_teams_task
 from posthog.celery import app
+from posthog.tasks.alerts.checks import check_all_alerts_task
 from posthog.tasks.integrations import refresh_integrations
 from posthog.tasks.tasks import (
     calculate_cohort,
@@ -95,7 +96,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     add_periodic_task_with_expiry(sender, 20, start_poll_query_performance.s(), "20 sec query performance heartbeat")
 
     sender.add_periodic_task(
-        crontab(hour="*", minute="*/30"),
+        crontab(hour="*", minute="0"),
         schedule_warming_for_teams_task.s(),
         name="schedule warming for largest teams",
     )
@@ -257,6 +258,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="*/12"),
         update_survey_iteration.s(),
         name="update survey iteration based on date",
+    )
+
+    sender.add_periodic_task(
+        crontab(hour="*", minute="20"),
+        check_all_alerts_task.s(),
+        name="detect alerts' anomalies and notify about them",
     )
 
     if settings.EE_AVAILABLE:

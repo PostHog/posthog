@@ -1,6 +1,18 @@
 {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "definitions": {
+        "AbsoluteThreshold": {
+            "additionalProperties": false,
+            "properties": {
+                "lower": {
+                    "type": ["number", "null"]
+                },
+                "upper": {
+                    "type": ["number", "null"]
+                }
+            },
+            "type": "object"
+        },
         "ActionsNode": {
             "additionalProperties": false,
             "properties": {
@@ -182,6 +194,16 @@
         "AggregationAxisFormat": {
             "enum": ["numeric", "duration", "duration_ms", "percentage", "percentage_scaled"],
             "type": "string"
+        },
+        "AnomalyCondition": {
+            "additionalProperties": false,
+            "properties": {
+                "absoluteThreshold": {
+                    "$ref": "#/definitions/AbsoluteThreshold"
+                }
+            },
+            "required": ["absoluteThreshold"],
+            "type": "object"
         },
         "AnyDataNode": {
             "anyOf": [
@@ -1701,6 +1723,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "hasMore": {
+                    "description": "Wether more breakdown values are available.",
+                    "type": "boolean"
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",
@@ -5008,6 +5034,10 @@
                     ],
                     "type": "string"
                 },
+                "propertyGroupsMode": {
+                    "enum": ["enabled", "disabled"],
+                    "type": "string"
+                },
                 "s3TableUseInvalidColumns": {
                     "type": "boolean"
                 },
@@ -7515,6 +7545,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "hasMore": {
+                            "description": "Wether more breakdown values are available.",
+                            "type": "boolean"
+                        },
                         "hogql": {
                             "description": "Generated HogQL query.",
                             "type": "string"
@@ -9167,6 +9201,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "hasMore": {
+                    "description": "Wether more breakdown values are available.",
+                    "type": "boolean"
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",

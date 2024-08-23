@@ -32,12 +32,17 @@ export interface HogFunctionFilterAction extends HogFunctionFilterBase {
 
 export type HogFunctionFilter = HogFunctionFilterEvent | HogFunctionFilterAction
 
+export type HogFunctionFiltersMasking = {
+    ttl: number | null
+    hash: string
+    bytecode: HogBytecode
+    threshold: number | null
+}
+
 export interface HogFunctionFilters {
     events?: HogFunctionFilterEvent[]
     actions?: HogFunctionFilterAction[]
     filter_test_accounts?: boolean
-    // Loaded at run time from Team model
-    filter_test_accounts_bytecode?: boolean
     bytecode?: HogBytecode
 }
 
@@ -235,6 +240,7 @@ export type HogFunctionType = {
     inputs_schema?: HogFunctionInputSchemaType[]
     inputs?: Record<string, HogFunctionInputType>
     filters?: HogFunctionFilters | null
+    masking?: HogFunctionFiltersMasking | null
     depends_on_integration_ids?: Set<IntegrationType['id']>
 }
 

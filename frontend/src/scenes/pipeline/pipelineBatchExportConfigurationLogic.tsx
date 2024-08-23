@@ -10,6 +10,7 @@ import { DatabaseSchemaBatchExportTable } from '~/queries/schema'
 import { BatchExportConfiguration, BatchExportService, PipelineNodeTab, PipelineStage } from '~/types'
 
 import { BatchExportConfigurationForm } from './batch-exports/types'
+import { humanizeBatchExportName } from './batch-exports/utils'
 import { pipelineDestinationsLogic } from './destinations/destinationsLogic'
 import { pipelineAccessLogic } from './pipelineAccessLogic'
 import type { pipelineBatchExportConfigurationLogicType } from './pipelineBatchExportConfigurationLogicType'
@@ -32,7 +33,7 @@ function getConfigurationFromBatchExportConfig(batchExportConfig: BatchExportCon
 
 function getDefaultConfiguration(service: BatchExportService['type']): Record<string, any> {
     return {
-        name: service,
+        name: humanizeBatchExportName(service),
         destination: service,
         model: 'events',
         paused: true,

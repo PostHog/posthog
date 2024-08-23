@@ -47,17 +47,9 @@ import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { NodeKind } from '~/queries/schema'
 import { isNodeWithSource } from '~/queries/utils'
-import {
-    ActivityScope,
-    InsightModel,
-    InsightType,
-    LayoutView,
-    QueryBasedInsightModel,
-    SavedInsightsTabs,
-} from '~/types'
+import { ActivityScope, InsightType, LayoutView, QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import { INSIGHTS_PER_PAGE, savedInsightsLogic } from './savedInsightsLogic'
@@ -343,16 +335,12 @@ export function InsightIcon({
     insight,
     className,
 }: {
-    insight: InsightModel | QueryBasedInsightModel
+    insight: QueryBasedInsightModel
     className?: string
 }): JSX.Element | null {
     let Icon: (props?: any) => JSX.Element | null = () => null
 
-    if ('filters' in insight && isNonEmptyObject(insight.filters)) {
-        const insightType = insight.filters.insight || InsightType.TRENDS
-        const insightMetadata = INSIGHT_TYPES_METADATA[insightType]
-        Icon = insightMetadata && insightMetadata.icon
-    } else if ('query' in insight && isNonEmptyObject(insight.query)) {
+    if ('query' in insight && isNonEmptyObject(insight.query)) {
         const insightType = isNodeWithSource(insight.query) ? insight.query.source.kind : insight.query.kind
         const insightMetadata = QUERY_TYPES_METADATA[insightType]
         Icon = insightMetadata && insightMetadata.icon
@@ -394,8 +382,7 @@ function SavedInsightsGrid(): JSX.Element {
     return (
         <>
             <div className="saved-insights-grid mb-2">
-                {paginationState.dataSourcePage.map((legacyInsight: InsightModel) => {
-                    const insight = getQueryBasedInsightModel(legacyInsight)
+                {paginationState.dataSourcePage.map((insight) => {
                     return (
                         <InsightCard
                             key={insight.short_id}
@@ -409,7 +396,6 @@ function SavedInsightsGrid(): JSX.Element {
                                     callback: loadInsights,
                                     options: {
                                         writeAsQuery: queryBasedInsightSaving,
-                                        readAsQuery: true,
                                     },
                                 })
                             }
@@ -443,7 +429,7 @@ export function SavedInsights(): JSX.Element {
     const startCount = (page - 1) * INSIGHTS_PER_PAGE + 1
     const endCount = page * INSIGHTS_PER_PAGE < count ? page * INSIGHTS_PER_PAGE : count
 
-    const columns: LemonTableColumns<InsightModel> = [
+    const columns: LemonTableColumns<QueryBasedInsightModel> = [
         {
             key: 'id',
             width: 32,
@@ -455,8 +441,7 @@ export function SavedInsights(): JSX.Element {
             title: 'Name',
             dataIndex: 'name',
             key: 'name',
-            render: function renderName(name: string, legacyInsight) {
-                const insight = getQueryBasedInsightModel(legacyInsight)
+            render: function renderName(name: string, insight) {
                 return (
                     <>
                         <LemonTableLink
@@ -493,7 +478,7 @@ export function SavedInsights(): JSX.Element {
             ? [
                   {
                       title: 'Tags',
-                      dataIndex: 'tags' as keyof InsightModel,
+                      dataIndex: 'tags' as keyof QueryBasedInsightModel,
                       key: 'tags',
                       render: function renderTags(tags: string[]) {
                           return <ObjectTags tags={tags} staticOnly />
@@ -503,8 +488,13 @@ export function SavedInsights(): JSX.Element {
             : []),
         ...(tab === SavedInsightsTabs.Yours
             ? []
-            : [createdByColumn() as LemonTableColumn<InsightModel, keyof InsightModel | undefined>]),
-        createdAtColumn() as LemonTableColumn<InsightModel, keyof InsightModel | undefined>,
+            : [
+                  createdByColumn() as LemonTableColumn<
+                      QueryBasedInsightModel,
+                      keyof QueryBasedInsightModel | undefined
+                  >,
+              ]),
+        createdAtColumn() as LemonTableColumn<QueryBasedInsightModel, keyof QueryBasedInsightModel | undefined>,
         {
             title: 'Last modified',
             sorter: true,
@@ -517,8 +507,7 @@ export function SavedInsights(): JSX.Element {
         },
         {
             width: 0,
-            render: function Render(_, legacyInsight) {
-                const insight = getQueryBasedInsightModel(legacyInsight)
+            render: function Render(_, insight) {
                 return (
                     <More
                         overlay={
@@ -554,7 +543,6 @@ export function SavedInsights(): JSX.Element {
                                             callback: loadInsights,
                                             options: {
                                                 writeAsQuery: queryBasedInsightSaving,
-                                                readAsQuery: true,
                                             },
                                         })
                                     }
