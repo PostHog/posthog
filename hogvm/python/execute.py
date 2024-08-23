@@ -79,18 +79,18 @@ def execute_bytecode(
 
     frame = call_stack[-1]
 
-    def splice_stack_1(start: int):
+    def stack_keep_first_elements(count: int):
         nonlocal stack, mem_stack, mem_used
         for upvalue in reversed(upvalues):
-            if upvalue["location"] >= start:
+            if upvalue["location"] >= count:
                 if not upvalue["closed"]:
                     upvalue["closed"] = True
                     upvalue["value"] = stack[upvalue["location"]]
             else:
                 break
-        stack = stack[0:start]
-        mem_used -= sum(mem_stack[start:])
-        mem_stack = mem_stack[0:start]
+        stack = stack[0:count]
+        mem_used -= sum(mem_stack[count:])
+        mem_stack = mem_stack[0:count]
 
     def next_token():
         nonlocal frame
@@ -249,14 +249,14 @@ def execute_bytecode(
             case Operation.POP:
                 pop_stack()
             case Operation.CLOSE_UPVALUE:
-                splice_stack_1(len(stack) - 1)
+                stack_keep_first_elements(len(stack) - 1)
             case Operation.RETURN:
                 response = pop_stack()
                 last_call_frame = call_stack.pop()
                 if len(call_stack) == 0 or last_call_frame is None:
                     return BytecodeResult(result=response, stdout=stdout, bytecode=bytecode)
                 stack_start = last_call_frame.stack_start
-                splice_stack_1(stack_start)
+                stack_keep_first_elements(stack_start)
                 push_stack(response)
                 frame = call_stack[-1]
                 continue  # resume the loop without incrementing frame.ip
@@ -496,7 +496,7 @@ def execute_bytecode(
                         last_throw.stack_len,
                         last_throw.catch_ip,
                     )
-                    splice_stack_1(stack_len)
+                    stack_keep_first_elements(stack_len)
                     call_stack = call_stack[0:call_stack_len]
                     push_stack(exception)
                     frame = call_stack[-1]

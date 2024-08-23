@@ -186,9 +186,9 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
         memUsed -= memStack.splice(start, deleteCount).reduce((acc, val) => acc + val, 0)
         return stack.splice(start, deleteCount)
     }
-    function spliceStack1(start: number): any[] {
+    function stackKeepFirstElements(count: number): any[] {
         for (let i = upvalues.length - 1; i >= 0; i--) {
-            if (upvalues[i].location >= start) {
+            if (upvalues[i].location >= count) {
                 if (!upvalues[i].closed) {
                     upvalues[i].closed = true
                     upvalues[i].value = stack[upvalues[i].location]
@@ -198,8 +198,8 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 break
             }
         }
-        memUsed -= memStack.splice(start).reduce((acc, val) => acc + val, 0)
-        return stack.splice(start)
+        memUsed -= memStack.splice(count).reduce((acc, val) => acc + val, 0)
+        return stack.splice(count)
     }
 
     function next(): any {
@@ -418,7 +418,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 popStack()
                 break
             case Operation.CLOSE_UPVALUE:
-                spliceStack1(stack.length - 1)
+                stackKeepFirstElements(stack.length - 1)
                 break
             case Operation.RETURN: {
                 const result = popStack()
@@ -427,7 +427,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                     return { result, finished: true, state: getFinishedState() } satisfies ExecResult
                 }
                 const stackStart = lastCallFrame.stackStart
-                spliceStack1(stackStart)
+                stackKeepFirstElements(stackStart)
                 pushStack(result)
                 frame = callStack[callStack.length - 1]
                 continue // resume the loop without incrementing frame.ip
@@ -763,7 +763,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 }
                 if (throwStack.length > 0) {
                     const { callStackLen, stackLen, catchIp } = throwStack.pop()!
-                    spliceStack1(stackLen)
+                    stackKeepFirstElements(stackLen)
                     memUsed -= memStack.splice(stackLen).reduce((acc, val) => acc + val, 0)
                     callStack.splice(callStackLen)
                     pushStack(exception)
