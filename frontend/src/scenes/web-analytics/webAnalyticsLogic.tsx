@@ -1095,29 +1095,31 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               ],
                           }
                         : null,
-                    {
-                        kind: 'query',
-                        tileId: TileId.GOALS,
-                        title: 'Retention',
-                        layout: {
-                            colSpanClassName: 'md:col-span-2',
-                        },
-                        query: {
-                            full: true,
-                            kind: NodeKind.DataTableNode,
-                            source: {
-                                kind: NodeKind.WebGoalsQuery,
-                                properties: webAnalyticsFilters,
-                                dateRange,
-                                sampling,
-                                limit: 10,
-                                filterTestAccounts,
-                            },
-                        },
-                        insightProps: createInsightProps(TileId.GOALS),
-                        canOpenInsight: true,
-                        canOpenModal: false,
-                    },
+                    featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOALS]
+                        ? {
+                              kind: 'query',
+                              tileId: TileId.GOALS,
+                              title: 'Goals',
+                              layout: {
+                                  colSpanClassName: 'md:col-span-2',
+                              },
+                              query: {
+                                  full: true,
+                                  kind: NodeKind.DataTableNode,
+                                  source: {
+                                      kind: NodeKind.WebGoalsQuery,
+                                      properties: webAnalyticsFilters,
+                                      dateRange,
+                                      sampling,
+                                      limit: 10,
+                                      filterTestAccounts,
+                                  },
+                              },
+                              insightProps: createInsightProps(TileId.GOALS),
+                              canOpenInsight: true,
+                              canOpenModal: false,
+                          }
+                        : null,
                     featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_REPLAY]
                         ? {
                               kind: 'replay',
