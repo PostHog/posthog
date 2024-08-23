@@ -139,7 +139,7 @@ class JsonScalar(pa.ExtensionScalar):
 
             try:
                 return orjson.loads(value.encode("utf-8"))
-            except orjson.JSONEncodeError:
+            except orjson.JSONDecodeError:
                 pass
 
             try:
