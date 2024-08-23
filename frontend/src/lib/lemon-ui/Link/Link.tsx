@@ -1,7 +1,6 @@
 import './Link.scss'
 
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { isExternalLink } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
@@ -96,9 +95,6 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             href: typeof to === 'string' ? to : undefined,
         })
 
-        const { sidePanelOpen } = useValues(sidePanelStateLogic)
-        const { openSidePanel } = useActions(sidePanelStateLogic)
-
         const onClick = (event: React.MouseEvent<HTMLElement>): void => {
             if (event.metaKey || event.ctrlKey) {
                 event.stopPropagation()
@@ -112,7 +108,13 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 return
             }
 
-            if (typeof to === 'string' && isPostHogComDocs(to)) {
+            const mountedSidePanelLogic = sidePanelStateLogic.findMounted()
+
+            if (typeof to === 'string' && isPostHogComDocs(to) && mountedSidePanelLogic) {
+                // TRICKY: We do this instead of hooks as there is some weird cyclic issue in tests
+                const { sidePanelOpen } = mountedSidePanelLogic.values
+                const { openSidePanel } = mountedSidePanelLogic.actions
+
                 event.preventDefault()
 
                 const target = event.currentTarget
