@@ -317,7 +317,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                                 {({ value, onChange }) => (
                                                     <>
                                                         <div className="flex justify-between gap-2">
-                                                            <LemonLabel>Function source code </LemonLabel>
+                                                            <LemonLabel>Function source code</LemonLabel>
                                                             <LemonButton
                                                                 size="xsmall"
                                                                 type="secondary"
