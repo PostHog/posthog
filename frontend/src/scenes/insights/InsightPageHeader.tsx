@@ -242,9 +242,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                             loadInsights()
                                                             push(urls.savedInsights())
                                                         },
-                                                        options: {
-                                                            writeAsQuery: true,
-                                                        },
                                                     })
                                                 }
                                                 fullWidth

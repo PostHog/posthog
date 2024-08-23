@@ -394,9 +394,6 @@ function SavedInsightsGrid(): JSX.Element {
                                     object: insight,
                                     endpoint: `projects/${currentTeamId}/insights`,
                                     callback: loadInsights,
-                                    options: {
-                                        writeAsQuery: true,
-                                    },
                                 })
                             }
                             placement="SavedInsightGrid"
@@ -540,9 +537,6 @@ export function SavedInsights(): JSX.Element {
                                             object: insight,
                                             endpoint: `projects/${currentTeamId}/insights`,
                                             callback: loadInsights,
-                                            options: {
-                                                writeAsQuery: true,
-                                            },
                                         })
                                     }
                                     data-attr={`insight-item-${insight.short_id}-dropdown-remove`}

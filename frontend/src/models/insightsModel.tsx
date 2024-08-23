@@ -37,7 +37,7 @@ export const insightsModel = kea<insightsModelType>([
                     insightName: (name) => (!name ? 'You must enter a name' : undefined),
                 },
                 onSubmit: async ({ insightName }) => {
-                    const updatedItem = await insightsApi.update(item.id, { name: insightName }, { writeAsQuery: true })
+                    const updatedItem = await insightsApi.update(item.id, { name: insightName })
                     lemonToast.success(
                         <>
                             Renamed insight from <b>{item.name}</b> to <b>{insightName}</b>
@@ -48,9 +48,7 @@ export const insightsModel = kea<insightsModelType>([
             })
         },
         duplicateInsight: async ({ item }) => {
-            const addedItem = await insightsApi.duplicate(item, {
-                writeAsQuery: true,
-            })
+            const addedItem = await insightsApi.duplicate(item)
 
             actions.duplicateInsightSuccess(addedItem)
             lemonToast.success('Insight duplicated')

@@ -139,13 +139,9 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 } as CountedPaginatedResponse<QueryBasedInsightModel> & { offset: number }
             },
             updateFavoritedInsight: async ({ insight, favorited }) => {
-                const response = await insightsApi.update(
-                    insight.id,
-                    {
-                        favorited,
-                    },
-                    { writeAsQuery: true }
-                )
+                const response = await insightsApi.update(insight.id, {
+                    favorited,
+                })
                 const updatedInsights = values.insights.results.map((i) =>
                     i.short_id === insight.short_id ? response : i
                 )
@@ -281,9 +277,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             insightsModel.actions.renameInsight(insight)
         },
         duplicateInsight: async ({ insight, redirectToInsight }) => {
-            const newInsight = await insightsApi.duplicate(insight, {
-                writeAsQuery: true,
-            })
+            const newInsight = await insightsApi.duplicate(insight)
             actions.addInsight(newInsight)
             redirectToInsight && router.actions.push(urls.insightEdit(newInsight.short_id))
         },

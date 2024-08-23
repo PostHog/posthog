@@ -94,9 +94,6 @@ export const insightsSidebarLogic = kea<insightsSidebarLogicType>([
                                                     object: insight,
                                                     endpoint: `projects/${currentTeamId}/insights`,
                                                     callback: actions.loadInsights,
-                                                    options: {
-                                                        writeAsQuery: true,
-                                                    },
                                                 })
                                             },
                                             status: 'danger',
@@ -106,11 +103,7 @@ export const insightsSidebarLogic = kea<insightsSidebarLogicType>([
                                 },
                             ],
                             onRename: async (newName) => {
-                                const updatedItem = await insightsApi.update(
-                                    insight.id,
-                                    { name: newName },
-                                    { writeAsQuery: true }
-                                )
+                                const updatedItem = await insightsApi.update(insight.id, { name: newName })
                                 insightsModel.actions.renameInsightSuccess(updatedItem)
                             },
                         } as BasicListItem
