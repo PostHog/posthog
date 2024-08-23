@@ -45,31 +45,20 @@ impl AppContext {
 
         let worker = Worker::new(pool_config).await?;
 
+        let labels = vec![
+            (SHARD_ID_KEY.to_string(), config.shard_id.clone()),
+            ("worker_id".to_string(), config.worker_id.clone()),
+            ("queue_served".to_string(), config.queue_served.clone()),
+        ];
+
         Ok(Self {
             worker,
             client,
             concurrency_limit,
             liveness,
             config,
-            metric_labels: RwLock::new(vec![]),
+            metric_labels: RwLock::new(labels),
         })
-    }
-
-    // Worker metric labels rely on some values derived from the DB, so need
-    // to be intermittently updated.
-    pub async fn update_labels(&self) -> Result<(), FetchError> {
-        let shard_id = self
-            .worker
-            .shard_id()
-            .await?
-            .unwrap_or("unknown".to_string());
-
-        *self.metric_labels.write().unwrap() = vec![
-            (SHARD_ID_KEY.to_string(), shard_id),
-            ("worker_id".to_string(), self.config.worker_id.clone()),
-            ("queue_served".to_string(), self.config.queue_served.clone()),
-        ];
-        Ok(())
     }
 
     // *Relatively* cheap, compared to the update above, but

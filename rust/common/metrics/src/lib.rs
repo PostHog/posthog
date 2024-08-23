@@ -86,7 +86,7 @@ pub fn inc(name: &'static str, labels: &[(String, String)], value: u64) {
     metrics::counter!(name, labels).increment(value);
 }
 
-pub fn guage(name: &'static str, lables: &[(String, String)], value: f64) {
+pub fn gauge(name: &'static str, lables: &[(String, String)], value: f64) {
     metrics::gauge!(name, lables).set(value);
 }
 

@@ -209,11 +209,9 @@ pub struct FetchResponse {
 
 #[instrument(skip_all)]
 pub async fn tick(context: Arc<AppContext>) -> Result<usize, FetchError> {
-    context.update_labels().await?;
-
     let labels = Arc::new(context.metric_labels());
 
-    common_metrics::guage(
+    common_metrics::gauge(
         WORKER_SAT,
         &labels,
         context.concurrency_limit.available_permits() as f64,
@@ -447,7 +445,7 @@ pub async fn run_job(
 
     request_time.label(OUTCOME_LABEL, &status.to_string()).fin();
     // Label the job with the request status, re-binding to avoid dropping the guard
-    let job_start = job_total.label(RESPONSE_STATUS_LABEL, &status.to_string());
+    let job_total = job_total.label(RESPONSE_STATUS_LABEL, &status.to_string());
 
     let mut labels = labels.clone(); // We can't move out of labels because it's borrowed by the timing guards
     labels.push((RESPONSE_STATUS_LABEL.to_string(), status.to_string()));
@@ -481,7 +479,7 @@ pub async fn run_job(
                 e,
             )
             .await;
-            job_start.label(OUTCOME_LABEL, "body_fetch_error").fin();
+            job_total.label(OUTCOME_LABEL, "body_fetch_error").fin();
             return res;
         }
     };
@@ -505,7 +503,7 @@ pub async fn run_job(
             failure,
         )
         .await;
-        job_start.label(OUTCOME_LABEL, "failure_status").fin();
+        job_total.label(OUTCOME_LABEL, "failure_status").fin();
         return res;
     }
 
@@ -525,7 +523,7 @@ pub async fn run_job(
         result,
     )
     .await;
-    job_start.label(OUTCOME_LABEL, "success").fin();
+    job_total.label(OUTCOME_LABEL, "success").fin();
     res
 }
 

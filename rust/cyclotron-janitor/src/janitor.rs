@@ -1,6 +1,6 @@
 use cyclotron_core::{
-    delete_completed_jobs, delete_failed_jobs, delete_poison_pills, reset_stalled_jobs,
-    set_metadata, QueueError, SHARD_ID_KEY,
+    delete_completed_jobs, delete_failed_jobs, delete_poison_pills, reset_stalled_jobs, QueueError,
+    SHARD_ID_KEY,
 };
 use sqlx::PgPool;
 use tracing::{info, warn};
@@ -30,9 +30,6 @@ impl Janitor {
         let settings = config.settings;
         let pool = config.pool.connect().await?;
 
-        // Janitors define the shard id (and other shard "constants"), so they set it on startup.
-        set_metadata(&pool, SHARD_ID_KEY, &settings.shard_id).await?;
-
         let metrics_labels = vec![
             ("janitor_id".to_string(), settings.id.clone()),
             (SHARD_ID_KEY.to_string(), settings.shard_id.clone()),
@@ -51,10 +48,6 @@ impl Janitor {
             ("janitor_id".to_string(), settings.id.clone()),
             (SHARD_ID_KEY.to_string(), settings.shard_id.clone()),
         ];
-
-        set_metadata(&pool, SHARD_ID_KEY, &settings.shard_id)
-            .await
-            .unwrap();
 
         Self {
             pool,
@@ -109,7 +102,7 @@ impl Janitor {
             let _time = common_metrics::timing_guard(QUEUE_DEPTH, &self.metrics_labels);
             cyclotron_core::count_total_waiting_jobs(&self.pool).await?
         };
-        common_metrics::guage(QUEUE_DEPTH, &self.metrics_labels, available as f64);
+        common_metrics::gauge(QUEUE_DEPTH, &self.metrics_labels, available as f64);
 
         common_metrics::inc(RUN_ENDS, &self.metrics_labels, 1);
         info!("Janitor loop complete");

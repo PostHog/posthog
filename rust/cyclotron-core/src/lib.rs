@@ -30,8 +30,6 @@ pub use ops::janitor::reset_stalled_jobs;
 
 // We also expose some handly meta operations
 pub use ops::meta::count_total_waiting_jobs;
-pub use ops::meta::get_metadata;
-pub use ops::meta::set_metadata;
 
 // Config
 mod config;
