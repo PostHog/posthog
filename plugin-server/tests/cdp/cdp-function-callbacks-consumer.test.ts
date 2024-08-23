@@ -112,6 +112,13 @@ describe('CDP Processed Events Consuner', () => {
                 },
             },
             groups: {},
+            person: {
+                uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0',
+                distinct_ids: ['b3a1fe86-b10c-43cc-acaf-d208977608d0'],
+                properties: {
+                    email: 'test@posthog.com',
+                },
+            },
         }
 
         beforeEach(async () => {
