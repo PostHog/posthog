@@ -120,10 +120,10 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
     } else {
         bytecode = code
     }
-
-    if (!bytecode || bytecode.length === 0 || bytecode[0] !== '_h') {
-        throw new HogVMException("Invalid HogQL bytecode, must start with '_h'")
+    if (!bytecode || bytecode.length === 0 || (bytecode[0] !== '_h' && bytecode[0] !== '_H')) {
+        throw new HogVMException("Invalid HogQL bytecode, must start with '_H'")
     }
+    const version = bytecode[0] === '_H' ? bytecode[1] ?? 0 : 0
 
     const startTime = Date.now()
     let temp: any
@@ -148,7 +148,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
 
     if (callStack.length === 0) {
         callStack.push({
-            ip: 1,
+            ip: bytecode[0] === '_H' ? 2 : 1,
             stackStart: 0,
             argCount: 0,
             closure: newHogClosure(
@@ -161,7 +161,6 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
             ),
         } satisfies CallFrame)
     }
-
     let frame: CallFrame = callStack[callStack.length - 1]
 
     function popStack(): any {
@@ -611,6 +610,9 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                     const args = Array(temp)
                         .fill(null)
                         .map(() => popStack())
+                    if (version > 0) {
+                        args.reverse()
+                    }
 
                     if (options?.functions && Object.hasOwn(options.functions, name) && options.functions[name]) {
                         pushStack(convertJSToHog(options.functions[name](...args.map(convertHogToJS))))
@@ -706,6 +708,9 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                     const args = Array(temp)
                         .fill(null)
                         .map(() => popStack())
+                    if (version > 0) {
+                        args.reverse()
+                    }
                     if (stlFn.maxArgs !== undefined && args.length < stlFn.maxArgs) {
                         for (let i = args.length; i < stlFn.maxArgs; i++) {
                             args.push(null)

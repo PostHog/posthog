@@ -4,7 +4,7 @@ from collections.abc import Callable
 
 
 from hogvm.python.execute import execute_bytecode, get_nested_value
-from hogvm.python.operation import Operation as op, HOGQL_BYTECODE_IDENTIFIER as _H
+from hogvm.python.operation import Operation as op, HOGQL_BYTECODE_IDENTIFIER as _H, VERSION
 from hogvm.python.utils import UncaughtHogVMException
 from posthog.hogql.bytecode import create_bytecode
 from posthog.hogql.parser import parse_expr, parse_program
@@ -115,21 +115,21 @@ class TestBytecodeExecute:
 
     def test_errors(self):
         try:
-            execute_bytecode([_H, op.TRUE, op.CALL_GLOBAL, "notAFunction", 1], {})
+            execute_bytecode([_H, VERSION, op.TRUE, op.CALL_GLOBAL, "notAFunction", 1], {})
         except Exception as e:
             assert str(e) == "Unsupported function call: notAFunction"
         else:
             raise AssertionError("Expected Exception not raised")
 
         try:
-            execute_bytecode([_H, op.CALL_GLOBAL, "notAFunction", 1], {})
+            execute_bytecode([_H, VERSION, op.CALL_GLOBAL, "notAFunction", 1], {})
         except Exception as e:
             assert str(e) == "Stack underflow"
         else:
             raise AssertionError("Expected Exception not raised")
 
         try:
-            execute_bytecode([_H, op.TRUE, op.TRUE, op.NOT], {})
+            execute_bytecode([_H, VERSION, op.TRUE, op.TRUE, op.NOT], {})
         except Exception as e:
             assert str(e) == "Invalid bytecode. More than one value left on stack"
         else:
@@ -282,16 +282,35 @@ class TestBytecodeExecute:
 
         functions = {"stringify": stringify}
         assert (
-            execute_bytecode([_H, op.INTEGER, 1, op.CALL_GLOBAL, "stringify", 1, op.RETURN], {}, functions).result
+            execute_bytecode(
+                [_H, VERSION, op.INTEGER, 1, op.CALL_GLOBAL, "stringify", 1, op.RETURN], {}, functions
+            ).result
             == "one"
         )
         assert (
-            execute_bytecode([_H, op.INTEGER, 2, op.CALL_GLOBAL, "stringify", 1, op.RETURN], {}, functions).result
+            execute_bytecode(
+                [_H, VERSION, op.INTEGER, 2, op.CALL_GLOBAL, "stringify", 1, op.RETURN], {}, functions
+            ).result
             == "two"
         )
         assert (
-            execute_bytecode([_H, op.STRING, "2", op.CALL_GLOBAL, "stringify", 1, op.RETURN], {}, functions).result
+            execute_bytecode(
+                [_H, VERSION, op.STRING, "2", op.CALL_GLOBAL, "stringify", 1, op.RETURN], {}, functions
+            ).result
             == "zero"
+        )
+
+    def test_version_0_and_1(self):
+        # version 0 of HogQL bytecode had arguments in a different order
+        assert (
+            execute_bytecode(["_h", op.STRING, "1", op.STRING, "2", op.CALL_GLOBAL, "concat", 2, op.RETURN]).result
+            == "21"
+        )
+        assert (
+            execute_bytecode(
+                [_H, VERSION, op.STRING, "1", op.STRING, "2", op.CALL_GLOBAL, "concat", 2, op.RETURN]
+            ).result
+            == "12"
         )
 
     def test_bytecode_variable_assignment(self):
@@ -299,6 +318,7 @@ class TestBytecodeExecute:
         bytecode = create_bytecode(program)
         assert bytecode == [
             _H,
+            VERSION,
             op.INTEGER,
             2,
             op.INTEGER,
@@ -327,6 +347,7 @@ class TestBytecodeExecute:
         bytecode = create_bytecode(program)
         assert bytecode == [
             _H,
+            VERSION,
             op.TRUE,
             op.JUMP_IF_FALSE,
             5,
@@ -379,6 +400,7 @@ class TestBytecodeExecute:
         bytecode = create_bytecode(program)
         assert bytecode == [
             _H,
+            VERSION,
             op.TRUE,
             op.JUMP_IF_FALSE,
             8,
@@ -396,6 +418,7 @@ class TestBytecodeExecute:
         bytecode = create_bytecode(program)
         assert bytecode == [
             _H,
+            VERSION,
             op.STRING,
             "a",
             op.CALL_GLOBAL,
@@ -492,23 +515,24 @@ class TestBytecodeExecute:
         bytecode = create_bytecode(program)
         assert bytecode == [
             _H,
+            VERSION,
             op.CALLABLE,
             "add",
             2,
             0,
             6,
             op.GET_LOCAL,
-            0,
-            op.GET_LOCAL,
             1,
+            op.GET_LOCAL,
+            0,
             op.PLUS,
             op.RETURN,
             op.CLOSURE,
             0,
             op.INTEGER,
-            4,
-            op.INTEGER,
             3,
+            op.INTEGER,
+            4,
             op.GET_LOCAL,
             0,
             op.CALL_LOCAL,

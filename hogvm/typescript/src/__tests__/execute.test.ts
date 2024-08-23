@@ -89,8 +89,9 @@ describe('hogvm execute', () => {
     test('error handling', async () => {
         const globals = { properties: { foo: 'bar' } }
         const options = { globals }
-        expect(() => execSync([], options)).toThrow("Invalid HogQL bytecode, must start with '_h'")
-        await expect(execAsync([], options)).rejects.toThrow("Invalid HogQL bytecode, must start with '_h'")
+        expect(() => execSync([], options)).toThrow("Invalid HogQL bytecode, must start with '_H'")
+        await expect(execAsync([], options)).rejects.toThrow("Invalid HogQL bytecode, must start with '_H'")
+
         expect(() => execSync(['_h', op.INTEGER, 2, op.INTEGER, 1, 'InvalidOp'], options)).toThrow(
             'Unexpected node while running bytecode: InvalidOp'
         )
@@ -100,6 +101,20 @@ describe('hogvm execute', () => {
         expect(() => execSync(['_h', op.INTEGER], options)).toThrow('Unexpected end of bytecode')
         expect(() => execSync(['_h', op.CALL_GLOBAL, 'match', 1], options)).toThrow('Not enough arguments on the stack')
         expect(() => execSync(['_h', op.TRUE, op.TRUE, op.NOT], options)).toThrow(
+            'Invalid bytecode. More than one value left on stack'
+        )
+
+        expect(() => execSync(['_H', 1, op.INTEGER, 2, op.INTEGER, 1, 'InvalidOp'], options)).toThrow(
+            'Unexpected node while running bytecode: InvalidOp'
+        )
+        expect(() =>
+            execSync(['_H', 1, op.STRING, 'another', op.STRING, 'arg', op.CALL_GLOBAL, 'invalidFunc', 2], options)
+        ).toThrow('Unsupported function call: invalidFunc')
+        expect(() => execSync(['_H', 1, op.INTEGER], options)).toThrow('Unexpected end of bytecode')
+        expect(() => execSync(['_H', 1, op.CALL_GLOBAL, 'match', 1], options)).toThrow(
+            'Not enough arguments on the stack'
+        )
+        expect(() => execSync(['_H', 1, op.TRUE, op.TRUE, op.NOT], options)).toThrow(
             'Invalid bytecode. More than one value left on stack'
         )
     })
@@ -291,6 +306,11 @@ describe('hogvm execute', () => {
         expect(execSync(['_h', op.INTEGER, 1, op.CALL_GLOBAL, 'stringify', 1], { functions })).toBe('one')
         expect(execSync(['_h', op.INTEGER, 2, op.CALL_GLOBAL, 'stringify', 1], { functions })).toBe('two')
         expect(execSync(['_h', op.STRING, '2', op.CALL_GLOBAL, 'stringify', 1], { functions })).toBe('zero')
+    })
+
+    test('version 0 and 1', async () => {
+        expect(execSync(['_h', op.STRING, '1', op.STRING, '2', op.CALL_GLOBAL, 'concat', 2, op.RETURN])).toBe('21')
+        expect(execSync(['_H', 1, op.STRING, '1', op.STRING, '2', op.CALL_GLOBAL, 'concat', 2, op.RETURN])).toBe('12')
     })
 
     test('should execute user-defined stringify async function correctly', async () => {

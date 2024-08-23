@@ -15,6 +15,7 @@ from posthog.hogql.visitor import Visitor, TraversingVisitor
 from hogvm.python.operation import (
     Operation,
     HOGQL_BYTECODE_IDENTIFIER,
+    VERSION,
 )
 from posthog.schema import HogQLNotice
 
@@ -68,6 +69,7 @@ def create_bytecode(
     bytecode: list[Any] = []
     if args is None:
         bytecode.append(HOGQL_BYTECODE_IDENTIFIER)
+        bytecode.append(VERSION)
 
     # Find all accessed inline STL functions and inline them at the start of the function
     stl_functions: list[ast.Declaration] = []
@@ -128,7 +130,7 @@ class BytecodeBuilder(Visitor):
         self.args = args
         # we're in a function definition
         if args is not None:
-            for arg in reversed(args):
+            for arg in args:
                 self._declare_local(arg)
         self.context = context or HogQLContext(team_id=None)
 
@@ -160,7 +162,7 @@ class BytecodeBuilder(Visitor):
 
     def visit_and(self, node: ast.And):
         response = []
-        for expr in reversed(node.exprs):
+        for expr in node.exprs:
             response.extend(self.visit(expr))
         response.append(Operation.AND)
         response.append(len(node.exprs))
@@ -168,7 +170,7 @@ class BytecodeBuilder(Visitor):
 
     def visit_or(self, node: ast.Or):
         response = []
-        for expr in reversed(node.exprs):
+        for expr in node.exprs:
             response.extend(self.visit(expr))
         response.append(Operation.OR)
         response.append(len(node.exprs))
@@ -290,12 +292,12 @@ class BytecodeBuilder(Visitor):
             return [*self.visit(node.args[0]), Operation.NOT]
         if node.name == "and" and len(node.args) > 1:
             args = []
-            for arg in reversed(node.args):
+            for arg in node.args:
                 args.extend(self.visit(arg))
             return [*args, Operation.AND, len(node.args)]
         if node.name == "or" and len(node.args) > 1:
             args = []
-            for arg in reversed(node.args):
+            for arg in node.args:
                 args.extend(self.visit(arg))
             return [*args, Operation.OR, len(node.args)]
         if node.name == "if" and len(node.args) >= 2:
@@ -338,7 +340,7 @@ class BytecodeBuilder(Visitor):
 
         response = []
 
-        for expr in reversed(node.args):
+        for expr in node.args:
             response.extend(self.visit(expr))
 
         found_local_with_name = False
@@ -376,7 +378,7 @@ class BytecodeBuilder(Visitor):
 
     def visit_expr_call(self, node: ast.ExprCall):
         response = []
-        for expr in reversed(node.args):
+        for expr in node.args:
             response.extend(self.visit(expr))
         response.extend(self.visit(node.expr))
         response.extend([Operation.CALL_LOCAL, len(node.args)])

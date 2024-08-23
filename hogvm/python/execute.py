@@ -7,7 +7,7 @@ from collections.abc import Callable
 
 from hogvm.python.debugger import debugger, color_bytecode
 from hogvm.python.objects import is_hog_error, new_hog_closure, CallFrame, ThrowFrame, new_hog_callable, is_hog_upvalue
-from hogvm.python.operation import Operation, HOGQL_BYTECODE_IDENTIFIER
+from hogvm.python.operation import Operation, HOGQL_BYTECODE_IDENTIFIER, HOGQL_BYTECODE_IDENTIFIER_V0
 from hogvm.python.stl import STL
 from dataclasses import dataclass
 
@@ -42,6 +42,9 @@ def execute_bytecode(
     team: Optional["Team"] = None,
     debug=False,
 ) -> BytecodeResult:
+    if len(bytecode) == 0 or (bytecode[0] != HOGQL_BYTECODE_IDENTIFIER and bytecode[0] != HOGQL_BYTECODE_IDENTIFIER_V0):
+        raise HogVMException(f"Invalid bytecode. Must start with '{HOGQL_BYTECODE_IDENTIFIER}'")
+    version = bytecode[1] if len(bytecode) >= 2 and bytecode[0] == HOGQL_BYTECODE_IDENTIFIER else 0
     result = None
     start_time = time.time()
     last_op = len(bytecode) - 1
@@ -62,7 +65,7 @@ def execute_bytecode(
     if len(call_stack) == 0:
         call_stack.append(
             CallFrame(
-                ip=-1,
+                ip=2 if bytecode[0] == HOGQL_BYTECODE_IDENTIFIER else 1,
                 stack_start=0,
                 arg_len=0,
                 closure=new_hog_closure(
@@ -76,7 +79,6 @@ def execute_bytecode(
                 ),
             )
         )
-
     frame = call_stack[-1]
 
     def stack_keep_first_elements(count: int):
@@ -115,12 +117,6 @@ def execute_bytecode(
         max_mem_used = max(mem_used, max_mem_used)
         if mem_used > MAX_MEMORY:
             raise HogVMException(f"Memory limit of {MAX_MEMORY} bytes exceeded. Tried to allocate {mem_used} bytes.")
-
-    if next_token() != HOGQL_BYTECODE_IDENTIFIER:
-        raise HogVMException(f"Invalid bytecode. Must start with '{HOGQL_BYTECODE_IDENTIFIER}'")
-
-    if len(bytecode) == 1:
-        return BytecodeResult(result=None, stdout=stdout, bytecode=bytecode)
 
     def check_timeout():
         if time.time() - start_time > timeout.total_seconds() and not debug:
@@ -232,13 +228,12 @@ def execute_bytecode(
                         )
                     )
                 elif chain[0] in STL and len(chain) == 1:
-                    max_args = STL[chain[0]].maxArgs
                     push_stack(
                         new_hog_closure(
                             new_hog_callable(
                                 type="stl",
                                 name=chain[0],
-                                arg_count=-1 if max_args is None else max_args,
+                                arg_count=STL[chain[0]].maxArgs or 0,
                                 upvalue_count=0,
                                 ip=-1,
                             )
@@ -415,7 +410,10 @@ def execute_bytecode(
                     continue  # resume the loop without incrementing frame.ip
                 else:
                     # Shortcut for calling STL functions (can also be done with an STL function closure)
-                    args = [pop_stack() for _ in range(arg_count)]
+                    if version == 0:
+                        args = [pop_stack() for _ in range(arg_count)]
+                    else:
+                        args = list(reversed([pop_stack() for _ in range(arg_count)]))
                     if functions is not None and name in functions:
                         push_stack(functions[name](*args))
                     elif name in STL:
@@ -463,9 +461,12 @@ def execute_bytecode(
                         )
                     if stl_fn.maxArgs is not None and args_length > stl_fn.maxArgs:
                         raise HogVMException(f"Function {callable['name']} requires at most {stl_fn.maxArgs} arguments")
-                    args = [pop_stack() for _ in range(args_length)]
-                    if stl_fn.maxArgs is not None and len(args) < stl_fn.maxArgs:
-                        args += [None] * (stl_fn.maxArgs - len(args))
+                    if version == 0:
+                        args = [pop_stack() for _ in range(args_length)]
+                    else:
+                        args = list(reversed([pop_stack() for _ in range(args_length)]))
+                        if stl_fn.maxArgs is not None and len(args) < stl_fn.maxArgs:
+                            args = [*args, *([None] * (stl_fn.maxArgs - len(args)))]
                     push_stack(stl_fn.fn(args, team, stdout, timeout.total_seconds()))
 
                 elif callable.get("__hogCallable__") == "async":

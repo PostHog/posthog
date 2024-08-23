@@ -1,7 +1,10 @@
 from enum import Enum
 
-HOGQL_BYTECODE_IDENTIFIER = "_h"
+HOGQL_BYTECODE_IDENTIFIER_V0 = "_h"
+HOGQL_BYTECODE_IDENTIFIER = "_H"
 HOGQL_BYTECODE_FUNCTION = "_f"
+
+VERSION = 1
 
 
 class Operation(int, Enum):

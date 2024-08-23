@@ -64,3 +64,14 @@ test(toFloat('bla'))                      // null
 test(toUUID('asd'))                       // 'asd'
 test(1 == null)                           // false
 test(1 != null)                           // true
+
+
+let first := () -> {
+    test(1)
+    return 1
+}
+let second := () -> {
+    test(2)
+    return 2
+}
+test(first() and second())                // 1\n 2\n true
