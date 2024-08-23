@@ -25,8 +25,8 @@ async fn it_captures_one_event() -> Result<()> {
         "event": "testing",
         "distinct_id": distinct_id
     });
-    let res = server.capture_events(event.to_string()).await;
-    assert_eq!(StatusCode::OK, res.status());
+
+    server.capture_events(&event).await;
 
     let event = main_topic.next_event()?;
     assert_json_include!(
@@ -60,8 +60,8 @@ async fn it_captures_a_posthogjs_array() -> Result<()> {
         "event": "event2",
         "distinct_id": distinct_id2
     }]);
-    let res = server.capture_events(event.to_string()).await;
-    assert_eq!(StatusCode::OK, res.status());
+
+    server.capture_events(&event).await;
 
     assert_json_include!(
         actual: main_topic.next_event()?,
@@ -102,8 +102,8 @@ async fn it_captures_a_batch() -> Result<()> {
             "distinct_id": distinct_id2
         }]
     });
-    let res = server.capture_events(event.to_string()).await;
-    assert_eq!(StatusCode::OK, res.status());
+
+    server.capture_events(&event).await;
 
     assert_json_include!(
         actual: main_topic.next_event()?,
@@ -144,8 +144,8 @@ async fn it_captures_a_historical_batch() -> Result<()> {
             "distinct_id": distinct_id2
         }]
     });
-    let res = server.capture_events(event.to_string()).await;
-    assert_eq!(StatusCode::OK, res.status());
+
+    server.capture_events(&event).await;
 
     assert_json_include!(
         actual: histo_topic.next_event()?,
@@ -196,8 +196,7 @@ async fn it_overflows_events_on_burst() -> Result<()> {
         "distinct_id": distinct_id
     }]);
 
-    let res = server.capture_events(event.to_string()).await;
-    assert_eq!(StatusCode::OK, res.status());
+    server.capture_events(&event).await;
 
     assert_eq!(
         topic.next_message_key()?.unwrap(),
@@ -242,8 +241,7 @@ async fn it_does_not_overflow_team_with_different_ids() -> Result<()> {
         "distinct_id": distinct_id2
     }]);
 
-    let res = server.capture_events(event.to_string()).await;
-    assert_eq!(StatusCode::OK, res.status());
+    server.capture_events(&event).await;
 
     assert_eq!(
         topic.next_message_key()?.unwrap(),
@@ -289,8 +287,7 @@ async fn it_skips_overflows_when_disabled() -> Result<()> {
         "distinct_id": distinct_id
     }]);
 
-    let res = server.capture_events(event.to_string()).await;
-    assert_eq!(StatusCode::OK, res.status());
+    server.capture_events(&event).await;
 
     assert_eq!(
         topic.next_message_key()?.unwrap(),
@@ -331,8 +328,8 @@ async fn it_trims_distinct_id() -> Result<()> {
         "event": "event2",
         "distinct_id": distinct_id2
     }]);
-    let res = server.capture_events(event.to_string()).await;
-    assert_eq!(StatusCode::OK, res.status());
+
+    server.capture_events(&event).await;
 
     assert_json_include!(
         actual: main_topic.next_event()?,
@@ -389,8 +386,7 @@ async fn it_applies_billing_limits() -> Result<()> {
             "batch": [{"event": "event1","distinct_id": distinct_id}]
         }),
     ] {
-        let res = server.capture_events(payload.to_string()).await;
-        assert_eq!(StatusCode::OK, res.status());
+        server.capture_events(&payload).await;
     }
 
     // Batches 1 and 3 go through, batch 2 is dropped
@@ -460,8 +456,7 @@ async fn it_routes_exceptions_and_heapmaps_to_separate_topics() -> Result<()> {
         "distinct_id": distinct_id
     }]);
 
-    let res = server.capture_events(event.to_string()).await;
-    assert_eq!(StatusCode::OK, res.status());
+    server.capture_events(&event).await;
 
     // Regular events are pushed to the main analytics topic
     assert_json_include!(
@@ -542,12 +537,18 @@ async fn it_limits_non_batch_endpoints_to_2mb() -> Result<()> {
         }
     });
 
-    let res = server.capture_events(ok_event.to_string()).await;
     // The events are too large to go in kafka, so we get a maximum event size exceeded error, but that's ok, because that's a 400, not a 413
-    assert_eq!(StatusCode::BAD_REQUEST, res.status());
+    server
+        .capture_events(&ok_event)
+        .expect_failure()
+        .await
+        .assert_status_bad_request();
 
-    let res = server.capture_events(nok_event.to_string()).await;
-    assert_eq!(StatusCode::PAYLOAD_TOO_LARGE, res.status());
+    server
+        .capture_events(&nok_event)
+        .expect_failure()
+        .await
+        .assert_status_payload_too_large();
 
     Ok(())
 }
@@ -583,11 +584,18 @@ async fn it_limits_batch_endpoints_to_20mb() -> Result<()> {
         }
     });
 
-    let res = server.capture_to_batch(ok_event.to_string()).await;
     // The events are too large to go in kafka, so we get a maximum event size exceeded error, but that's ok, because that's a 400, not a 413
-    assert_eq!(StatusCode::BAD_REQUEST, res.status());
-    let res = server.capture_to_batch(nok_event.to_string()).await;
-    assert_eq!(StatusCode::PAYLOAD_TOO_LARGE, res.status());
+    server
+        .capture_to_batch(&ok_event)
+        .expect_failure()
+        .await
+        .assert_status_bad_request();
+
+    server
+        .capture_to_batch(&nok_event)
+        .expect_failure()
+        .await
+        .assert_status_payload_too_large();
 
     Ok(())
 }

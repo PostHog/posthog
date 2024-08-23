@@ -1,7 +1,7 @@
 use assert_json_diff::assert_json_matches_no_panic;
 use async_trait::async_trait;
 use axum::http::StatusCode;
-use axum_test_helper::TestClient;
+use axum_test::TestServer;
 use base64::engine::general_purpose;
 use base64::Engine;
 use capture::api::{CaptureError, CaptureResponse, CaptureResponseCode, DataType, ProcessedEvent};
@@ -114,7 +114,7 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
             CaptureMode::Events,
         );
 
-        let client = TestClient::new(app);
+        let client = TestServer::new(app).expect("To build TestServer");
         let mut req = client.post(&case.path).body(raw_body);
         if !case.content_encoding.is_empty() {
             req = req.header("Content-encoding", case.content_encoding);
