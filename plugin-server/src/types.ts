@@ -1016,6 +1016,7 @@ export interface RawAction {
     steps_json: ActionStep[] | null
     bytecode: any[] | null
     bytecode_error: string | null
+    pinned_at: string | null
 }
 
 /** Usable Action model. */
