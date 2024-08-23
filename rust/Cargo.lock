@@ -713,7 +713,7 @@ name = "common-dns"
 version = "0.1.0"
 dependencies = [
  "futures",
- "reqwest 0.12.3",
+ "reqwest",
  "tokio",
 ]
 
@@ -886,7 +886,7 @@ dependencies = [
  "httpmock",
  "metrics",
  "rand",
- "reqwest 0.12.3",
+ "reqwest",
  "serde",
  "serde_json",
  "sqlx",
@@ -2057,7 +2057,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4979f22fdb869068da03c9f7528f8297c6fd2606bc3a4affe42e6a823fdb8da4"
 dependencies = [
  "cfg-if",
- "windows-targets 0.52.0",
+ "windows-targets 0.48.5",
 ]
 
 [[package]]
@@ -2307,7 +2307,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c6813fde79b646e47e7ad75f480aa80ef76a5d9599e2717407961531169ee38b"
 dependencies = [
  "quote",
- "syn 2.0.48",
+ "syn 2.0.75",
  "syn-mid",
 ]
 
@@ -3805,7 +3805,7 @@ checksum = "b5dc35bb08dd1ca3dfb09dce91fd2d13294d6711c88897d9a9d60acf39bce049"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.75",
 ]
 
 [[package]]

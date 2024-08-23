@@ -1,7 +1,6 @@
 use crate::common::*;
 use anyhow::Result;
 use assert_json_diff::assert_json_include;
-use reqwest::StatusCode;
 use serde_json::json;
 mod common;
 
@@ -27,8 +26,8 @@ async fn it_captures_one_recording() -> Result<()> {
             "$snapshot_data": [],
         }
     });
-    let res = server.capture_recording(event.to_string()).await;
-    assert_eq!(StatusCode::OK, res.status());
+
+    server.capture_recording(&event).await;
 
     let event = main_topic.next_event()?;
     assert_json_include!(
@@ -63,8 +62,13 @@ async fn it_fails_no_session_id() -> Result<()> {
             "$snapshot_data": [],
         }
     });
-    let res = server.capture_recording(event.to_string()).await;
-    assert_eq!(StatusCode::BAD_REQUEST, res.status());
+
+    server
+        .capture_recording(&event)
+        .expect_failure()
+        .await
+        .assert_status_bad_request();
+
     Ok(())
 }
 
@@ -89,7 +93,12 @@ async fn it_rejects_bad_session_id() -> Result<()> {
             "$snapshot_data": [],
         }
     });
-    let res = server.capture_recording(event.to_string()).await;
-    assert_eq!(StatusCode::BAD_REQUEST, res.status());
+
+    server
+        .capture_recording(&event)
+        .expect_failure()
+        .await
+        .assert_status_bad_request();
+
     Ok(())
 }
