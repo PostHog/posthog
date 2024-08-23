@@ -5,20 +5,14 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
-import { AvailableFeature, SidePanelTab } from '~/types'
+import { AvailableFeature } from '~/types'
 
 import { sidePanelActivityLogic } from './panels/activity/sidePanelActivityLogic'
 import { sidePanelStatusLogic } from './panels/sidePanelStatusLogic'
 import type { sidePanelLogicType } from './sidePanelLogicType'
-import { sidePanelStateLogic } from './sidePanelStateLogic'
+import { sidePanelStateLogic, SidePanelTab } from './sidePanelStateLogic'
 
-const ALWAYS_EXTRA_TABS = [
-    SidePanelTab.Settings,
-    SidePanelTab.FeaturePreviews,
-    SidePanelTab.Activity,
-    SidePanelTab.Status,
-    SidePanelTab.Exports,
-]
+const ALWAYS_EXTRA_TABS: SidePanelTab[] = ['settings', 'feature-previews', 'activity', 'status', 'exports']
 
 export const sidePanelLogic = kea<sidePanelLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelLogic']),
@@ -49,24 +43,24 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             (isCloudOrDev, isReady, hasCompletedAllTasks, featureflags) => {
                 const tabs: SidePanelTab[] = []
 
-                tabs.push(SidePanelTab.Notebooks)
-                tabs.push(SidePanelTab.Docs)
+                tabs.push('notebook')
+                tabs.push('docs')
                 if (isCloudOrDev) {
-                    tabs.push(SidePanelTab.Support)
+                    tabs.push('support')
                 }
-                tabs.push(SidePanelTab.Activity)
+                tabs.push('activity')
                 if (featureflags[FEATURE_FLAGS.DISCUSSIONS]) {
-                    tabs.push(SidePanelTab.Discussion)
+                    tabs.push('discussion')
                 }
                 if (isReady && !hasCompletedAllTasks) {
-                    tabs.push(SidePanelTab.Activation)
+                    tabs.push('activation')
                 }
-                tabs.push(SidePanelTab.Exports)
-                tabs.push(SidePanelTab.FeaturePreviews)
-                tabs.push(SidePanelTab.Settings)
+                tabs.push('exports')
+                tabs.push('feature-previews')
+                tabs.push('settings')
 
                 if (isCloudOrDev) {
-                    tabs.push(SidePanelTab.Status)
+                    tabs.push('status')
                 }
 
                 return tabs
@@ -81,15 +75,11 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                         return true
                     }
 
-                    if (
-                        tab === SidePanelTab.Activity &&
-                        unreadCount &&
-                        hasAvailableFeature(AvailableFeature.AUDIT_LOGS)
-                    ) {
+                    if (tab === 'activity' && unreadCount && hasAvailableFeature(AvailableFeature.AUDIT_LOGS)) {
                         return true
                     }
 
-                    if (tab === SidePanelTab.Status && status !== 'operational') {
+                    if (tab === 'status' && status !== 'operational') {
                         return true
                     }
 

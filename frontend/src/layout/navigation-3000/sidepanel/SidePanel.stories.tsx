@@ -8,9 +8,8 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import organizationCurrent from '~/mocks/fixtures/api/organizations/@current/@current.json'
-import { SidePanelTab } from '~/types'
 
-import { sidePanelStateLogic } from './sidePanelStateLogic'
+import { sidePanelStateLogic, SidePanelTab } from './sidePanelStateLogic'
 
 const meta: Meta = {
     title: 'Scenes-App/SidePanels',
@@ -47,23 +46,23 @@ const BaseTemplate = (props: { panel: SidePanelTab }): JSX.Element => {
 }
 
 export const SidePanelDocs: StoryFn = () => {
-    return <BaseTemplate panel={SidePanelTab.Docs} />
+    return <BaseTemplate panel="docs" />
 }
 
 export const SidePanelSettings: StoryFn = () => {
-    return <BaseTemplate panel={SidePanelTab.Settings} />
+    return <BaseTemplate panel="settings" />
 }
 
 export const SidePanelActivation: StoryFn = () => {
-    return <BaseTemplate panel={SidePanelTab.Activation} />
+    return <BaseTemplate panel="activation" />
 }
 
 export const SidePanelNotebooks: StoryFn = () => {
-    return <BaseTemplate panel={SidePanelTab.Notebooks} />
+    return <BaseTemplate panel="notebook" />
 }
 
 export const SidePanelSupportNoEmail: StoryFn = () => {
-    return <BaseTemplate panel={SidePanelTab.Support} />
+    return <BaseTemplate panel="support" />
 }
 
 export const SidePanelSupportWithEmail: StoryFn = () => {
@@ -92,5 +91,5 @@ export const SidePanelSupportWithEmail: StoryFn = () => {
     useEffect(() => {
         openEmailForm()
     }, [])
-    return <BaseTemplate panel={SidePanelTab.Support} />
+    return <BaseTemplate panel="support" />
 }

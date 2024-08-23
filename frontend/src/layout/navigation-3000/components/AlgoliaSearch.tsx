@@ -8,7 +8,6 @@ import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { List } from 'react-virtualized/dist/es/List'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { SidePanelTab } from '~/types'
 
 const searchClient = algoliasearch('7VNQB5W0TX', '37f41fd37095bc85af76ed4edc85eb5a')
 
@@ -165,7 +164,7 @@ const Search = (): JSX.Element => {
         switch (e.key) {
             case 'Enter': {
                 if (activeOption !== undefined) {
-                    openSidePanel(SidePanelTab.Docs, `https://posthog.com/${hits[activeOption].slug}`)
+                    openSidePanel('docs', `https://posthog.com/${hits[activeOption].slug}`)
                 }
                 break
             }

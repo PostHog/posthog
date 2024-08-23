@@ -34,7 +34,7 @@ import { organizationLogic } from '../../../scenes/organizationLogic'
 import { preflightLogic } from '../../../scenes/PreflightCheck/preflightLogic'
 import { urls } from '../../../scenes/urls'
 import { userLogic } from '../../../scenes/userLogic'
-import { OrganizationBasicType, SidePanelTab } from '../../../types'
+import { OrganizationBasicType } from '../../../types'
 import { navigationLogic } from '../navigationLogic'
 
 function AccountPopoverSection({
@@ -186,7 +186,7 @@ function FeaturePreviewsButton(): JSX.Element {
         <LemonButton
             onClick={() => {
                 closeAccountPopover()
-                openSidePanel(SidePanelTab.FeaturePreviews)
+                openSidePanel('feature-previews')
             }}
             icon={<IconFeatures />}
             fullWidth
@@ -254,7 +254,7 @@ export function AccountPopoverOverlay(): JSX.Element {
                         closeAccountPopover()
                         if (!mobileLayout) {
                             e.preventDefault()
-                            openSidePanel(SidePanelTab.Docs, '/changelog')
+                            openSidePanel('docs', '/changelog')
                         }
                     }}
                     icon={<IconLive />}

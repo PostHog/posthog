@@ -2,8 +2,6 @@ import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SettingsLogicProps } from 'scenes/settings/types'
 
-import { SidePanelTab } from '~/types'
-
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
 import type { sidePanelSettingsLogicType } from './sidePanelSettingsLogicType'
 
@@ -40,7 +38,7 @@ export const sidePanelSettingsLogic = kea<sidePanelSettingsLogicType>([
 
     listeners(({ actions }) => ({
         openSettingsPanel: () => {
-            actions.openSidePanel(SidePanelTab.Settings)
+            actions.openSidePanel('settings')
         },
     })),
 ])

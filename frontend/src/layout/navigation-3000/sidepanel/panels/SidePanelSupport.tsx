@@ -25,7 +25,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { AvailableFeature, ProductKey, SidePanelTab } from '~/types'
+import { AvailableFeature, ProductKey } from '~/types'
 
 import AlgoliaSearch from '../../components/AlgoliaSearch'
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
@@ -164,7 +164,7 @@ export const SidePanelSupport = (): JSX.Element => {
     const { currentTeam } = useValues(teamLogic)
     const { status } = useValues(sidePanelStatusLogic)
 
-    const theLogic = supportLogic({ onClose: () => closeSidePanel(SidePanelTab.Support) })
+    const theLogic = supportLogic({ onClose: () => closeSidePanel('support') })
     const { openEmailForm, closeEmailForm } = useActions(theLogic)
     const { title, isEmailFormOpen } = useValues(theLogic)
 
@@ -172,7 +172,7 @@ export const SidePanelSupport = (): JSX.Element => {
 
     return (
         <>
-            <SidePanelPaneHeader title={isEmailFormOpen ? title : SIDE_PANEL_TABS[SidePanelTab.Support].label} />
+            <SidePanelPaneHeader title={isEmailFormOpen ? title : SIDE_PANEL_TABS['support'].label} />
 
             <div className="overflow-y-auto" data-attr="side-panel-support-container">
                 <div className="p-3 max-w-160 w-full mx-auto">
@@ -219,7 +219,7 @@ export const SidePanelSupport = (): JSX.Element => {
                                                 fullWidth
                                                 center
                                                 targetBlank
-                                                onClick={() => openSidePanel(SidePanelTab.Status)}
+                                                onClick={() => openSidePanel('status')}
                                                 className="mt-2 bg-[white]"
                                             >
                                                 View system status

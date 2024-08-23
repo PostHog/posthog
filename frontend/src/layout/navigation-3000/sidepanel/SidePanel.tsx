@@ -14,7 +14,6 @@ import {
     SidePanelExportsIcon,
 } from '~/layout/navigation-3000/sidepanel/panels/exports/SidePanelExports'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { SidePanelTab } from '~/types'
 
 import { SidePanelActivation, SidePanelActivationIcon } from './panels/activation/SidePanelActivation'
 import { SidePanelActivity, SidePanelActivityIcon } from './panels/activity/SidePanelActivity'
@@ -25,63 +24,63 @@ import { SidePanelSettings } from './panels/SidePanelSettings'
 import { SidePanelStatus, SidePanelStatusIcon } from './panels/SidePanelStatus'
 import { SidePanelSupport } from './panels/SidePanelSupport'
 import { sidePanelLogic } from './sidePanelLogic'
-import { sidePanelStateLogic } from './sidePanelStateLogic'
+import { sidePanelStateLogic, SidePanelTab } from './sidePanelStateLogic'
 
 export const SIDE_PANEL_TABS: Record<
     SidePanelTab,
     { label: string; Icon: any; Content: any; noModalSupport?: boolean }
 > = {
-    [SidePanelTab.Notebooks]: {
+    notebook: {
         label: 'Notebooks',
         Icon: IconNotebook,
         Content: NotebookPanel,
         noModalSupport: true,
     },
-    [SidePanelTab.Support]: {
+    support: {
         label: 'Help',
         Icon: IconSupport,
         Content: SidePanelSupport,
     },
-    [SidePanelTab.Docs]: {
+    docs: {
         label: 'Docs',
         Icon: IconInfo,
         Content: SidePanelDocs,
         noModalSupport: true,
     },
 
-    [SidePanelTab.Activation]: {
+    activation: {
         label: 'Quick start',
         Icon: SidePanelActivationIcon,
         Content: SidePanelActivation,
     },
-    [SidePanelTab.Settings]: {
+    settings: {
         label: 'Settings',
         Icon: IconGear,
         Content: SidePanelSettings,
     },
 
-    [SidePanelTab.FeaturePreviews]: {
+    'feature-previews': {
         label: 'Feature previews',
         Icon: IconFeatures,
         Content: SidePanelFeaturePreviews,
     },
 
-    [SidePanelTab.Activity]: {
+    activity: {
         label: 'Team activity',
         Icon: SidePanelActivityIcon,
         Content: SidePanelActivity,
     },
-    [SidePanelTab.Discussion]: {
+    discussion: {
         label: 'Discussion',
         Icon: SidePanelDiscussionIcon,
         Content: SidePanelDiscussion,
     },
-    [SidePanelTab.Exports]: {
+    exports: {
         label: 'Exports',
         Icon: SidePanelExportsIcon,
         Content: SidePanelExports,
     },
-    [SidePanelTab.Status]: {
+    status: {
         label: 'System status',
         Icon: SidePanelStatusIcon,
         Content: SidePanelStatus,

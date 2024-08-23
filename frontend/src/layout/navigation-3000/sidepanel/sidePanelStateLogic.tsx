@@ -3,7 +3,17 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { windowValues } from 'kea-window-values'
 import posthog from 'posthog-js'
 
-import { SidePanelTab } from '~/types'
+export type SidePanelTab =
+    | 'notebook'
+    | 'support'
+    | 'docs'
+    | 'activation'
+    | 'settings'
+    | 'feature-previews'
+    | 'activity'
+    | 'discussion'
+    | 'status'
+    | 'exports'
 
 import type { sidePanelStateLogicType } from './sidePanelStateLogicType'
 

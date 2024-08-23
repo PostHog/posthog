@@ -12,7 +12,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { AvailableFeature, OrganizationBasicType, Region, SidePanelTab, TeamPublicType, UserType } from '~/types'
+import { AvailableFeature, OrganizationBasicType, Region, TeamPublicType, UserType } from '~/types'
 
 import type { supportLogicType } from './supportLogicType'
 import { openSupportModal } from './SupportModal'
@@ -378,7 +378,7 @@ export const supportLogic = kea<supportLogicType>([
 
             if (values.sidePanelAvailable) {
                 const panelOptions = [kind ?? '', area ?? ''].join(':')
-                actions.openSidePanel(SidePanelTab.Support, panelOptions === ':' ? undefined : panelOptions)
+                actions.openSidePanel('support', panelOptions === ':' ? undefined : panelOptions)
             } else {
                 openSupportModal()
             }
@@ -534,7 +534,7 @@ export const supportLogic = kea<supportLogicType>([
 
             const [panel, ...panelOptions] = (hashParams['panel'] ?? '').split(':')
 
-            if (panel === SidePanelTab.Support) {
+            if (panel === 'support') {
                 const [kind, area, severity, isEmailFormOpen] = panelOptions
 
                 actions.openSupportForm({

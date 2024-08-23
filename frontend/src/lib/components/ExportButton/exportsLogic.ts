@@ -8,7 +8,7 @@ import { delay } from 'lib/utils'
 import posthog from 'posthog-js'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { ExportContext, ExportedAssetType, ExporterFormat, LocalExportContext, SidePanelTab } from '~/types'
+import { ExportContext, ExportedAssetType, ExporterFormat, LocalExportContext } from '~/types'
 
 import type { exportsLogicType } from './exportsLogicType'
 
@@ -70,7 +70,7 @@ export const exportsLogic = kea<exportsLogicType>([
             actions.createExport({ exportData })
         },
         createExportSuccess: ({ pollingExports }) => {
-            actions.openSidePanel(SidePanelTab.Exports)
+            actions.openSidePanel('exports')
             actions.loadExports()
             actions.pollExportStatus(pollingExports[0])
         },

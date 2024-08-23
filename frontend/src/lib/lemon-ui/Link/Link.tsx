@@ -9,8 +9,7 @@ import { addProjectIdIfMissing } from 'lib/utils/router-utils'
 import React from 'react'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { SidePanelTab } from '~/types'
+import { sidePanelStateLogic, SidePanelTab } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 
 import { IconOpenInNew } from '../icons'
 import { Tooltip } from '../Tooltip'
@@ -126,7 +125,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                     }, 50)
                 }
 
-                openSidePanel(SidePanelTab.Docs, to)
+                openSidePanel('docs', to)
                 return
             }
 

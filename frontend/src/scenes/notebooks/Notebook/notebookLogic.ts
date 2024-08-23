@@ -15,15 +15,7 @@ import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { notebooksModel, openNotebook, SCRATCHPAD_NOTEBOOK } from '~/models/notebooksModel'
-import {
-    ActivityScope,
-    CommentType,
-    NotebookNodeType,
-    NotebookSyncStatus,
-    NotebookTarget,
-    NotebookType,
-    SidePanelTab,
-} from '~/types'
+import { ActivityScope, CommentType, NotebookNodeType, NotebookSyncStatus, NotebookTarget, NotebookType } from '~/types'
 
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 import { migrate, NOTEBOOKS_VERSION } from './migrations/migrate'
@@ -625,7 +617,7 @@ export const notebookLogic = kea<notebookLogicType>([
 
         // Comments
         insertComment: ({ context }) => {
-            actions.openSidePanel(SidePanelTab.Discussion)
+            actions.openSidePanel('discussion')
 
             actions.setItemContext(context, (result) => {
                 if (!result.sent && values.editor) {
@@ -642,7 +634,7 @@ export const notebookLogic = kea<notebookLogicType>([
         selectComment: ({ itemContextId }) => {
             const commentId = values.comments?.find((x) => x.item_context?.id === itemContextId)?.id
 
-            actions.openSidePanel(SidePanelTab.Discussion, commentId)
+            actions.openSidePanel('discussion', commentId)
 
             if (router.values.currentLocation.pathname !== urls.notebook(values.shortId)) {
                 router.actions.push(urls.notebook(values.shortId))

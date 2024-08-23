@@ -3,7 +3,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { HTMLProps } from 'react'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { NotebookNodeResource, SidePanelTab } from '~/types'
+import { NotebookNodeResource } from '~/types'
 
 import { EditorFocusPosition } from '../Notebook/utils'
 import type { notebookPanelLogicType } from './notebookPanelLogicType'
@@ -59,7 +59,7 @@ export const notebookPanelLogic = kea<notebookPanelLogicType>([
         visibility: [
             (s) => [s.selectedTab, s.sidePanelOpen],
             (selectedTab, sidePanelOpen): 'hidden' | 'visible' => {
-                return selectedTab === SidePanelTab.Notebooks && sidePanelOpen ? 'visible' : 'hidden'
+                return selectedTab === 'notebook' && sidePanelOpen ? 'visible' : 'hidden'
             },
         ],
 
@@ -71,7 +71,7 @@ export const notebookPanelLogic = kea<notebookPanelLogicType>([
                           onDragEnter: () => {
                               cache.dragEntercount = (cache.dragEntercount || 0) + 1
                               if (cache.dragEntercount === 1) {
-                                  actions.openSidePanel(SidePanelTab.Notebooks)
+                                  actions.openSidePanel('notebook')
                               }
                           },
 
@@ -93,11 +93,11 @@ export const notebookPanelLogic = kea<notebookPanelLogicType>([
             if (options.silent) {
                 return
             }
-            actions.openSidePanel(SidePanelTab.Notebooks)
+            actions.openSidePanel('notebook')
         },
         toggleVisibility: () => {
             if (values.visibility === 'hidden') {
-                actions.openSidePanel(SidePanelTab.Notebooks)
+                actions.openSidePanel('notebook')
             } else {
                 actions.closeSidePanel()
             }
@@ -123,8 +123,8 @@ export const notebookPanelLogic = kea<notebookPanelLogicType>([
                 // If we have dragged a little bit to the right, or we are dragging close to the side panel
                 const shouldBeOpen = distanceFromDragStart > 50 || distanceFromRightEdge < 200
 
-                if (shouldBeOpen && (!values.sidePanelOpen || values.selectedTab !== SidePanelTab.Notebooks)) {
-                    actions.openSidePanel(SidePanelTab.Notebooks)
+                if (shouldBeOpen && (!values.sidePanelOpen || values.selectedTab !== 'notebook')) {
+                    actions.openSidePanel('notebook')
                 } else if (!cache.initialPanelState.sidePanelOpen && !shouldBeOpen) {
                     actions.closeSidePanel()
                 }

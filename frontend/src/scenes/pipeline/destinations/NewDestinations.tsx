@@ -8,7 +8,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { AvailableFeature, PipelineStage, SidePanelTab } from '~/types'
+import { AvailableFeature, PipelineStage } from '~/types'
 
 import { pipelineAccessLogic } from '../pipelineAccessLogic'
 import { PipelineBackend } from '../types'
@@ -30,7 +30,7 @@ export function DestinationOptionsTable(): JSX.Element {
                 <LemonBanner
                     type="info"
                     action={{
-                        onClick: () => openSidePanel(SidePanelTab.FeaturePreviews),
+                        onClick: () => openSidePanel('feature-previews'),
                         children: 'Enable feature preview',
                     }}
                 >

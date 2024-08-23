@@ -4197,19 +4197,6 @@ export enum AppMetricsTab {
     History = 'history',
 }
 
-export enum SidePanelTab {
-    Notebooks = 'notebook',
-    Support = 'support',
-    Docs = 'docs',
-    Activation = 'activation',
-    Settings = 'settings',
-    FeaturePreviews = 'feature-previews',
-    Activity = 'activity',
-    Discussion = 'discussion',
-    Status = 'status',
-    Exports = 'exports',
-}
-
 export interface SourceFieldOauthConfig {
     type: 'oauth'
     name: string
