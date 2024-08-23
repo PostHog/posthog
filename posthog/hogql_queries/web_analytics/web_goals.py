@@ -1,6 +1,6 @@
 from typing import Optional
 
-from django.utils.timezone import datetime
+from datetime import datetime
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
