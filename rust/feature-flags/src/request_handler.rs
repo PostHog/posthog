@@ -13,7 +13,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use std::sync::Arc;
 use std::{collections::HashMap, net::IpAddr};
-use tracing::{error, warn};
+use tracing::error;
 
 #[derive(Deserialize, Default)]
 pub enum Compression {
@@ -79,13 +79,13 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
 
     // let group_property_overrides = request.group_properties.clone();
 
-    let all_feature_flags = request
+    let feature_flags_from_cache_or_pg = request
         .get_flags_from_cache_or_pg(team.id, state.redis.clone(), state.postgres.clone())
         .await?;
 
     let flags_response = evaluate_feature_flags(
         distinct_id,
-        all_feature_flags,
+        feature_flags_from_cache_or_pg,
         Some(state.postgres.clone()),
         person_property_overrides,
         // group_property_overrides,
@@ -126,7 +126,6 @@ pub fn extend_person_properties(
                 );
             }
             None => {
-                // Create a new HashMap with Value type
                 extended_properties = Some(
                     geoip_properties
                         .into_iter()
@@ -142,7 +141,7 @@ pub fn extend_person_properties(
 
 pub async fn evaluate_feature_flags(
     distinct_id: String,
-    feature_flag_list: FeatureFlagList,
+    feature_flags_from_cache_or_pg: FeatureFlagList,
     database_client: Option<Arc<dyn Client + Send + Sync>>,
     person_property_overrides: Option<HashMap<String, Value>>,
     // group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
@@ -155,43 +154,33 @@ pub async fn evaluate_feature_flags(
     );
     let mut feature_flags = HashMap::new();
     let mut error_while_computing_flags = false;
-    let all_feature_flags = feature_flag_list.flags;
+    let feature_flag_list = feature_flags_from_cache_or_pg.flags;
 
-    for flag in all_feature_flags {
+    for flag in feature_flag_list {
         if !flag.active || flag.deleted {
             continue;
         }
 
-        let flag_match = matcher.get_match(&flag).await;
-
-        let flag_value = if flag_match.matches {
-            match flag_match.variant {
-                Some(variant) => FlagValue::String(variant),
-                None => FlagValue::Boolean(true),
+        match matcher.get_match(&flag).await {
+            Ok(flag_match) => {
+                let flag_value = if flag_match.matches {
+                    match flag_match.variant {
+                        Some(variant) => FlagValue::String(variant),
+                        None => FlagValue::Boolean(true),
+                    }
+                } else {
+                    FlagValue::Boolean(false)
+                };
+                feature_flags.insert(flag.key.clone(), flag_value);
             }
-        } else {
-            FlagValue::Boolean(false)
-        };
-
-        feature_flags.insert(flag.key.clone(), flag_value);
-
-        if let Err(e) = matcher
-            .get_person_properties_from_cache_or_db(flag.team_id, distinct_id.clone())
-            .await
-        {
-            error_while_computing_flags = true;
-            error!(
-                "Error fetching properties for feature flag '{}' and distinct_id '{}': {:?}",
-                flag.key, distinct_id, e
-            );
+            Err(e) => {
+                error_while_computing_flags = true;
+                error!(
+                    "Error evaluating feature flag '{}' for distinct_id '{}': {:?}",
+                    flag.key, distinct_id, e
+                );
+            }
         }
-    }
-
-    if error_while_computing_flags {
-        warn!(
-            "Errors occurred while computing feature flags for distinct_id '{}'",
-            distinct_id
-        );
     }
 
     FlagsResponse {

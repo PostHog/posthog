@@ -49,6 +49,8 @@ impl FlagRequest {
         Ok(serde_json::from_str::<FlagRequest>(&payload)?)
     }
 
+    /// Extracts the token from the request and verifies it against the cache.
+    /// If the token is not found in the cache, it will be verified against the database.
     pub async fn extract_and_verify_token(
         &self,
         redis_client: Arc<dyn RedisClient + Send + Sync>,
@@ -73,12 +75,16 @@ impl FlagRequest {
                         }
                         Ok(token)
                     }
+                    // TODO do we need a custom error here to track the fallback
                     Err(_) => Err(FlagError::TokenValidationError),
                 }
             }
         }
     }
 
+    /// Fetches the team from the cache or the database.
+    /// If the team is not found in the cache, it will be fetched from the database and stored in the cache.
+    /// Returns the team if found, otherwise an error.
     pub async fn get_team_from_cache_or_pg(
         &self,
         token: &str,
@@ -90,16 +96,21 @@ impl FlagRequest {
             Err(_) => match Team::from_pg(pg_client, token.to_owned()).await {
                 Ok(team) => {
                     // If we have the team in postgres, but not redis, update redis so we're faster next time
+                    // TODO: we have some counters in django for tracking these cache misses
+                    // we should probably do the same here
                     if let Err(e) = Team::update_redis_cache(redis_client, &team).await {
                         tracing::warn!("Failed to update Redis cache: {}", e);
                     }
                     Ok(team)
                 }
-                Err(_) => Err(FlagError::TokenValidationError),
+                // TODO what kind of error should we return here?
+                Err(e) => Err(e),
             },
         }
     }
 
+    /// Extracts the distinct_id from the request.
+    /// If the distinct_id is missing or empty, an error is returned.
     pub fn extract_distinct_id(&self) -> Result<String, FlagError> {
         let distinct_id = match &self.distinct_id {
             None => return Err(FlagError::MissingDistinctId),
@@ -113,6 +124,9 @@ impl FlagRequest {
         }
     }
 
+    /// Extracts the properties from the request.
+    /// If the request contains person_properties, they are returned.
+    // TODO do I even need this one?
     pub fn extract_properties(&self) -> HashMap<String, Value> {
         let mut properties = HashMap::new();
         if let Some(person_properties) = &self.person_properties {
@@ -121,6 +135,9 @@ impl FlagRequest {
         properties
     }
 
+    /// Fetches the flags from the cache or the database.
+    /// If the flags are not found in the cache, they will be fetched from the database and stored in the cache.
+    /// Returns the flags if found, otherwise an error.
     pub async fn get_flags_from_cache_or_pg(
         &self,
         team_id: i32,
@@ -141,7 +158,8 @@ impl FlagRequest {
                     }
                     Ok(flags)
                 }
-                Err(_) => Err(FlagError::TokenValidationError),
+                // TODO what kind of error should we return here?
+                Err(e) => Err(e),
             },
         }
     }

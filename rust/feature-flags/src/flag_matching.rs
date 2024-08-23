@@ -65,12 +65,15 @@ impl FeatureFlagMatcher {
         }
     }
 
-    pub async fn get_match(&mut self, feature_flag: &FeatureFlag) -> FeatureFlagMatch {
+    pub async fn get_match(
+        &mut self,
+        feature_flag: &FeatureFlag,
+    ) -> Result<FeatureFlagMatch, FlagError> {
         if self.hashed_identifier(feature_flag).is_none() {
-            return FeatureFlagMatch {
+            return Ok(FeatureFlagMatch {
                 matches: false,
                 variant: None,
-            };
+            });
         }
 
         // TODO: super groups for early access
@@ -79,10 +82,10 @@ impl FeatureFlagMatcher {
         for (index, condition) in feature_flag.get_conditions().iter().enumerate() {
             let (is_match, _evaluation_reason) = self
                 .is_condition_match(feature_flag, condition, index)
-                .await;
+                .await?;
 
             if is_match {
-                // TODO: This is a bit awkward, we should handle overrides only when variants exist.
+                // TODO: this is a bit awkward, we should only handle variants when overrides exist
                 let variant = match condition.variant.clone() {
                     Some(variant_override) => {
                         if feature_flag
@@ -98,17 +101,16 @@ impl FeatureFlagMatcher {
                     None => self.get_matching_variant(feature_flag),
                 };
 
-                // let payload = self.get_matching_payload(is_match, variant, feature_flag);
-                return FeatureFlagMatch {
+                return Ok(FeatureFlagMatch {
                     matches: true,
                     variant,
-                };
+                });
             }
         }
-        FeatureFlagMatch {
+        Ok(FeatureFlagMatch {
             matches: false,
             variant: None,
-        }
+        })
     }
 
     fn check_rollout(&self, feature_flag: &FeatureFlag, rollout_percentage: f64) -> (bool, String) {
@@ -128,28 +130,28 @@ impl FeatureFlagMatcher {
         feature_flag: &FeatureFlag,
         condition: &FlagGroupType,
         _index: usize,
-    ) -> (bool, String) {
+    ) -> Result<(bool, String), FlagError> {
         let rollout_percentage = condition.rollout_percentage.unwrap_or(100.0);
         if let Some(properties) = &condition.properties {
             if properties.is_empty() {
-                return self.check_rollout(feature_flag, rollout_percentage);
+                return Ok(self.check_rollout(feature_flag, rollout_percentage));
             }
 
-            let target_properties = self.get_target_properties(feature_flag, properties).await;
+            let target_properties = self.get_target_properties(feature_flag, properties).await?;
 
             if !self.all_properties_match(properties, &target_properties) {
-                return (false, "NO_CONDITION_MATCH".to_string());
+                return Ok((false, "NO_CONDITION_MATCH".to_string()));
             }
         }
 
-        self.check_rollout(feature_flag, rollout_percentage)
+        Ok(self.check_rollout(feature_flag, rollout_percentage))
     }
 
     async fn get_target_properties(
         &mut self,
         feature_flag: &FeatureFlag,
         properties: &[PropertyFilter],
-    ) -> HashMap<String, Value> {
+    ) -> Result<HashMap<String, Value>, FlagError> {
         self.get_person_properties(feature_flag.team_id, properties)
             .await
         // TODO handle group properties, will go something like this
@@ -165,24 +167,23 @@ impl FeatureFlagMatcher {
         &mut self,
         team_id: i32,
         properties: &[PropertyFilter],
-    ) -> HashMap<String, Value> {
+    ) -> Result<HashMap<String, Value>, FlagError> {
         if let Some(person_overrides) = &self.person_property_overrides {
             // Check if all required properties are present in the overrides
             // and none of them are of type "cohort"
-            let all_properties_valid = properties
+            let should_prefer_overrides = properties
                 .iter()
                 .all(|prop| person_overrides.contains_key(&prop.key) && prop.prop_type != "cohort");
 
-            if all_properties_valid {
-                return person_overrides.clone();
+            if should_prefer_overrides {
+                return Ok(person_overrides.clone());
             }
         }
 
-        // If overrides are not present, don't contain all required properties,
-        // or contain a cohort property, fall back to getting properties from cache or DB
+        // If we don't prefer the overrides (they're either not present, don't contain enough properties to evaluate the condition,
+        // or contain a cohort property), fall back to getting properties from cache or DB
         self.get_person_properties_from_cache_or_db(team_id, self.distinct_id.clone())
             .await
-            .unwrap_or_default()
     }
 
     fn all_properties_match(
@@ -229,6 +230,7 @@ impl FeatureFlagMatcher {
         hash_val as f64 / LONG_SCALE as f64
     }
 
+    /// This function takes a feature flag and returns the key of the variant that should be shown to the user.
     pub fn get_matching_variant(&self, feature_flag: &FeatureFlag) -> Option<String> {
         let hash = self.get_hash(feature_flag, "variant");
         let mut total_percentage = 0.0;
@@ -242,6 +244,7 @@ impl FeatureFlagMatcher {
         None
     }
 
+    /// This function takes a feature flag and returns the key of the variant that should be shown to the user.
     pub async fn get_person_properties_from_cache_or_db(
         &mut self,
         team_id: i32,
@@ -389,21 +392,21 @@ mod tests {
         .unwrap();
 
         let mut matcher = FeatureFlagMatcher::new(distinct_id, Some(client.clone()), None);
-        let match_result = matcher.get_match(&flag).await;
+        let match_result = matcher.get_match(&flag).await.unwrap();
         assert_eq!(match_result.matches, true);
         assert_eq!(match_result.variant, None);
 
         // property value is different
         let mut matcher =
             FeatureFlagMatcher::new(not_matching_distinct_id, Some(client.clone()), None);
-        let match_result = matcher.get_match(&flag).await;
+        let match_result = matcher.get_match(&flag).await.unwrap();
         assert_eq!(match_result.matches, false);
         assert_eq!(match_result.variant, None);
 
         // person does not exist
         let mut matcher =
             FeatureFlagMatcher::new("other_distinct_id".to_string(), Some(client.clone()), None);
-        let match_result = matcher.get_match(&flag).await;
+        let match_result = matcher.get_match(&flag).await.unwrap();
         assert_eq!(match_result.matches, false);
         assert_eq!(match_result.variant, None);
     }
@@ -432,7 +435,7 @@ mod tests {
             Some(overrides),
         );
 
-        let match_result = matcher.get_match(&flag).await;
+        let match_result = matcher.get_match(&flag).await.unwrap();
         assert_eq!(match_result.matches, true);
     }
 
@@ -506,7 +509,10 @@ mod tests {
         };
 
         let mut matcher = FeatureFlagMatcher::new("test_user".to_string(), None, None);
-        let (is_match, reason) = matcher.is_condition_match(&flag, &condition, 0).await;
+        let (is_match, reason) = matcher
+            .is_condition_match(&flag, &condition, 0)
+            .await
+            .unwrap();
         assert_eq!(is_match, true);
         assert_eq!(reason, "CONDITION_MATCH");
     }
