@@ -146,6 +146,8 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: int):
                 # - in case someone refreshed after this task was triggered
                 # - if insight + dashboard combinations have the same cache key, we prevent needless recalculations
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                insight_id=insight_id,
+                dashboard_id=dashboard_id,
             )
 
             PRIORITY_INSIGHTS_COUNTER.labels(
