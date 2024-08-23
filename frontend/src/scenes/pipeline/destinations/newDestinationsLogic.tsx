@@ -1,6 +1,6 @@
 import { LemonDialog, LemonInput, LemonTextArea, lemonToast } from '@posthog/lemon-ui'
 import FuseClass from 'fuse.js'
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
@@ -51,8 +51,6 @@ export type NewDestinationsLogicProps = {
 export interface Fuse extends FuseClass<NewDestinationItemType> {}
 
 export const newDestinationsLogic = kea<newDestinationsLogicType>([
-    props({} as NewDestinationsLogicProps),
-    key((props) => (props.syncFiltersWithUrl ? 'scene' : 'default')),
     path((id) => ['scenes', 'pipeline', 'newDestinationsLogic', id]),
     connect({
         values: [userLogic, ['user'], featureFlagLogic, ['featureFlags']],
@@ -179,13 +177,9 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
         filteredDestinations: [
             (s) => [s.filters, s.destinations, s.destinationsFuse],
             (filters, destinations, destinationsFuse): NewDestinationItemType[] => {
-                const { search, kind, sub_template } = filters
+                const { search, kind } = filters
 
                 return (search ? destinationsFuse.search(search).map((x) => x.item) : destinations).filter((dest) => {
-                    if (sub_template && (!dest.sub_templates || !dest.sub_templates.includes(sub_template))) {
-                        return false
-                    }
-
                     if (kind && dest.backend !== kind) {
                         return false
                     }

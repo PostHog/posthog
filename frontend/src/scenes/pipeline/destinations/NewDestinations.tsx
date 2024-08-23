@@ -13,12 +13,12 @@ import { AvailableFeature, PipelineStage, SidePanelTab } from '~/types'
 import { pipelineAccessLogic } from '../pipelineAccessLogic'
 import { PipelineBackend } from '../types'
 import { DestinationTag } from './DestinationTag'
-import { newDestinationsLogic, NewDestinationsLogicProps } from './newDestinationsLogic'
+import { newDestinationsLogic } from './newDestinationsLogic'
 
-export function DestinationOptionsTable(props: NewDestinationsLogicProps): JSX.Element {
+export function DestinationOptionsTable(): JSX.Element {
     const hogFunctionsEnabled = !!useFeatureFlag('HOG_FUNCTIONS')
-    const { loading, filteredDestinations, filters } = useValues(newDestinationsLogic(props))
-    const { setFilters, openFeedbackDialog } = useActions(newDestinationsLogic(props))
+    const { loading, filteredDestinations, filters } = useValues(newDestinationsLogic)
+    const { setFilters, openFeedbackDialog } = useActions(newDestinationsLogic)
     const { canEnableDestination } = useValues(pipelineAccessLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
 
