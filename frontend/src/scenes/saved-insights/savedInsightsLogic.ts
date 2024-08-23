@@ -2,12 +2,10 @@ import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api, { CountedPaginatedResponse } from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { Sorting } from 'lib/lemon-ui/LemonTable'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectDiffShallow, objectsEqual, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
@@ -69,7 +67,7 @@ function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters
 export const savedInsightsLogic = kea<savedInsightsLogicType>([
     path(['scenes', 'saved-insights', 'savedInsightsLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags'], sceneLogic, ['activeScene']],
+        values: [teamLogic, ['currentTeamId'], sceneLogic, ['activeScene']],
         logic: [eventUsageLogic],
     })),
     actions({
@@ -146,7 +144,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                     {
                         favorited,
                     },
-                    { writeAsQuery: values.queryBasedInsightSaving }
+                    { writeAsQuery: true }
                 )
                 const updatedInsights = values.insights.results.map((i) =>
                     i.short_id === insight.short_id ? response : i
@@ -181,10 +179,6 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
         ],
     }),
     selectors({
-        queryBasedInsightSaving: [
-            (s) => [s.featureFlags],
-            (featureFlags) => !!featureFlags[FEATURE_FLAGS.QUERY_BASED_INSIGHTS_SAVING],
-        ],
         filters: [(s) => [s.rawFilters], (rawFilters): SavedInsightFilters => cleanFilters(rawFilters || {})],
         count: [(s) => [s.insights], (insights) => insights.count],
         usingFilters: [
@@ -288,7 +282,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
         },
         duplicateInsight: async ({ insight, redirectToInsight }) => {
             const newInsight = await insightsApi.duplicate(insight, {
-                writeAsQuery: values.queryBasedInsightSaving,
+                writeAsQuery: true,
             })
             actions.addInsight(newInsight)
             redirectToInsight && router.actions.push(urls.insightEdit(newInsight.short_id))

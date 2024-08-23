@@ -46,15 +46,9 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { setInsightMode } = useActions(insightSceneLogic)
 
     // insightLogic
-    const {
-        insightProps,
-        canEditInsight,
-        insight,
-        queryBasedInsightSaving,
-        insightChanged,
-        insightSaving,
-        hasDashboardItemId,
-    } = useValues(insightLogic(insightLogicProps))
+    const { insightProps, canEditInsight, insight, insightChanged, insightSaving, hasDashboardItemId } = useValues(
+        insightLogic(insightLogicProps)
+    )
     const { setInsightMetadata, saveAs, saveInsight } = useActions(insightLogic(insightLogicProps))
 
     // savedInsightsLogic
@@ -249,7 +243,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                             push(urls.savedInsights())
                                                         },
                                                         options: {
-                                                            writeAsQuery: queryBasedInsightSaving,
+                                                            writeAsQuery: true,
                                                         },
                                                     })
                                                 }

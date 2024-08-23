@@ -2,10 +2,9 @@ import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, key, listeners, LogicWrapper, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
-import { DashboardPrivilegeLevel, FEATURE_FLAGS } from 'lib/constants'
+import { DashboardPrivilegeLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -59,8 +58,6 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             ['mathDefinitions'],
             userLogic,
             ['user'],
-            featureFlagLogic,
-            ['featureFlags'],
         ],
         actions: [tagsModel, ['loadTags']],
         logic: [eventUsageLogic, dashboardsModel],
@@ -114,7 +111,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     }
 
                     const response = await insightsApi.update(values.insight.id as number, insightUpdate, {
-                        writeAsQuery: values.queryBasedInsightSaving,
+                        writeAsQuery: true,
                     })
                     breakpoint()
                     const updatedInsight: QueryBasedInsightModel = {
@@ -145,7 +142,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     }
 
                     const response = await insightsApi.update(values.insight.id as number, metadataUpdate, {
-                        writeAsQuery: values.queryBasedInsightSaving,
+                        writeAsQuery: true,
                     })
                     breakpoint()
 
@@ -159,7 +156,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                             dataAttr: 'edit-insight-undo',
                             action: async () => {
                                 const response = await insightsApi.update(values.insight.id as number, beforeUpdates, {
-                                    writeAsQuery: values.queryBasedInsightSaving,
+                                    writeAsQuery: true,
                                 })
                                 savedInsightsLogic.findMounted()?.actions.loadInsights()
                                 dashboardsModel.actions.updateDashboardInsight(response)
@@ -267,10 +264,6 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             (s) => [(state) => insightDataLogic.findMounted(s.insightProps(state))?.values.query || null],
             (node): Node | null => node,
         ],
-        queryBasedInsightSaving: [
-            (s) => [s.featureFlags],
-            (featureFlags) => !!featureFlags[FEATURE_FLAGS.QUERY_BASED_INSIGHTS_SAVING],
-        ],
         insightProps: [() => [(_, props) => props], (props): InsightLogicProps => props],
         isInDashboardContext: [() => [(_, props) => props], ({ dashboardId }) => !!dashboardId],
         hasDashboardItemId: [
@@ -334,7 +327,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 }
 
                 const options: InsightsApiOptions = {
-                    writeAsQuery: values.queryBasedInsightSaving,
+                    writeAsQuery: true,
                 }
                 savedInsight = insightNumericId
                     ? await insightsApi.update(insightNumericId, insightRequest, options)
@@ -414,7 +407,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     saved: true,
                 },
                 {
-                    writeAsQuery: values.queryBasedInsightSaving,
+                    writeAsQuery: true,
                 }
             )
             lemonToast.info(
