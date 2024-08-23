@@ -5,7 +5,7 @@ use neon::{
     handle::Handle,
     prelude::{Context, FunctionContext, ModuleContext},
     result::{JsResult, NeonResult},
-    types::{JsNull, JsNumber, JsPromise, JsString, JsValue},
+    types::{buffer::TypedArray, JsNull, JsNumber, JsPromise, JsString, JsUint8Array, JsValue},
 };
 use once_cell::sync::OnceCell;
 use serde::de::DeserializeOwned;
@@ -355,7 +355,8 @@ fn set_vm_state(mut cx: FunctionContext) -> JsResult<JsNull> {
         Some(
             vm_state
                 .downcast_or_throw::<JsString, _>(&mut cx)?
-                .value(&mut cx),
+                .value(&mut cx)
+                .into_bytes(),
         )
     };
 
@@ -382,7 +383,8 @@ fn set_metadata(mut cx: FunctionContext) -> JsResult<JsNull> {
         Some(
             metadata
                 .downcast_or_throw::<JsString, _>(&mut cx)?
-                .value(&mut cx),
+                .value(&mut cx)
+                .into_bytes(),
         )
     };
 
@@ -409,7 +411,8 @@ fn set_parameters(mut cx: FunctionContext) -> JsResult<JsNull> {
         Some(
             parameters
                 .downcast_or_throw::<JsString, _>(&mut cx)?
-                .value(&mut cx),
+                .value(&mut cx)
+                .into_bytes(),
         )
     };
 
@@ -417,6 +420,33 @@ fn set_parameters(mut cx: FunctionContext) -> JsResult<JsNull> {
         .get()
         .map_or_else(|| cx.throw_error("worker not initialized"), Ok)?
         .set_parameters(job_id, parameters)
+        .or_else(|e| cx.throw_error(format!("{}", e)))?;
+
+    Ok(cx.null())
+}
+
+fn set_blob(mut cx: FunctionContext) -> JsResult<JsNull> {
+    let arg = cx.argument::<JsString>(0)?.value(&mut cx);
+    let job_id: Uuid = arg
+        .parse()
+        .or_else(|_| cx.throw_error(format!("invalid job id: {}", arg)))?;
+
+    // Tricky - we have to support passing nulls here, because that's how you clear the blob.
+    let blob = cx.argument::<JsValue>(1)?;
+    let blob: Option<Vec<u8>> = if blob.is_a::<JsNull, _>(&mut cx) {
+        None
+    } else {
+        Some(
+            blob.downcast_or_throw::<JsUint8Array, _>(&mut cx)?
+                .as_slice(&cx)
+                .to_vec(),
+        )
+    };
+
+    WORKER
+        .get()
+        .map_or_else(|| cx.throw_error("worker not initialized"), Ok)?
+        .set_blob(job_id, blob)
         .or_else(|e| cx.throw_error(format!("{}", e)))?;
 
     Ok(cx.null())
@@ -440,6 +470,7 @@ fn main(mut cx: ModuleContext) -> NeonResult<()> {
     cx.export_function("setVmState", set_vm_state)?;
     cx.export_function("setMetadata", set_metadata)?;
     cx.export_function("setParameters", set_parameters)?;
+    cx.export_function("setBlob", set_blob)?;
 
     Ok(())
 }

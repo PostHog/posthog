@@ -37,6 +37,7 @@ export interface JobInit {
     scheduled?: Date
     vmState?: string
     parameters?: string
+    blob?: Uint8Array
     metadata?: string
 }
 
@@ -49,6 +50,7 @@ interface InternalJobInit {
     scheduled?: Date
     vm_state?: string
     parameters?: string
+    blob?: Uint8Array
     metadata?: string
 }
 
@@ -71,6 +73,7 @@ export interface Job {
     vmState: string | null
     metadata: string | null
     parameters: string | null
+    blob: Uint8Array | null
 }
 
 // Type as returned by Cyclotron.
@@ -91,6 +94,7 @@ interface InternalJob {
     vm_state: string | null
     metadata: string | null
     parameters: string | null
+    blob: Uint8Array | null
 }
 
 async function initWorker(poolConfig: PoolConfig): Promise<void> {
@@ -157,6 +161,7 @@ export async function createJob(job: JobInit): Promise<void> {
         scheduled: job.scheduled,
         vm_state: job.vmState,
         parameters: job.parameters,
+        blob: job.blob,
         metadata: job.metadata,
     }
     return await cyclotron.createJob(JSON.stringify(jobInitInternal))
@@ -180,6 +185,7 @@ function convertInternalJobToJob(jobInternal: InternalJob): Job {
         vmState: jobInternal.vm_state,
         metadata: jobInternal.metadata,
         parameters: jobInternal.parameters,
+        blob: jobInternal.blob,
     }
 }
 
@@ -238,6 +244,10 @@ function setParameters(jobId: string, parameters: Record<string, any> | null): P
     return cyclotron.setParameters(jobId, serialized)
 }
 
+function setBlob(jobId: string, blob: Uint8Array | null): Promise<void> {
+    return cyclotron.setBlob(jobId, blob)
+}
+
 export default {
     initWorker,
     initManager,
@@ -254,4 +264,5 @@ export default {
     setVmState,
     setMetadata,
     setParameters,
+    setBlob,
 }

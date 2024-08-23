@@ -69,7 +69,8 @@ pub fn construct_job(parameters: FetchParameters) -> JobInit {
         scheduled: Utc::now() - Duration::seconds(1),
         function_id: None,
         vm_state: None,
-        parameters: Some(serde_json::to_string(&parameters).unwrap()),
+        parameters: Some(serde_json::to_vec(&parameters).unwrap()),
+        blob: None,
         metadata: None,
     }
 }

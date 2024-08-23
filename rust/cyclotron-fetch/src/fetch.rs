@@ -294,15 +294,37 @@ impl TryFrom<&Job> for FetchParameters {
                 "Job is missing parameters",
             ));
         };
-
-        let Ok(p) = serde_json::from_str(parameters) else {
-            return Err(FetchFailure::new(
-                FetchFailureKind::InvalidParameters,
-                "Failed to parse parameters",
-            ));
+        let parameters: FetchParameters = match serde_json::from_slice(parameters) {
+            Ok(p) => p,
+            Err(e) => {
+                return Err(FetchFailure::new(
+                    FetchFailureKind::InvalidParameters,
+                    format!("Failed to parse parameters: {}", e),
+                ))
+            }
         };
-
-        Ok(p)
+        let metadata = match &job.metadata {
+            Some(m) => match serde_json::from_slice(m) {
+                Ok(m) => m,
+                Err(_) => {
+                    // If we can't decode the metadata, assume this is the first time we've seen the job
+                    // TODO - this is maybe too lenient, I'm not sure.
+                    FetchMetadata {
+                        tries: 0,
+                        trace: vec![],
+                    }
+                }
+            },
+            None => FetchMetadata {
+                tries: 0,
+                trace: vec![],
+            },
+        };
+        Ok(Self {
+            _job: job,
+            metadata,
+            parameters,
+        })
     }
 }
 
@@ -582,7 +604,7 @@ where
         // Set us up for a retry - update metadata, reschedule, and put back in the queue we pulled from
         context
             .worker
-            .set_metadata(job.id, Some(serde_json::to_string(&metadata)?))?;
+            .set_metadata(job.id, Some(serde_json::to_vec(&metadata)?))?;
         context.worker.set_state(job.id, JobState::Available)?;
         context.worker.set_queue(job.id, &job.queue_name)?;
         context.worker.set_scheduled_at(job.id, next_available)?;

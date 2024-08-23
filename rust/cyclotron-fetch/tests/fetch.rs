@@ -1,4 +1,4 @@
-use std::{collections::HashMap, str::FromStr, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 use chrono::Duration;
 use cyclotron_core::{QueueManager, Worker};
@@ -44,7 +44,7 @@ pub async fn test_completes_fetch(db: PgPool) {
     let returned = wait_on_return(&return_worker, 1, false).await.unwrap();
 
     let response: FetchResult =
-        serde_json::from_str(returned[0].parameters.as_ref().unwrap()).unwrap();
+        serde_json::from_slice(returned[0].parameters.as_ref().unwrap()).unwrap();
 
     let FetchResult::Success { response } = response else {
         panic!("Expected success response");
@@ -86,7 +86,7 @@ pub async fn test_returns_failure_after_retries(db: PgPool) {
     let returned = wait_on_return(&return_worker, 1, false).await.unwrap();
 
     let response: FetchResult =
-        serde_json::from_str(returned[0].parameters.as_ref().unwrap()).unwrap();
+        serde_json::from_slice(returned[0].parameters.as_ref().unwrap()).unwrap();
 
     let FetchResult::Failure { trace } = response else {
         panic!("Expected failure response");
@@ -115,7 +115,7 @@ pub fn fetch_discards_bad_metadata(db: PgPool) {
 
     let params = construct_params(server.url("/test"), HttpMethod::Get);
     let mut job = construct_job(params);
-    job.metadata = Some("bad json".to_string());
+    job.metadata = Some("bad json".as_bytes().to_owned());
     producer.create_job(job).await.unwrap();
 
     let started = tick(context).await.unwrap();
@@ -125,7 +125,7 @@ pub fn fetch_discards_bad_metadata(db: PgPool) {
     let returned = wait_on_return(&return_worker, 1, false).await.unwrap();
 
     let response: FetchResult =
-        serde_json::from_str(returned[0].parameters.as_ref().unwrap()).unwrap();
+        serde_json::from_slice(returned[0].parameters.as_ref().unwrap()).unwrap();
 
     let FetchResult::Success { response } = response else {
         panic!("Expected success response");
@@ -160,7 +160,7 @@ pub fn fetch_with_minimum_params_works(db: PgPool) {
     })
     .to_string();
 
-    job.parameters = Some(manual_params);
+    job.parameters = Some(manual_params.as_bytes().to_owned());
 
     producer.create_job(job).await.unwrap();
 
@@ -171,7 +171,7 @@ pub fn fetch_with_minimum_params_works(db: PgPool) {
     let returned = wait_on_return(&return_worker, 1, false).await.unwrap();
 
     let response: FetchResult =
-        serde_json::from_str(returned[0].parameters.as_ref().unwrap()).unwrap();
+        serde_json::from_slice(returned[0].parameters.as_ref().unwrap()).unwrap();
 
     let FetchResult::Success { response } = response else {
         panic!("Expected success response");
@@ -212,7 +212,7 @@ pub async fn test_completes_fetch_with_headers(db: PgPool) {
     let returned = wait_on_return(&return_worker, 1, false).await.unwrap();
 
     let response: FetchResult =
-        serde_json::from_str(returned[0].parameters.as_ref().unwrap()).unwrap();
+        serde_json::from_slice(returned[0].parameters.as_ref().unwrap()).unwrap();
 
     let FetchResult::Success { response } = response else {
         panic!("Expected success response");
@@ -249,7 +249,7 @@ pub async fn test_completes_fetch_with_body(db: PgPool) {
     let returned = wait_on_return(&return_worker, 1, false).await.unwrap();
 
     let response: FetchResult =
-        serde_json::from_str(returned[0].parameters.as_ref().unwrap()).unwrap();
+        serde_json::from_slice(returned[0].parameters.as_ref().unwrap()).unwrap();
 
     let FetchResult::Success { response } = response else {
         panic!("Expected success response");
@@ -275,7 +275,7 @@ pub async fn test_completes_fetch_with_vm_state(db: PgPool) {
 
     let params = construct_params(server.url("/test"), HttpMethod::Get);
     let mut job = construct_job(params);
-    job.vm_state = Some(json!({"test": "state"}).to_string());
+    job.vm_state = Some(json!({"test": "state"}).to_string().into_bytes());
     producer.create_job(job).await.unwrap();
 
     let started = tick(context).await.unwrap();
@@ -284,11 +284,12 @@ pub async fn test_completes_fetch_with_vm_state(db: PgPool) {
 
     let returned = wait_on_return(&return_worker, 1, true).await.unwrap();
 
-    let state = serde_json::Value::from_str(returned[0].vm_state.as_ref().unwrap()).unwrap();
+    let state: serde_json::Value =
+        serde_json::from_slice(returned[0].vm_state.as_ref().unwrap()).unwrap();
     assert_eq!(state, json!({"test": "state"}));
 
     let response: FetchResult =
-        serde_json::from_str(returned[0].parameters.as_ref().unwrap()).unwrap();
+        serde_json::from_slice(returned[0].parameters.as_ref().unwrap()).unwrap();
 
     let FetchResult::Success { response } = response else {
         panic!("Expected success response");

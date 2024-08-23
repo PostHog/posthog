@@ -19,9 +19,9 @@
                 },
                 "Timestamptz",
                 "Int2",
-                "Text",
-                "Text",
-                "Text"
+                "Bytea",
+                "Bytea",
+                "Bytea"
             ]
         },
         "nullable": []
