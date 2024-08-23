@@ -289,6 +289,15 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
             action1.bytecode,
             [
                 _H,
+                1,
+                # event = 'insight viewed'
+                op.STRING,
+                "insight viewed",
+                op.STRING,
+                "event",
+                op.GET_GLOBAL,
+                1,
+                op.EQ,
                 # toInt(properties.filters_count) > 10
                 op.INTEGER,
                 10,
@@ -302,14 +311,6 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
                 "toInt",
                 1,
                 op.GT,
-                # event = 'insight viewed'
-                op.STRING,
-                "insight viewed",
-                op.STRING,
-                "event",
-                op.GET_GLOBAL,
-                1,
-                op.EQ,
                 # and
                 op.AND,
                 2,

@@ -113,7 +113,7 @@ class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):
 
         assert hog_function.filters == {
             "actions": [{"id": str(self.action.id), "name": "", "type": "actions", "order": 0}],
-            "bytecode": ["_h", 32, "$pageview", 32, "event", 1, 1, 11, 3, 1, 4, 1],
+            "bytecode": ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11, 3, 1, 4, 1],
         }
 
         assert hog_function.inputs == {
