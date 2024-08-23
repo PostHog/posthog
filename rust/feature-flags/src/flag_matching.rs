@@ -25,7 +25,7 @@ pub struct Person {
 }
 
 type GroupTypeName = String;
-type GroupTypeIndex = u32;
+type GroupTypeIndex = i8;
 type TeamId = i32;
 
 pub struct FlagsMatcherCache {
@@ -45,11 +45,12 @@ impl FlagsMatcherCache {
         }
     }
 
-    pub async fn group_types_to_indexes(&self) -> Result<HashMap<GroupTypeName, GroupTypeIndex>> {
+    pub async fn group_types_to_indexes(
+        &self,
+    ) -> Result<HashMap<GroupTypeName, GroupTypeIndex>, FlagError> {
         if self.failed_to_fetch_flags {
-            return Err(anyhow!(
-                "Failed to fetch group type mapping previously, not trying again."
-            ));
+            // TODO database errors should support custom error strings
+            return Err(FlagError::DatabaseUnavailable);
         }
 
         let cache = self.group_types_to_indexes.read().await;
@@ -77,7 +78,9 @@ impl FlagsMatcherCache {
         }
     }
 
-    pub async fn group_type_index_to_name(&self) -> Result<HashMap<GroupTypeIndex, GroupTypeName>> {
+    pub async fn group_type_index_to_name(
+        &self,
+    ) -> Result<HashMap<GroupTypeIndex, GroupTypeName>, FlagError> {
         let cache = self.group_type_index_to_name.read().await;
         if let Some(ref cached) = *cache {
             return Ok(cached.clone());
@@ -126,7 +129,7 @@ pub struct FeatureFlagMatcher {
     person_property_overrides: Option<HashMap<String, Value>>,
     // TODO handle group properties
     group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
-    cache: Option<Arc<FlagsMatcherCache>>,
+    cache: Arc<FlagsMatcherCache>,
 }
 
 const LONG_SCALE: u64 = 0xfffffffffffffff;
@@ -145,7 +148,7 @@ impl FeatureFlagMatcher {
             cached_properties: None,
             person_property_overrides,
             group_property_overrides,
-            cache: None, // instantiate this with the team_id?  From where though?
+            cache: Arc::new(FlagsMatcherCache::new(1)),
         }
     }
 
@@ -221,7 +224,12 @@ impl FeatureFlagMatcher {
                 return Ok(self.check_rollout(feature_flag, rollout_percentage));
             }
 
-            let target_properties = self.get_target_properties(feature_flag, properties).await?;
+            let target_properties = if feature_flag.get_group_type_index().is_some() {
+                self.get_group_properties(feature_flag).await?
+            } else {
+                self.get_person_properties(feature_flag.team_id, properties)
+                    .await?
+            };
 
             if !self.all_properties_match(properties, &target_properties) {
                 return Ok((false, "NO_CONDITION_MATCH".to_string()));
@@ -231,21 +239,27 @@ impl FeatureFlagMatcher {
         Ok(self.check_rollout(feature_flag, rollout_percentage))
     }
 
-    async fn get_target_properties(
-        &mut self,
+    async fn get_group_properties(
+        &self,
         feature_flag: &FeatureFlag,
-        properties: &[PropertyFilter],
     ) -> Result<HashMap<String, Value>, FlagError> {
-        // self.get_person_properties(feature_flag.team_id, properties)
-        //     .await
-        // TODO handle group properties, will go something like this
-        if let Some(group_index) = feature_flag.get_group_type_index() {
-            todo!()
-            // self.get_group_properties(feature_flag.team_id, group_index, properties)
-        } else {
-            self.get_person_properties(feature_flag.team_id, properties)
-                .await
-        }
+        let group_index = match feature_flag.get_group_type_index() {
+            Some(index) => index,
+            None => return Ok(HashMap::new()), // No group index, return empty HashMap
+        };
+
+        let index_to_name = self.cache.group_type_index_to_name().await?;
+
+        let group_name = match index_to_name.get(&group_index) {
+            Some(name) => name,
+            None => return Ok(HashMap::new()), // No group name found, return empty HashMap
+        };
+
+        Ok(self
+            .group_property_overrides
+            .as_ref()
+            .and_then(|overrides| overrides.get(group_name).cloned())
+            .unwrap_or_else(HashMap::new))
     }
 
     async fn get_person_properties(
