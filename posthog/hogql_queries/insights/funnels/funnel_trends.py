@@ -120,16 +120,15 @@ class FunnelTrends(FunnelBase):
             labels.append(timestamp.strftime(HUMAN_READABLE_TIMESTAMP_FORMAT))
         return {"count": count, "data": data, "days": days, "labels": labels}
 
-    def get_query(self) -> ast.SelectQuery:
-        team, query, now = self.context.team, self.context.query, self.context.now
-
-        date_range = QueryDateRange(
-            date_range=query.dateRange,
-            team=team,
-            interval=query.interval,
-            now=now,
+    def _date_range(self):
+        return QueryDateRange(
+            date_range=self.context.query.dateRange,
+            team=self.context.team,
+            interval=self.context.query.interval,
+            now=self.context.now,
         )
 
+    def get_query(self) -> ast.SelectQuery:
         step_counts = self.get_step_counts_without_aggregation_query()
         # Expects multiple rows for same person, first event time, steps taken.
 
@@ -208,7 +207,7 @@ class FunnelTrends(FunnelBase):
             )
             breakdown_limit = self.get_breakdown_limit()
             if breakdown_limit:
-                limit = min(breakdown_limit * len(date_range.all_values()), limit)
+                limit = min(breakdown_limit * len(self._date_range().all_values()), limit)
         else:
             select = [
                 ast.Field(chain=["fill", "entrance_period_start"]),
@@ -232,14 +231,9 @@ class FunnelTrends(FunnelBase):
 
     # The fill query returns all the start_interval dates in the response
     def _get_fill_query(self) -> str:
-        team, interval, query, now = self.context.team, self.context.interval, self.context.query, self.context.now
+        team, interval = self.context.team, self.context.interval
 
-        date_range = QueryDateRange(
-            date_range=query.dateRange,
-            team=team,
-            interval=query.interval,
-            now=now,
-        )
+        date_range = self._date_range()
 
         if date_range.date_from() is None:
             _date_from = get_earliest_timestamp(team.pk)

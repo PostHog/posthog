@@ -99,23 +99,60 @@ class FunnelTrendsUDF(FunnelTrends):
 
         fill_query = self._get_fill_query()
 
-        s = parse_select(
-            f"""
+        limit = 1_000
+        if self.context.breakdown:
+            breakdown_limit = self.get_breakdown_limit()
+            if breakdown_limit:
+                limit = min(breakdown_limit * len(self._date_range().all_values()), limit)
+
+            s = parse_select(
+                f"""
             SELECT
-                fill.entrance_period_start as entrance_period_start,
-                countIf(data.success_bool is not null) as reached_from_step_count,
-                sum(data.success_bool) as reached_to_step_count,
-                {conversion_rate_expr} as conversion_rate,
-                breakdown as prop
+                fill.entrance_period_start AS entrance_period_start,
+                sumIf(data.reached_from_step_count, ifNull(equals(fill.entrance_period_start, data.entrance_period_start), isNull(fill.entrance_period_start) and isNull(data.entrance_period_start))) AS reached_from_step_count,
+                sumIf(data.reached_to_step_count, ifNull(equals(fill.entrance_period_start, data.entrance_period_start), isNull(fill.entrance_period_start) and isNull(data.entrance_period_start))) AS reached_to_step_count,
+                if(ifNull(greater(reached_from_step_count, 0), 0), round(multiply(divide(reached_to_step_count, reached_from_step_count), 100), 2), 0) AS conversion_rate,
+                data.prop AS prop
             FROM
                 ({{fill_query}}) as fill
-            CROSS JOIN
-                ({{inner_select}}) as data
-            WHERE data.entrance_period_start = fill.entrance_period_start
-            GROUP BY entrance_period_start, data.breakdown
-            ORDER BY entrance_period_start
-        """,
-            {"fill_query": fill_query, "inner_select": inner_select},
-        )
+                CROSS JOIN (SELECT
+                    entrance_period_start as entrance_period_start,
+                    countIf(success_bool is not null) as reached_from_step_count,
+                    sum(success_bool) as reached_to_step_count,
+                    breakdown as prop
+                FROM
+                    ({{inner_select}})
+                GROUP BY entrance_period_start, breakdown) as data
+            GROUP BY
+                fill.entrance_period_start,
+                data.prop
+            ORDER BY
+                sum(reached_from_step_count) OVER (PARTITION BY data.prop) DESC,
+                data.prop DESC,
+                fill.entrance_period_start ASC
+            LIMIT {limit}
+            """,
+                {"fill_query": fill_query, "inner_select": inner_select},
+            )
+        else:
+            s = parse_select(
+                f"""
+                SELECT
+                    fill.entrance_period_start as entrance_period_start,
+                    countIf(data.success_bool is not null) as reached_from_step_count,
+                    sum(data.success_bool) as reached_to_step_count,
+                    {conversion_rate_expr} as conversion_rate,
+                    breakdown as prop
+                FROM
+                    ({{inner_select}}) as data
+                RIGHT OUTER JOIN
+                    ({{fill_query}}) as fill
+                ON data.entrance_period_start = fill.entrance_period_start
+                GROUP BY entrance_period_start, data.breakdown
+                ORDER BY entrance_period_start
+                LIMIT {limit}
+            """,
+                {"fill_query": fill_query, "inner_select": inner_select},
+            )
 
         return cast(ast.SelectQuery, s)
