@@ -29,7 +29,7 @@ type GroupTypeIndex = u32;
 type TeamId = i32;
 
 pub struct FlagsMatcherCache {
-    team_id: TeamId,
+    team_id: TeamId, // TODO this isn't even used; in Django we use it to
     failed_to_fetch_flags: bool,
     group_types_to_indexes: Arc<RwLock<Option<HashMap<GroupTypeName, GroupTypeIndex>>>>,
     group_type_index_to_name: Arc<RwLock<Option<HashMap<GroupTypeIndex, GroupTypeName>>>>,
