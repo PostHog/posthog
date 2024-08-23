@@ -4,12 +4,7 @@ use std::{
 };
 
 use chrono::{Duration, Utc};
-use cyclotron_core::{
-    base_ops::{JobInit, JobState},
-    manager::{ManagerConfig, QueueManager},
-    worker::Worker,
-    PoolConfig,
-};
+use cyclotron_core::{JobInit, JobState, ManagerConfig, PoolConfig, QueueManager, Worker};
 use futures::future::join_all;
 use uuid::Uuid;
 

@@ -1,9 +1,6 @@
 use chrono::{Duration, Utc};
-use cyclotron_core::{
-    base_ops::{JobInit, JobState},
-    manager::QueueManager,
-    worker::Worker,
-};
+
+use cyclotron_core::{JobInit, JobState, QueueManager, Worker};
 use cyclotron_janitor::{config::JanitorSettings, janitor::Janitor};
 use sqlx::PgPool;
 use uuid::Uuid;

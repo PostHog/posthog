@@ -112,31 +112,29 @@ class Organization(UUIDModel):
         # This includes installing plugins from the repository and managing plugin installations for all other orgs.
         ROOT = 9, "root"
 
-    members: models.ManyToManyField = models.ManyToManyField(
+    members = models.ManyToManyField(
         "posthog.User",
         through="posthog.OrganizationMembership",
         related_name="organizations",
         related_query_name="organization",
     )
-    name: models.CharField = models.CharField(max_length=64)
+    name = models.CharField(max_length=64)
     slug: LowercaseSlugField = LowercaseSlugField(unique=True, max_length=MAX_SLUG_LENGTH)
-    logo_media: models.ForeignKey = models.ForeignKey(
-        "posthog.UploadedMedia", on_delete=models.SET_NULL, null=True, blank=True
-    )
-    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
-    updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
-    plugins_access_level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
+    logo_media = models.ForeignKey("posthog.UploadedMedia", on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    plugins_access_level = models.PositiveSmallIntegerField(
         default=PluginsAccessLevel.CONFIG,
         choices=PluginsAccessLevel.choices,
     )
-    for_internal_metrics: models.BooleanField = models.BooleanField(default=False)
-    is_member_join_email_enabled: models.BooleanField = models.BooleanField(default=True)
-    enforce_2fa: models.BooleanField = models.BooleanField(null=True, blank=True)
+    for_internal_metrics = models.BooleanField(default=False)
+    is_member_join_email_enabled = models.BooleanField(default=True)
+    enforce_2fa = models.BooleanField(null=True, blank=True)
 
-    is_hipaa: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
+    is_hipaa = models.BooleanField(default=False, null=True, blank=True)
 
     ## Managed by Billing
-    customer_id: models.CharField = models.CharField(max_length=200, null=True, blank=True)
+    customer_id = models.CharField(max_length=200, null=True, blank=True)
     available_product_features = ArrayField(models.JSONField(blank=False), null=True, blank=True)
     # Managed by Billing, cached here for usage controls
     # Like {
@@ -145,14 +143,14 @@ class Organization(UUIDModel):
     #   'period': ['2021-01-01', '2021-01-31']
     # }
     # Also currently indicates if the organization is on billing V2 or not
-    usage: models.JSONField = models.JSONField(null=True, blank=True)
-    never_drop_data: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
+    usage = models.JSONField(null=True, blank=True)
+    never_drop_data = models.BooleanField(default=False, null=True, blank=True)
     # Scoring levels defined in billing::customer::TrustScores
-    customer_trust_scores: models.JSONField = models.JSONField(default=dict, null=True, blank=True)
+    customer_trust_scores = models.JSONField(default=dict, null=True, blank=True)
 
     # DEPRECATED attributes (should be removed on next major version)
-    setup_section_2_completed: models.BooleanField = models.BooleanField(default=True)
-    personalization: models.JSONField = models.JSONField(default=dict, null=False, blank=True)
+    setup_section_2_completed = models.BooleanField(default=True)
+    personalization = models.JSONField(default=dict, null=False, blank=True)
     domain_whitelist: ArrayField = ArrayField(
         models.CharField(max_length=256, blank=False), blank=True, default=list
     )  # DEPRECATED in favor of `OrganizationDomain` model; previously used to allow self-serve account creation based on social login (#5111)
@@ -260,23 +258,21 @@ class OrganizationMembership(UUIDModel):
         ADMIN = 8, "administrator"
         OWNER = 15, "owner"
 
-    organization: models.ForeignKey = models.ForeignKey(
+    organization = models.ForeignKey(
         "posthog.Organization",
         on_delete=models.CASCADE,
         related_name="memberships",
         related_query_name="membership",
     )
-    user: models.ForeignKey = models.ForeignKey(
+    user = models.ForeignKey(
         "posthog.User",
         on_delete=models.CASCADE,
         related_name="organization_memberships",
         related_query_name="organization_membership",
     )
-    level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
-        default=Level.MEMBER, choices=Level.choices
-    )
-    joined_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
-    updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
+    level = models.PositiveSmallIntegerField(default=Level.MEMBER, choices=Level.choices)
+    joined_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         constraints = [

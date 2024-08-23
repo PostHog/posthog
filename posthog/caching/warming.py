@@ -7,7 +7,7 @@ import structlog
 from celery import shared_task
 from celery.canvas import chain
 from django.db.models import Q
-from prometheus_client import Counter
+from prometheus_client import Counter, Gauge
 from sentry_sdk import capture_exception
 
 from posthog.api.services.query import process_query_dict
@@ -22,8 +22,8 @@ from posthog.tasks.utils import CeleryQueue
 
 logger = structlog.get_logger(__name__)
 
-STALE_INSIGHTS_COUNTER = Counter(
-    "posthog_cache_warming_stale_insights",
+STALE_INSIGHTS_GAUGE = Gauge(
+    "posthog_cache_warming_stale_insights_gauge",
     "Number of stale insights present",
     ["team_id"],
 )
@@ -48,7 +48,7 @@ def priority_insights(team: Team, shared_only: bool = False) -> Generator[tuple[
     QueryCacheManager.clean_up_stale_insights(team_id=team.pk, threshold=threshold)
     combos = QueryCacheManager.get_stale_insights(team_id=team.pk, limit=500)
 
-    STALE_INSIGHTS_COUNTER.labels(team_id=team.pk).inc(len(combos))
+    STALE_INSIGHTS_GAUGE.labels(team_id=team.pk).set(len(combos))
 
     dashboard_q_filter = Q()
     insight_ids_single = set()
@@ -97,18 +97,23 @@ def schedule_warming_for_teams_task():
             | Q(sharingconfiguration__insight__insightviewed__last_viewed_at__gte=threshold)
         ),
         sharingconfiguration__enabled=True,
-    )
+    ).difference(prio_teams)
 
     all_teams = itertools.chain(
         zip(prio_teams, [False] * len(prio_teams)),
         zip(teams_with_recently_viewed_shared, [True] * len(teams_with_recently_viewed_shared)),
     )
 
+    # Use a fixed expiration time since tasks in the chain are executed sequentially
+    expire_after = datetime.now(UTC) + timedelta(minutes=50)
+
     for team, shared_only in all_teams:
         insight_tuples = priority_insights(team, shared_only=shared_only)
 
         # We chain the task execution to prevent queries *for a single team* running at the same time
-        chain(*(warm_insight_cache_task.si(*insight_tuple) for insight_tuple in insight_tuples))()
+        chain(
+            *(warm_insight_cache_task.si(*insight_tuple).set(expires=expire_after) for insight_tuple in insight_tuples)
+        )()
 
 
 @shared_task(
