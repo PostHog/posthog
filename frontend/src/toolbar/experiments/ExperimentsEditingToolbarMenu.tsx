@@ -9,6 +9,7 @@ import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { SelectorEditingModal } from '~/toolbar/actions/SelectorEditingModal'
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
+import { elementToQuery } from '~/toolbar/utils'
 import {experimentsTabLogic} from "~/toolbar/experiments/experimentsTabLogic";
 import {SelectorCount} from "~/toolbar/actions/SelectorCount";
 import {StepField} from "~/toolbar/actions/StepField";
@@ -25,6 +26,7 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
     const {
         setExperimentFormValue,
         selectExperiment,
+        selectVariant,
         inspectForElementWithIndex,
         deleteExperiment,
         setElementSelector,
@@ -39,7 +41,7 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
         <ToolbarMenu>
             <SelectorEditingModal
                 isOpen={editingSelector !== null}
-                setIsOpen={() => editSelectorWithIndex(null)}
+                setIsOpen={() => editSelectorWithIndex('', null)}
                 activeElementChain={elementsChainBeingEdited}
                 startingSelector={editingSelectorValue}
                 onChange={(selector) => {
@@ -52,8 +54,8 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                 }}
             />
             <Form
-                name="action_variant"
-                logic={actionsTabLogic}
+                name="experiment"
+                logic={experimentsTabLogic}
                 formKey="experimentForm"
                 enableFormOnSubmit
                 className="flex flex-col overflow-hidden flex-1"
@@ -116,11 +118,12 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                                                 type={inspectingElement === tIndex ? 'primary' : 'secondary'}
                                                                 onClick={(e) => {
                                                                     e.stopPropagation()
-                                                                    inspectForElementWithIndex(1)
+                                                                    selectVariant(variant)
+                                                                    inspectForElementWithIndex(variant, tIndex +1)
                                                                 }}
                                                                 icon={<IconSearch />}
                                                             >
-                                                                Select Element
+                                                                {transform.selector ? 'Change Element' : 'Select Element'}
                                                             </LemonButton>
 
                                                             {inspectingElement === tIndex ? (
@@ -144,7 +147,7 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                                                                         selector: transform.selector,
                                                                                     }
                                                                                 )
-                                                                                editSelectorWithIndex(tIndex)
+                                                                                editSelectorWithIndex(variant, tIndex)
                                                                             }}
                                                                         >
                                                                             Edit the selector
@@ -345,7 +348,7 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                     </LemonButton>
                     <LemonButton type="primary" htmlType="submit" size="small">
                         {selectedExperimentId === 'new' ? 'Create ' : 'Save '}
-                        action
+                        experiment
                     </LemonButton>
                 </ToolbarMenu.Footer>
             </Form>

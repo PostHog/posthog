@@ -264,6 +264,7 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
             }
         },
         inspectElementSelected: ({ element, index }) => {
+            console.log(`actionsTabLogic : inspectElementSelected, element is `, element)
             if (values.actionForm) {
                 const actionStep = actionStepToActionStepFormItem(
                     elementToActionStep(element, values.dataAttributes),

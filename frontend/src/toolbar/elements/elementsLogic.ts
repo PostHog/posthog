@@ -102,8 +102,10 @@ export const elementsLogic = kea<elementsLogicType>([
     selectors({
         activeMetaIsSelected: [
             (s) => [s.selectedElementMeta, s.activeMeta],
-            (selectedElementMeta, activeMeta) =>
-                !!selectedElementMeta && !!activeMeta && selectedElementMeta.element === activeMeta.element,
+            (selectedElementMeta, activeMeta) => {
+                console.log(`elementsLogic: in activeMetaIsSelected, value is `, !!selectedElementMeta && !!activeMeta && selectedElementMeta.element === activeMeta.element)
+                return !!selectedElementMeta && !!activeMeta && selectedElementMeta.element === activeMeta.element
+            }
         ],
         inspectEnabled: [
             (s) => [
@@ -113,7 +115,7 @@ export const elementsLogic = kea<elementsLogicType>([
                 experimentsTabLogic.selectors.inspectingElement,
             ],
             (inspectEnabledRaw, actionsInspectingElement, actionsButtonActionsVisible, experimentsInspectingElement) => {
-                console.log(`enabling inspect, value is `, experimentsInspectingElement)
+                console.log(`elementsLogic: enabling inspect, value is `, experimentsInspectingElement)
                 return inspectEnabledRaw || (actionsButtonActionsVisible && actionsInspectingElement !== null) || experimentsInspectingElement
             }
         ],
@@ -145,7 +147,10 @@ export const elementsLogic = kea<elementsLogicType>([
 
         displayActionElements: [
             () => [actionsTabLogic.selectors.buttonActionsVisible],
-            (buttonActionsVisible) => buttonActionsVisible,
+            (buttonActionsVisible) => {
+                console.log(`elementsLogic: in displayActionElements`)
+                return buttonActionsVisible
+            },
         ],
 
         _actionElements: [
@@ -375,6 +380,10 @@ export const elementsLogic = kea<elementsLogicType>([
             const inspectForAction =
                 actionsTabLogic.values.buttonActionsVisible && actionsTabLogic.values.inspectingElement !== null
 
+            const inspectForExperiment =
+                experimentsTabLogic.values.buttonExperimentsVisible && experimentsTabLogic.values.inspectingElement !== null
+
+            console.log(`elementsLogic: selectElement : inspectForExperiment is`, inspectForExperiment, `  selectedVariant is `, experimentsTabLogic.values.selectedVariant)
             if (inspectForAction) {
                 actions.setHoverElement(null)
                 if (element) {
@@ -382,6 +391,13 @@ export const elementsLogic = kea<elementsLogicType>([
                 }
             } else {
                 actions.setSelectedElement(element)
+            }
+
+            if (inspectForExperiment) {
+                actions.setHoverElement(null)
+                if (element) {
+                    experimentsTabLogic.actions.inspectElementSelected(element, experimentsTabLogic.values.selectedVariant, experimentsTabLogic.values.inspectingElement)
+                }
             }
 
             // Get list of data-* attributes in the element

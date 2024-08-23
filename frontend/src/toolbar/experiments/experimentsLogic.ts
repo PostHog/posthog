@@ -7,7 +7,7 @@ import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 // import { WebExperiment } from '~/types'
 
 import type { experimentsLogicType } from './experimentsLogicType'
-import {WebExperiment} from "~/toolbar/types";
+import { WebExperiment } from '~/toolbar/types'
 
 export const experimentsLogic = kea<experimentsLogicType>([
     path(['toolbar', 'experiments', 'experimentsLogic']),
