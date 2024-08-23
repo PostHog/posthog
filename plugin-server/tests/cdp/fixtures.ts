@@ -100,6 +100,7 @@ export const createHogExecutionGlobals = (
 ): HogFunctionInvocationGlobals => {
     return {
         ...data,
+        groups: data.groups ?? {},
         project: {
             id: 1,
             name: 'test',

@@ -111,6 +111,7 @@ describe('CDP Processed Events Consuner', () => {
                     $lib_version: '1.0.0',
                 },
             },
+            groups: {},
         }
 
         beforeEach(async () => {
