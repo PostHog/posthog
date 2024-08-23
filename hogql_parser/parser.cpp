@@ -2197,7 +2197,15 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
   VISIT(ColumnExprFunction) {
     string name = visitAsString(ctx->identifier());
-    PyObject* params = visitAsPyObjectOrNone(ctx->columnExprs);
+
+    // if two LPARENs ()(), make sure the first one is at least an empty list
+    PyObject* params;
+    if (ctx->LPAREN(1)) {
+      params = visitAsPyObjectOrEmptyList(ctx->columnExprs);
+    } else {
+      params = visitAsPyObjectOrNone(ctx->columnExprs);
+    }
+
     PyObject* args;
     try {
       args = visitAsPyObjectOrEmptyList(ctx->columnArgList);

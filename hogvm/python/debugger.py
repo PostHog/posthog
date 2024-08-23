@@ -189,8 +189,8 @@ def print_symbol(symbol: Operation, ip: int, bytecode: list, stack: list, call_s
 
 
 def color_bytecode(bytecode: list) -> list:
-    colored = ["op.START"]
-    ip = 1
+    colored = ["op.START", f"version: {bytecode[1]}"] if bytecode[0] == "_H" else ["op.START"]
+    ip = len(colored)
     while ip < len(bytecode):
         symbol = bytecode[ip]
         match symbol:

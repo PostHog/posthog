@@ -36,6 +36,4 @@ let sixtyFour := base64Encode
 
 print(sixtyFour('http://www.google.com'))
 print((decode())(sixtyFour('http://www.google.com')))
-
-// TODO: this does not parse well
-//print(decode()(sixtyFour('http://www.google.com')))
+print(decode()(sixtyFour('http://www.google.com')))

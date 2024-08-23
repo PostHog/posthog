@@ -925,7 +925,12 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitColumnExprFunction(self, ctx: HogQLParser.ColumnExprFunctionContext):
         name = self.visit(ctx.identifier())
-        parameters = self.visit(ctx.columnExprs) if ctx.columnExprs is not None else None
+
+        parameters: list[ast.Expr] | None = self.visit(ctx.columnExprs) if ctx.columnExprs is not None else None
+        # two sets of parameters fn()(), return an empty list for the first even if no parameters
+        if ctx.LPAREN(1) and parameters is None:
+            parameters = []
+
         args: list[ast.Expr] = self.visit(ctx.columnArgList) if ctx.columnArgList is not None else []
         distinct = True if ctx.DISTINCT() else False
         return ast.Call(name=name, params=parameters, args=args, distinct=distinct)

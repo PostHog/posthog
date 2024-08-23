@@ -338,9 +338,12 @@ class BytecodeBuilder(Visitor):
             response.extend(if_null)
             return response
 
-        response = []
+        # HogQL functions can have two sets of parameters: asd(args) or asd(params)(args)
+        # If params exist, take them as the first set
+        args = node.params if node.params is not None else node.args
 
-        for expr in node.args:
+        response = []
+        for expr in args:
             response.extend(self.visit(expr))
 
         found_local_with_name = False
@@ -348,16 +351,13 @@ class BytecodeBuilder(Visitor):
             if local.name == node.name:
                 found_local_with_name = True
 
-        if node.params is not None:
-            raise QueryError("Function parameters are not yet supported")
-
         if found_local_with_name:
             field = self.visit(ast.Field(chain=[node.name]))
-            response.extend([*field, Operation.CALL_LOCAL, len(node.args)])
+            response.extend([*field, Operation.CALL_LOCAL, len(args)])
         else:
             upvalue = self._resolve_upvalue(node.name)
             if upvalue != -1:
-                response.extend([Operation.GET_UPVALUE, upvalue, Operation.CALL_LOCAL, len(node.args)])
+                response.extend([Operation.GET_UPVALUE, upvalue, Operation.CALL_LOCAL, len(args)])
             else:
                 if self.context.globals and node.name in self.context.globals:
                     self.context.notices.append(
@@ -372,7 +372,14 @@ class BytecodeBuilder(Visitor):
                         )
                     )
 
-                response.extend([Operation.CALL_GLOBAL, node.name, len(node.args)])
+                response.extend([Operation.CALL_GLOBAL, node.name, len(args)])
+
+        # If the node has two sets of params, process the second set now
+        if node.params is not None:
+            next_response = []
+            for expr in node.args:
+                next_response.extend(self.visit(expr))
+            response = [*next_response, *response, Operation.CALL_LOCAL, len(node.args)]
 
         return response
 
