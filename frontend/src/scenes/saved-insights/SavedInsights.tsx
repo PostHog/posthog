@@ -298,6 +298,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: true,
     },
+    [NodeKind.WebGoalsQuery]: {
+        name: 'Goals',
+        description: 'View goal conversions',
+        icon: IconPieChart,
+        inMenu: true,
+    },
     [NodeKind.HogQuery]: {
         name: 'Hog',
         description: 'Hog query',
