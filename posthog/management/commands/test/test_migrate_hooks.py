@@ -54,7 +54,7 @@ class TestMigrateHooks(BaseTest):
         assert hog_function.name == f"Zapier webhook for action {self.action.id}"
         assert hog_function.filters == {
             "actions": [{"id": f"{self.action.id}", "name": "", "type": "actions", "order": 0}],
-            "bytecode": ["_h", 29, 3, 1, 4, 1],
+            "bytecode": ["_H", 1, 29, 3, 1, 4, 1],
         }
         assert hog_function.hog == template_zapier.hog
         assert hog_function.inputs_schema == template_zapier.inputs_schema

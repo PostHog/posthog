@@ -142,7 +142,8 @@ class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):
             "debug": {},
             "hook": {
                 "bytecode": [
-                    "_h",
+                    "_H",
+                    1,
                     32,
                     "hooks/standard/1234/abcd",
                 ],
