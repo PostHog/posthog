@@ -391,7 +391,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except Person.DoesNotExist:
             raise NotFound(detail="Person not found.")
 
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=False, required_scopes=["person:read"])
     def values(self, request: request.Request, **kwargs) -> response.Response:
         key = request.GET.get("key")
         value = request.GET.get("value")
@@ -434,7 +434,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return result
 
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["person:write"])
     def split(self, request: request.Request, pk=None, **kwargs) -> response.Response:
         person: Person = self.get_object()
         distinct_ids = person.distinct_ids
@@ -479,7 +479,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ),
         ]
     )
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["person:write"])
     def update_property(self, request: request.Request, pk=None, **kwargs) -> response.Response:
         if request.data.get("value") is None:
             return Response(
@@ -514,7 +514,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ),
         ]
     )
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["person:write"])
     def delete_property(self, request: request.Request, pk=None, **kwargs) -> response.Response:
         person: Person = get_pk_or_uuid(Person.objects.filter(team_id=self.team_id), pk).get()
 
@@ -567,7 +567,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return response.Response({"results": CohortSerializer(cohorts, many=True).data})
 
-    @action(methods=["GET"], url_path="activity", detail=False)
+    @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
     def all_activity(self, request: request.Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))
         page = int(request.query_params.get("page", "1"))

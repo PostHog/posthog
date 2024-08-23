@@ -1855,6 +1855,7 @@ export interface PluginType {
     metrics?: Record<string, StoredMetricMathOperations>
     capabilities?: Record<'jobs' | 'methods' | 'scheduled_tasks', string[] | undefined>
     public_jobs?: Record<string, JobSpec>
+    hog_function_migration_available?: boolean
 }
 
 export type AppType = PluginType

@@ -16,7 +16,6 @@ uuid = { workspace = true }
 envconfig = { workspace = true }
 axum = { workspace = true }
 eyre = { workspace = true }
-metrics = { workspace = true }
 cyclotron-core = { path = "../cyclotron-core" }
 common-metrics = { path = "../common/metrics" }
 health = { path = "../common/health" }

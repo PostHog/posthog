@@ -522,6 +522,9 @@ export interface EventsQuery extends DataNode<EventsQueryResponse> {
     orderBy?: string[]
 }
 
+/**
+ * @deprecated Use `ActorsQuery` instead.
+ */
 export interface PersonsNode extends DataNode {
     kind: NodeKind.PersonsNode
     search?: string

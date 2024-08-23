@@ -6352,6 +6352,7 @@
         },
         "PersonsNode": {
             "additionalProperties": false,
+            "deprecated": "Use `ActorsQuery` instead.",
             "properties": {
                 "cohort": {
                     "type": "integer"
