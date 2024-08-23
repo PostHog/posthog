@@ -169,7 +169,7 @@ describe('CDP Processed Events Consuner', () => {
                     },
                     {
                         level: 'debug',
-                        message: "Suspending function due to async function call 'fetch'. Payload: 1140 bytes",
+                        message: "Suspending function due to async function call 'fetch'. Payload: 1639 bytes",
                     },
                     {
                         level: 'info',
@@ -217,7 +217,7 @@ describe('CDP Processed Events Consuner', () => {
                     },
                     {
                         level: 'debug',
-                        message: "Suspending function due to async function call 'fetch'. Payload: 1140 bytes",
+                        message: "Suspending function due to async function call 'fetch'. Payload: 1639 bytes",
                     },
                     {
                         level: 'debug',
