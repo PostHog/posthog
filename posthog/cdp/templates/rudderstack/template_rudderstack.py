@@ -53,16 +53,15 @@ let rudderPayload := {
 
 if (event.name in ('$identify', '$set')) {
     rudderPayload.type := 'identify'
-    rudderPayload.context.trait := '$set'
-    rudderPayload.traits := '$set'
-} else if (event.name == 'create_alias') {
+    rudderPayload.context.trait := event.properties.$set
+    rudderPayload.traits := event.properties.$set
+} else if (event.name == '$create_alias') {
     rudderPayload.type := 'alias'
     rudderPayload.userId := event.properties.alias
     rudderPayload.previousId := event.distinct_id
 } else if (event.name == '$pageview') {
     rudderPayload.type := 'page'
     rudderPayload.name := event.properties.name
-    rudderPayload.properties.category := event.properties.category
     rudderPayload.properties.host := event.properties.$host
     rudderPayload.properties.url := event.properties.$current_url
     rudderPayload.properties.path := event.properties.$pathname
@@ -73,10 +72,15 @@ if (event.name in ('$identify', '$set')) {
 } else if (event.name == '$autocapture') {
     rudderPayload.type := 'track'
     rudderPayload.event := event.properties.$event_type
-    rudderPayload.properties.elements := event.properties.$elements
 } else {
     rudderPayload.type := 'track'
-    rudderPayload.event := 'event'
+    rudderPayload.event := event.name
+}
+
+for (let key, value in event.properties) {
+    if (value != null and not key like '$%') {
+        rudderPayload.properties[key] := value
+    }
 }
 
 let payload := {
