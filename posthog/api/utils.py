@@ -428,7 +428,7 @@ def parse_domain(url: Any) -> Optional[str]:
 
 
 # By default, DRF spectacular uses the serializer of the view as the response format for actions. However, most actions don't return a version of the model, but something custom. This function removes the response from all actions in the documentation.
-def action(methods=None, detail=None, url_path=None, url_name=None, required_scopes=None, responses=None, **kwargs):
+def action(methods=None, detail=None, url_path=None, url_name=None, responses=None, **kwargs):
     """
     Mark a ViewSet method as a routable action.
 
@@ -459,7 +459,6 @@ def action(methods=None, detail=None, url_path=None, url_name=None, required_sco
             detail=detail,
             url_path=url_path,
             url_name=url_name,
-            required_scopes=required_scopes,
             **kwargs,
         )
         @wraps(func)
