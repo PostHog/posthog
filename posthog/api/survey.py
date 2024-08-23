@@ -9,7 +9,7 @@ from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
 from nanoid import generate
 from rest_framework import request, serializers, status, viewsets
-from rest_framework.decorators import action
+from posthog.api.utils import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 

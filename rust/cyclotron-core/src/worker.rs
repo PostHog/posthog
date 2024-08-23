@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
@@ -6,11 +6,8 @@ use std::sync::Mutex;
 use uuid::Uuid;
 
 use crate::{
-    base_ops::{
-        dequeue_jobs, dequeue_with_vm_state, flush_job, set_heartbeat, Job, JobState, JobUpdate,
-    },
-    error::QueueError,
-    PoolConfig,
+    ops::worker::{dequeue_jobs, dequeue_with_vm_state, flush_job, get_vm_state, set_heartbeat},
+    Job, JobState, JobUpdate, PoolConfig, QueueError,
 };
 
 // The worker's interface to the underlying queue system - a worker can do everything except
@@ -27,13 +24,13 @@ pub struct Worker {
     // All dequeued job IDs that haven't been flushed yet. The idea is this lets us
     // manage, on the rust side of any API boundary, the "pending" update of any given
     // job, such that a user can progressively build up a full update, and then flush it,
-    // rather than having to track the update state on their side and submit it all at once
-    // TODO - we don't handle people "forgetting" to abort a job, because we expect that to
-    //       only happen if a process dies (in which case the job queue janitor should handle
-    //       it)... this is a memory leak, but I think it's ok.
-    // TRICKY - this is a sync mutex, because we never hold it across an await point, and that
-    // radically simplifies using this for FFI (because there's no message passing across runtimes)
-    pending: Arc<Mutex<HashMap<Uuid, JobUpdate>>>,
+    // rather than having to track the update state on their side and submit it all at once.
+    // This also lets us "hide" all the locking logic, which we're not totally settled on yet.
+
+    // TRICKY - this is a sync mutex, because that simplifies using the manager in an FFI
+    // context (since most functions below can be sync). We have to be careful never to
+    // hold a lock across an await point, though.
+    pending: Mutex<HashMap<Uuid, JobUpdate>>,
 }
 
 impl Worker {
@@ -41,14 +38,14 @@ impl Worker {
         let pool = config.connect().await?;
         Ok(Self {
             pool,
-            pending: Arc::new(Mutex::new(HashMap::new())),
+            pending: Default::default(),
         })
     }
 
     pub fn from_pool(pool: PgPool) -> Self {
         Self {
             pool,
-            pending: Arc::new(Mutex::new(HashMap::new())),
+            pending: Default::default(),
         }
     }
 
@@ -90,6 +87,20 @@ impl Worker {
         }
 
         Ok(jobs)
+    }
+
+    /// Retrieve the VM state for a job, if, for example, you dequeued it and then realised you
+    /// need the VM state as well.
+    pub async fn get_vm_state(&self, job_id: Uuid) -> Result<Option<String>, QueueError> {
+        let lock_id = {
+            let pending = self.pending.lock().unwrap();
+            pending
+                .get(&job_id)
+                .ok_or(QueueError::UnknownJobId(job_id))?
+                .lock_id
+        };
+
+        get_vm_state(&self.pool, job_id, lock_id).await
     }
 
     /// NOTE - This function can only be called once, even though the underlying

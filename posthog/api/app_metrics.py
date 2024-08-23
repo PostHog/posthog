@@ -5,7 +5,7 @@ from typing import Any
 from django.db.models import Count, Q
 from django.db.models.functions import TruncDay
 from rest_framework import mixins, request, response, viewsets
-from rest_framework.decorators import action
+from posthog.api.utils import action
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import BatchExportRun

@@ -42,7 +42,7 @@ def rollback_insight_filters_to_query(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0458_alter_insightviewed_team_alter_insightviewed_user"),
+        ("posthog", "0459_convert_personsnode_insights_to_actorsquery"),
     ]
 
     operations = [

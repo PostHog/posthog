@@ -20,11 +20,40 @@ pub enum FlagValue {
     String(String),
 }
 
+// TODO the following two types are kinda general, maybe we should move them to a shared module
+#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum BooleanOrStringObject {
+    Boolean(bool),
+    Object(HashMap<String, String>),
+}
+
+#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum BooleanOrBooleanObject {
+    Boolean(bool),
+    Object(HashMap<String, bool>),
+}
+
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FlagsResponse {
     pub error_while_computing_flags: bool,
     pub feature_flags: HashMap<String, FlagValue>,
+    // TODO support the other fields in the payload
+    // pub config: HashMap<String, bool>,
+    // pub toolbar_params: HashMap<String, String>,
+    // pub is_authenticated: bool,
+    // pub supported_compression: Vec<String>,
+    // pub session_recording: bool,
+    // pub feature_flag_payloads: HashMap<String, String>,
+    // pub capture_performance: BooleanOrBooleanObject,
+    // #[serde(rename = "autocapture_opt_out")]
+    // pub autocapture_opt_out: bool,
+    // pub autocapture_exceptions: BooleanOrStringObject,
+    // pub surveys: bool,
+    // pub heatmaps: bool,
+    // pub site_apps: Vec<String>,
 }
 
 #[derive(Error, Debug)]
@@ -98,7 +127,7 @@ impl IntoResponse for FlagError {
                 (StatusCode::BAD_REQUEST, "The distinct_id field is missing from the request. Please include a valid identifier.".to_string())
             }
             FlagError::NoTokenError => {
-                (StatusCode::UNAUTHORIZED, "No API key provided. Please include a valid API key in your request.".to_string())
+                (StatusCode::UNAUTHORIZED, "No API token provided. Please include a valid API token in your request.".to_string())
             }
             FlagError::TokenValidationError => {
                 (StatusCode::UNAUTHORIZED, "The provided API key is invalid or has expired. Please check your API key and try again.".to_string())

@@ -11,22 +11,6 @@ class DeletionType(models.IntegerChoices):
 
 # This model represents deletions that should delete (other, unrelated) data async
 class AsyncDeletion(models.Model):
-    class Meta:
-        constraints = [
-            # :TRICKY: Postgres does not handle UNIQUE and NULL together well, so create 2 indexes.
-            # See https://dba.stackexchange.com/questions/9759/postgresql-multi-column-unique-constraint-and-null-values for more details
-            models.UniqueConstraint(
-                name="unique deletion",
-                fields=["deletion_type", "key"],
-                condition=models.Q(group_type_index__isnull=True),
-            ),
-            models.UniqueConstraint(
-                name="unique deletion for groups",
-                fields=["deletion_type", "key", "group_type_index"],
-            ),
-        ]
-        indexes = [models.Index(name="delete_verified_at index", fields=["delete_verified_at"])]
-
     id = models.BigAutoField(primary_key=True)
     # Should be one of the DeletionType enum
     deletion_type = models.PositiveSmallIntegerField(null=False, blank=False, choices=DeletionType.choices)
@@ -45,3 +29,19 @@ class AsyncDeletion(models.Model):
 
     # When was the data verified to be deleted - we can skip it in the next round
     delete_verified_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            # :TRICKY: Postgres does not handle UNIQUE and NULL together well, so create 2 indexes.
+            # See https://dba.stackexchange.com/questions/9759/postgresql-multi-column-unique-constraint-and-null-values for more details
+            models.UniqueConstraint(
+                name="unique deletion",
+                fields=["deletion_type", "key"],
+                condition=models.Q(group_type_index__isnull=True),
+            ),
+            models.UniqueConstraint(
+                name="unique deletion for groups",
+                fields=["deletion_type", "key", "group_type_index"],
+            ),
+        ]
+        indexes = [models.Index(name="delete_verified_at index", fields=["delete_verified_at"])]
