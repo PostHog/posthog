@@ -6,7 +6,7 @@ from posthog.warehouse.models import ExternalDataSchema, ExternalDataJob
 from typing import Optional, Any
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from rest_framework import viewsets, filters, status
-from rest_framework.decorators import action
+from posthog.api.utils import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response

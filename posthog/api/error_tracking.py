@@ -4,7 +4,7 @@ from rest_framework import serializers, viewsets
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.error_tracking import ErrorTrackingGroup
-from rest_framework.decorators import action
+from posthog.api.utils import action
 from rest_framework.response import Response
 from django.utils.http import urlsafe_base64_decode
 import json

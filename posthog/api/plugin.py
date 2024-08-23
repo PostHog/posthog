@@ -15,7 +15,7 @@ from django.utils.encoding import smart_str
 from django.utils.timezone import now
 from loginas.utils import is_impersonated_session
 from rest_framework import renderers, request, serializers, status, viewsets
-from rest_framework.decorators import action, renderer_classes
+from posthog.api.utils import action, renderer_classes
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.response import Response
