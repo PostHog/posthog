@@ -122,6 +122,15 @@ class JsonScalar(pa.ExtensionScalar):
     """Represents a JSON binary string."""
 
     def as_py(self) -> dict | None:
+        """Try to convert value to Python representation.
+
+        We attempt to decode the value returned by `as_py` as JSON 3 times:
+        1. As returned by `as_py`, without changes.
+        2. By replacing any encoding errors.
+        3. By treating the value as a string and surrouding it with quotes.
+
+        If all else fails, we will log the offending value and re-raise the decoding error.
+        """
         if self.value:
             value = self.value.as_py()
 
@@ -131,15 +140,22 @@ class JsonScalar(pa.ExtensionScalar):
             try:
                 return orjson.loads(value.encode("utf-8"))
             except orjson.JSONEncodeError:
-                if isinstance(value, str) and len(value) > 0:
-                    # Handles `"$set": "Something"`
-                    value = f'"{value}"'
+                pass
 
-                try:
-                    return orjson.loads(value.encode("utf-8", "replace"))
-                except orjson.JSONDecodeError:
-                    logger.exception("Failed to decode: %s", value)
-                    raise
+            try:
+                return orjson.loads(value.encode("utf-8", "replace"))
+            except orjson.JSONDecodeError:
+                pass
+
+            if isinstance(value, str) and len(value) > 0:
+                # Handles `"$set": "Something"`
+                value = f'"{value}"'
+
+            try:
+                return orjson.loads(value.encode("utf-8", "replace"))
+            except orjson.JSONDecodeError:
+                logger.exception("Failed to decode: %s", value)
+                raise
 
         else:
             return None
