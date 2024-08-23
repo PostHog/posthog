@@ -14,6 +14,7 @@ import {
     IconToggle,
     IconTrends,
 } from '@posthog/icons'
+import { IconFeedback } from 'lib/lemon-ui/icons'
 import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { SupportForm } from 'lib/components/Support/SupportForm'
@@ -288,6 +289,17 @@ export const SidePanelSupport = (): JSX.Element => {
                                             targetBlank
                                         >
                                             Request a feature
+                                        </LemonButton>
+                                    </li>
+                                    <li>
+                                        <LemonButton
+                                            type="secondary"
+                                            status="alt"
+                                            to="https://github.com/PostHog/posthog/issues/new?assignees=&labels=bug&projects=&template=bug_report.yml"
+                                            icon={<IconFeedback />}
+                                            targetBlank
+                                        >
+                                            Report a bug
                                         </LemonButton>
                                     </li>
                                 </ul>
