@@ -3855,6 +3855,7 @@ export const externalDataSources = [
     'Hubspot',
     'Postgres',
     'MySQL',
+    'MSSQL',
     'Zendesk',
     'Snowflake',
     'Salesforce',
@@ -4250,6 +4251,7 @@ export type SourceFieldConfig =
 
 export interface SourceConfig {
     name: ExternalDataSourceType
+    label?: string
     caption: string | React.ReactNode
     fields: SourceFieldConfig[]
     disabledReason?: string | null

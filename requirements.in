@@ -57,6 +57,7 @@ Pillow==10.2.0
 pdpyras==5.2.0
 posthoganalytics==3.5.0
 psycopg2-binary==2.9.7
+pymssql==2.3.0
 PyMySQL==1.1.1
 psycopg[binary]==3.1.20
 pyarrow==17.0.0

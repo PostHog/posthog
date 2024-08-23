@@ -14,6 +14,7 @@ import IconSalesforce from 'public/services/salesforce.png'
 import IconSnowflake from 'public/services/snowflake.png'
 import IconStripe from 'public/services/stripe.png'
 import IconZendesk from 'public/services/zendesk.png'
+import IconMSSQL from 'public/services/mssql.png'
 import { urls } from 'scenes/urls'
 
 import { manualLinkSources, PipelineNodeTab, PipelineStage } from '~/types'
@@ -185,6 +186,7 @@ export function RenderDataWarehouseSourceIcon({
         'cloudflare-r2': IconCloudflare,
         azure: Iconazure,
         Salesforce: IconSalesforce,
+        MSSQL: IconMSSQL,
     }[type]
 
     return (
