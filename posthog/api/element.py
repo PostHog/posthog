@@ -1,7 +1,7 @@
 from typing import Literal
 
 from rest_framework import request, response, serializers, viewsets
-from rest_framework.decorators import action
+from posthog.api.utils import action
 from rest_framework.exceptions import ValidationError
 from statshog.defaults.django import statsd
 

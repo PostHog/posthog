@@ -20,9 +20,6 @@ class AsyncMigrationError(models.Model):
 
 
 class AsyncMigration(models.Model):
-    class Meta:
-        constraints = [models.UniqueConstraint(fields=["name"], name="unique name")]
-
     id = models.BigAutoField(primary_key=True)
     name = models.CharField(max_length=50, null=False, blank=False)
     description = models.CharField(max_length=400, null=True, blank=True)
@@ -42,6 +39,9 @@ class AsyncMigration(models.Model):
     posthog_max_version = models.CharField(max_length=20, null=True, blank=True)
 
     parameters = models.JSONField(default=dict)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["name"], name="unique name")]
 
     def get_name_with_requirements(self) -> str:
         return (

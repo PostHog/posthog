@@ -2,9 +2,6 @@ from django.db import models
 
 
 class SessionRecordingPlaylistItem(models.Model):
-    class Meta:
-        unique_together = ("recording", "playlist")
-
     recording = models.ForeignKey(
         "SessionRecording",
         related_name="playlist_items",
@@ -24,3 +21,6 @@ class SessionRecordingPlaylistItem(models.Model):
     deleted = models.BooleanField(null=True, blank=True)
     # DEPRECATED: Use recording_id instead
     session_id = models.CharField(max_length=200, null=True, blank=True)
+
+    class Meta:
+        unique_together = ("recording", "playlist")
