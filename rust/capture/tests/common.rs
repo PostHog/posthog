@@ -6,7 +6,7 @@ use std::num::NonZeroU32;
 use std::ops::Add;
 use std::str::FromStr;
 use std::string::ToString;
-use std::sync::{Arc, Once};
+use std::sync::Once;
 use std::time::Duration;
 
 use anyhow::bail;
@@ -20,15 +20,13 @@ use rdkafka::util::Timeout;
 use rdkafka::{Message, TopicPartitionList};
 use redis::{Client, Commands};
 use time::OffsetDateTime;
-use tokio::net::TcpListener;
-use tokio::sync::Notify;
 use tokio::time::timeout;
 use tracing::{debug, warn};
 
-use axum_test::{TestResponse, TestServerConfig};
+use axum_test::{TestRequest, TestServer, TestServerConfig};
 use capture::config::{CaptureMode, Config, KafkaConfig};
 use capture::limiters::billing::QuotaResource;
-use capture::server::serve;
+use capture::server::serve_app;
 use serde::Serialize;
 
 pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
@@ -88,7 +86,7 @@ impl ServerHandle {
     }
 
     pub async fn for_config(config: Config) -> Self {
-        let app = new_serve_app(config).await;
+        let app = serve_app(config).await;
         let server = TestServerConfig::builder()
             .expect_success_by_default()
             .build_server(app)
@@ -97,11 +95,11 @@ impl ServerHandle {
         Self { server }
     }
 
-    pub fn capture_events<T: Serialize>(&self, body: &T) -> TestResponse {
+    pub fn capture_events<T: Serialize>(&self, body: &T) -> TestRequest {
         self.server.post("/i/v0/e").json(body)
     }
 
-    pub fn capture_to_batch<T: Serialize>(&self, body: &T) -> TestResponse {
+    pub fn capture_to_batch<T: Serialize>(&self, body: &T) -> TestRequest {
         self.server.post("/batch").json(body)
     }
 

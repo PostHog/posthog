@@ -115,31 +115,31 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
         );
 
         let client = TestServer::new(app).expect("To build TestServer");
-        let mut req = client.post(&case.path).body(raw_body);
+        let mut req = client.post(&case.path).bytes(raw_body.into());
         if !case.content_encoding.is_empty() {
-            req = req.header("Content-encoding", case.content_encoding);
+            req = req.add_header("Content-encoding", case.content_encoding);
         }
         if !case.content_type.is_empty() {
-            req = req.header("Content-type", case.content_type);
+            req = req.add_header("Content-type", case.content_type);
         }
         if !case.ip.is_empty() {
-            req = req.header("X-Forwarded-For", case.ip);
+            req = req.add_header("X-Forwarded-For", case.ip);
         }
 
-        let res = req.send().await;
+        let res = req.await;
         assert_eq!(
-            res.status(),
+            res.status_code(),
             StatusCode::OK,
             "line {} rejected: {}",
             line_number,
-            res.text().await
+            res.text()
         );
         assert_eq!(
             Some(CaptureResponse {
                 status: CaptureResponseCode::Ok,
                 quota_limited: None,
             }),
-            res.json().await
+            res.json()
         );
         assert_eq!(
             sink.len(),
