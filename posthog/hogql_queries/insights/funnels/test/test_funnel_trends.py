@@ -1615,5 +1615,5 @@ class BaseTestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
 
 @patch("posthoganalytics.feature_enabled", new=Mock(return_value=False))
-class TestFunnelTrends(BaseTestFunnelTrends):
+class BaseTestFunnelTrends(BaseTestFunnelTrends):
     pass

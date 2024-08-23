@@ -157,5 +157,4 @@ class FunnelTrendsUDF(FunnelTrends):
             """,
                 {"fill_query": fill_query, "inner_select": inner_select},
             )
-
         return cast(ast.SelectQuery, s)
