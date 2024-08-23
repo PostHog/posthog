@@ -1,3 +1,5 @@
+from typing import Any
+
 from django.db import models
 from django.utils import timezone
 
@@ -38,3 +40,7 @@ class Experiment(models.Model):
     @property
     def is_draft(self):
         return not self.start_date
+
+    @property
+    def variants(self):
+        return None

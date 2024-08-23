@@ -248,7 +248,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
         selectedExperiment: (selectedExperiment: Experiment | ExperimentDraftType | null) => {
             console.log(`latest: selectedExperiment is `, selectedExperiment)
             if (!selectedExperiment) {
-                actions.setExperimentFormValues({ name: null, variants: [{}] })
+                actions.setExperimentFormValues({ name: '', variants: {} })
             } else {
                 // const webExperiment = (selectedExperiment as WebExperiment)
                 // actions.setExperimentFormValues({
@@ -264,7 +264,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                     name: selectedExperiment.name,
                     variants: (selectedExperiment as WebExperiment).variants
                         ? (selectedExperiment as WebExperiment).variants
-                        : [{}],
+                        : {},
                 })
             }
         },

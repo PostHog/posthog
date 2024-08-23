@@ -34,6 +34,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                         throw new Error('Error loading experiments!')
                     }
 
+                    console.log(`results.results is `, results.results)
                     return results.results
                 },
                 updateExperiment: ({ experiment }: { experiment: WebExperiment }) => {

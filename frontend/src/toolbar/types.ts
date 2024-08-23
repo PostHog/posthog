@@ -90,7 +90,7 @@ export interface ActionForm extends ActionDraftType {
 export type WebExperimentUrlMatchType = 'regex' | 'not_regex' | 'exact' | 'is_not' | 'icontains' | 'not_icontains'
 
 export interface WebExperiment extends Experiment {
-    variants?: WebExperimentVariant[]
+    variants?: Record<string, WebExperimentVariant>
 }
 
 export interface WebExperimentVariant {

@@ -36,7 +36,7 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
     // const experimentVariants = Object.keys(experimentForm.variants!)
     // console.log(`experimentForm.variants is `, experimentForm.variants)
     // console.log(`Object.keys(experimentForm.variants!) is `, Object.keys(experimentForm.variants!))
-    console.log(`editingSelector !== null is `, editingSelector !== null)
+    console.log(`experimentForm is `, experimentForm)
     return (
         <ToolbarMenu>
             <SelectorEditingModal
