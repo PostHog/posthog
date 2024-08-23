@@ -17,7 +17,7 @@ from django.http import JsonResponse, HttpResponse
 from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, request, serializers, viewsets
-from rest_framework.decorators import action
+from posthog.api.utils import action
 from rest_framework.renderers import JSONRenderer
 from rest_framework.response import Response
 from rest_framework.utils.encoders import JSONEncoder

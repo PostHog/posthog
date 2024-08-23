@@ -15,7 +15,7 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiResponse
 from loginas.utils import is_impersonated_session
 from prometheus_client import Counter
 from rest_framework import request, serializers, status, viewsets
-from rest_framework.decorators import action
+from posthog.api.utils import action
 from rest_framework.exceptions import ParseError, PermissionDenied, ValidationError
 from rest_framework.parsers import JSONParser
 from rest_framework.response import Response

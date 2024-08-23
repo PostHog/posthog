@@ -3,7 +3,6 @@ from collections.abc import Callable
 
 from django.utils.timezone import now
 from rest_framework import serializers, viewsets
-from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -24,6 +23,7 @@ from posthog.api.cohort import CohortSerializer
 from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.utils import action
 from posthog.caching.insight_cache import update_cached_state
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import INSIGHT_TRENDS

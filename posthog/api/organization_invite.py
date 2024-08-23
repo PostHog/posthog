@@ -9,7 +9,7 @@ from rest_framework import (
     status,
     viewsets,
 )
-from rest_framework.decorators import action
+from posthog.api.utils import action
 
 from ee.models.explicit_team_membership import ExplicitTeamMembership
 from posthog.api.routing import TeamAndOrgViewSetMixin
