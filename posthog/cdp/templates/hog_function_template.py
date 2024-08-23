@@ -1,10 +1,15 @@
 import dataclasses
-from typing import Literal, Optional
+from typing import Literal, Optional, get_args
+
+
+SubTemplateId = Literal["early_access_feature_enrollment", "survey_response"]
+
+SUB_TEMPLATE_ID: tuple[SubTemplateId, ...] = get_args(SubTemplateId)
 
 
 @dataclasses.dataclass(frozen=True)
 class HogFunctionSubTemplate:
-    id: str
+    id: SubTemplateId
     name: str
     description: Optional[str] = None
     filters: Optional[dict] = None

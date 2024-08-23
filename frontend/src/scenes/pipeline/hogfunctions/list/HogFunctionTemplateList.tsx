@@ -15,7 +15,9 @@ export function HogFunctionTemplateList({
     extraControls,
     ...props
 }: HogFunctionTemplateListLogicProps & { extraControls?: JSX.Element }): JSX.Element {
-    const { templatesLoading, filteredTemplates, filters, templates } = useValues(hogFunctionTemplateListLogic(props))
+    const { loading, filteredTemplates, filters, templates, canEnableHogFunction, urlForTemplate } = useValues(
+        hogFunctionTemplateListLogic(props)
+    )
     const { loadHogFunctionTemplates, setFilters, resetFilters } = useActions(hogFunctionTemplateListLogic(props))
 
     useEffect(() => loadHogFunctionTemplates(), [])
@@ -38,7 +40,7 @@ export function HogFunctionTemplateList({
             <LemonTable
                 dataSource={filteredTemplates}
                 size="small"
-                loading={templatesLoading}
+                loading={loading}
                 columns={[
                     {
                         title: '',
@@ -67,8 +69,9 @@ export function HogFunctionTemplateList({
                     {
                         width: 0,
                         render: function Render(_, template) {
-                            const url = template.id
-                            return true ? (
+                            const url = urlForTemplate(template)
+
+                            return canEnableHogFunction(template) ? (
                                 <LemonButton
                                     type="primary"
                                     data-attr={`new-${PipelineStage.Destination}`}
@@ -88,7 +91,7 @@ export function HogFunctionTemplateList({
                     },
                 ]}
                 emptyState={
-                    templates.length === 0 && !templatesLoading ? (
+                    templates.length === 0 && !loading ? (
                         'No results found'
                     ) : (
                         <>

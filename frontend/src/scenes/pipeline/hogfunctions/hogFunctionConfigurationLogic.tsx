@@ -97,6 +97,27 @@ export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFu
     return payload
 }
 
+const templateToConfiguration = (template: HogFunctionTemplateType): HogFunctionConfigurationType => {
+    const inputs: Record<string, HogFunctionInputType> = {}
+
+    template.inputs_schema?.forEach((schema) => {
+        if (schema.default) {
+            inputs[schema.key] = { value: schema.default }
+        }
+    })
+
+    return {
+        name: template.name,
+        description: template.description,
+        inputs_schema: template.inputs_schema,
+        filters: template.filters,
+        hog: template.hog,
+        icon_url: template.icon_url,
+        inputs,
+        enabled: false,
+    }
+}
+
 export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicType>([
     props({} as HogFunctionConfigurationLogicProps),
     key(({ id, templateId }: HogFunctionConfigurationLogicProps) => {
@@ -292,11 +313,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         }
                     })
 
-                    return {
-                        ...template,
-                        inputs,
-                        enabled: false,
-                    }
+                    return templateToConfiguration(template)
                 } else if (hogFunction) {
                     return hogFunction
                 }
@@ -593,7 +610,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 })
 
                 actions.setConfigurationValues({
-                    ...template,
+                    ...templateToConfiguration(template),
                     filters: values.configuration.filters ?? template.filters,
                     // Keep some existing things
                     name: values.configuration.name,
@@ -635,6 +652,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         },
 
         setSubTemplate: ({ subTemplate }) => {
+            if (!subTemplate) {
+                return
+            }
             const newValues: Partial<HogFunctionConfigurationType> = {}
 
             if (subTemplate.filters) {

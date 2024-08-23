@@ -328,7 +328,10 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                         <LemonDivider className="my-8" />
                         <h3>Notifications</h3>
                         <p>Get notified when people opt in or out of your feature.</p>
-                        <LinkedHogFunctions filters={destinationFilters} />
+                        <LinkedHogFunctions
+                            filters={destinationFilters}
+                            subTemplateIds={['early_access_feature_enrollment']}
+                        />
                     </>
                 )}
                 {!isEditingFeature && !isNewEarlyAccessFeature && 'id' in earlyAccessFeature && (

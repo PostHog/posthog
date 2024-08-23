@@ -4382,15 +4382,17 @@ export type HogFunctionType = {
 
 export type HogFunctionConfigurationType = Omit<
     HogFunctionType,
-    'created_at' | 'created_by' | 'updated_at' | 'status' | 'hog'
+    'id' | 'created_at' | 'created_by' | 'updated_at' | 'status' | 'hog'
 > & {
     hog?: HogFunctionType['hog'] // In the config it can be empty if using a template
 }
 
 export type HogFunctionTemplateStatus = 'alpha' | 'beta' | 'stable' | 'free' | 'deprecated'
 
+export type HogFunctionSubTemplateIdType = 'early_access_feature_enrollment' | 'survey_response'
+
 export type HogFunctionSubTemplateType = Pick<HogFunctionType, 'filters' | 'inputs' | 'masking'> & {
-    id: string
+    id: HogFunctionSubTemplateIdType
     name: string
     description?: string
 }
