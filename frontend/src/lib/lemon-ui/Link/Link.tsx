@@ -118,7 +118,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 const target = event.currentTarget
                 const container = document.getElementsByTagName('main')[0]
                 const topBar = document.getElementsByClassName('TopBar3000')[0]
-                if (container.contains(target)) {
+                if (!sidePanelOpen && container.contains(target)) {
                     setTimeout(() => {
                         // Little delay to allow the rendering of the side panel
                         const y = container.scrollTop + target.getBoundingClientRect().top - topBar.clientHeight
