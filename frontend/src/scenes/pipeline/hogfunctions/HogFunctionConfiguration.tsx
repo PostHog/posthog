@@ -317,7 +317,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                                 {({ value, onChange }) => (
                                                     <>
                                                         <div className="flex justify-between gap-2">
-                                                            <LemonLabel>Function source code</LemonLabel>
+                                                            <LemonLabel>Function source code </LemonLabel>
                                                             <LemonButton
                                                                 size="xsmall"
                                                                 type="secondary"
@@ -326,6 +326,14 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                                                 Hide source code
                                                             </LemonButton>
                                                         </div>
+                                                        <span className="text-xs text-muted-alt">
+                                                            This is the underlying Hog code that will run whenever the
+                                                            filters match.{' '}
+                                                            <Link to="https://posthog.com/docs/cdp/destinations#advanced---custom-code">
+                                                                See the docs
+                                                            </Link>{' '}
+                                                            for more info
+                                                        </span>
                                                         <CodeEditorResizeable
                                                             language="hog"
                                                             value={value ?? ''}

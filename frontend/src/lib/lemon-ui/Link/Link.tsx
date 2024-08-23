@@ -1,7 +1,7 @@
 import './Link.scss'
 
 import clsx from 'clsx'
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { isExternalLink } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
@@ -96,6 +96,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             href: typeof to === 'string' ? to : undefined,
         })
 
+        const { sidePanelOpen } = useValues(sidePanelStateLogic)
         const { openSidePanel } = useActions(sidePanelStateLogic)
 
         const onClick = (event: React.MouseEvent<HTMLElement>): void => {
@@ -113,6 +114,18 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
 
             if (typeof to === 'string' && isPostHogComDocs(to)) {
                 event.preventDefault()
+
+                const target = event.currentTarget
+                const container = document.getElementsByTagName('main')[0]
+                const topBar = document.getElementsByClassName('TopBar3000')[0]
+                if (container.contains(target)) {
+                    setTimeout(() => {
+                        // Little delay to allow the rendering of the side panel
+                        const y = container.scrollTop + target.getBoundingClientRect().top - topBar.clientHeight
+                        container.scrollTo({ top: y })
+                    }, 50)
+                }
+
                 openSidePanel(SidePanelTab.Docs, to)
                 return
             }
