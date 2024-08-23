@@ -1,5 +1,11 @@
 import dataclasses
-from typing import Literal, Optional, get_args
+from typing import Literal, Optional, get_args, TYPE_CHECKING
+
+
+if TYPE_CHECKING:
+    from posthog.models.plugin import PluginConfig
+else:
+    PluginConfig = None
 
 
 SubTemplateId = Literal["early_access_feature_enrollment", "survey_response"]
@@ -29,3 +35,12 @@ class HogFunctionTemplate:
     filters: Optional[dict] = None
     masking: Optional[dict] = None
     icon_url: Optional[str] = None
+
+
+class HogFunctionTemplateMigrator:
+    plugin_url: str
+
+    @classmethod
+    def migrate(cls, obj: PluginConfig) -> dict:
+        # Return a dict for the template of a new HogFunction
+        raise NotImplementedError()

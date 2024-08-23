@@ -478,7 +478,7 @@ function PersonsTableByFilter({ recordingsFilters, properties }: PersonsTableByF
     const [query, setQuery] = useState<Node | QuerySchema>({
         kind: NodeKind.DataTableNode,
         source: {
-            kind: NodeKind.PersonsNode,
+            kind: NodeKind.ActorsQuery,
             fixedProperties: properties,
         },
         full: true,
