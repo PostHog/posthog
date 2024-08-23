@@ -56,6 +56,10 @@ impl Janitor {
         }
     }
 
+    pub async fn run_migrations(&self) {
+        cyclotron_core::run_migrations(&self.pool).await;
+    }
+
     pub async fn run_once(&self) -> Result<CleanupResult, QueueError> {
         info!("Running janitor loop");
         let _loop_start = common_metrics::timing_guard(RUN_TIME, &self.metrics_labels);
