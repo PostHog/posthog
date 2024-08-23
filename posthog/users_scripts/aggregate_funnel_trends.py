@@ -7,14 +7,11 @@ from collections.abc import Callable
 from collections.abc import Sequence
 
 
-N_ARGS = 6
-
-
 def parse_args(line):
-    arg_functions: list[Callable] = [int, int, str, str, ast.literal_eval, ast.literal_eval]
+    arg_functions: list[Callable] = [int, int, int, str, str, ast.literal_eval, ast.literal_eval]
     args = []
     start = 0
-    for i in range(N_ARGS - 1):
+    for i in range(len(arg_functions) - 1):
         end = line.find("\t", start)
         args.append(arg_functions[i](line[start:end]))
         start = end + 1
@@ -52,6 +49,7 @@ def breakdown_to_single_quoted_string(breakdown):
 # steps is an array of integers which represent the steps that this event qualifies for. it looks like [1,3,5,6].
 # negative integers represent an exclusion on that step. each event is either all exclusions or all steps.
 def parse_user_aggregation_with_conversion_window_and_breakdown(
+    from_step: int,
     num_steps: int,
     conversion_window_limit_seconds: int,
     breakdown_attribution_type: str,
@@ -121,9 +119,9 @@ def parse_user_aggregation_with_conversion_window_and_breakdown(
                                     results[entered_timestamp[0].timestamp] = 1
                                     list_of_entered_timestamps.remove(entered_timestamp)
 
-        # At this point, everything left in entered_timestamps is a failure
+        # At this point, everything left in entered_timestamps is a failure, if it has made it to from_step
         for entered_timestamp in list_of_entered_timestamps:
-            if entered_timestamp[0].timestamp not in results:
+            if entered_timestamp[0].timestamp not in results and entered_timestamp[from_step + 1].timestamp > 0:
                 results[entered_timestamp[0].timestamp] = 0
 
     # We don't support breakdowns atm - make this support breakdowns

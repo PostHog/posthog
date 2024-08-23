@@ -30,9 +30,9 @@ class FunnelTrendsUDF(FunnelTrends):
 
     def get_query(self) -> ast.SelectQuery:
         # If they're asking for a "to_step" just truncate the funnel
-        funnelsFilter, max_steps = self.context.funnelsFilter, self.context.max_steps
-        to_step = max_steps if funnelsFilter.funnelToStep is None else funnelsFilter.funnelToStep + 1
-        self.context.max_steps_override = to_step
+        funnelsFilter = self.context.funnelsFilter
+        max_steps = self.context.max_steps if funnelsFilter.funnelToStep is None else funnelsFilter.funnelToStep + 1
+        self.context.max_steps_override = max_steps
 
         if self.context.funnelsFilter.funnelOrderType == "strict":
             inner_event_query = self._get_inner_event_query_for_udf(
@@ -70,12 +70,13 @@ class FunnelTrendsUDF(FunnelTrends):
 
         breakdown_attribution_string = f"{self.context.breakdownAttributionType}{f'_{self.context.funnelsFilter.breakdownAttributionValue}' if self.context.breakdownAttributionType == BreakdownAttributionType.STEP else ''}"
 
-        # from_step = funnelsFilter.funnelFromStep or 0
+        from_step = funnelsFilter.funnelFromStep or 0
 
         inner_select = parse_select(
             f"""
             SELECT
                 arrayJoin({fn}(
+                    {from_step},
                     {max_steps},
                     {self.conversion_window_limit()},
                     '{breakdown_attribution_string}',

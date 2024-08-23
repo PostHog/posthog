@@ -134,6 +134,10 @@
         <return_type>Array(Tuple(DateTime, Int8))</return_type>
         <argument>
             <type>UInt8</type>
+            <name>from_step</name>
+        </argument>
+        <argument>
+            <type>UInt8</type>
             <name>num_steps</name>
         </argument>
         <argument>
@@ -165,6 +169,10 @@
         <name>aggregate_funnel_array_trends</name>
         <!-- Return type for trends is just a list of timestamps where the funnel was completed -->
         <return_type>Array(Tuple(DateTime, Int8))</return_type>
+        <argument>
+            <type>UInt8</type>
+            <name>from_step</name>
+        </argument>
         <argument>
             <type>UInt8</type>
             <name>num_steps</name>
