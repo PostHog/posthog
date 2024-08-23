@@ -2,21 +2,29 @@ use std::sync::Arc;
 
 use axum::{routing::post, Router};
 
-use crate::{database::Client as DatabaseClient, redis::Client as RedisClient, v0_endpoint};
+use crate::{
+    database::Client as DatabaseClient, geoip::GeoIpService, redis::Client as RedisClient,
+    v0_endpoint,
+};
 
 #[derive(Clone)]
 pub struct State {
     pub redis: Arc<dyn RedisClient + Send + Sync>,
     // TODO: Add pgClient when ready
     pub postgres: Arc<dyn DatabaseClient + Send + Sync>,
+    pub geoip: Arc<GeoIpService>,
 }
 
-pub fn router<R, D>(redis: Arc<R>, postgres: Arc<D>) -> Router
+pub fn router<R, D>(redis: Arc<R>, postgres: Arc<D>, geoip: Arc<GeoIpService>) -> Router
 where
     R: RedisClient + Send + Sync + 'static,
     D: DatabaseClient + Send + Sync + 'static,
 {
-    let state = State { redis, postgres };
+    let state = State {
+        redis,
+        postgres,
+        geoip,
+    };
 
     Router::new()
         .route("/flags", post(v0_endpoint::flags).get(v0_endpoint::flags))

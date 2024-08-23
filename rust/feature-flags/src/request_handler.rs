@@ -4,7 +4,7 @@ use crate::{
     flag_definitions::FeatureFlagList,
     flag_matching::FeatureFlagMatcher,
     flag_request::FlagRequest,
-    geoip::get_geoip_properties,
+    geoip::GeoIpService,
     router,
 };
 use axum::{extract::State, http::HeaderMap};
@@ -71,13 +71,42 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
         .get_team_from_cache_or_pg(&token, state.redis.clone(), state.postgres.clone())
         .await?;
     let distinct_id = request.extract_distinct_id()?;
-    let geoip_enabled = request.geoip_disable.unwrap_or(true);
+
+    // Determine if we need to fetch GeoIP properties
+    let geoip_enabled = !request.geoip_disable.unwrap_or(false);
     let person_properties = request.person_properties.clone();
-
-    let person_property_overrides =
-        extend_person_properties(person_properties, &ip.to_string(), geoip_enabled);
-
-    // let group_property_overrides = request.group_properties.clone();
+    let person_property_overrides = match (geoip_enabled, person_properties) {
+        (true, Some(mut props)) => {
+            // GeoIP enabled and person properties exist
+            let geoip_props = state.geoip.get_geoip_properties(Some(&ip.to_string()));
+            if !geoip_props.is_empty() {
+                props.extend(geoip_props.into_iter().map(|(k, v)| (k, Value::String(v))));
+            }
+            Some(props)
+        }
+        (true, None) => {
+            // GeoIP enabled but no person properties
+            let geoip_props = state.geoip.get_geoip_properties(Some(&ip.to_string()));
+            if !geoip_props.is_empty() {
+                Some(
+                    geoip_props
+                        .into_iter()
+                        .map(|(k, v)| (k, Value::String(v)))
+                        .collect(),
+                )
+            } else {
+                None
+            }
+        }
+        (false, Some(props)) => {
+            // GeoIP disabled but person properties exist
+            Some(props)
+        }
+        (false, None) => {
+            // GeoIP disabled and no person properties
+            None
+        }
+    };
 
     let feature_flags_from_cache_or_pg = request
         .get_flags_from_cache_or_pg(team.id, state.redis.clone(), state.postgres.clone())
@@ -95,6 +124,45 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
     Ok(flags_response)
 }
 
+/// Get person property overrides based on the request
+/// - If geoip is enabled, fetch geoip properties and merge them with any person properties
+/// - If geoip is disabled, return the person properties as is
+/// - If no person properties are provided, return None
+pub fn get_person_property_overrides(
+    geoip_enabled: bool,
+    person_properties: Option<HashMap<String, Value>>,
+    ip: &IpAddr,
+    geoip_service: &GeoIpService,
+) -> Option<HashMap<String, Value>> {
+    match (geoip_enabled, person_properties) {
+        (true, Some(mut props)) => {
+            let geoip_props = geoip_service.get_geoip_properties(Some(&ip.to_string()));
+            if !geoip_props.is_empty() {
+                props.extend(geoip_props.into_iter().map(|(k, v)| (k, Value::String(v))));
+            }
+            Some(props)
+        }
+        (true, None) => {
+            let geoip_props = geoip_service.get_geoip_properties(Some(&ip.to_string()));
+            if !geoip_props.is_empty() {
+                Some(
+                    geoip_props
+                        .into_iter()
+                        .map(|(k, v)| (k, Value::String(v)))
+                        .collect(),
+                )
+            } else {
+                None
+            }
+        }
+        (false, Some(props)) => Some(props),
+        (false, None) => None,
+    }
+}
+
+/// Decode a request into a `FlagRequest`
+/// - Currently only supports JSON requests
+// TODO support all supported content types
 fn decode_request(headers: &HeaderMap, body: Bytes) -> Result<FlagRequest, FlagError> {
     match headers
         .get("content-type")
@@ -108,37 +176,9 @@ fn decode_request(headers: &HeaderMap, body: Bytes) -> Result<FlagRequest, FlagE
     }
 }
 
-pub fn extend_person_properties(
-    person_properties: Option<HashMap<String, Value>>,
-    ip: &str,
-    geoip_enabled: bool,
-) -> Option<HashMap<String, Value>> {
-    let mut extended_properties = person_properties;
-
-    if geoip_enabled {
-        let geoip_properties: HashMap<String, String> = get_geoip_properties(Some(ip));
-        match extended_properties {
-            Some(ref mut props) => {
-                props.extend(
-                    geoip_properties
-                        .into_iter()
-                        .map(|(k, v)| (k, Value::String(v))),
-                );
-            }
-            None => {
-                extended_properties = Some(
-                    geoip_properties
-                        .into_iter()
-                        .map(|(k, v)| (k, Value::String(v)))
-                        .collect(),
-                );
-            }
-        }
-    }
-
-    extended_properties
-}
-
+/// Evaluate feature flags for a given distinct_id
+/// Returns a map of feature flag keys to their values
+/// If an error occurs while evaluating a flag, it will be logged and the flag will be omitted from the result
 pub async fn evaluate_feature_flags(
     distinct_id: String,
     feature_flags_from_cache_or_pg: FeatureFlagList,
@@ -192,6 +232,7 @@ pub async fn evaluate_feature_flags(
 #[cfg(test)]
 mod tests {
     use crate::{
+        config::Config,
         flag_definitions::{FeatureFlag, FlagFilters, FlagGroupType, OperatorType, PropertyFilter},
         test_utils::setup_pg_client,
     };
@@ -199,26 +240,97 @@ mod tests {
     use super::*;
     use axum::http::HeaderMap;
     use serde_json::json;
+    use std::net::Ipv4Addr;
+
+    fn create_test_geoip_service() -> GeoIpService {
+        let config = Config::default_test_config();
+        GeoIpService::new(&config).expect("Failed to create GeoIpService for testing")
+    }
 
     #[test]
-    fn test_extend_person_properties() {
+    fn test_geoip_enabled_with_person_properties() {
+        let geoip_service = create_test_geoip_service();
+
         let mut person_props = HashMap::new();
-        person_props.insert("existing_prop".to_string(), json!("value"));
+        person_props.insert("name".to_string(), Value::String("John".to_string()));
 
-        let extended_props = extend_person_properties(Some(person_props.clone()), "1.1.1.1", false);
+        let result = get_person_property_overrides(
+            true,
+            Some(person_props),
+            &IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)), // Google's public DNS, should be in the US
+            &geoip_service,
+        );
 
-        assert!(extended_props.is_some());
-        let extended_props = extended_props.unwrap();
-        assert!(extended_props.contains_key("existing_prop"));
-        // Since geoip is disabled, the length should be exactly 1
-        assert_eq!(extended_props.len(), 1);
+        assert!(result.is_some());
+        let result = result.unwrap();
+        assert!(result.len() > 1);
+        assert_eq!(result.get("name"), Some(&Value::String("John".to_string())));
+        assert!(result.contains_key("$geoip_country_name"));
+    }
 
-        // Test with geoip enabled
-        let extended_props = extend_person_properties(Some(person_props), "13.106.122.3", true);
-        assert!(extended_props.is_some());
-        let extended_props = extended_props.unwrap();
-        // The length should be greater than 1 if geoip properties were added
-        assert!(extended_props.len() > 1);
+    #[test]
+    fn test_geoip_enabled_without_person_properties() {
+        let geoip_service = create_test_geoip_service();
+
+        let result = get_person_property_overrides(
+            true,
+            None,
+            &IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)), // Google's public DNS, should be in the US
+            &geoip_service,
+        );
+
+        assert!(result.is_some());
+        let result = result.unwrap();
+        assert!(!result.is_empty());
+        assert!(result.contains_key("$geoip_country_name"));
+    }
+
+    #[test]
+    fn test_geoip_disabled_with_person_properties() {
+        let geoip_service = create_test_geoip_service();
+
+        let mut person_props = HashMap::new();
+        person_props.insert("name".to_string(), Value::String("John".to_string()));
+
+        let result = get_person_property_overrides(
+            false,
+            Some(person_props),
+            &IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)),
+            &geoip_service,
+        );
+
+        assert!(result.is_some());
+        let result = result.unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result.get("name"), Some(&Value::String("John".to_string())));
+    }
+
+    #[test]
+    fn test_geoip_disabled_without_person_properties() {
+        let geoip_service = create_test_geoip_service();
+
+        let result = get_person_property_overrides(
+            false,
+            None,
+            &IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)),
+            &geoip_service,
+        );
+
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_geoip_enabled_local_ip() {
+        let geoip_service = create_test_geoip_service();
+
+        let result = get_person_property_overrides(
+            true,
+            None,
+            &IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+            &geoip_service,
+        );
+
+        assert!(result.is_none());
     }
 
     #[tokio::test]

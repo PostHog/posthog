@@ -1,32 +1,83 @@
+use crate::config::Config;
 use maxminddb::Reader;
-use once_cell::sync::Lazy;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::net::IpAddr;
 use std::str::FromStr;
-use std::{collections::HashMap, path::Path};
+use thiserror::Error;
 use tracing::log::{error, info};
 
-static GEOIP: Lazy<Option<Reader<Vec<u8>>>> = Lazy::new(|| {
-    // TODO this feels hacky, maybe port this to the config later.  Worked in CI though so ¯\_(ツ)_/¯
-    // Not sure this will work in production...
-    let geoip_path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .join("share")
-        .join("GeoLite2-City.mmdb");
+#[derive(Error, Debug)]
+pub enum GeoIpError {
+    #[error("Failed to open GeoIP database: {0}")]
+    DatabaseOpenError(#[from] maxminddb::MaxMindDBError),
+}
 
-    info!("Attempting to open GeoIP database at: {:?}", geoip_path);
+pub struct GeoIpService {
+    reader: Reader<Vec<u8>>,
+}
 
-    match Reader::open_readfile(&geoip_path) {
-        Ok(reader) => Some(reader),
-        Err(e) => {
-            error!("Failed to open GeoIP database at {:?}: {}", geoip_path, e);
-            None
+impl GeoIpService {
+    /// Creates a new GeoIpService instance.
+    /// Returns an error if the database can't be loaded.
+    pub fn new(config: &Config) -> Result<Self, GeoIpError> {
+        let geoip_path = config.get_maxmind_db_path();
+
+        info!("Attempting to open GeoIP database at: {:?}", geoip_path);
+
+        let reader = Reader::open_readfile(&geoip_path)?;
+        info!("Successfully opened GeoIP database");
+
+        Ok(GeoIpService { reader })
+    }
+
+    /// Checks if the given IP address is valid.
+    fn is_valid_ip(&self, ip: &str) -> bool {
+        ip != "127.0.0.1"
+    }
+
+    /// Looks up the city data for the given IP address.
+    /// Returns None if the lookup fails.
+    fn lookup_city(&self, ip: &str, addr: IpAddr) -> Option<Value> {
+        match self.reader.lookup::<Value>(addr) {
+            Ok(city) => {
+                info!(
+                    "GeoIP lookup succeeded for IP {}: Full city data: {:?}",
+                    ip, city
+                );
+                Some(city)
+            }
+            Err(e) => {
+                error!("GeoIP lookup error for IP {}: {}", ip, e);
+                None
+            }
         }
     }
-});
+
+    /// Returns a dictionary of geoip properties for the given ip address.
+    pub fn get_geoip_properties(&self, ip_address: Option<&str>) -> HashMap<String, String> {
+        match ip_address {
+            None => {
+                info!("No IP address provided; returning empty properties");
+                HashMap::new()
+            }
+            Some(ip) if !self.is_valid_ip(ip) => {
+                info!("Returning empty properties for IP: {}", ip);
+                HashMap::new()
+            }
+            Some(ip) => match IpAddr::from_str(ip) {
+                Ok(addr) => self
+                    .lookup_city(ip, addr)
+                    .map(|city| extract_properties(&city))
+                    .unwrap_or_else(HashMap::new),
+                Err(_) => {
+                    error!("Invalid IP address: {}", ip);
+                    HashMap::new()
+                }
+            },
+        }
+    }
+}
 
 const GEOIP_FIELDS: [(&str, &[&str]); 7] = [
     ("$geoip_country_name", &["country", "names", "en"]),
@@ -46,29 +97,6 @@ fn get_nested_value<'a>(data: &'a Value, path: &[&str]) -> Option<&'a str> {
     current.as_str()
 }
 
-fn is_valid_ip(ip: &str) -> bool {
-    // "127.0.0.1" would throw "The address 127.0.0.1 is not in the database."
-    ip != "127.0.0.1" && GEOIP.is_some()
-}
-
-fn lookup_city(ip: &str, addr: IpAddr) -> Option<Value> {
-    GEOIP
-        .as_ref()
-        .and_then(|reader| match reader.lookup::<Value>(addr) {
-            Ok(city) => {
-                info!(
-                    "GeoIP lookup succeeded for IP {}: Full city data: {:?}",
-                    ip, city
-                );
-                Some(city)
-            }
-            Err(e) => {
-                error!("GeoIP lookup error for IP {}: {}", ip, e);
-                None
-            }
-        })
-}
-
 fn extract_properties(city: &Value) -> HashMap<String, String> {
     GEOIP_FIELDS
         .iter()
@@ -78,44 +106,12 @@ fn extract_properties(city: &Value) -> HashMap<String, String> {
         .collect()
 }
 
-/// Returns a dictionary of geoip properties for the given ip address.
-///
-/// Contains the following:
-///    - $geoip_city_name
-///    - $geoip_country_name
-///    - $geoip_country_code
-///    - $geoip_continent_name
-///    - $geoip_continent_code
-///    - $geoip_postal_code
-///    - $geoip_time_zone
-pub fn get_geoip_properties(ip_address: Option<&str>) -> HashMap<String, String> {
-    match ip_address {
-        None => {
-            info!("No IP address provided; returning empty properties");
-            HashMap::new()
-        }
-        Some(ip) if !is_valid_ip(ip) => {
-            info!("Returning empty properties for IP: {}", ip);
-            HashMap::new()
-        }
-        Some(ip) => match IpAddr::from_str(ip) {
-            Ok(addr) => lookup_city(ip, addr)
-                .map(|city| extract_properties(&city))
-                .unwrap_or_else(|| {
-                    error!("GeoIP reader is None; lookup for IP {} skipped", ip);
-                    HashMap::new()
-                }),
-            Err(_) => {
-                error!("Invalid IP address: {}", ip);
-                HashMap::new()
-            }
-        },
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
+
     use super::*;
+    use crate::config::Config;
     use std::sync::Once;
 
     static INIT: Once = Once::new();
@@ -126,30 +122,56 @@ mod tests {
         });
     }
 
+    fn create_test_service() -> GeoIpService {
+        let config = Config::default_test_config();
+        GeoIpService::new(&config).expect("Failed to create GeoIpService")
+    }
+
+    #[test]
+    fn test_geoip_service_creation() {
+        initialize();
+        let config = Config::default_test_config();
+        let service_result = GeoIpService::new(&config);
+        assert!(service_result.is_ok());
+    }
+
+    #[test]
+    fn test_geoip_service_creation_failure() {
+        initialize();
+        let mut config = Config::default_test_config();
+        config.maxmind_db_path = "/path/to/nonexistent/file".to_string();
+        let service_result = GeoIpService::new(&config);
+        assert!(service_result.is_err());
+    }
+
     #[test]
     fn test_get_geoip_properties_none() {
         initialize();
-        let result = get_geoip_properties(None);
+        let service = create_test_service();
+        let result = service.get_geoip_properties(None);
         assert!(result.is_empty());
     }
 
     #[test]
     fn test_get_geoip_properties_localhost() {
         initialize();
-        let result = get_geoip_properties(Some("127.0.0.1"));
+        let service = create_test_service();
+        let result = service.get_geoip_properties(Some("127.0.0.1"));
         assert!(result.is_empty());
     }
 
     #[test]
     fn test_get_geoip_properties_invalid_ip() {
         initialize();
-        let result = get_geoip_properties(Some("not_an_ip"));
+        let service = create_test_service();
+        let result = service.get_geoip_properties(Some("not_an_ip"));
         assert!(result.is_empty());
     }
 
     #[test]
     fn test_geoip_results() {
         initialize();
+        let service = create_test_service();
         let test_cases = vec![
             ("13.106.122.3", "Australia"),
             ("31.28.64.3", "United Kingdom"),
@@ -157,7 +179,7 @@ mod tests {
         ];
 
         for (ip, expected_country) in test_cases {
-            let result = get_geoip_properties(Some(ip));
+            let result = service.get_geoip_properties(Some(ip));
             info!("GeoIP lookup result for IP {}: {:?}", ip, result);
             info!(
                 "Expected country: {}, Actual country: {:?}",
@@ -173,23 +195,110 @@ mod tests {
     }
 
     #[test]
-    fn test_geoip_with_invalid_database_file() {
-        initialize();
-        let result = get_geoip_properties(Some("0.0.0.0"));
-        assert!(result.is_empty());
-    }
-
-    #[test]
     fn test_geoip_on_local_ip() {
         initialize();
-        let result = get_geoip_properties(Some("127.0.0.1"));
+        let service = create_test_service();
+        let result = service.get_geoip_properties(Some("127.0.0.1"));
         assert!(result.is_empty());
     }
 
     #[test]
     fn test_geoip_on_invalid_ip() {
         initialize();
-        let result = get_geoip_properties(Some("999.999.999.999"));
+        let service = create_test_service();
+        let result = service.get_geoip_properties(Some("999.999.999.999"));
         assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_get_nested_value() {
+        let data = json!({
+            "country": {
+                "names": {
+                    "en": "United States"
+                }
+            },
+            "city": {
+                "names": {
+                    "en": "New York"
+                }
+            },
+            "postal": {
+                "code": "10001"
+            }
+        });
+
+        assert_eq!(
+            get_nested_value(&data, &["country", "names", "en"]),
+            Some("United States")
+        );
+        assert_eq!(
+            get_nested_value(&data, &["city", "names", "en"]),
+            Some("New York")
+        );
+        assert_eq!(get_nested_value(&data, &["postal", "code"]), Some("10001"));
+        assert_eq!(get_nested_value(&data, &["country", "code"]), None);
+        assert_eq!(get_nested_value(&data, &["nonexistent", "path"]), None);
+    }
+
+    #[test]
+    fn test_extract_properties() {
+        let city_data = json!({
+            "country": {
+                "names": {
+                    "en": "United States"
+                },
+                "iso_code": "US"
+            },
+            "city": {
+                "names": {
+                    "en": "New York"
+                }
+            },
+            "continent": {
+                "names": {
+                    "en": "North America"
+                },
+                "code": "NA"
+            },
+            "postal": {
+                "code": "10001"
+            },
+            "location": {
+                "time_zone": "America/New_York"
+            }
+        });
+
+        let properties = extract_properties(&city_data);
+
+        assert_eq!(
+            properties.get("$geoip_country_name"),
+            Some(&"United States".to_string())
+        );
+        assert_eq!(
+            properties.get("$geoip_city_name"),
+            Some(&"New York".to_string())
+        );
+        assert_eq!(
+            properties.get("$geoip_country_code"),
+            Some(&"US".to_string())
+        );
+        assert_eq!(
+            properties.get("$geoip_continent_name"),
+            Some(&"North America".to_string())
+        );
+        assert_eq!(
+            properties.get("$geoip_continent_code"),
+            Some(&"NA".to_string())
+        );
+        assert_eq!(
+            properties.get("$geoip_postal_code"),
+            Some(&"10001".to_string())
+        );
+        assert_eq!(
+            properties.get("$geoip_time_zone"),
+            Some(&"America/New_York".to_string())
+        );
+        assert_eq!(properties.len(), 7);
     }
 }
