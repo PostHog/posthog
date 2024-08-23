@@ -29,7 +29,9 @@ class SessionRecordingsMixin(PropertyMixin, BaseParamMixin):
 
     @cached_property
     def console_log_filters(self) -> PropertyGroup:
-        return self._parse_data(key="console_log_filters", operator=self.property_operand)
+        property_group = self._parse_data(key="console_log_filters")
+        property_group.type = self.property_operand
+        return property_group
 
     @cached_property
     def property_operand(self) -> PropertyOperatorType:
