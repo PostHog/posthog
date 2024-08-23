@@ -61,13 +61,26 @@ export function BatchExportBackfillModal({ id }: BatchExportRunsLogicProps): JSX
                     // So, if a user of a daily export selects "2024-08-14" they mean "2024-08-14 00:00:00 in their
                     // project's timezone".
                 }
-                <LemonField name="start_at" label="Start Date" className="flex-1">
+                <LemonField name="start_at" label={`Start Date (${timezone})`} className="flex-1">
                     {({ value, onChange }) => (
                         <LemonCalendarSelectInput
-                            value={value}
+                            value={
+                                value
+                                    ? batchExportConfig
+                                        ? batchExportConfig.interval === 'day'
+                                            ? value.hour(0).minute(0).second(0)
+                                            : value.tz(timezone)
+                                        : value
+                                    : value
+                            }
                             onChange={(date) => {
                                 if (date) {
-                                    const projectDate = date.tz(timezone, true)
+                                    let projectDate = date.tz(timezone, true)
+
+                                    if (batchExportConfig && batchExportConfig.interval === 'day') {
+                                        projectDate = projectDate.hour(0).minute(0).second(0)
+                                    }
+
                                     onChange(projectDate)
                                 } else {
                                     onChange(date)
@@ -86,13 +99,26 @@ export function BatchExportBackfillModal({ id }: BatchExportRunsLogicProps): JSX
                         />
                     )}
                 </LemonField>
-                <LemonField name="end_at" label="End date" className="flex-1">
+                <LemonField name="end_at" label={`End Date (${timezone})`} className="flex-1">
                     {({ value, onChange }) => (
                         <LemonCalendarSelectInput
-                            value={value}
+                            value={
+                                value
+                                    ? batchExportConfig
+                                        ? batchExportConfig.interval === 'day'
+                                            ? value.hour(0).minute(0).second(0)
+                                            : value.tz(timezone)
+                                        : value
+                                    : value
+                            }
                             onChange={(date) => {
                                 if (date) {
-                                    const projectDate = date.tz(timezone, true)
+                                    let projectDate = date.tz(timezone, true)
+
+                                    if (batchExportConfig && batchExportConfig.interval === 'day') {
+                                        projectDate = projectDate.hour(0).minute(0).second(0)
+                                    }
+
                                     onChange(projectDate)
                                 } else {
                                     onChange(date)

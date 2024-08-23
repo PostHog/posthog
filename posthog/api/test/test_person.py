@@ -869,6 +869,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                 "scope": "burst",
                 "rate": "5/minute",
                 "path": f"/api/projects/TEAM_ID/feature_flags",
+                "hashed_personal_api_key": hash_key_value(personal_api_key),
             },
         )
 
@@ -911,6 +912,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                 "scope": "persons",
                 "rate": "6/minute",
                 "path": f"/api/projects/TEAM_ID/persons/",
+                "hashed_personal_api_key": hash_key_value(personal_api_key),
             },
         )
 

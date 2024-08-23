@@ -12,6 +12,9 @@ from posthog.permissions import TimeSensitiveActionPermission
 from posthog.user_permissions import UserPermissions
 
 
+MAX_API_KEYS_PER_USER = 10  # Same as in personalAPIKeysLogic.tsx
+
+
 class PersonalAPIKeySerializer(serializers.ModelSerializer):
     # Specifying method name because the serializer class already has a get_value method
     value = serializers.SerializerMethodField(method_name="get_key_value", read_only=True)
@@ -93,6 +96,11 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
 
     def create(self, validated_data: dict, **kwargs) -> PersonalAPIKey:
         user = self.context["request"].user
+        count = PersonalAPIKey.objects.filter(user=user).count()
+        if count >= MAX_API_KEYS_PER_USER:
+            raise serializers.ValidationError(
+                f"You can only have {MAX_API_KEYS_PER_USER} personal API keys. Remove an existing key before creating a new one."
+            )
         value = generate_random_token_personal()
         mask_value = mask_key_value(value)
         secure_value = hash_key_value(value)

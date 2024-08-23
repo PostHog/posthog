@@ -4792,3 +4792,43 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [0, 0, 0, 100, 0, 0, 0, 0, 0, 0, 0, 0],
             [0, 0, 0, 0, 0, 0, 100, 0, 0, 0, 0, 0],
         ]
+
+    def test_trends_with_formula_and_multiple_breakdowns_hide_other_breakdowns(self):
+        PropertyDefinition.objects.create(team=self.team, name="breakdown_value", property_type="String")
+
+        for value in list(range(30)):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"person_{value}",
+                timestamp="2020-01-11T12:00:00Z",
+                properties={"breakdown_value": str(value)},
+            )
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview"), EventsNode(event="$pageview")],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH, formula="A+B"),
+            BreakdownFilter(
+                breakdowns=[Breakdown(property="breakdown_value", type=MultipleBreakdownType.EVENT)], breakdown_limit=10
+            ),
+        )
+        breakdowns = [b for result in response.results for b in result["breakdown_value"]]
+        self.assertIn(BREAKDOWN_OTHER_STRING_LABEL, breakdowns)
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview"), EventsNode(event="$pageview")],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH, formula="A+B"),
+            BreakdownFilter(
+                breakdowns=[Breakdown(property="breakdown_value", type=MultipleBreakdownType.EVENT)],
+                breakdown_limit=10,
+                breakdown_hide_other_aggregation=True,
+            ),
+        )
+        breakdowns = [b for result in response.results for b in result["breakdown_value"]]
+        self.assertNotIn(BREAKDOWN_OTHER_STRING_LABEL, breakdowns)

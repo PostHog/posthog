@@ -22,6 +22,8 @@ from posthog.schema import (
     InCohortVia,
     MultipleBreakdownType,
     TrendsQuery,
+)
+from posthog.schema import (
     Breakdown as BreakdownSchema,
 )
 
@@ -168,14 +170,6 @@ class Breakdown:
         Type checking
         """
         return cast(BreakdownFilter, self.query.breakdownFilter)
-
-    @property
-    def hide_other_aggregation(self) -> bool:
-        return (
-            self.query.breakdownFilter.breakdown_hide_other_aggregation or False
-            if self.query.breakdownFilter
-            else False
-        )
 
     def _get_cohort_filter(self, breakdowns: list[str | int] | list[str] | str | int):
         if breakdowns == "all":

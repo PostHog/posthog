@@ -140,28 +140,26 @@ class User(AbstractUser, UUIDClassicModel):
     current_team = models.ForeignKey("posthog.Team", models.SET_NULL, null=True, related_name="teams_currently+")
     email = models.EmailField(_("email address"), unique=True)
     pending_email = models.EmailField(_("pending email address awaiting verification"), null=True, blank=True)
-    temporary_token: models.CharField = models.CharField(max_length=200, null=True, blank=True, unique=True)
-    distinct_id: models.CharField = models.CharField(max_length=200, null=True, blank=True, unique=True)
-    is_email_verified: models.BooleanField = models.BooleanField(null=True, blank=True)
-    requested_password_reset_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
-    has_seen_product_intro_for: models.JSONField = models.JSONField(null=True, blank=True)
-    strapi_id: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(null=True, blank=True)
+    temporary_token = models.CharField(max_length=200, null=True, blank=True, unique=True)
+    distinct_id = models.CharField(max_length=200, null=True, blank=True, unique=True)
+    is_email_verified = models.BooleanField(null=True, blank=True)
+    requested_password_reset_at = models.DateTimeField(null=True, blank=True)
+    has_seen_product_intro_for = models.JSONField(null=True, blank=True)
+    strapi_id = models.PositiveSmallIntegerField(null=True, blank=True)
 
     # Preferences / configuration options
 
-    theme_mode: models.CharField = models.CharField(max_length=20, null=True, blank=True, choices=ThemeMode.choices)
+    theme_mode = models.CharField(max_length=20, null=True, blank=True, choices=ThemeMode.choices)
     # These override the notification settings
-    partial_notification_settings: models.JSONField = models.JSONField(null=True, blank=True)
-    anonymize_data: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
-    toolbar_mode: models.CharField = models.CharField(
-        max_length=200, null=True, blank=True, choices=TOOLBAR_CHOICES, default=TOOLBAR
-    )
-    hedgehog_config: models.JSONField = models.JSONField(null=True, blank=True)
+    partial_notification_settings = models.JSONField(null=True, blank=True)
+    anonymize_data = models.BooleanField(default=False, null=True, blank=True)
+    toolbar_mode = models.CharField(max_length=200, null=True, blank=True, choices=TOOLBAR_CHOICES, default=TOOLBAR)
+    hedgehog_config = models.JSONField(null=True, blank=True)
 
     # DEPRECATED
-    events_column_config: models.JSONField = models.JSONField(default=events_column_config_default)
+    events_column_config = models.JSONField(default=events_column_config_default)
     # DEPRECATED - Most emails are done via 3rd parties and we use their opt/in out tooling
-    email_opt_in: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
+    email_opt_in = models.BooleanField(default=False, null=True, blank=True)
 
     # Remove unused attributes from `AbstractUser`
     username = None
