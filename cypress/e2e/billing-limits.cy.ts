@@ -61,6 +61,38 @@ describe('Billing Limits', () => {
         )
     })
 
+    it('Show existing limit and allow user to change set to $0', () => {
+        cy.intercept('GET', '/api/billing/', (req) => {
+            req.reply({
+                statusCode: 200,
+                body: {
+                    ...require('../fixtures/api/billing/billing.json'),
+                    custom_limits_usd: { product_analytics: 100 },
+                },
+            })
+        }).as('getBilling')
+        cy.visit('/organization/billing')
+        cy.wait('@getBilling')
+
+        cy.intercept('PATCH', '/api/billing/', (req) => {
+            req.reply({
+                statusCode: 200,
+                body: {
+                    ...require('../fixtures/api/billing/billing.json'),
+                    custom_limits_usd: { product_analytics: 0 },
+                },
+            })
+        }).as('patchBilling')
+
+        cy.get('[data-attr="billing-limit-input-wrapper-product_analytics"]').scrollIntoView()
+        cy.get('[data-attr="billing-limit-set-product_analytics"]').should('be.visible')
+        cy.contains('Edit limit').click()
+        cy.get('[data-attr="billing-limit-input-product_analytics"]').clear().type('0')
+        cy.get('[data-attr="save-billing-limit-product_analytics"]').click()
+        cy.wait('@patchBilling')
+        cy.get('[data-attr="billing-limit-set-product_analytics"]').should('contain', 'You have a $0 billing limit set')
+    })
+
     it('Show existing limit and allow user to remove it', () => {
         cy.intercept('GET', '/api/billing/', (req) => {
             req.reply({

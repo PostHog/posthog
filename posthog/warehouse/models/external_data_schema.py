@@ -38,22 +38,16 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
         WEEKLY = "week", "Weekly"
         MONTHLY = "month", "Monthly"
 
-    name: models.CharField = models.CharField(max_length=400)
-    team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
-    source: models.ForeignKey = models.ForeignKey(
-        "posthog.ExternalDataSource", related_name="schemas", on_delete=models.CASCADE
-    )
-    table: models.ForeignKey = models.ForeignKey(
-        "posthog.DataWarehouseTable", on_delete=models.SET_NULL, null=True, blank=True
-    )
-    should_sync: models.BooleanField = models.BooleanField(default=True)
-    latest_error: models.TextField = models.TextField(
-        null=True, help_text="The latest error that occurred when syncing this schema."
-    )
-    status: models.CharField = models.CharField(max_length=400, null=True, blank=True)
-    last_synced_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
-    sync_type: models.CharField = models.CharField(max_length=128, choices=SyncType.choices, null=True, blank=True)
-    sync_type_config: models.JSONField = models.JSONField(
+    name = models.CharField(max_length=400)
+    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    source = models.ForeignKey("posthog.ExternalDataSource", related_name="schemas", on_delete=models.CASCADE)
+    table = models.ForeignKey("posthog.DataWarehouseTable", on_delete=models.SET_NULL, null=True, blank=True)
+    should_sync = models.BooleanField(default=True)
+    latest_error = models.TextField(null=True, help_text="The latest error that occurred when syncing this schema.")
+    status = models.CharField(max_length=400, null=True, blank=True)
+    last_synced_at = models.DateTimeField(null=True, blank=True)
+    sync_type = models.CharField(max_length=128, choices=SyncType.choices, null=True, blank=True)
+    sync_type_config = models.JSONField(
         default=dict,
         blank=True,
     )
@@ -61,9 +55,7 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
     sync_frequency = deprecate_field(
         models.CharField(max_length=128, choices=SyncFrequency.choices, default=SyncFrequency.DAILY, blank=True)
     )
-    sync_frequency_interval: models.DurationField = models.DurationField(
-        default=timedelta(hours=6), null=True, blank=True
-    )
+    sync_frequency_interval = models.DurationField(default=timedelta(hours=6), null=True, blank=True)
 
     __repr__ = sane_repr("name")
 

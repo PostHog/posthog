@@ -445,7 +445,7 @@ class JSONLBatchExportWriter(BatchExportWriter):
 
         self.default = default
 
-    def write(self, content: bytes) -> int:
+    def write_dict(self, content: dict[str, typing.Any]) -> int:
         """Write a single row of JSONL."""
         try:
             n = self.batch_export_file.write(orjson.dumps(content, default=str) + b"\n")
@@ -459,7 +459,10 @@ class JSONLBatchExportWriter(BatchExportWriter):
     def _write_record_batch(self, record_batch: pa.RecordBatch) -> None:
         """Write records to a temporary file as JSONL."""
         for record in record_batch.to_pylist():
-            self.write(record)
+            if not record:
+                continue
+
+            self.write_dict(record)
 
 
 class CSVBatchExportWriter(BatchExportWriter):
