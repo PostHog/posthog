@@ -24,3 +24,4 @@ time = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+common-metrics = { path = "../common/metrics" }

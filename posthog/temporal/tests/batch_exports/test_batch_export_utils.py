@@ -5,7 +5,7 @@ import pytest
 import pytest_asyncio
 
 from posthog.batch_exports.models import BatchExportRun
-from posthog.temporal.batch_exports.utils import set_status_to_running_task
+from posthog.temporal.batch_exports.utils import make_retryable_with_exponential_backoff, set_status_to_running_task
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 from posthog.temporal.tests.utils.models import (
     acreate_batch_export,
@@ -73,3 +73,92 @@ async def test_batch_export_run_is_set_to_running(ateam, s3_batch_export):
 
     await run.arefresh_from_db()
     assert run.status == BatchExportRun.Status.RUNNING
+
+
+async def test_make_retryable_with_exponential_backoff_called_max_attempts():
+    """Test function wrapped is called all `max_attempts` times."""
+    counter = 0
+
+    async def raise_value_error():
+        nonlocal counter
+        counter += 1
+
+        raise ValueError("I failed")
+
+    with pytest.raises(ValueError):
+        await make_retryable_with_exponential_backoff(raise_value_error, max_retry_delay=1)()
+
+    assert counter == 5
+
+
+async def test_make_retryable_with_exponential_backoff_called_max_attempts_if_timesout():
+    """Test function wrapped is called all `max_attempts` times on a timeout."""
+    counter = 0
+
+    async def raise_value_error():
+        nonlocal counter
+        counter += 1
+        await asyncio.sleep(10)
+
+    with pytest.raises(TimeoutError):
+        await make_retryable_with_exponential_backoff(raise_value_error, max_retry_delay=1, timeout=1)()
+
+    assert counter == 5
+
+
+async def test_make_retryable_with_exponential_backoff_called_max_attempts_if_func_returns_retryable():
+    """Test function wrapped is called all `max_attempts` times if `is_exception_retryable` returns `True`."""
+    counter = 0
+
+    def is_exception_retryable(err):
+        return True
+
+    async def raise_value_error():
+        nonlocal counter
+        counter += 1
+
+        raise ValueError("I failed")
+
+    with pytest.raises(ValueError):
+        await make_retryable_with_exponential_backoff(
+            raise_value_error, is_exception_retryable=is_exception_retryable, max_retry_delay=1
+        )()
+
+    assert counter == 5
+
+
+async def test_make_retryable_with_exponential_backoff_raises_if_func_returns_not_retryable():
+    """Test function wrapped raises immediately if `is_exception_retryable` returns `False`."""
+    counter = 0
+
+    def is_exception_retryable(err):
+        return False
+
+    async def raise_value_error():
+        nonlocal counter
+        counter += 1
+
+        raise ValueError("I failed")
+
+    with pytest.raises(ValueError):
+        await make_retryable_with_exponential_backoff(
+            raise_value_error, is_exception_retryable=is_exception_retryable
+        )()
+
+    assert counter == 1
+
+
+async def test_make_retryable_with_exponential_backoff_raises_if_not_retryable():
+    """Test function wrapped raises immediately if exception not in `retryable_exceptions`."""
+    counter = 0
+
+    async def raise_value_error():
+        nonlocal counter
+        counter += 1
+
+        raise ValueError("I failed")
+
+    with pytest.raises(ValueError):
+        await make_retryable_with_exponential_backoff(raise_value_error, retryable_exceptions=(TypeError,))()
+
+    assert counter == 1

@@ -702,6 +702,7 @@ export enum PropertyFilterType {
     Session = 'session',
     Cohort = 'cohort',
     Recording = 'recording',
+    LogEntry = 'log_entry',
     Group = 'group',
     HogQL = 'hogql',
     DataWarehouse = 'data_warehouse',
@@ -789,6 +790,7 @@ export type AnyPropertyFilter =
     | SessionPropertyFilter
     | CohortPropertyFilter
     | RecordingPropertyFilter
+    | LogEntryPropertyFilter
     | GroupPropertyFilter
     | FeaturePropertyFilter
     | HogQLPropertyFilter
@@ -970,6 +972,19 @@ export interface RecordingDurationFilter extends RecordingPropertyFilter {
 
 export type DurationType = 'duration' | 'active_seconds' | 'inactive_seconds'
 
+export interface LogEntryPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.LogEntry
+    operator: PropertyOperator
+}
+
+export interface LogEntryLevelFilter extends LogEntryPropertyFilter {
+    key: 'level'
+    value: FilterableLogLevel[]
+}
+export interface LogEntryMessageFilter extends LogEntryPropertyFilter {
+    key: 'message'
+    value: string
+}
 export type FilterableLogLevel = 'info' | 'warn' | 'error'
 
 export interface RecordingFilters {
@@ -980,9 +995,9 @@ export interface RecordingFilters {
     properties?: AnyPropertyFilter[]
     session_recording_duration?: RecordingDurationFilter
     duration_type_filter?: DurationType
-    console_search_query?: string
+    console_search_query?: LogEntryMessageFilter['value']
+    console_logs?: LogEntryLevelFilter['value']
     snapshot_source?: AnyPropertyFilter | null
-    console_logs?: FilterableLogLevel[]
     filter_test_accounts?: boolean
     operand?: FilterLogicalOperator
 }
@@ -1589,7 +1604,7 @@ export interface BillingType {
     products: BillingProductV2Type[]
 
     custom_limits_usd?: {
-        [key: string]: string | number | null | undefined
+        [key: string]: number | null
     }
     billing_period?: {
         current_period_start: Dayjs
@@ -1840,6 +1855,7 @@ export interface PluginType {
     metrics?: Record<string, StoredMetricMathOperations>
     capabilities?: Record<'jobs' | 'methods' | 'scheduled_tasks', string[] | undefined>
     public_jobs?: Record<string, JobSpec>
+    hog_function_migration_available?: boolean
 }
 
 export type AppType = PluginType
@@ -2544,7 +2560,7 @@ export interface HistogramGraphDatum {
 }
 
 // Shared between insightLogic, dashboardItemLogic, trendsLogic, funnelLogic, pathsLogic, retentionLogic
-export interface InsightLogicProps {
+export interface InsightLogicProps<T = InsightVizNode> {
     /** currently persisted insight */
     dashboardItemId?: InsightShortId | 'new' | `new-${string}` | null
     /** id of the dashboard the insight is on (when the insight is being displayed on a dashboard) **/
@@ -2556,8 +2572,8 @@ export interface InsightLogicProps {
     loadPriority?: number
     onData?: (data: Record<string, unknown> | null | undefined) => void
     /** query when used as ad-hoc insight */
-    query?: InsightVizNode
-    setQuery?: (node: InsightVizNode) => void
+    query?: T
+    setQuery?: (node: T) => void
 
     /** Used to group DataNodes into a collection for group operations like refreshAll **/
     dataNodeCollectionId?: string

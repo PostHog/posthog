@@ -1,0 +1,24 @@
+#!/bin/bash
+
+set -ex
+
+trap "trap - SIGTERM && kill -- -$$" SIGINT SIGTERM EXIT
+
+cd rust
+
+cargo build
+
+export RUST_LOG=${DEBUG:-debug}
+SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
+export RUST_LOG=$RUST_LOG,sqlx::query=$SQLX_QUERY_LEVEL
+
+export DATABASE_URL=${DATABASE_URL:-postgres://posthog:posthog@localhost:5432/posthog}
+export ALLOW_INTERNAL_IPS=${ALLOW_INTERNAL_IPS:-true}
+cd cyclotron-core
+cargo sqlx migrate run
+cd ..
+
+./target/debug/cyclotron-fetch &
+./target/debug/cyclotron-janitor &
+
+wait

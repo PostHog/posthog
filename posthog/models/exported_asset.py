@@ -48,30 +48,28 @@ class ExportedAsset(models.Model):
     SUPPORTED_FORMATS = [ExportFormat.PNG, ExportFormat.CSV, ExportFormat.XLSX]
 
     # Relations
-    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("Team", on_delete=models.CASCADE)
     dashboard = models.ForeignKey("posthog.Dashboard", on_delete=models.CASCADE, null=True)
     insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE, null=True)
 
     # Content related fields
-    export_format: models.CharField = models.CharField(max_length=100, choices=ExportFormat.choices)
-    content: models.BinaryField = models.BinaryField(null=True)
-    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
+    export_format = models.CharField(max_length=100, choices=ExportFormat.choices)
+    content = models.BinaryField(null=True)
+    created_at = models.DateTimeField(auto_now_add=True, blank=True)
     # DateTime after the created_at after which this asset should be deleted
     # ExportedAssets are *not* deleted immediately after the TTL period has passed
     # the object manager has been altered to exclude these assets
     # to allow for lazy deletes
-    expires_after: models.DateTimeField = models.DateTimeField(null=True, blank=True)
-    created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
+    expires_after = models.DateTimeField(null=True, blank=True)
+    created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     # for example holds filters for CSV exports
-    export_context: models.JSONField = models.JSONField(null=True, blank=True)
+    export_context = models.JSONField(null=True, blank=True)
     # path in object storage or some other location identifier for the asset
     # 1000 characters would hold a 20 UUID forward slash separated path with space to spare
-    content_location: models.TextField = models.TextField(null=True, blank=True, max_length=1000)
+    content_location = models.TextField(null=True, blank=True, max_length=1000)
 
     # DEPRECATED: We now use JWT for accessing assets
-    access_token: models.CharField = models.CharField(
-        max_length=400, null=True, blank=True, default=get_default_access_token
-    )
+    access_token = models.CharField(max_length=400, null=True, blank=True, default=get_default_access_token)
 
     # replace the default manager with one that filters out TTL deleted objects (before their deletion is processed)
     objects = ExportedAssetManager()
