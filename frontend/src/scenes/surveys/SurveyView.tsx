@@ -13,7 +13,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 import { useEffect, useState } from 'react'
-import { ConnectedDestinations } from 'scenes/pipeline/destinations/ConnectedDestinations'
+import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
 
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema'
@@ -399,7 +399,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                 content: (
                                     <div>
                                         <p>Get notified whenever a survey result is submitted</p>
-                                        <ConnectedDestinations
+                                        <LinkedHogFunctions
                                             filters={{
                                                 events: [
                                                     {

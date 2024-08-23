@@ -11,17 +11,17 @@ import { urls } from 'scenes/urls'
 import { HogFunctionType, PipelineNodeTab, PipelineStage } from '~/types'
 
 import { HogFunctionIcon } from '../HogFunctionIcon'
-import { hogFunctionsListLogic, HogFunctionsListLogicProps } from './hogFunctionsListLogic'
+import { hogFunctionListLogic, HogFunctionListLogicProps } from './hogFunctionListLogic'
 
-export function HogFunctionsList({
+export function HogFunctionList({
     extraControls,
     ...props
-}: HogFunctionsListLogicProps & { extraControls?: JSX.Element }): JSX.Element {
+}: HogFunctionListLogicProps & { extraControls?: JSX.Element }): JSX.Element {
     const { loading, filteredHogFunctions, filters, hogFunctions, canEnableHogFunction } = useValues(
-        hogFunctionsListLogic(props)
+        hogFunctionListLogic(props)
     )
     const { loadHogFunctions, setFilters, resetFilters, toggleEnabled, deleteHogFunction } = useActions(
-        hogFunctionsListLogic(props)
+        hogFunctionListLogic(props)
     )
 
     useEffect(() => loadHogFunctions(), [])
@@ -50,7 +50,7 @@ export function HogFunctionsList({
                 {extraControls}
             </div>
 
-            <BindLogic logic={hogFunctionsListLogic} props={props}>
+            <BindLogic logic={hogFunctionListLogic} props={props}>
                 <LemonTable
                     dataSource={filteredHogFunctions}
                     size="small"

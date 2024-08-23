@@ -26,7 +26,7 @@ import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/column
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import stringWithWBR from 'lib/utils/stringWithWBR'
-import { ConnectedDestinations } from 'scenes/pipeline/destinations/ConnectedDestinations'
+import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -119,7 +119,7 @@ export function Surveys(): JSX.Element {
             ) : tab === SurveysTabs.Notifications ? (
                 <>
                     <p>Get notified whenever a survey result is submitted</p>
-                    <ConnectedDestinations
+                    <LinkedHogFunctions
                         filters={{
                             events: [
                                 {

@@ -320,7 +320,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                                         resetToTemplate(false)
                                                     } else {
                                                         setSubTemplate(
-                                                            template.sub_templates!.find((t) => t.id === value)
+                                                            template.sub_templates!.find((t) => t.id === value) ?? null
                                                         )
                                                     }
                                                 }}

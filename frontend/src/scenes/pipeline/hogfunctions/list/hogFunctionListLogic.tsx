@@ -13,7 +13,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { HogFunctionType } from '~/types'
 
-import type { hogFunctionsListLogicType } from './hogFunctionsListLogicType'
+import type { hogFunctionListLogicType } from './hogFunctionListLogicType'
 
 // Helping kea-typegen navigate the exported default class for Fuse
 export interface Fuse extends FuseClass<HogFunctionType> {}
@@ -24,16 +24,16 @@ export type HogFunctionListFilters = {
     filters?: Record<string, any>
 }
 
-export type HogFunctionsListLogicProps = {
+export type HogFunctionListLogicProps = {
     defaultFilters?: HogFunctionListFilters
     forceFilters?: HogFunctionListFilters
     syncFiltersWithUrl?: boolean
 }
 
-export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
-    props({} as HogFunctionsListLogicProps),
+export const hogFunctionListLogic = kea<hogFunctionListLogicType>([
+    props({} as HogFunctionListLogicProps),
     key((props) => (props.syncFiltersWithUrl ? 'scene' : 'default')),
-    path((id) => ['scenes', 'pipeline', 'destinationsLogic', id]),
+    path((id) => ['scenes', 'pipeline', 'hogFunctionListLogic', id]),
     connect({
         values: [
             teamLogic,
@@ -135,7 +135,7 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
         ],
 
         filteredHogFunctions: [
-            (s) => [s.filters, s.hogFunctions, s.hogFunctionsFuse],
+            (s) => [s.filters, s.sortedHogFunctions, s.hogFunctionsFuse],
             (filters, hogFunctions, hogFunctionsFuse): HogFunctionType[] => {
                 const { search, onlyActive } = filters
 

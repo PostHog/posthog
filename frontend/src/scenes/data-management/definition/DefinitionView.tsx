@@ -15,7 +15,7 @@ import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { getFilterLabel } from 'lib/taxonomy'
 import { definitionLogic, DefinitionLogicProps } from 'scenes/data-management/definition/definitionLogic'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
-import { ConnectedDestinations } from 'scenes/pipeline/destinations/ConnectedDestinations'
+import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -206,7 +206,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                             <h2 className="flex-1 subtitle">Connected destinations</h2>
                             <p>Get notified via Slack, webhooks or more whenever this event is captured.</p>
 
-                            <ConnectedDestinations
+                            <LinkedHogFunctions
                                 filters={{
                                     events: [
                                         {

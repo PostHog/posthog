@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { actionLogic } from 'scenes/actions/actionLogic'
-import { ConnectedDestinations } from 'scenes/pipeline/destinations/ConnectedDestinations'
+import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
 
 import { HogFunctionFiltersType } from '~/types'
 
@@ -27,7 +27,7 @@ export function ActionHogFunctions(): JSX.Element | null {
             <h2 className="flex-1 subtitle">Connected destinations</h2>
             <p>Actions can be used a filters for destinations such as Slack or Webhook delivery</p>
 
-            <ConnectedDestinations filters={filters} />
+            <LinkedHogFunctions filters={filters} />
         </div>
     )
 }
