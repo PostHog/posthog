@@ -37,7 +37,7 @@ pub use config::PoolConfig;
 // to call frequently, while still being up-to-date (even though it should "never" change)
 pub const SHARD_ID_KEY: &str = "shard_id";
 
-// This isn't pub because, ideally, nothing embedded the core will ever need to know it.
+// This isn't pub because, ideally, nothing using the core will ever need to know it.
 const DEAD_LETTER_QUEUE: &str = "_cyclotron_dead_letter";
 
 #[doc(hidden)]
