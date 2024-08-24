@@ -1,3 +1,5 @@
+import { lemonToast } from '@posthog/lemon-ui'
+import { captureException } from '@sentry/react'
 import equal from 'fast-deep-equal'
 import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
@@ -359,7 +361,20 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     await breakpoint(400) // Debounce for lots of quick filter changes
 
                     const startTime = performance.now()
-                    const response = await api.recordings.list(params)
+                    let response
+
+                    try {
+                        response = await api.recordings.list(params)
+                    } catch (error: any) {
+                        captureException(error)
+                        actions.loadSessionRecordingsFailure(error.message, error)
+
+                        return {
+                            has_next: false,
+                            results: [],
+                        }
+                    }
+
                     const loadTimeMs = performance.now() - startTime
 
                     actions.reportRecordingsListFetched(loadTimeMs, values.filters, defaultRecordingDurationFilter)
@@ -578,6 +593,17 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             const recordingIndex = values.sessionRecordings.findIndex((s) => s.id === values.selectedRecordingId)
             if (recordingIndex === values.sessionRecordings.length - 1) {
                 actions.maybeLoadSessionRecordings('older')
+            }
+        },
+
+        loadSessionRecordingsFailure: ({ error, errorObject }) => {
+            if (errorObject?.data?.type === 'validation_error' && errorObject?.data?.code === 'type_mismatch') {
+                lemonToast.error(
+                    'One or more property values in your filters are in an incorrect format.' +
+                        ' Please check and adjust them to match the required data types.'
+                )
+            } else {
+                lemonToast.error(`Error loading session recordings: ${error}`)
             }
         },
     })),
