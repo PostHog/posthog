@@ -15,4 +15,7 @@ pub const STALLED_COUNT: &str = "cyclotron_janitor_stalled_jobs_reset";
 pub const STALLED_TIME: &str = "cyclotron_janitor_stalled_jobs_reset_ms";
 
 // The janitor should report some basic shard-level metrics
-pub const QUEUE_DEPTH: &str = "cyclotron_available_jobs";
+pub const AVAILABLE_DEPTH: &str = "cyclotron_available_jobs";
+pub const AVAILABLE_DEPTH_TIME: &str = "cyclotron_available_jobs_ms";
+pub const DLQ_DEPTH: &str = "cyclotron_dead_letter_queue_depth";
+pub const DLQ_DEPTH_TIME: &str = "cyclotron_dead_letter_queue_depth_ms";

@@ -1,3 +1,4 @@
+use crate::DEAD_LETTER_QUEUE;
 use chrono::Duration;
 use sqlx::PgPool;
 
@@ -63,5 +64,17 @@ impl Janitor {
 
     pub async fn waiting_jobs(&self) -> Result<u64, QueueError> {
         count_total_waiting_jobs(&self.pool).await
+    }
+
+    pub async fn count_dlq_depth(&self) -> Result<u64, QueueError> {
+        let result = sqlx::query_scalar!(
+            "SELECT COUNT(*) FROM cyclotron_jobs WHERE queue_name = $1",
+            DEAD_LETTER_QUEUE
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(QueueError::from)?;
+
+        Ok(result.unwrap_or(0) as u64)
     }
 }

@@ -84,10 +84,16 @@ impl Janitor {
         }
 
         let available = {
-            let _time = common_metrics::timing_guard(QUEUE_DEPTH, &self.metrics_labels);
+            let _time = common_metrics::timing_guard(AVAILABLE_DEPTH_TIME, &self.metrics_labels);
             self.inner.waiting_jobs().await?
         };
-        common_metrics::gauge(QUEUE_DEPTH, &self.metrics_labels, available as f64);
+        common_metrics::gauge(AVAILABLE_DEPTH, &self.metrics_labels, available as f64);
+
+        let dlq_depth = {
+            let _time = common_metrics::timing_guard(DLQ_DEPTH_TIME, &self.metrics_labels);
+            self.inner.count_dlq_depth().await?
+        };
+        common_metrics::gauge(DLQ_DEPTH, &self.metrics_labels, dlq_depth as f64);
 
         common_metrics::inc(RUN_ENDS, &self.metrics_labels, 1);
         info!("Janitor loop complete");
