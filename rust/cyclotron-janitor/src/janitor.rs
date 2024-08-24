@@ -1,8 +1,4 @@
-use cyclotron_core::{
-    delete_completed_jobs, delete_failed_jobs, delete_poison_pills, reset_stalled_jobs, QueueError,
-    SHARD_ID_KEY,
-};
-use sqlx::PgPool;
+use cyclotron_core::{QueueError, SHARD_ID_KEY};
 use tracing::{info, warn};
 
 use crate::{
@@ -20,15 +16,15 @@ pub struct CleanupResult {
 }
 
 pub struct Janitor {
-    pool: PgPool,
-    settings: JanitorSettings,
-    metrics_labels: Vec<(String, String)>,
+    pub inner: cyclotron_core::Janitor,
+    pub settings: JanitorSettings,
+    pub metrics_labels: Vec<(String, String)>,
 }
 
 impl Janitor {
     pub async fn new(config: JanitorConfig) -> Result<Self, QueueError> {
         let settings = config.settings;
-        let pool = config.pool.connect().await?;
+        let inner = cyclotron_core::Janitor::new(config.pool).await?;
 
         let metrics_labels = vec![
             ("janitor_id".to_string(), settings.id.clone()),
@@ -36,28 +32,14 @@ impl Janitor {
         ];
 
         Ok(Self {
-            pool,
+            inner,
             settings,
             metrics_labels,
         })
     }
 
-    #[doc(hidden)]
-    pub async fn from_pool(pool: PgPool, settings: JanitorSettings) -> Self {
-        let metrics_labels = vec![
-            ("janitor_id".to_string(), settings.id.clone()),
-            (SHARD_ID_KEY.to_string(), settings.shard_id.clone()),
-        ];
-
-        Self {
-            pool,
-            settings,
-            metrics_labels,
-        }
-    }
-
     pub async fn run_migrations(&self) {
-        cyclotron_core::run_migrations(&self.pool).await;
+        self.inner.run_migrations().await;
     }
 
     pub async fn run_once(&self) -> Result<CleanupResult, QueueError> {
@@ -67,24 +49,21 @@ impl Janitor {
 
         let completed = {
             let _time = common_metrics::timing_guard(COMPLETED_TIME, &self.metrics_labels);
-            delete_completed_jobs(&self.pool).await?
+            self.inner.delete_completed_jobs().await?
         };
         common_metrics::inc(COMPLETED_COUNT, &self.metrics_labels, completed);
 
         let failed = {
             let _time = common_metrics::timing_guard(FAILED_TIME, &self.metrics_labels);
-            delete_failed_jobs(&self.pool).await?
+            self.inner.delete_failed_jobs().await?
         };
         common_metrics::inc(FAILED_COUNT, &self.metrics_labels, failed);
 
         let poisoned = {
             let _time = common_metrics::timing_guard(POISONED_TIME, &self.metrics_labels);
-            delete_poison_pills(
-                &self.pool,
-                self.settings.stall_timeout,
-                self.settings.max_touches,
-            )
-            .await?
+            self.inner
+                .delete_poison_pills(self.settings.stall_timeout, self.settings.max_touches)
+                .await?
         };
         common_metrics::inc(POISONED_COUNT, &self.metrics_labels, poisoned);
 
@@ -94,7 +73,9 @@ impl Janitor {
 
         let stalled = {
             let _time = common_metrics::timing_guard(STALLED_TIME, &self.metrics_labels);
-            reset_stalled_jobs(&self.pool, self.settings.stall_timeout).await?
+            self.inner
+                .reset_stalled_jobs(self.settings.stall_timeout)
+                .await?
         };
         common_metrics::inc(STALLED_COUNT, &self.metrics_labels, stalled);
 
@@ -104,7 +85,7 @@ impl Janitor {
 
         let available = {
             let _time = common_metrics::timing_guard(QUEUE_DEPTH, &self.metrics_labels);
-            cyclotron_core::count_total_waiting_jobs(&self.pool).await?
+            self.inner.waiting_jobs().await?
         };
         common_metrics::gauge(QUEUE_DEPTH, &self.metrics_labels, available as f64);
 
