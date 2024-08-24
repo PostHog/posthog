@@ -50,7 +50,6 @@ interface InternalJobInit {
     scheduled?: Date
     vm_state?: string
     parameters?: string
-    blob?: Uint8Array
     metadata?: string
 }
 
@@ -94,7 +93,6 @@ interface InternalJob {
     vm_state: string | null
     metadata: string | null
     parameters: string | null
-    blob: Uint8Array | null
 }
 
 async function initWorker(poolConfig: PoolConfig): Promise<void> {
@@ -161,10 +159,9 @@ export async function createJob(job: JobInit): Promise<void> {
         scheduled: job.scheduled,
         vm_state: job.vmState,
         parameters: job.parameters,
-        blob: job.blob,
         metadata: job.metadata,
     }
-    return await cyclotron.createJob(JSON.stringify(jobInitInternal))
+    return await cyclotron.createJob(JSON.stringify(jobInitInternal), job.blob)
 }
 
 function convertInternalJobToJob(jobInternal: InternalJob): Job {
@@ -185,16 +182,18 @@ function convertInternalJobToJob(jobInternal: InternalJob): Job {
         vmState: jobInternal.vm_state,
         metadata: jobInternal.metadata,
         parameters: jobInternal.parameters,
-        blob: jobInternal.blob,
+        blob: new Uint8Array(), // TODO
     }
 }
 
 async function dequeueJobs(queueName: string, limit: number): Promise<Job[]> {
+    // TODO: dequeue needs to return the blob separately from the JSON string.
     const jobsStr = await cyclotron.dequeueJobs(queueName, limit)
     const jobs: InternalJob[] = JSON.parse(jobsStr)
     return jobs.map(convertInternalJobToJob)
 }
 async function dequeueJobsWithVmState(queueName: string, limit: number): Promise<Job[]> {
+    // TODO: dequeue needs to return the blob separately from the JSON string.
     const jobsStr = await cyclotron.dequeueJobsWithVmState(queueName, limit)
     const jobs: InternalJob[] = JSON.parse(jobsStr)
     return jobs.map(convertInternalJobToJob)
