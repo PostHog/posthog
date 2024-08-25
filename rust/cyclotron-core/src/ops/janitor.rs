@@ -71,7 +71,7 @@ where
     // and would be useful to report.
     let result = sqlx::query_scalar!(
         r#"
-DELETE FROM cyclotron_jobs WHERE state = 'running' AND COALESCE(last_heartbeat, $1) <= $1 AND janitor_touch_count >= $2 returning id
+SELECT id FROM cyclotron_jobs WHERE state = 'running' AND COALESCE(last_heartbeat, $1) <= $1 AND janitor_touch_count >= $2
         "#,
         oldest_valid_heartbeat,
         max_janitor_touched
