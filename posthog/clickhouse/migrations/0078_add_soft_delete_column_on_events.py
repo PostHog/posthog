@@ -9,14 +9,9 @@ ALTER TABLE {table} ON CLUSTER {cluster}
 DROP COLUMN IF EXISTS is_deleted
 """
 
-ADD_COLUMNS_SHARDED_EVENTS = """
-ALTER TABLE {table} ON CLUSTER {cluster}
-ADD COLUMN IF NOT EXISTS is_deleted Boolean
-"""
-
 ADD_COLUMNS_EVENTS = """
 ALTER TABLE {table} ON CLUSTER {cluster}
-ADD COLUMN IF NOT EXISTS is_deleted
+ADD COLUMN IF NOT EXISTS is_deleted Boolean
 """
 
 ADD_COLUMNS_INDEX_EVENTS = """
@@ -29,7 +24,7 @@ def add_columns_to_required_tables(_):
     with ch_pool.get_client() as client:
         client.execute(DROP_COLUMNS_EVENTS.format(table="sharded_events", cluster=CLICKHOUSE_CLUSTER))
         client.execute(DROP_COLUMNS_EVENTS.format(table="events", cluster=CLICKHOUSE_CLUSTER))
-        client.execute(ADD_COLUMNS_SHARDED_EVENTS.format(table="sharded_events", cluster=CLICKHOUSE_CLUSTER))
+        client.execute(ADD_COLUMNS_EVENTS.format(table="sharded_events", cluster=CLICKHOUSE_CLUSTER))
         client.execute(ADD_COLUMNS_EVENTS.format(table="events", cluster=CLICKHOUSE_CLUSTER))
         client.execute(ADD_COLUMNS_INDEX_EVENTS.format(table="sharded_events", cluster=CLICKHOUSE_CLUSTER))
 
