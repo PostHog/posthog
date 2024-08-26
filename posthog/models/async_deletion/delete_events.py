@@ -59,7 +59,13 @@ class AsyncEventDeletion(AsyncDeletionProcess):
 
             # Get estimated  byte size of the query
             str_predicate = " OR ".join(conditions)
-            query = f"DELETE FROM sharded_events ON CLUSTER '{CLICKHOUSE_CLUSTER}' WHERE {str_predicate}"
+            # We want to re-emit the events omitting everything but the important columns
+            # team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid), _timestamp, is_deleted
+            query = f"""
+            INSERT INTO posthog.events (team_id, timestamp, event, distinct_id, uuid, _timestamp, is_deleted)
+            SELECT team_id, timestamp, event, distinct_id, uuid, now(), True
+            FROM posthog.events
+            WHERE NOT is_deleted AND {str_predicate}"""
             query_size = len(query.encode("utf-8"))
 
             logger.debug(f"Query size: {query_size}")
@@ -126,7 +132,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
             f"""
             SELECT DISTINCT {distinct_columns}
             FROM events
-            WHERE {" OR ".join(conditions)}
+            WHERE NOT is_deleted AND {" OR ".join(conditions)}
             """,
             args,
             settings={"max_execution_time": MAX_SELECT_EXECUTION_TIME},
