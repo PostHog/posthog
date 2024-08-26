@@ -140,18 +140,25 @@ class AlertSerializer(serializers.ModelSerializer):
         return instance
 
     def update(self, instance, validated_data):
+        conditions_or_threshold_changed = False
+
         threshold_data = validated_data.pop("threshold", None)
         if threshold_data is not None:
             if threshold_data == {}:
                 instance.threshold = None
+                conditions_or_threshold_changed = True
             elif instance.threshold:
+                previous_threshold_configuration = instance.threshold.configuration
                 threshold_instance = instance.threshold
                 for key, value in threshold_data.items():
                     setattr(threshold_instance, key, value)
                 threshold_instance.save()
+                if previous_threshold_configuration != threshold_instance.configuration:
+                    conditions_or_threshold_changed = True
             else:
                 threshold_instance = self.add_threshold(threshold_data, validated_data)
                 validated_data["threshold"] = threshold_instance
+                conditions_or_threshold_changed = True
 
         subscribed_users = validated_data.pop("subscribed_users", None)
         if subscribed_users is not None:
@@ -160,6 +167,10 @@ class AlertSerializer(serializers.ModelSerializer):
                 AlertSubscription.objects.get_or_create(
                     user=user, alert_configuration=instance, defaults={"created_by": self.context["request"].user}
                 )
+
+        if conditions_or_threshold_changed:
+            # If anything changed we set inactive, so it's firing and notifying with the new settings
+            instance.state = "inactive"
 
         return super().update(instance, validated_data)
 

@@ -168,6 +168,18 @@ class TestCheckAlertsTasks(APIBaseTest, ClickhouseDestroyTablesMixin):
         assert mock_send_notifications.call_count == 1
         assert AlertConfiguration.objects.get(pk=self.alert["id"]).state == "inactive"
 
+    def test_alert_is_set_to_inactive_when_threshold_changes(self, mock_send_notifications: MagicMock) -> None:
+        self.set_thresholds(lower=1)
+
+        check_alert(self.alert["id"])
+
+        assert mock_send_notifications.call_count == 1
+        assert AlertCheck.objects.filter(alert_configuration=self.alert["id"]).latest("created_at").state == "firing"
+
+        self.set_thresholds(lower=2)
+
+        assert AlertConfiguration.objects.get(pk=self.alert["id"]).state == "inactive"
+
     def test_alert_is_not_triggered_for_normal_values(self, mock_send_notifications: MagicMock) -> None:
         self.set_thresholds(lower=0, upper=1)
 
@@ -192,7 +204,8 @@ class TestCheckAlertsTasks(APIBaseTest, ClickhouseDestroyTablesMixin):
             }
         )[1]
 
-        self.client.patch(f"/api/projects/{self.team.id}/alerts/{self.alert['id']}", data={"insight": insight["id"]})
+        # Change with ORM to bypass API validation
+        AlertConfiguration.objects.filter(pk=self.alert["id"]).update(insight=insight["id"])
 
         check_alert(self.alert["id"])
         assert mock_send_notifications.call_count == 0
