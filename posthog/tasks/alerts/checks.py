@@ -1,10 +1,10 @@
+from datetime import datetime, timedelta, UTC
 from typing import Optional
 
 from celery import shared_task
-from celery.canvas import group, chain
+from celery.canvas import chain
 from django.db import transaction
 from django.utils import timezone
-import math
 import structlog
 from sentry_sdk import capture_exception
 
@@ -15,7 +15,7 @@ from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import (
     conversion_to_query_based,
 )
-from posthog.models import AlertConfiguration
+from posthog.models import AlertConfiguration, Team
 from posthog.models.alert import AlertCheck
 from posthog.tasks.utils import CeleryQueue
 
@@ -23,20 +23,19 @@ logger = structlog.get_logger(__name__)
 
 
 def check_all_alerts() -> None:
-    alert_ids = list(AlertConfiguration.objects.filter(enabled=True).values_list("id", flat=True))
+    # TODO: Consider aligning insight calculation with cache warming of insights, see warming.py
+    # Currently it's implicitly aligned by alerts obviously also using cache if available
 
-    group_count = 10
-    # All groups but the last one will have a group_size size.
-    # The last group will have at most group_size size.
-    group_size = int(math.ceil(len(alert_ids) / group_count))
+    # Use a fixed expiration time since tasks in the chain are executed sequentially
+    expire_after = datetime.now(UTC) + timedelta(minutes=30)
 
-    groups = []
-    for i in range(0, len(alert_ids), group_size):
-        alert_id_group = alert_ids[i : i + group_size]
-        chained_calls = chain([check_alert_task.si(alert_id) for alert_id in alert_id_group])
-        groups.append(chained_calls)
+    teams = Team.objects.filter(alertconfiguration__isnull=False).distinct()
 
-    group(groups).apply_async()
+    for team in teams:
+        alert_ids = list(AlertConfiguration.objects.filter(team=team, enabled=True).values_list("id", flat=True))
+
+        # We chain the task execution to prevent queries *for a single team* running at the same time
+        chain(*(check_alert_task.si(alert_id).set(expires=expire_after) for alert_id in alert_ids))()
 
 
 @transaction.atomic
@@ -94,7 +93,7 @@ def check_all_alerts_task() -> None:
 
 @shared_task(
     ignore_result=True,
-    queue=CeleryQueue.LONG_RUNNING.value,
+    queue=CeleryQueue.ANALYTICS_LIMITED.value,  # Important! Prevents Clickhouse from being overwhelmed
     autoretry_for=(CHQueryErrorTooManySimultaneousQueries,),
     retry_backoff=1,
     retry_backoff_max=10,
