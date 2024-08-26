@@ -625,7 +625,8 @@ class _Printer(Visitor):
             property_type: ast.PropertyType | None = None
             constant_expr: ast.Constant | None = None
 
-            # XXX: This needs to handle aliasing for the constant operand, probably?
+            # TODO: This doesn't resolve aliases for the constant operand, so this does not comprehensively cover all
+            # optimizable expressions, but that case seems uncommon enough to avoid for now.
             if isinstance(node.right, ast.Constant):
                 left_type = resolve_field_type(node.left)
                 if isinstance(left_type, ast.PropertyType):
@@ -714,7 +715,10 @@ class _Printer(Visitor):
                     printed_expr = "0"
                 return printed_expr
             else:
-                return None  # XXX: what about aliases?
+                # TODO: Alias types are not resolved here (similarly to equality operations above) so some expressions
+                # are not optimized that possibly could be if we took that additional step to determine whether or not
+                # they are references to Constant types.
+                return None
 
         return None  # nothing to optimize
 
