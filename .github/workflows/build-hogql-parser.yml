@@ -23,7 +23,7 @@ jobs:
 
             - name: Check if hogql_parser/ has changed
               id: changed-files
-              uses: tj-actions/changed-files@v43
+              uses: tj-actions/changed-files@v45
               with:
                   since_last_remote_commit: true
                   files_yaml: |
