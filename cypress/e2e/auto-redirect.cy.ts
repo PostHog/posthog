@@ -1,9 +1,8 @@
+import { auth } from '../productAnalytics'
+
 describe('Redirect to other subdomain if logged in', () => {
-    beforeEach(() => {
-        cy.clearAllCookies()
-    })
     it('Redirects to the EU instance', () => {
-        cy.visit('/logout')
+        auth.logout()
 
         const redirect_path = '/test'
 
@@ -23,7 +22,7 @@ describe('Redirect to other subdomain if logged in', () => {
     })
 
     it('Redirects to the US instance', () => {
-        cy.visit('/logout')
+        auth.logout()
 
         const redirect_path = '/test'
 
