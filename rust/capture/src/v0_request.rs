@@ -463,7 +463,7 @@ mod tests {
     }
 
     #[test]
-    fn test_empty_string_is_none() {
+    fn test_empty_uuid_string_is_none() {
         let json = serde_json::json!({"uuid": ""});
         let result = test_deserialize(json);
         assert!(result.is_ok());
