@@ -374,7 +374,7 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
 
 function SavedInsightsGrid(): JSX.Element {
     const { loadInsights, renameInsight, duplicateInsight } = useActions(savedInsightsLogic)
-    const { insights, insightsLoading, pagination, queryBasedInsightSaving } = useValues(savedInsightsLogic)
+    const { insights, insightsLoading, pagination } = useValues(savedInsightsLogic)
     const { currentTeamId } = useValues(teamLogic)
 
     const paginationState = usePagination(insights?.results || [], pagination)
@@ -394,9 +394,6 @@ function SavedInsightsGrid(): JSX.Element {
                                     object: insight,
                                     endpoint: `projects/${currentTeamId}/insights`,
                                     callback: loadInsights,
-                                    options: {
-                                        writeAsQuery: queryBasedInsightSaving,
-                                    },
                                 })
                             }
                             placement="SavedInsightGrid"
@@ -418,8 +415,7 @@ function SavedInsightsGrid(): JSX.Element {
 export function SavedInsights(): JSX.Element {
     const { loadInsights, updateFavoritedInsight, renameInsight, duplicateInsight, setSavedInsightsFilters } =
         useActions(savedInsightsLogic)
-    const { insights, count, insightsLoading, filters, sorting, pagination, queryBasedInsightSaving } =
-        useValues(savedInsightsLogic)
+    const { insights, count, insightsLoading, filters, sorting, pagination } = useValues(savedInsightsLogic)
     const { hasTagging } = useValues(organizationLogic)
     const { currentTeamId } = useValues(teamLogic)
     const summarizeInsight = useSummarizeInsight()
@@ -541,9 +537,6 @@ export function SavedInsights(): JSX.Element {
                                             object: insight,
                                             endpoint: `projects/${currentTeamId}/insights`,
                                             callback: loadInsights,
-                                            options: {
-                                                writeAsQuery: queryBasedInsightSaving,
-                                            },
                                         })
                                     }
                                     data-attr={`insight-item-${insight.short_id}-dropdown-remove`}

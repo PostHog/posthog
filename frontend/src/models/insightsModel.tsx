@@ -1,9 +1,7 @@
 import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
-import { actions, connect, kea, listeners, path, selectors } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { actions, connect, kea, listeners, path } from 'kea'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -13,7 +11,7 @@ import type { insightsModelType } from './insightsModelType'
 
 export const insightsModel = kea<insightsModelType>([
     path(['models', 'insightsModel']),
-    connect({ values: [featureFlagLogic, ['featureFlags']], logic: [teamLogic] }),
+    connect({ logic: [teamLogic] }),
     actions(() => ({
         renameInsight: (item: QueryBasedInsightModel) => ({ item }),
         renameInsightSuccess: (item: QueryBasedInsightModel) => ({ item }),
@@ -25,13 +23,7 @@ export const insightsModel = kea<insightsModelType>([
             insightIds,
         }),
     })),
-    selectors({
-        queryBasedInsightSaving: [
-            (s) => [s.featureFlags],
-            (featureFlags) => !!featureFlags[FEATURE_FLAGS.QUERY_BASED_INSIGHTS_SAVING],
-        ],
-    }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions }) => ({
         renameInsight: async ({ item }) => {
             LemonDialog.openForm({
                 title: 'Rename insight',
@@ -45,11 +37,7 @@ export const insightsModel = kea<insightsModelType>([
                     insightName: (name) => (!name ? 'You must enter a name' : undefined),
                 },
                 onSubmit: async ({ insightName }) => {
-                    const updatedItem = await insightsApi.update(
-                        item.id,
-                        { name: insightName },
-                        { writeAsQuery: values.queryBasedInsightSaving }
-                    )
+                    const updatedItem = await insightsApi.update(item.id, { name: insightName })
                     lemonToast.success(
                         <>
                             Renamed insight from <b>{item.name}</b> to <b>{insightName}</b>
@@ -60,9 +48,7 @@ export const insightsModel = kea<insightsModelType>([
             })
         },
         duplicateInsight: async ({ item }) => {
-            const addedItem = await insightsApi.duplicate(item, {
-                writeAsQuery: values.queryBasedInsightSaving,
-            })
+            const addedItem = await insightsApi.duplicate(item)
 
             actions.duplicateInsightSuccess(addedItem)
             lemonToast.success('Insight duplicated')
