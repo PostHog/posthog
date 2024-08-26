@@ -31,22 +31,23 @@ class HogFunctionState(enum.Enum):
 
 
 class HogFunction(UUIDModel):
-    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
-    name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
-    description: models.TextField = models.TextField(blank=True, default="")
-    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
-    created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
-    deleted: models.BooleanField = models.BooleanField(default=False)
-    updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
-    enabled: models.BooleanField = models.BooleanField(default=False)
+    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    name = models.CharField(max_length=400, null=True, blank=True)
+    description = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True, blank=True)
+    created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
+    deleted = models.BooleanField(default=False)
+    updated_at = models.DateTimeField(auto_now=True)
+    enabled = models.BooleanField(default=False)
 
-    icon_url: models.TextField = models.TextField(null=True, blank=True)
-    hog: models.TextField = models.TextField()
-    bytecode: models.JSONField = models.JSONField(null=True, blank=True)
-    inputs_schema: models.JSONField = models.JSONField(null=True)
-    inputs: models.JSONField = models.JSONField(null=True)
-    filters: models.JSONField = models.JSONField(null=True, blank=True)
-    template_id: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    icon_url = models.TextField(null=True, blank=True)
+    hog = models.TextField()
+    bytecode = models.JSONField(null=True, blank=True)
+    inputs_schema = models.JSONField(null=True)
+    inputs = models.JSONField(null=True)
+    filters = models.JSONField(null=True, blank=True)
+    masking = models.JSONField(null=True, blank=True)
+    template_id = models.CharField(max_length=400, null=True, blank=True)
 
     @property
     def template(self) -> Optional[HogFunctionTemplate]:
@@ -104,7 +105,7 @@ class HogFunction(UUIDModel):
         return super().save(*args, **kwargs)
 
     def __str__(self):
-        return self.name
+        return f"HogFunction {self.id}: {self.name}"
 
 
 @receiver(post_save, sender=HogFunction)

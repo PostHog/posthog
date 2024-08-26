@@ -38,12 +38,6 @@ jobs:
             - name: Set up Depot CLI
               uses: depot/setup-action@v1
 
-            - name: Login to DockerHub
-              uses: docker/login-action@v2
-              with:
-                  username: posthog
-                  password: ${{ secrets.DOCKERHUB_TOKEN }}
-
             - name: Login to ghcr.io
               uses: docker/login-action@v2
               with:
@@ -75,7 +69,7 @@ jobs:
               uses: depot/build-push-action@v1
               with:
                   context: ./rust/
-                  file: ./rust/Dockerfile.migrate
+                  file: ./rust/Dockerfile.migrate-hooks
                   push: true
                   tags: ${{ steps.meta.outputs.tags }}
                   labels: ${{ steps.meta.outputs.labels }}

@@ -6,7 +6,6 @@ import datetime as dt
 import gzip
 import hashlib
 import json
-from operator import itemgetter
 import os
 import re
 import secrets
@@ -14,18 +13,14 @@ import string
 import time
 import uuid
 import zlib
+from collections.abc import Generator, Mapping
 from enum import Enum
 from functools import lru_cache, wraps
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Optional,
-    Union,
-    cast,
-)
-from collections.abc import Generator, Mapping
+from operator import itemgetter
+from typing import TYPE_CHECKING, Any, Optional, Union, cast
 from urllib.parse import unquote, urljoin, urlparse
 from zoneinfo import ZoneInfo
+from rest_framework import serializers
 
 import lzstring
 import posthoganalytics
@@ -49,7 +44,10 @@ from sentry_sdk.api import capture_exception
 
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
-from posthog.exceptions import UnspecifiedCompressionFallbackParsingError, RequestParsingError
+from posthog.exceptions import (
+    RequestParsingError,
+    UnspecifiedCompressionFallbackParsingError,
+)
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.metrics import KLUDGES_COUNTER
 from posthog.redis import get_client
@@ -70,7 +68,6 @@ ANONYMOUS_REGEX = r"^([a-z0-9]+\-){4}([a-z0-9]+)$"
 UUID_REGEX = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 
 DEFAULT_DATE_FROM_DAYS = 7
-
 
 logger = structlog.get_logger(__name__)
 
@@ -315,7 +312,7 @@ def render_template(
     if settings.E2E_TESTING:
         context["e2e_testing"] = True
         context["js_posthog_api_key"] = "'phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO'"
-        context["js_posthog_host"] = "'https://internal-e.posthog.com'"
+        context["js_posthog_host"] = "'https://internal-t.posthog.com'"
         context["js_posthog_ui_host"] = "'https://us.posthog.com'"
 
     elif settings.SELF_CAPTURE:
@@ -326,7 +323,7 @@ def render_template(
             context["js_posthog_host"] = "window.location.origin"
     else:
         context["js_posthog_api_key"] = "'sTMFPsFhdP1Ssg'"
-        context["js_posthog_host"] = "'https://internal-e.posthog.com'"
+        context["js_posthog_host"] = "'https://internal-t.posthog.com'"
         context["js_posthog_ui_host"] = "'https://us.posthog.com'"
 
     context["js_capture_time_to_see_data"] = settings.CAPTURE_TIME_TO_SEE_DATA
@@ -608,6 +605,9 @@ def base64_decode(data):
     if data.startswith(b"data="):
         data = unquote(data.decode("ascii")).split("=", 1)[1]
         data = data.encode("ascii")
+    else:
+        # If it's not starting with 'data=', it might be just URL-encoded,
+        data = unquote(data.decode("ascii")).encode("ascii")
 
     # Remove any whitespace and add padding if necessary
     data = data.replace(b" ", b"")
@@ -1040,6 +1040,18 @@ def refresh_requested_by_client(request: Request) -> bool | str:
 
 def cache_requested_by_client(request: Request) -> bool | str:
     return _request_has_key_set("use_cache", request)
+
+
+def filters_override_requested_by_client(request: Request) -> Optional[dict]:
+    raw_filters = request.query_params.get("filters_override")
+
+    if raw_filters is not None:
+        try:
+            return json.loads(raw_filters)
+        except Exception:
+            raise serializers.ValidationError({"filters_override": "Invalid JSON passed in filters_override parameter"})
+
+    return None
 
 
 def _request_has_key_set(key: str, request: Request, allowed_values: Optional[list[str]] = None) -> bool | str:

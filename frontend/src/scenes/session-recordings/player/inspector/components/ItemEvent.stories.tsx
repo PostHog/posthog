@@ -165,3 +165,41 @@ WebVitalsEvent.args = {
         }
     ),
 }
+
+export const GroupIdentifyEvent: Story = BasicTemplate.bind({})
+GroupIdentifyEvent.args = {
+    item: makeItem(
+        {},
+        { event: '$groupidentify' },
+        {
+            $os: 'Mac OS X',
+            $os_version: '10.15.7',
+            $browser: 'Chrome',
+            $device_type: 'Desktop',
+            $current_url: 'https://us.posthog.com/project/2/insights/new',
+            $host: 'us.posthog.com',
+            $pathname: '/project/2/insights/new',
+            $initial_person_info: {
+                r: '$direct',
+                u: 'https://us.posthog.com/project/2',
+            },
+            $groups: {
+                project: 'fc445b88-e2c4-488e-bb52-aa80cd7918c9',
+                organization: '4dc8564d-bd82-1065-2f40-97f7c50f67cf',
+                customer: 'cus_IK2DWsWVn2ZM16',
+                instance: 'https://us.posthog.com',
+            },
+            $group_type: 'instance',
+            $group_key: 'https://us.posthog.com',
+            $group_set: {
+                site_url: 'https://us.posthog.com',
+            },
+            $session_id: '01917043-b2a1-7c2e-a57e-6db514bde084',
+            $window_id: '01917043-b2a1-7c2e-a57e-6db6676bb4a1',
+            $group_2: 'fc445b88-e2c4-488e-bb52-aa80cd7918c9',
+            $group_0: '4dc8564d-bd82-1065-2f40-97f7c50f67cf',
+            $group_3: 'cus_IK2DWsWVn2ZM16',
+            $group_1: 'https://us.posthog.com',
+        }
+    ),
+}

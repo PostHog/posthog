@@ -71,6 +71,10 @@ services:
             SENTRY_DSN: $SENTRY_DSN
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
+            OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
+            OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
+            OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
+            OBJECT_STORAGE_ENABLED: true
         image: $REGISTRY_URL:$POSTHOG_APP_TAG
     web:
         extends:
@@ -84,6 +88,8 @@ services:
             SENTRY_DSN: $SENTRY_DSN
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
+            OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
+            OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
             OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
             OBJECT_STORAGE_ENABLED: true
         depends_on:
@@ -102,6 +108,10 @@ services:
             SENTRY_DSN: $SENTRY_DSN
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
+            OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
+            OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
+            OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
+            OBJECT_STORAGE_ENABLED: true
         depends_on:
             - db
             - redis

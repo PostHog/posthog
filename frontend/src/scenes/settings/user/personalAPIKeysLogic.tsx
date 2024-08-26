@@ -13,6 +13,8 @@ import { OrganizationBasicType, PersonalAPIKeyType, TeamBasicType } from '~/type
 
 import type { personalAPIKeysLogicType } from './personalAPIKeysLogicType'
 
+export const MAX_API_KEYS_PER_USER = 10 // Same as in posthog/api/personal_api_key.py
+
 export const API_KEY_SCOPE_PRESETS = [
     { value: 'local_evaluation', label: 'Local feature flag evaluation', scopes: ['feature_flag:read'] },
     {

@@ -106,3 +106,10 @@ export function versionToString(version: SemanticVersion): string {
     }
     return versionPart
 }
+
+export function createVersionChecker(requiredVersion: string | SemanticVersion) {
+    return (version: string | SemanticVersion): boolean => {
+        const diff = diffVersions(version, requiredVersion)
+        return !diff || diff.diff > 0
+    }
+}

@@ -64,7 +64,7 @@ import {
 
 import { cleanEntityProperties, cleanGlobalProperties } from './cleanProperties'
 
-const reverseInsightMap: Record<
+const insightTypeToNodeKind: Record<
     Exclude<InsightType, InsightType.JSON | InsightType.SQL | InsightType.HOG>,
     InsightNodeKind
 > = {
@@ -279,7 +279,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
     }
 
     const query: InsightsQueryBase<AnalyticsQueryResponseBase<unknown>> = {
-        kind: reverseInsightMap[filters.insight],
+        kind: insightTypeToNodeKind[filters.insight],
         properties: cleanGlobalProperties(filters.properties),
         filterTestAccounts: filters.filter_test_accounts,
     }
@@ -445,6 +445,7 @@ export const retentionFilterToQuery = (filters: Partial<RetentionFilterType>): R
         targetEntity: sanitizeRetentionEntity(filters.target_entity),
         period: filters.period,
         showMean: filters.show_mean,
+        cumulative: filters.cumulative,
     })
     // TODO: query.aggregation_group_type_index
 }

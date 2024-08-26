@@ -335,21 +335,6 @@
         }
     }
 
-    .ant-tooltip & {
-        // Buttons have an overriden style in tooltips, as they are always dark
-        &:hover {
-            background: rgb(255 255 255 / 15%) !important;
-        }
-
-        &:active {
-            background: rgb(255 255 255 / 20%) !important;
-        }
-
-        .LemonButton__icon {
-            color: #fff !important;
-        }
-    }
-
     @include shared-variables;
     @include size-variables;
 }

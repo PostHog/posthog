@@ -1,7 +1,9 @@
 import { IconLock } from '@posthog/icons'
 import { IconPencil } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
+    LemonDialog,
     LemonFileInput,
     LemonInput,
     LemonSelect,
@@ -15,20 +17,17 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 import React from 'react'
 import { useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
-import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { getConfigSchemaArray, isValidField } from 'scenes/pipeline/configUtils'
 import { SECRET_FIELD_VALUE } from 'scenes/pipeline/configUtils'
 
-import { EntityTypes, PipelineStage } from '~/types'
+import { PipelineStage } from '~/types'
 
 import { pipelinePluginConfigurationLogic } from './pipelinePluginConfigurationLogic'
 import { RenderApp } from './utils'
@@ -54,9 +53,10 @@ export function PipelinePluginConfiguration({
         requiredFields,
         loading,
         configurationChanged,
-        pluginFilteringEnabled,
     } = useValues(logic)
-    const { submitConfiguration, resetConfiguration } = useActions(logic)
+    const { submitConfiguration, resetConfiguration, migrateToHogFunction } = useActions(logic)
+
+    const hasHogFunctions = useFeatureFlag('HOG_FUNCTIONS')
 
     if (!stage) {
         return <NotFound object="pipeline stage" />
@@ -138,6 +138,35 @@ export function PipelinePluginConfiguration({
     return (
         <div className="space-y-3">
             <PageHeader buttons={buttons} />
+
+            {hasHogFunctions && plugin?.hog_function_migration_available && (
+                <LemonBanner
+                    type="error"
+                    action={{
+                        children: 'Upgrade to new version',
+                        onClick: () =>
+                            LemonDialog.open({
+                                title: 'Upgrade destination',
+                                width: '30rem',
+                                description:
+                                    'This will create a new Destination in the upgraded system. The old destination will be disabled and can later be deleted. In addition there may be slight differences in the configuration options that you can choose to modify.',
+                                secondaryButton: {
+                                    type: 'secondary',
+                                    children: 'Cancel',
+                                },
+                                primaryButton: {
+                                    type: 'primary',
+                                    onClick: () => migrateToHogFunction(),
+                                    children: 'Upgrade',
+                                },
+                            }),
+                        disabled: loading,
+                    }}
+                >
+                    <b>New version available!</b> This destination is part of our legacy system. Click to upgrade.
+                </LemonBanner>
+            )}
+
             <Form
                 logic={pipelinePluginConfigurationLogic}
                 props={logicProps}
@@ -188,59 +217,7 @@ export function PipelinePluginConfiguration({
                             >
                                 <LemonTextArea disabled={loadingOrSubmitting} />
                             </LemonField>
-                        </div>
-
-                        {pluginFilteringEnabled ? (
-                            <div className="border bg-bg-light rounded p-3 space-y-2">
-                                <LemonField name="filters" label="Filters by events and actions">
-                                    {({ value, onChange }) => (
-                                        <>
-                                            <TestAccountFilterSwitch
-                                                checked={value?.filter_test_accounts ?? false}
-                                                onChange={(val) => onChange({ ...value, filter_test_accounts: val })}
-                                                fullWidth
-                                            />
-                                            <ActionFilter
-                                                bordered
-                                                filters={value ?? {}}
-                                                setFilters={(payload) => {
-                                                    onChange({
-                                                        ...payload,
-                                                        filter_test_accounts: value?.filter_test_accounts,
-                                                    })
-                                                }}
-                                                typeKey="plugin-filters"
-                                                mathAvailability={MathAvailability.None}
-                                                hideRename
-                                                hideDuplicate
-                                                showNestedArrow={false}
-                                                actionsTaxonomicGroupTypes={[
-                                                    TaxonomicFilterGroupType.Events,
-                                                    TaxonomicFilterGroupType.Actions,
-                                                ]}
-                                                propertiesTaxonomicGroupTypes={[
-                                                    TaxonomicFilterGroupType.EventProperties,
-                                                    TaxonomicFilterGroupType.EventFeatureFlags,
-                                                    TaxonomicFilterGroupType.Elements,
-                                                    TaxonomicFilterGroupType.PersonProperties,
-                                                ]}
-                                                propertyFiltersPopover
-                                                addFilterDefaultOptions={{
-                                                    id: '$pageview',
-                                                    name: '$pageview',
-                                                    type: EntityTypes.EVENTS,
-                                                }}
-                                                buttonCopy="Add event filter"
-                                            />
-                                        </>
-                                    )}
-                                </LemonField>
-
-                                <p className="italic text-muted-alt">
-                                    This destination will be triggered if <b>any of</b> the above filters match.
-                                </p>
-                            </div>
-                        ) : null}
+                        </div>{' '}
                     </div>
 
                     <div className="flex-2 min-w-100 space-y-4">

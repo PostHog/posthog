@@ -43,12 +43,6 @@ jobs:
             - name: Set up Depot CLI
               uses: depot/setup-action@v1
 
-            - name: Login to DockerHub
-              uses: docker/login-action@v3
-              with:
-                  username: posthog
-                  password: ${{ secrets.DOCKERHUB_TOKEN }}
-
             - name: Configure AWS credentials
               uses: aws-actions/configure-aws-credentials@v4
               with:
@@ -59,6 +53,12 @@ jobs:
             - name: Login to Amazon ECR
               id: aws-ecr
               uses: aws-actions/amazon-ecr-login@v2
+
+            - name: Login to DockerHub
+              uses: docker/login-action@v2
+              with:
+                  username: posthog
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             - name: Build and push container image
               id: build

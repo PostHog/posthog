@@ -23,11 +23,11 @@ use hook_common::{
     webhook::{HttpMethod, WebhookJobError, WebhookJobParameters},
 };
 
-use crate::dns::{NoPublicIPv4Error, PublicIPv4Resolver};
 use crate::error::{
     is_error_source, WebhookError, WebhookParseError, WebhookRequestError, WorkerError,
 };
 use crate::util::first_n_bytes_of_response;
+use common_dns::{NoPublicIPv4Error, PublicIPv4Resolver};
 
 // TODO: Either make this configurable or adjust it once we don't produce results to Kafka, where
 // our size limit is relatively low.
@@ -588,7 +588,10 @@ async fn process_webhook_job<W: WebhookJob>(
 
             match request_error {
                 WebhookRequestError::RetryableRequestError {
-                    error, retry_after, ..
+                    error,
+                    retry_after,
+                    response, // Grab the response so we can send it back to hog for debug
+                    ..
                 } => {
                     let retry_interval =
                         retry_policy.retry_interval(webhook_job.attempt() as u32, retry_after);
@@ -623,7 +626,7 @@ async fn process_webhook_job<W: WebhookJob>(
                                 Some(status) => Ok(WebhookResult::BadResponse(WebhookResponse {
                                     duration: now.elapsed(),
                                     status_code: status,
-                                    body: None,
+                                    body: response,
                                 })),
                                 None => Ok(WebhookResult::Error(error.to_string())),
                             }
@@ -634,7 +637,9 @@ async fn process_webhook_job<W: WebhookJob>(
                         }
                     }
                 }
-                WebhookRequestError::NonRetryableRetryableRequestError { error, .. } => {
+                WebhookRequestError::NonRetryableRetryableRequestError {
+                    error, response, ..
+                } => {
                     webhook_job
                         .fail(webhook_job_error)
                         .await
@@ -649,7 +654,7 @@ async fn process_webhook_job<W: WebhookJob>(
                         Some(status) => Ok(WebhookResult::BadResponse(WebhookResponse {
                             duration: now.elapsed(),
                             status_code: status,
-                            body: None,
+                            body: response,
                         })),
                         None => Ok(WebhookResult::Error(error.to_string())),
                     }
@@ -1021,7 +1026,7 @@ mod tests {
             .unwrap()
             .as_array()
             .unwrap()
-            .get(0)
+            .first()
             .unwrap();
         first_timing
             .get("duration_ms")
@@ -1126,7 +1131,7 @@ mod tests {
         let received_response = async_function_response.get("response").unwrap();
         assert_eq!(
             json!({
-                "body": None::<String>, // TODO: We should still return the response.
+                "body": Some("{\"message\": \"bad response\"}"),
                 "status": 500
             }),
             *received_response
@@ -1137,7 +1142,7 @@ mod tests {
             .unwrap()
             .as_array()
             .unwrap()
-            .get(0)
+            .first()
             .unwrap();
         first_timing
             .get("duration_ms")
@@ -1250,8 +1255,7 @@ mod tests {
 
         let err = send_webhook(localhost_client(), &method, url, &headers, body.to_owned())
             .await
-            .err()
-            .expect("request didn't fail when it should have failed");
+            .expect_err("request didn't fail when it should have failed");
 
         assert!(matches!(err, WebhookError::Request(..)));
         if let WebhookError::Request(request_error) = err {
@@ -1276,8 +1280,7 @@ mod tests {
 
         let err = send_webhook(localhost_client(), &method, url, &headers, body.to_owned())
             .await
-            .err()
-            .expect("request didn't fail when it should have failed");
+            .expect_err("request didn't fail when it should have failed");
 
         assert!(matches!(err, WebhookError::Request(..)));
         if let WebhookError::Request(request_error) = err {
@@ -1304,8 +1307,7 @@ mod tests {
 
         let err = send_webhook(filtering_client, &method, url, &headers, body.to_owned())
             .await
-            .err()
-            .expect("request didn't fail when it should have failed");
+            .expect_err("request didn't fail when it should have failed");
 
         assert!(matches!(err, WebhookError::Request(..)));
         if let WebhookError::Request(request_error) = err {

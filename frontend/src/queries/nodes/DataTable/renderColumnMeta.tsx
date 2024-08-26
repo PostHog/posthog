@@ -14,14 +14,15 @@ export interface ColumnMeta {
     align?: 'left' | 'right' | 'center'
 }
 
-export function renderColumnMeta(key: string, query: DataTableNode, context?: QueryContext): ColumnMeta {
+export function renderColumnMeta(key: string, query: DataTableNode, context?: QueryContext<DataTableNode>): ColumnMeta {
     let width: string | number | undefined
     let title: JSX.Element | string | undefined
     const queryFeatures = getQueryFeatures(query.source)
     let align: ColumnMeta['align']
 
     const queryContextColumnName = key.startsWith('context.columns.') ? trimQuotes(key.substring(16)) : undefined
-    const queryContextColumn = queryContextColumnName ? context?.columns?.[queryContextColumnName] : undefined
+    const queryContextColumn =
+        (queryContextColumnName ? context?.columns?.[queryContextColumnName] : undefined) ?? context?.columns?.[key]
 
     if (queryContextColumnName && queryContextColumn && (queryContextColumn.title || queryContextColumn.renderTitle)) {
         const Component = queryContextColumn.renderTitle

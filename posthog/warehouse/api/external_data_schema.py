@@ -6,7 +6,7 @@ from posthog.warehouse.models import ExternalDataSchema, ExternalDataJob
 from typing import Optional, Any
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from rest_framework import viewsets, filters, status
-from rest_framework.decorators import action
+from posthog.api.utils import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -21,7 +21,6 @@ from posthog.warehouse.data_load.service import (
     trigger_external_data_workflow,
     unpause_external_data_schedule,
     cancel_external_data_workflow,
-    delete_data_import_folder,
 )
 from posthog.warehouse.models.external_data_schema import (
     filter_mysql_incremental_fields,
@@ -198,7 +197,16 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
         return context
 
     def safely_get_queryset(self, queryset):
-        return queryset.prefetch_related("created_by").order_by(self.ordering)
+        return queryset.exclude(deleted=True).prefetch_related("created_by").order_by(self.ordering)
+
+    def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance: ExternalDataSchema = self.get_object()
+
+        if instance.table:
+            instance.table.soft_delete()
+        instance.soft_delete()
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(methods=["POST"], detail=True)
     def reload(self, request: Request, *args: Any, **kwargs: Any):
@@ -242,17 +250,9 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
         if latest_running_job and latest_running_job.workflow_id and latest_running_job.status == "Running":
             cancel_external_data_workflow(latest_running_job.workflow_id)
 
-        all_jobs = ExternalDataJob.objects.filter(
-            schema_id=instance.pk, team_id=instance.team_id, status="Completed"
-        ).all()
-
-        # Unnecessary to iterate for incremental jobs since they'll all by identified by the schema_id. Be over eager just to clear remnants
-        for job in all_jobs:
-            try:
-                delete_data_import_folder(job.folder_path())
-            except Exception as e:
-                logger.exception(f"Could not clean up data import folder: {job.folder_path()}", exc_info=e)
-                pass
+        source: ExternalDataSource = instance.source
+        source.job_inputs.update({"reset_pipeline": True})
+        source.save()
 
         try:
             trigger_external_data_workflow(instance)

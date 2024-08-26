@@ -22,9 +22,9 @@ export enum YSeriesSettingsTab {
 
 export const ySeriesLogic = kea<ySeriesLogicType>([
     path(['queries', 'nodes', 'DataVisualization', 'Components', 'ySeriesLogic']),
-    key((props) => props.series?.column?.name ?? `new-${props.seriesIndex}`),
+    key((props) => `${props.series?.column?.name ?? 'new'}-${props.seriesIndex ?? 0}`),
     connect((props: YSeriesLogicProps) => ({
-        actions: [dataVisualizationLogic(props.dataVisualizationProps), ['updateYSeries']],
+        actions: [dataVisualizationLogic(props.dataVisualizationProps), ['updateSeriesIndex']],
     })),
     props({ series: EmptyYAxisSeries } as YSeriesLogicProps),
     actions({
@@ -59,16 +59,15 @@ export const ySeriesLogic = kea<ySeriesLogicType>([
                 prefix: props.series?.settings?.formatting?.prefix ?? '',
                 suffix: props.series?.settings?.formatting?.suffix ?? '',
                 style: props.series?.settings?.formatting?.style ?? 'none',
-                decimalPlaces: props.series?.settings?.formatting?.decimalPlaces ?? '',
+                decimalPlaces: props.series?.settings?.formatting?.decimalPlaces,
             },
             submit: async (format) => {
-                actions.updateYSeries(props.seriesIndex, props.series.column.name, {
+                actions.updateSeriesIndex(props.seriesIndex, props.series.column.name, {
                     formatting: {
                         prefix: format.prefix,
                         suffix: format.suffix,
                         style: format.style,
-                        decimalPlaces:
-                            format.decimalPlaces === '' ? undefined : parseInt(format.decimalPlaces.toString(), 10),
+                        decimalPlaces: Number.isNaN(format.decimalPlaces) ? undefined : format.decimalPlaces,
                     },
                 })
                 actions.setSettingsOpen(false)
@@ -82,7 +81,7 @@ export const ySeriesLogic = kea<ySeriesLogicType>([
                 displayType: props.series?.settings?.display?.displayType ?? 'auto',
             },
             submit: async (display) => {
-                actions.updateYSeries(props.seriesIndex, props.series.column.name, {
+                actions.updateSeriesIndex(props.seriesIndex, props.series.column.name, {
                     display: {
                         label: display.label,
                         trendLine: display.trendLine,

@@ -25,39 +25,37 @@ logger = structlog.get_logger(__name__)
 
 
 class FeatureFlag(models.Model):
-    class Meta:
-        constraints = [models.UniqueConstraint(fields=["team", "key"], name="unique key for team")]
-
     # When adding new fields, make sure to update organization_feature_flags.py::copy_flags
-    key: models.CharField = models.CharField(max_length=400)
-    name: models.TextField = models.TextField(
+    key = models.CharField(max_length=400)
+    name = models.TextField(
         blank=True
     )  # contains description for the FF (field name `name` is kept for backwards-compatibility)
 
-    filters: models.JSONField = models.JSONField(default=dict)
-    rollout_percentage: models.IntegerField = models.IntegerField(null=True, blank=True)
+    filters = models.JSONField(default=dict)
+    rollout_percentage = models.IntegerField(null=True, blank=True)
 
-    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
-    created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True)
-    created_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
-    deleted: models.BooleanField = models.BooleanField(default=False)
-    active: models.BooleanField = models.BooleanField(default=True)
+    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    deleted = models.BooleanField(default=False)
+    active = models.BooleanField(default=True)
 
-    rollback_conditions: models.JSONField = models.JSONField(null=True, blank=True)
-    performed_rollback: models.BooleanField = models.BooleanField(null=True, blank=True)
+    rollback_conditions = models.JSONField(null=True, blank=True)
+    performed_rollback = models.BooleanField(null=True, blank=True)
 
-    ensure_experience_continuity: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
-    usage_dashboard: models.ForeignKey = models.ForeignKey(
-        "Dashboard", on_delete=models.SET_NULL, null=True, blank=True
-    )
-    analytics_dashboards: models.ManyToManyField = models.ManyToManyField(
+    ensure_experience_continuity = models.BooleanField(default=False, null=True, blank=True)
+    usage_dashboard = models.ForeignKey("Dashboard", on_delete=models.SET_NULL, null=True, blank=True)
+    analytics_dashboards = models.ManyToManyField(
         "Dashboard",
         through="FeatureFlagDashboards",
         related_name="analytics_dashboards",
         related_query_name="analytics_dashboard",
     )
     # whether a feature is sending us rich analytics, like views & interactions.
-    has_enriched_analytics: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
+    has_enriched_analytics = models.BooleanField(default=False, null=True, blank=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["team", "key"], name="unique key for team")]
 
     def __str__(self):
         return f"{self.key} ({self.pk})"
@@ -362,6 +360,15 @@ def refresh_flag_cache_on_updates(sender, instance, **kwargs):
 
 
 class FeatureFlagHashKeyOverride(models.Model):
+    # Can't use a foreign key to feature_flag_key directly, since
+    # the unique constraint is on (team_id+key), and not just key.
+    # A standard id foreign key leads to INNER JOINs every time we want to get the key
+    # and we only ever want to get the key.
+    feature_flag_key = models.CharField(max_length=400)
+    person = models.ForeignKey("Person", on_delete=models.CASCADE)
+    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    hash_key = models.CharField(max_length=400)
+
     class Meta:
         constraints = [
             models.UniqueConstraint(
@@ -370,18 +377,14 @@ class FeatureFlagHashKeyOverride(models.Model):
             )
         ]
 
-    # Can't use a foreign key to feature_flag_key directly, since
-    # the unique constraint is on (team_id+key), and not just key.
-    # A standard id foreign key leads to INNER JOINs every time we want to get the key
-    # and we only ever want to get the key.
-    feature_flag_key: models.CharField = models.CharField(max_length=400)
-    person: models.ForeignKey = models.ForeignKey("Person", on_delete=models.CASCADE)
-    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
-    hash_key: models.CharField = models.CharField(max_length=400)
-
 
 # DEPRECATED: This model is no longer used, but it's not deleted to avoid downtime
 class FeatureFlagOverride(models.Model):
+    feature_flag = models.ForeignKey("FeatureFlag", on_delete=models.CASCADE)
+    user = models.ForeignKey("User", on_delete=models.CASCADE)
+    override_value = models.JSONField()
+    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+
     class Meta:
         constraints = [
             models.UniqueConstraint(
@@ -389,11 +392,6 @@ class FeatureFlagOverride(models.Model):
                 name="unique feature flag for a user/team combo",
             )
         ]
-
-    feature_flag: models.ForeignKey = models.ForeignKey("FeatureFlag", on_delete=models.CASCADE)
-    user: models.ForeignKey = models.ForeignKey("User", on_delete=models.CASCADE)
-    override_value: models.JSONField = models.JSONField()
-    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
 
 
 def set_feature_flags_for_team_in_cache(
@@ -443,10 +441,10 @@ def get_feature_flags_for_team_in_cache(team_id: int) -> Optional[list[FeatureFl
 
 
 class FeatureFlagDashboards(models.Model):
-    feature_flag: models.ForeignKey = models.ForeignKey("FeatureFlag", on_delete=models.CASCADE)
-    dashboard: models.ForeignKey = models.ForeignKey("Dashboard", on_delete=models.CASCADE)
-    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, null=True)
-    updated_at: models.DateTimeField = models.DateTimeField(auto_now=True, null=True)
+    feature_flag = models.ForeignKey("FeatureFlag", on_delete=models.CASCADE)
+    dashboard = models.ForeignKey("Dashboard", on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True, null=True)
+    updated_at = models.DateTimeField(auto_now=True, null=True)
 
     class Meta:
         constraints = [

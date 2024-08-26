@@ -553,7 +553,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard = Dashboard.objects.get(id=dashboard_id)
         mock_view = MagicMock()
         mock_view.action = "retrieve"
-        dashboard_data = DashboardSerializer(dashboard, context={"view": mock_view, "request": MagicMock()}).data
+        mock_request = MagicMock()
+        mock_request.query_params.get.return_value = None
+        dashboard_data = DashboardSerializer(dashboard, context={"view": mock_view, "request": mock_request}).data
         assert len(dashboard_data["tiles"]) == 1
 
     def test_dashboard_insight_tiles_can_be_loaded_correct_context(self):
@@ -567,7 +569,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
 
         response = self.dashboard_api.get_dashboard(dashboard_id)
-        self.assertEqual(len(response["tiles"]), 1)
         self.assertEqual(len(response["tiles"]), 1)
         tile = response["tiles"][0]
 
@@ -1272,6 +1273,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     "favorited": False,
                     "filters": {"filter_test_accounts": True},
                     "filters_hash": ANY,
+                    "hasMore": None,
                     "id": ANY,
                     "is_cached": False,
                     "is_sample": True,

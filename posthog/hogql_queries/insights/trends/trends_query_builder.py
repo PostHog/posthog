@@ -809,9 +809,9 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
     def _breakdown_outer_query_select(self, breakdown: Breakdown, breakdown_limit: int | None = None) -> ast.Expr:
         breakdown_limit_expr = ast.Constant(value=breakdown_limit or self._get_breakdown_limit())
-        other_label_expr = ast.Constant(
-            value=None if breakdown.hide_other_aggregation else BREAKDOWN_OTHER_STRING_LABEL
-        )
+        # We always add the "other" aggregation to tell if we truncated the results
+        # It is then removed later
+        other_label_expr = ast.Constant(value=BREAKDOWN_OTHER_STRING_LABEL)
 
         if breakdown.is_multiple_breakdown:
             return parse_expr(

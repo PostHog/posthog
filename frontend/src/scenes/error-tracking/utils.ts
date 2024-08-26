@@ -1,4 +1,5 @@
 import { dayjs } from 'lib/dayjs'
+import { base64Encode } from 'lib/utils'
 
 import { ErrorTrackingGroup } from '~/queries/schema'
 
@@ -45,4 +46,8 @@ export const mergeGroups = (
         last_seen: lastSeen.toISOString(),
         volume: volume,
     }
+}
+
+export const stringifiedFingerprint = (fingerprint: string[]): string => {
+    return base64Encode(JSON.stringify(fingerprint))
 }

@@ -16,7 +16,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
 
     actions({
         setOrder: (order: ErrorTrackingQuery['order']) => ({ order }),
-        setSelectedRows: (selectedRows: string[]) => ({ selectedRows }),
+        setSelectedRowIndexes: (ids: number[]) => ({ ids }),
     }),
     reducers({
         order: [
@@ -26,10 +26,10 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 setOrder: (_, { order }) => order,
             },
         ],
-        selectedRows: [
-            [] as string[],
+        selectedRowIndexes: [
+            [] as number[],
             {
-                setSelectedRows: (_, { selectedRows }) => selectedRows,
+                setSelectedRowIndexes: (_, { ids }) => ids,
             },
         ],
     }),
@@ -49,6 +49,6 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
     }),
 
     subscriptions(({ actions }) => ({
-        query: () => actions.setSelectedRows([]),
+        query: () => actions.setSelectedRowIndexes([]),
     })),
 ])
