@@ -41,7 +41,7 @@ def check_all_alerts() -> None:
 @transaction.atomic
 def check_alert(alert_id: str) -> None:
     try:
-        alert = AlertConfiguration.objects.select_for_update().get(id=alert_id, enabled=True)
+        alert = AlertConfiguration.objects.get(id=alert_id, enabled=True)
     except AlertConfiguration.DoesNotExist:
         logger.warning("Alert not found or not enabled", alert_id=alert_id)
         return
@@ -70,6 +70,8 @@ def check_alert(alert_id: str) -> None:
         }
         aggregated_value = None
 
+    # Lock alert to prevent concurrent state changes
+    alert = AlertConfiguration.objects.select_for_update().get(id=alert_id, enabled=True)
     check, matches = alert.add_check(calculated_value=aggregated_value, error=error)
 
     if not check.state == "firing":
