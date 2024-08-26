@@ -9,12 +9,13 @@ import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { range, sampleOne, shouldIgnoreInput } from 'lib/utils'
 import { ForwardedRef, useEffect, useMemo, useRef, useState } from 'react'
 import React from 'react'
-import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { HedgehogConfig, OrganizationMemberType } from '~/types'
 
+import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
 import { COLOR_TO_FILTER_MAP, hedgehogBuddyLogic } from './hedgehogBuddyLogic'
+import { HedgehogOptions } from './HedgehogOptions'
 import {
     AccessoryInfo,
     baseSpriteAccessoriesPath,
@@ -583,7 +584,6 @@ export class HedgehogActor {
                         style={{
                             transform: `scaleX(${this.direction === 'right' ? 1 : -1})`,
                         }}
-                        className={this.hedgehogConfig.plopping ? 'animate-plop' : undefined}
                     >
                         <div
                             // eslint-disable-next-line react/forbid-dom-props
@@ -734,12 +734,6 @@ export function MyHedgehogBuddy({
 
     const [popoverVisible, setPopoverVisible] = useState(false)
 
-    useEffect(() => {
-        setTimeout(() => {
-            setPopoverVisible(true)
-        }, (5 + Math.random() * 5) * 1000)
-    }, [])
-
     const onClick = (): void => {
         setPopoverVisible(!popoverVisible)
         _onClick?.()
@@ -752,33 +746,26 @@ export function MyHedgehogBuddy({
 
     return (
         <Popover
+            onClickOutside={() => setPopoverVisible(false)}
             visible={popoverVisible}
-            placement="top-end"
-            fallbackPlacements={['top', 'top-start', 'left-end']}
+            placement="top"
+            fallbackPlacements={['bottom', 'left', 'right']}
             overflowHidden
-            showArrow
             overlay={
-                <div className="m-2 font-medium max-w-44">
-                    <div>It looks like you're trying to make your product sucessful.</div>
-                    <div className="mt-1.5">Would you like help?</div>
-                    <LemonButton
-                        size="small"
-                        type="primary"
-                        onClick={() => setPopoverVisible(false)}
-                        to={urls.max()}
-                        className="mt-2"
-                    >
-                        Get help with making the product successful
-                    </LemonButton>
-                    <LemonButton
-                        size="small"
-                        type="secondary"
-                        onClick={disappear}
-                        disabledReason="Honey, at least make it to Demo Day"
-                        className="mt-2"
-                    >
-                        Shut the company down
-                    </LemonButton>
+                <div className="max-w-140 flex flex-col flex-1 overflow-hidden">
+                    <ScrollableShadows className="flex-1 overflow-y-auto" direction="vertical">
+                        <div className="p-2">
+                            <HedgehogOptions />
+                        </div>
+                    </ScrollableShadows>
+                    <div className="flex shrink-0 justify-end gap-2 p-2 border-t">
+                        <LemonButton type="secondary" status="danger" onClick={disappear}>
+                            Good bye!
+                        </LemonButton>
+                        <LemonButton type="secondary" onClick={() => setPopoverVisible(false)}>
+                            Carry on!
+                        </LemonButton>
+                    </div>
                 </div>
             }
         >
