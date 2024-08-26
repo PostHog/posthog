@@ -82,7 +82,7 @@ class TestModelPath(BaseTest):
         self.assertIn(["persons", parent_saved_query.id.hex, child_saved_query.id.hex], child_paths)
 
     def test_update_path_from_saved_query(self):
-        """Test creation of a model path from a query that reads from another query."""
+        """Test update of a model path from a query that reads from another query."""
         parent_query = """\
           select
             events.event,
