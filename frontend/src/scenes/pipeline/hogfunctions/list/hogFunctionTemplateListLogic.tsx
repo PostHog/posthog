@@ -120,15 +120,20 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
         ],
 
         urlForTemplate: [
-            () => [],
-            (): ((template: HogFunctionTemplateType) => string) => {
+            (s) => [s.filters],
+            (filters): ((template: HogFunctionTemplateType) => string) => {
                 return (template: HogFunctionTemplateType) => {
                     // Add the filters to the url and the template id
+                    const subTemplateId = filters.subTemplateIds?.[0]
+
                     return combineUrl(
                         urls.pipelineNodeNew(PipelineStage.Destination, `hog-${template.id}`),
                         {},
                         {
-                            sub_template_id: template.sub_templates?.[0]?.id,
+                            configuration: {
+                                sub_template_id: subTemplateId,
+                                filters: filters.filters,
+                            },
                         }
                     ).url
                 }

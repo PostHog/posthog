@@ -76,7 +76,6 @@ export function HogFunctionTemplateList({
                                     type="primary"
                                     data-attr={`new-${PipelineStage.Destination}`}
                                     icon={<IconPlusSmall />}
-                                    // Preserve hash params to pass config in
                                     to={url}
                                     fullWidth
                                 >

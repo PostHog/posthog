@@ -65,7 +65,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
         duplicateFromTemplate,
         setConfigurationValue,
         deleteHogFunction,
-        setSubTemplate,
+        setSubTemplateId,
     } = useActions(logic)
 
     if (loading && !loaded) {
@@ -316,13 +316,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                                 ]}
                                                 value={subTemplate?.id}
                                                 onChange={(value) => {
-                                                    if (!value) {
-                                                        resetToTemplate(false)
-                                                    } else {
-                                                        setSubTemplate(
-                                                            template.sub_templates!.find((t) => t.id === value) ?? null
-                                                        )
-                                                    }
+                                                    setSubTemplateId(value)
                                                 }}
                                             />
                                         </div>
