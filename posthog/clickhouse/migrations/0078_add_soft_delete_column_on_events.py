@@ -11,7 +11,7 @@ DROP COLUMN IF EXISTS is_deleted
 
 ADD_COLUMNS_SHARDED_EVENTS = """
 ALTER TABLE {table} ON CLUSTER {cluster}
-ADD COLUMN IF NOT EXISTS is_deleted Boolean False
+ADD COLUMN IF NOT EXISTS is_deleted DEFAULT Boolean False
 """
 
 ADD_COLUMNS_INDEX_EVENTS = """
