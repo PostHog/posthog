@@ -605,7 +605,7 @@ class _Printer(Visitor):
         the property group's bloom filter data skipping indices, or the expression can be optimized to avoid reading the
         property group's map ``values`` subcolumn when doing comparisons to NULL values.
         """
-        if not self.context.modifiers.propertyGroupsMode == PropertyGroupsMode.OPTIMIZED:
+        if self.context.modifiers.propertyGroupsMode != PropertyGroupsMode.OPTIMIZED:
             return None
 
         def resolve_field_type(expr: ast.Expr) -> ast.Type | None:
