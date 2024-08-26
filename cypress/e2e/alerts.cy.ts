@@ -27,6 +27,7 @@ describe('Alerts', () => {
         cy.get('[data-attr=alert-lower-threshold').clear().type(lowerThreshold)
         cy.get('[data-attr=alert-upper-threshold').clear().type(upperThreshold)
         cy.contains('Create alert').click()
+        cy.get('.Toastify__toast-body').should('contain', 'Alert saved')
         cy.url().should('not.include', '/new')
 
         cy.get('[aria-label="close"]').click()
