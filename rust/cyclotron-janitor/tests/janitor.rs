@@ -19,8 +19,9 @@ async fn janitor_test(db: PgPool) {
         stall_timeout,
         max_touches,
         id: "test_janitor".to_string(),
+        shard_id: "test_shard".to_string(),
     };
-    let janitor = Janitor::from_pool(db.clone(), settings);
+    let janitor = Janitor::from_pool(db.clone(), settings).await;
 
     let now = Utc::now() - Duration::seconds(10);
     let queue_name = "default".to_string();

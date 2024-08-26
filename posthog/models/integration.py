@@ -322,7 +322,7 @@ class SlackIntegration:
         return sorted(channels, key=lambda x: x["name"])
 
     def _list_channels_by_type(self, type: Literal["public_channel", "private_channel"]) -> list[dict]:
-        max_page = 10
+        max_page = 20
         channels = []
         cursor = None
 

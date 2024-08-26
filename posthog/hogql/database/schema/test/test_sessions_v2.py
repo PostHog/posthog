@@ -2,6 +2,7 @@ import uuid
 from time import time_ns
 
 import pytest
+from parameterized import parameterized
 
 from posthog.hogql import ast
 from posthog.hogql.database.schema.sessions_v2 import (
@@ -12,13 +13,20 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 from posthog.models.property_definition import PropertyType
 from posthog.models.utils import uuid7
-from posthog.schema import HogQLQueryModifiers, SessionTableVersion
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
+from posthog.schema import HogQLQueryModifiers, SessionTableVersion, BounceRatePageViewMode
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+)
 
 
 class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
-    def __execute(self, query):
-        modifiers = HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V2)
+    def __execute(self, query, bounce_rate_mode=BounceRatePageViewMode.COUNT_PAGEVIEWS):
+        modifiers = HogQLQueryModifiers(
+            sessionTableVersion=SessionTableVersion.V2, bounceRatePageViewMode=bounce_rate_mode
+        )
         return execute_hogql_query(
             query=query,
             team=self.team,
@@ -309,7 +317,105 @@ class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response.results or [], [(1, 1, 1)])
 
-    def test_bounce_rate(self):
+    def test_page_screen_autocapture_count_up_to(self):
+        time = time_ns() // (10**6)
+
+        # two pageviews
+        s1 = str(uuid7(time))
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id=s1,
+            properties={"$session_id": s1},
+            timestamp="2023-12-02",
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id=s1,
+            properties={"$session_id": s1},
+            timestamp="2023-12-03",
+        )
+        # one pageview and one autocapture
+        s2 = str(uuid7(time + 2))
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id=s1,
+            properties={"$session_id": s2},
+            timestamp="2023-12-02",
+        )
+        _create_event(
+            event="$autocapture",
+            team=self.team,
+            distinct_id=s1,
+            properties={"$session_id": s2},
+            timestamp="2023-12-03",
+        )
+        # one pageview
+        s3 = str(uuid7(time + 3))
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id=s1,
+            properties={"$session_id": s3},
+            timestamp="2023-12-02",
+        )
+        # three pageviews (should still count as 2)
+        s4 = str(uuid7(time + 4))
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id=s1,
+            properties={"$session_id": s4},
+            timestamp="2023-12-02",
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id=s1,
+            properties={"$session_id": s4},
+            timestamp="2023-12-02",
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id=s1,
+            properties={"$session_id": s4},
+            timestamp="2023-12-02",
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id=s1,
+            properties={"$session_id": s4},
+            timestamp="2023-12-02",
+        )
+        # one screen
+        s5 = str(uuid7(time + 5))
+        _create_event(
+            event="$screen",
+            team=self.team,
+            distinct_id=s1,
+            properties={"$session_id": s5},
+            timestamp="2023-12-02",
+        )
+
+        results = (
+            self.__execute(
+                parse_select(
+                    "select $page_screen_autocapture_count_up_to from sessions ORDER BY session_id",
+                    placeholders={"session_id": ast.Constant(value=s1)},
+                ),
+            ).results
+            or []
+        )
+        assert results == [(2,), (2,), (1,), (2,), (1,)]
+
+    @parameterized.expand(
+        [[BounceRatePageViewMode.UNIQ_PAGE_SCREEN_AUTOCAPTURES], [BounceRatePageViewMode.COUNT_PAGEVIEWS]]
+    )
+    def test_bounce_rate(self, bounce_rate_mode):
         time = time_ns() // (10**6)
         # ensure the sessions ids are sortable by giving them different time components
         s1a = str(uuid7(time))
@@ -398,18 +504,16 @@ class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
             parse_select(
                 "select $is_bounce, session_id from sessions ORDER BY session_id",
             ),
+            bounce_rate_mode=bounce_rate_mode,
         )
-        self.assertEqual(
-            [
-                (0, s1a),
-                (1, s1b),
-                (1, s2),
-                (0, s3),
-                (1, s4),
-                (0, s5),
-            ],
-            response.results or [],
-        )
+        assert (response.results or []) == [
+            (0, s1a),
+            (1, s1b),
+            (1, s2),
+            (0, s3),
+            (1, s4),
+            (0, s5),
+        ]
 
     def test_last_external_click_url(self):
         s1 = str(uuid7())

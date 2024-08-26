@@ -15,13 +15,15 @@ from django.utils.encoding import smart_str
 from django.utils.timezone import now
 from loginas.utils import is_impersonated_session
 from rest_framework import renderers, request, serializers, status, viewsets
-from rest_framework.decorators import action, renderer_classes
+from rest_framework.decorators import renderer_classes
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.response import Response
 
+from posthog.api.hog_function import HogFunctionSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer
+from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
+from posthog.cdp.templates import HOG_FUNCTION_MIGRATORS
 from posthog.models import Plugin, PluginAttachment, PluginConfig, User
 from posthog.models.activity_logging.activity_log import (
     ActivityPage,
@@ -254,6 +256,7 @@ class PluginsAccessLevelPermission(BasePermission):
 class PluginSerializer(serializers.ModelSerializer):
     url = serializers.SerializerMethodField()
     organization_name = serializers.SerializerMethodField()
+    hog_function_migration_available = serializers.SerializerMethodField()
 
     class Meta:
         model = Plugin
@@ -273,8 +276,12 @@ class PluginSerializer(serializers.ModelSerializer):
             "capabilities",
             "metrics",
             "public_jobs",
+            "hog_function_migration_available",
         ]
-        read_only_fields = ["id", "latest_tag"]
+        read_only_fields = ["id", "latest_tag", "hog_function_migration_available"]
+
+    def get_hog_function_migration_available(self, plugin: Plugin):
+        return HOG_FUNCTION_MIGRATORS.get(plugin.url) is not None if plugin.url else False
 
     def get_url(self, plugin: Plugin) -> Optional[str]:
         # remove ?private_token=... from url
@@ -897,6 +904,29 @@ class PluginConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
         return activity_page_response(activity_page, limit, page, request)
+
+    @action(methods=["POST"], url_path="migrate", detail=True)
+    def migrate(self, request: request.Request, **kwargs):
+        obj = self.get_object()
+        migrater = HOG_FUNCTION_MIGRATORS.get(obj.plugin.url)
+
+        if not migrater:
+            raise ValidationError("No migration available for this plugin")
+
+        hog_function_data = migrater.migrate(obj)
+
+        if obj.enabled:
+            hog_function_data["enabled"] = True
+
+        hog_function_serializer = HogFunctionSerializer(data=hog_function_data, context=self.get_serializer_context())
+        hog_function_serializer.is_valid(raise_exception=True)
+        hog_function_serializer.save()
+
+        if obj.enabled:
+            obj.enabled = False
+            obj.save()
+
+        return Response(hog_function_serializer.data)
 
 
 def _get_secret_fields_for_plugin(plugin: Plugin) -> set[str]:
