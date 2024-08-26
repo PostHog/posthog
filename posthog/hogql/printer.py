@@ -699,10 +699,10 @@ class _Printer(Visitor):
                     if not isinstance(expr, ast.Constant):
                         return None  # only optimize constants for now, see above
                     elif expr.value is None:
-                        node.right.exprs.remove(expr)  # XXX: safe to mutate?
+                        node.right.exprs.remove(expr)
                     elif expr.value == "":  # XXX: check type?
                         default_value_expr = expr
-                        node.right.exprs.remove(expr)  # XXX: safe to mutate?
+                        node.right.exprs.remove(expr)
                 if len(node.right.exprs) > 0:
                     # TODO: Check to see if it'd be faster to do equality comparison here instead?
                     printed_expr = f"in({property_source.value_expr}, {self.visit(node.right)})"
