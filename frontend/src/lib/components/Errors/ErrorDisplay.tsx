@@ -19,10 +19,6 @@ interface ExceptionTrace {
     stacktrace: {
         frames: StackFrame[]
     }
-    mechanism: {
-        handled: boolean
-        type: string
-    }
     module: string
     type: string
     value: string
