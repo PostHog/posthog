@@ -362,12 +362,10 @@ dependencies = [
  "envconfig",
  "futures",
  "health",
- "lru",
  "metrics",
  "rdkafka",
  "serde",
  "serde_json",
- "serde_repr",
  "serve-metrics",
  "sqlx",
  "thiserror",
@@ -2143,15 +2141,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "lru"
-version = "0.12.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3262e75e648fce39813cb56ac41f3c3e3f65217ebf3844d818d1f9398cfb0dc"
-dependencies = [
- "hashbrown 0.14.3",
-]
-
-[[package]]
 name = "mach"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3418,17 +3407,6 @@ checksum = "a8136f1a4ea815d7eac4101cfd0b16dc0cb5e1fe1b8609dfd728058656b7badf"
 dependencies = [
  "regex",
  "serde",
-]
-
-[[package]]
-name = "serde_repr"
-version = "0.1.19"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6c64451ba24fc7a6a2d60fc75dd9c83c90903b19028d4eff35e88fc1e86564e9"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.48",
 ]
 
 [[package]]

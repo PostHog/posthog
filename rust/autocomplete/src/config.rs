@@ -1,5 +1,3 @@
-use std::num::NonZeroUsize;
-
 use envconfig::Envconfig;
 use rdkafka::ClientConfig;
 
@@ -20,6 +18,11 @@ pub struct Config {
     #[envconfig(default = "10000")]
     pub max_batch_size: usize,
 
+    // If a worker recieves a batch smaller than this, it will simply not commit the offset and
+    // sleep for a while, since DB ops/event scales inversely to batch size
+    #[envconfig(default = "1000")]
+    pub min_batch_size: usize,
+
     #[envconfig(default = "100")]
     pub next_event_wait_timeout_ms: u64,
 
@@ -28,34 +31,10 @@ pub struct Config {
 
     #[envconfig(from = "BIND_PORT", default = "3301")]
     pub port: u16,
-
-    // Config opts for cache sizing
-    #[envconfig(default = "100000")]
-    pub event_definition_cache_depth: NonZeroUsize,
-
-    #[envconfig(default = "100000")]
-    pub property_definition_cache_depth: NonZeroUsize,
-
-    #[envconfig(default = "100000")]
-    pub event_property_cache_depth: NonZeroUsize,
-
-    #[envconfig(default = "1000000")]
-    pub team_first_event_cache_depth: NonZeroUsize,
-
-    #[envconfig(default = "1000000")]
-    pub team_group_indices_cache_depth: NonZeroUsize,
 }
 
 #[derive(Envconfig, Clone)]
 pub struct KafkaConfig {
-    #[envconfig(default = "20")]
-    pub kafka_producer_linger_ms: u32, // Maximum time between producer batches during low traffic
-    #[envconfig(default = "400")]
-    pub kafka_producer_queue_mib: u32, // Size of the in-memory producer queue in mebibytes
-    #[envconfig(default = "20000")]
-    pub kafka_message_timeout_ms: u32, // Time before we stop retrying producing a message: 20 seconds
-    #[envconfig(default = "none")]
-    pub kafka_compression_codec: String, // none, gzip, snappy, lz4, zstd
     #[envconfig(default = "kafka:9092")]
     pub kafka_hosts: String,
     #[envconfig(default = "clickhouse_events_json")]

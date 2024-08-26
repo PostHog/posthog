@@ -1,12 +1,12 @@
+use std::collections::HashSet;
+
 use health::{HealthHandle, HealthRegistry};
 use sqlx::{postgres::PgPoolOptions, PgPool};
 
-use crate::{config::Config, group_type_cache::GroupTypeCache, property_cache::PropertyCache};
+use crate::{config::Config, metrics_consts::UPDATES_ISSUED, types::Update};
 
 pub struct AppContext {
     pub pool: PgPool,
-    pub property_cache: PropertyCache,
-    pub group_type_cache: GroupTypeCache,
     pub liveness: HealthRegistry,
     pub worker_liveness: HealthHandle,
 }
@@ -22,15 +22,15 @@ impl AppContext {
             .register("worker".to_string(), time::Duration::seconds(60))
             .await;
 
-        let property_cache = PropertyCache::new(config);
-        let group_type_cache = GroupTypeCache::new(&pool, config);
-
         Ok(Self {
             pool,
-            property_cache,
-            group_type_cache,
             liveness,
             worker_liveness,
         })
+    }
+
+    pub async fn issue(&self, updates: HashSet<Update>) -> Result<(), sqlx::Error> {
+        metrics::counter!(UPDATES_ISSUED).increment(updates.len() as u64);
+        Ok(())
     }
 }

@@ -1,21 +1,22 @@
-use std::{
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{collections::HashSet, sync::Arc, time::Duration};
 
 use autocomplete::{
-    app_context::AppContext, config::Config, property_cache::handle_event_batch, types::Event,
+    app_context::AppContext,
+    config::Config,
+    metrics_consts::{BATCH_SKIPPED, EVENTS_RECEIVED, FORCED_SMALL_BATCH, SMALL_BATCH_SLEEP},
+    types::{Event, Update},
 };
 use axum::{routing::get, Router};
 use envconfig::Envconfig;
-use futures::future::{join_all, ready};
+use futures::future::ready;
 use rdkafka::{
     consumer::{Consumer, StreamConsumer},
+    message::BorrowedMessage,
     ClientConfig, Message,
 };
 use serve_metrics::{serve, setup_metrics_routes};
 use tokio::{select, task::JoinHandle, time::sleep};
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
 fn setup_tracing() {
@@ -69,17 +70,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     start_health_liveness_server(&config, context.clone());
 
     let mut batch = Vec::with_capacity(config.max_batch_size);
-    let mut last_receive = Instant::now();
+
+    let mut sleep_count = 0;
     loop {
-        batch.clear();
         context.worker_liveness.report_healthy().await;
 
-        metrics::gauge!("time_since_last_receive").set(last_receive.elapsed().as_secs_f64());
         while batch.len() < config.max_batch_size {
             // Try to grab from the consumer, but use a select! to timeout if we'd block for more than some time
             select! {
-            res = consumer.recv() => {
-                    batch.push(res);
+                res = consumer.recv() => {
+                    batch.push(res?); // Workers die on an kafka error
                 }
                 _ = sleep(Duration::from_millis(config.next_event_wait_timeout_ms)) => {
                     break;
@@ -87,74 +87,59 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        if batch.is_empty() {
-            continue;
-        }
-
-        metrics::counter!("event_batch_recieved").increment(batch.len() as u64);
-        let chunks = batch.chunks(config.max_batch_size / config.max_concurrent_transactions);
-
-        let mut handle_futs = Vec::with_capacity(config.max_concurrent_transactions);
-
-        for chunk in chunks {
-            let mut events = vec![];
-            for res in chunk {
-                match res {
-                    Ok(message) => {
-                        let payload: Option<Result<&str, std::str::Utf8Error>> =
-                            message.payload_view::<str>();
-
-                        // Since property definitions are idempotent, we're allowed to risk re-processing by not committing here, and letting
-                        // autocommit handle it. If we move to batching, we can either continue to store and rely on autocommit, or switch to
-                        // manual commits - we should make that decision based on performance testing.
-                        // NOTE: we commit all messages seen, even if we fail to process them... the thinking here is that we don't want
-                        // poison pills to block the whole event queue, but we should probably not commit if e.g. the DB is down. Error
-                        // handling for later.
-                        consumer.store_offset_from_message(message)?;
-
-                        let Some(payload) = payload else {
-                            warn!("No payload recieved in message: {:?}", message);
-                            metrics::counter!("event_no_payload").increment(1);
-                            continue;
-                        };
-
-                        let Ok(payload) = payload else {
-                            warn!("Payload not UTF8 compatible: {:?}", message);
-                            metrics::counter!("event_payload_not_utf8").increment(1);
-                            continue;
-                        };
-                        let Ok(event) = serde_json::from_str::<Event>(payload) else {
-                            warn!("Error deserializing event: {:?}", payload);
-                            metrics::counter!("event_deserialization_error").increment(1);
-                            continue;
-                        };
-
-                        debug!("Received event: {:?}", event);
-
-                        events.push(event);
-                    }
-                    Err(e) => {
-                        metrics::counter!("event_receive_error").increment(1);
-                        warn!("Error receiving message: {:?}", e);
-                    }
-                }
+        // We only process batches over a certain threshold, unless we haven't received anything in a while, to reduce DB load
+        if batch.len() < config.min_batch_size {
+            sleep_count += 1;
+            info!("Batch size is less than min_batch_size, sleeping for 2 seconds");
+            metrics::counter!(BATCH_SKIPPED).increment(1);
+            sleep(Duration::from_millis(2000)).await;
+            if sleep_count > 10 {
+                warn!("Slept too many times, continuing with a small batch");
+                metrics::counter!(FORCED_SMALL_BATCH).increment(1);
+            } else {
+                metrics::counter!(SMALL_BATCH_SLEEP).increment(1);
+                continue;
             }
-
-            let moved_context = context.clone();
-            let fut = tokio::spawn(async move {
-                if let Err(e) = handle_event_batch(events, &moved_context).await {
-                    warn!("Error handling event batch: {:?}", e);
-                }
-            });
-            handle_futs.push(fut);
         }
+        sleep_count = 0;
 
-        info!(
-            "Waiting for {} transaction batches to complete",
-            handle_futs.len()
-        );
-        join_all(handle_futs).await;
+        metrics::counter!(EVENTS_RECEIVED).increment(batch.len() as u64);
 
-        last_receive = Instant::now();
+        let updates: HashSet<Update> = batch
+            .drain(..)
+            .filter_map(message_to_event)
+            .flat_map(Event::into_updates)
+            .filter_map(filter_cached)
+            .collect();
+
+        context.issue(updates).await?;
     }
+}
+
+// This copies event properties, which means the total resident memory usage is higher than we'd like, and that constrains
+// our batch size. serde_json provides no zero-copy way to parse a JSON object, so we're stuck with this for now.
+fn message_to_event(msg: BorrowedMessage) -> Option<Event> {
+    let Some(payload) = msg.payload() else {
+        warn!("Received empty event");
+        metrics::counter!("empty_event").increment(1);
+        return None;
+    };
+
+    let event = serde_json::from_slice::<Event>(payload);
+    let event = match event {
+        Ok(e) => e,
+        Err(e) => {
+            metrics::counter!("event_parse_error").increment(1);
+            warn!("Failed to parse event: {:?}", e);
+            return None;
+        }
+    };
+    Some(event)
+}
+
+// TODO: this is where caching would go, if we had any. Could probably use a bloom filter or something,
+// rather than storing the entire update in memory, if we wanted to store some HUGE number of updates and
+// be /really/ good about not hitting the DB when we don't need to. Right now this is just a no-op.
+fn filter_cached(update: Update) -> Option<Update> {
+    Some(update)
 }

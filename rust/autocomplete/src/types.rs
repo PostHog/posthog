@@ -1,33 +1,41 @@
-use std::{fmt, str::FromStr};
+use std::{fmt, hash::Hash, str::FromStr};
 
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use serde_repr::{Deserialize_repr, Serialize_repr};
-use sqlx::{Executor, Postgres};
+use tracing::warn;
 use uuid::Uuid;
 
-use crate::{
-    app_context::AppContext,
-    property_cache::{CacheError, SKIP_PROPERTIES},
-};
+use crate::metrics_consts::EVENTS_SKIPPED;
 
-#[derive(Clone, Copy, Debug, Hash, Eq, PartialEq, Serialize, Deserialize)]
-pub struct TeamId(pub i32);
+pub const SKIP_PROPERTIES: [&str; 9] = [
+    "$set",
+    "$set_once",
+    "$unset",
+    "$group_0",
+    "$group_1",
+    "$group_2",
+    "$group_3",
+    "$group_4",
+    "$groups",
+];
 
-#[derive(Clone, Debug, Hash, Eq, PartialEq)]
-pub struct TeamEventId {
-    pub team_id: TeamId,
-    pub event_name: String,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize_repr, Deserialize_repr, Hash)]
-#[repr(i16)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub enum PropertyParentType {
     Event = 1,
     Person = 2,
     Group = 3,
     Session = 4,
+}
+
+impl From<PropertyParentType> for i32 {
+    fn from(parent_type: PropertyParentType) -> i32 {
+        match parent_type {
+            PropertyParentType::Event => 1,
+            PropertyParentType::Person => 2,
+            PropertyParentType::Group => 3,
+            PropertyParentType::Session => 4,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
@@ -51,35 +59,45 @@ impl fmt::Display for PropertyValueType {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+// The grouptypemapping table uses i32's, but we get group types by name, so we have to resolve them before DB writes, sigh
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum GroupType {
+    Unresolved(String),
+    Resolved(String, i32),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PropertyDefinition {
     pub id: Uuid,
-    pub team_id: TeamId,
+    pub team_id: i32,
     pub name: String,
     pub is_numerical: bool,
     pub property_type: Option<PropertyValueType>,
-    #[serde(rename = "type")]
     pub event_type: Option<PropertyParentType>,
-    pub group_type_index: Option<i32>, // The grouptypemapping table uses i32's for this, so although propertydefinition uses i16, we'll use i32 here and downcast on write
-    pub property_type_format: Option<String>, // This is deprecated, so don't bother validating it through serde
+    pub group_type_index: Option<GroupType>,
+    pub property_type_format: Option<String>, // Deprecated
     pub volume_30_day: Option<i64>,           // Deprecated
     pub query_usage_30_day: Option<i64>,      // Deprecated
 }
 
-#[derive(Clone, Debug, Serialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EventDefinition {
     pub id: Uuid,
     pub name: String,
-    pub team_id: TeamId,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub last_seen_at: Option<DateTime<Utc>>, // Defaults to RFC 3339
+    pub team_id: i32,
+}
+
+// Represents a generic update, but comparable, allowing us to dedupe and cache updates
+#[derive(Clone, Debug, Hash, Eq, PartialEq)]
+pub enum Update {
+    Event(EventDefinition),
+    Property(PropertyDefinition),
 }
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Event {
-    pub team_id: TeamId,
+    pub team_id: i32,
     pub event: String,
-    // Events in clickhouse_json have their properties as a raw string, so we have to parse it.
     pub properties: Option<String>,
 }
 
@@ -89,78 +107,93 @@ impl From<&Event> for EventDefinition {
             id: Uuid::now_v7(),
             name: sanitize_event_name(&event.event),
             team_id: event.team_id,
-            last_seen_at: None,
         }
     }
 }
 
 impl Event {
-    pub async fn get_properties(
-        &self,
-        context: &AppContext,
-    ) -> Result<Vec<PropertyDefinition>, sqlx::Error> {
+    pub fn into_updates(self) -> Vec<Update> {
+        let team_id = self.team_id;
+        let event = self.event.clone();
+
+        let updates = self.into_updates_inner();
+        if updates.len() > 10_000 {
+            warn!(
+                "Event {} for team {} has more than 10,000 properties, skipping",
+                event, team_id
+            );
+            metrics::counter!(EVENTS_SKIPPED).increment(1);
+            return vec![];
+        }
+
+        updates
+    }
+
+    fn into_updates_inner(self) -> Vec<Update> {
+        let mut updates = vec![Update::Event(EventDefinition::from(&self))];
         let Some(props) = &self.properties else {
-            return Ok(vec![]);
+            return updates;
         };
 
         let Ok(props) = Value::from_str(props) else {
-            return Ok(vec![]);
+            return updates;
         };
 
         let Value::Object(props) = props else {
-            return Ok(vec![]);
+            return updates;
         };
 
+        // If this is a groupidentify event, we ONLY bubble up the group properties
         if self.event == "$groupidentify" {
             let Some(Value::String(group_type)) = props.get("$group_type") else {
-                return Ok(vec![]);
+                return updates;
             };
-            let group_type_index = context
-                .group_type_cache
-                .get_group_type_index(self.team_id, group_type)
-                .await?;
+            let group_type = GroupType::Unresolved(group_type.clone());
 
             let Some(group_properties) = props.get("$group_set") else {
-                return Ok(vec![]);
+                return updates;
             };
 
             let Value::Object(group_properties) = group_properties else {
-                return Ok(vec![]);
+                return updates;
             };
-            return Ok(self.get_props_from_object(
+
+            self.get_props_from_object(
+                &mut updates,
                 group_properties,
                 PropertyParentType::Group,
-                group_type_index,
-            ));
+                Some(group_type),
+            );
+            return updates;
         }
 
-        let mut flat_props = self.get_props_from_object(&props, PropertyParentType::Event, None);
+        // Grab the "ordinary" (non-person) event properties
+        self.get_props_from_object(&mut updates, &props, PropertyParentType::Event, None);
 
+        // If there are any person properties, also push those into the flat property map.
         if let Some(Value::Object(set_props)) = props.get("$set") {
-            flat_props.extend(self.get_props_from_object(
-                set_props,
-                PropertyParentType::Person,
-                None,
-            ));
+            self.get_props_from_object(&mut updates, set_props, PropertyParentType::Person, None)
         }
         if let Some(Value::Object(set_once_props)) = props.get("$set_once") {
-            flat_props.extend(self.get_props_from_object(
+            self.get_props_from_object(
+                &mut updates,
                 set_once_props,
                 PropertyParentType::Person,
                 None,
-            ));
+            )
         }
 
-        Ok(flat_props)
+        updates
     }
 
     fn get_props_from_object(
         &self,
+        updates: &mut Vec<Update>,
         set: &Map<String, Value>,
         parent_type: PropertyParentType,
-        group_type_index: Option<i32>,
-    ) -> Vec<PropertyDefinition> {
-        let mut to_return = vec![];
+        group_type: Option<GroupType>,
+    ) {
+        updates.reserve(set.len());
         for (key, value) in set {
             if SKIP_PROPERTIES.contains(&key.as_str()) && parent_type == PropertyParentType::Event {
                 continue;
@@ -169,20 +202,20 @@ impl Event {
             let property_type = detect_property_type(key, value);
             let is_numerical = matches!(property_type, Some(PropertyValueType::Numeric));
 
-            to_return.push(PropertyDefinition {
+            let def = PropertyDefinition {
                 id: Uuid::now_v7(),
                 team_id: self.team_id,
                 name: key.clone(),
                 is_numerical,
                 property_type,
                 event_type: Some(parent_type),
-                group_type_index,
+                group_type_index: group_type.clone(),
                 property_type_format: None,
                 volume_30_day: None,
                 query_usage_30_day: None,
-            });
+            };
+            updates.push(Update::Property(def));
         }
-        to_return
     }
 }
 
@@ -249,67 +282,32 @@ fn sanitize_event_name(event_name: &str) -> String {
     event_name.replace('\u{0000}', "\u{FFFD}")
 }
 
-impl EventDefinition {
-    pub fn set_last_seen(&mut self) {
-        self.last_seen_at = Some(Utc::now());
-    }
+// These hash impls correspond to DB uniqueness constraints, pulled from the TS
 
-    pub async fn upsert<'c>(
-        &self,
-        db: impl Executor<'c, Database = Postgres>,
-    ) -> Result<(), CacheError> {
-        sqlx::query!(
-            r#"
-            INSERT INTO posthog_eventdefinition (id, name, team_id, volume_30_day, query_usage_30_day, created_at, last_seen_at)
-            VALUES ($1, $2, $3, NULL, NULL, NOW(), $4)
-            ON CONFLICT ON CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq DO UPDATE
-            set last_seen_at = $4
-            "#,
-            self.id,
-            self.name,
-            self.team_id.0,
-            self.last_seen_at
-        )
-            .execute(db)
-            .await
-            .map_err(CacheError::from)
-            .map(|_| ())?;
-
-        Ok(())
+impl Hash for PropertyDefinition {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.team_id.hash(state);
+        self.name.hash(state);
+        self.event_type.hash(state);
+        self.group_type_index.hash(state);
     }
 }
 
-impl PropertyDefinition {
-    pub async fn upsert<'c>(
-        &self,
-        db: impl Executor<'c, Database = Postgres>,
-    ) -> Result<(), CacheError> {
-        let event_type = self.event_type.map(|e| (e as isize) as i16);
+impl Hash for EventDefinition {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+    }
+}
 
-        let group_type_index = self.group_type_index.map(|i| {
-            i as i16 // This is willfully unsafe because I'm a bad boy who likes to live dangerously
-        });
-
-        let property_type = self.property_type.as_ref().map(|p| p.to_string());
-
-        sqlx::query!(
-            r#"
-            INSERT INTO posthog_propertydefinition (id, name, is_numerical, query_usage_30_day, property_type, property_type_format, volume_30_day, team_id, group_type_index, type)
-            VALUES ($1, $2, $3, NULL, $4, NULL, NULL, $5, $6, $7)
-            ON CONFLICT (team_id, name, type, coalesce(group_type_index, -1))
-            DO UPDATE SET property_type = EXCLUDED.property_type WHERE posthog_propertydefinition.property_type IS NULL
-            "#,
-            self.id,
-            self.name,
-            self.is_numerical,
-            property_type,
-            self.team_id.0,
-            group_type_index,
-            event_type,
-        )
-            .execute(db)
-            .await
-            .map_err(CacheError::from)
-            .map(|_| ())
+// Ensure group type hashes identically regardless of whether it's resolved or not. Note that if
+// someone changes the name associated with a group type, all subsequent events will hash differently
+// because of this, but that seems fine - it just means a few extra DB ops issued, we index on the i32
+// at write time anyway
+impl Hash for GroupType {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            GroupType::Unresolved(name) => name.hash(state),
+            GroupType::Resolved(name, _) => name.hash(state),
+        }
     }
 }
