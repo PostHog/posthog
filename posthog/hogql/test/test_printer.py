@@ -398,7 +398,7 @@ class TestPrinter(BaseTest):
         )
         self._assert_expr_error(
             "quantile()(event)",
-            "Aggregation 'quantile' requires parameters in addition to arguments",
+            "Aggregation 'quantile' expects 1 parameter, found 0",
         )
         self._assert_expr_error(
             "quantile(0.5, 2)(event)",
