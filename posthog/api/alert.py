@@ -154,6 +154,8 @@ class AlertSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
     def validate_subscribed_users(self, value):
+        if not value:
+            raise ValidationError("Subscribed users list cannot be empty.")
         for user in value:
             if not user.teams.filter(pk=self.context["team_id"]).exists():
                 raise ValidationError("User does not belong to the same organization as the alert's team.")
