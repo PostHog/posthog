@@ -1863,4 +1863,26 @@ describe('hogvm execute', () => {
             new UncaughtHogVMException('RetryError', 'Not a good day', { key: 'value' })
         )
     })
+
+    test('returns serialized state', () => {
+        const bytecode = ['_h', op.STRING, 'key', op.STRING, 'value', op.DICT, 1, op.GET_LOCAL, 0, op.CALL, 'fetch', 1]
+        expect(exec(bytecode, { asyncFunctions: { fetch: async () => null } })).toEqual({
+            asyncFunctionArgs: [{ key: 'value' }], // not a Map
+            asyncFunctionName: 'fetch',
+            finished: false,
+            result: undefined,
+            state: {
+                asyncSteps: 1,
+                bytecode: bytecode,
+                callStack: [],
+                declaredFunctions: {},
+                ip: 12,
+                maxMemUsed: 64,
+                ops: 5,
+                stack: [{ key: 'value' }], // not a Map
+                syncDuration: 0,
+                throwStack: [],
+            },
+        })
+    })
 })
