@@ -617,11 +617,12 @@ class _Printer(Visitor):
         if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
             # For commutative operations, we can rewrite the expression with parameters in either order without
             # affecting the result.
-            # NOTE: For now, this only works with comparisons to constant values directly, but this could be improved so
-            # that any expression that doesn't reference a field as part of the expression (and therefore can be
-            # resolved to a constant value during the initial stages of query execution, e.g. ``lower(concat('X','Y'))``
-            # and similar) is supported to improve the usefulness of the index -- but we'll need to take care to handle
-            # expressions that return NULL values or empty strings. (The same applies to ``In`` comparisons below, too.)
+            # NOTE: For now, this only works with comparisons to constant values directly since we need to know whether
+            # or not the non-``PropertyType`` operand is ``NULL`` to be able to rewrite the expression to the correct
+            # optimized version. This could be extended to support *any* non-``Nullable`` expression as well, so that
+            # expressions which do not reference a field as part of the expression (and therefore can be resolved to a
+            # constant value during the initial stages of query execution, e.g. ``lower(concat('X', 'Y'))`` ) can also
+            # utilize the index. (The same applies to ``In`` comparisons below, too.)
             property_type: ast.PropertyType | None = None
             constant_expr: ast.Constant | None = None
 
