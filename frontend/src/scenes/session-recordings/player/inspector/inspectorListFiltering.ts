@@ -102,11 +102,11 @@ export function filterInspectorListItems({
     const shortCircuitExclude = (item: InspectorListItem): boolean =>
         isNetworkEvent(item) && item.data.entry_type === 'paint'
 
-    const eventsAllowedPerTab: Record<SessionRecordingPlayerTab, (item: InspectorListItem) => boolean> = {
+    const inspectorTabFilters: Record<SessionRecordingPlayerTab, (item: InspectorListItem) => boolean> = {
         [SessionRecordingPlayerTab.ALL]: (item: InspectorListItem) => {
-            const isAllEverything = miniFiltersByKey['all-everything'].enabled === true
+            const isAllEverything = miniFiltersByKey['all-everything']?.enabled === true
             const isAllAutomatic =
-                !!miniFiltersByKey['all-automatic'].enabled &&
+                !!miniFiltersByKey['all-automatic']?.enabled &&
                 (isOfflineStatusChange(item) ||
                     isBrowserVisibilityEvent(item) ||
                     isNavigationEvent(item) ||
@@ -116,7 +116,7 @@ export function filterInspectorListItems({
                     isPageviewOrScreen(item) ||
                     isAutocapture(item))
             const isAllErrors =
-                (!!miniFiltersByKey['all-errors'].enabled && isNetworkError(item)) ||
+                (!!miniFiltersByKey['all-errors']?.enabled && isNetworkError(item)) ||
                 isConsoleError(item) ||
                 isException(item) ||
                 isErrorEvent(item)
@@ -127,12 +127,13 @@ export function filterInspectorListItems({
                 return false
             }
             return (
-                !!miniFiltersByKey['events-all'].enabled ||
-                (!!miniFiltersByKey['events-posthog'].enabled && isPostHogEvent(item)) ||
-                (!!miniFiltersByKey['events-custom'].enabled && !isPostHogEvent(item)) ||
-                (!!miniFiltersByKey['events-pageview'].enabled && ['$pageview', '$screen'].includes(item.data.event)) ||
-                (!!miniFiltersByKey['events-autocapture'].enabled && item.data.event === '$autocapture') ||
-                (!!miniFiltersByKey['events-exceptions'].enabled && item.data.event === '$exception')
+                !!miniFiltersByKey['events-all']?.enabled ||
+                (!!miniFiltersByKey['events-posthog']?.enabled && isPostHogEvent(item)) ||
+                (!!miniFiltersByKey['events-custom']?.enabled && !isPostHogEvent(item)) ||
+                (!!miniFiltersByKey['events-pageview']?.enabled &&
+                    ['$pageview', '$screen'].includes(item.data.event)) ||
+                (!!miniFiltersByKey['events-autocapture']?.enabled && item.data.event === '$autocapture') ||
+                (!!miniFiltersByKey['events-exceptions']?.enabled && item.data.event === '$exception')
             )
         },
         [SessionRecordingPlayerTab.CONSOLE]: (item: InspectorListItem) => {
@@ -140,10 +141,10 @@ export function filterInspectorListItems({
                 return false
             }
             return (
-                !!miniFiltersByKey['console-all'].enabled ||
-                (!!miniFiltersByKey['console-info'].enabled && ['log', 'info'].includes(item.data.level)) ||
-                (!!miniFiltersByKey['console-warn'].enabled && item.data.level === 'warn') ||
-                (!!miniFiltersByKey['console-error'].enabled && item.data.level === 'error')
+                !!miniFiltersByKey['console-all']?.enabled ||
+                (!!miniFiltersByKey['console-info']?.enabled && ['log', 'info'].includes(item.data.level)) ||
+                (!!miniFiltersByKey['console-warn']?.enabled && item.data.level === 'warn') ||
+                (!!miniFiltersByKey['console-error']?.enabled && isConsoleError(item))
             )
         },
         [SessionRecordingPlayerTab.NETWORK]: (item: InspectorListItem) => {
@@ -151,28 +152,27 @@ export function filterInspectorListItems({
                 return false
             }
             return (
-                !!miniFiltersByKey['performance-all'].enabled === true ||
-                (!!miniFiltersByKey['performance-document'].enabled &&
-                    ['navigation'].includes(item.data.entry_type || '')) ||
-                (!!miniFiltersByKey['performance-fetch'].enabled &&
+                !!miniFiltersByKey['performance-all']?.enabled === true ||
+                (!!miniFiltersByKey['performance-document']?.enabled && isNavigationEvent(item)) ||
+                (!!miniFiltersByKey['performance-fetch']?.enabled &&
                     item.data.entry_type === 'resource' &&
                     ['fetch', 'xmlhttprequest'].includes(item.data.initiator_type || '')) ||
-                (!!miniFiltersByKey['performance-assets-js'].enabled &&
+                (!!miniFiltersByKey['performance-assets-js']?.enabled &&
                     item.data.entry_type === 'resource' &&
                     (item.data.initiator_type === 'script' ||
                         (['link', 'other'].includes(item.data.initiator_type || '') &&
                             item.data.name?.includes('.js')))) ||
-                (!!miniFiltersByKey['performance-assets-css'].enabled &&
+                (!!miniFiltersByKey['performance-assets-css']?.enabled &&
                     item.data.entry_type === 'resource' &&
                     (item.data.initiator_type === 'css' ||
                         (['link', 'other'].includes(item.data.initiator_type || '') &&
                             item.data.name?.includes('.css')))) ||
-                (!!miniFiltersByKey['performance-assets-img'].enabled &&
+                (!!miniFiltersByKey['performance-assets-img']?.enabled &&
                     item.data.entry_type === 'resource' &&
                     (item.data.initiator_type === 'img' ||
                         (['link', 'other'].includes(item.data.initiator_type || '') &&
                             !!IMAGE_WEB_EXTENSIONS.some((ext) => item.data.name?.includes(`.${ext}`))))) ||
-                (!!miniFiltersByKey['performance-other'].enabled &&
+                (!!miniFiltersByKey['performance-other']?.enabled &&
                     item.data.entry_type === 'resource' &&
                     ['other'].includes(item.data.initiator_type || '') &&
                     ![...IMAGE_WEB_EXTENSIONS, 'css', 'js'].some((ext) => item.data.name?.includes(`.${ext}`)))
@@ -192,9 +192,7 @@ export function filterInspectorListItems({
             continue
         }
 
-        if (eventsAllowedPerTab[tab](item)) {
-            include = true
-        }
+        include = inspectorTabFilters[tab](item)
 
         if (showMatchingEventsFilter && showOnlyMatching) {
             // Special case - overrides the others
