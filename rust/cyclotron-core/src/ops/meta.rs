@@ -33,7 +33,7 @@ pub async fn run_migrations(pool: &PgPool) {
         .expect("Failed to run migrations");
 }
 
-/// Mode a job into the dead letter queue, also updating the metadata table. Note that this operation does not
+/// Move a job into the dead letter queue, also updating the metadata table. Note that this operation does not
 /// require a lock on the job. This is because the janitor needs to DLQ jobs that are stalled. The worker wrapper
 /// around this operation should check that the job is "known" (owned by it) before calling this function.
 pub async fn dead_letter<'c, E>(executor: E, job: Uuid, reason: &str) -> Result<(), QueueError>
