@@ -38,6 +38,7 @@ describe('Alerts', () => {
         cy.get('[data-attr=insight-edit-button]').click()
         cy.get('[data-attr=chart-filter]').click()
         cy.contains(displayType).click()
+        cy.get('.insight-empty-state').should('not.exist')
         cy.get('[data-attr=insight-save-button]').contains('Save').click()
         cy.url().should('not.include', '/edit')
     }

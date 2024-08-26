@@ -13,6 +13,8 @@ from posthog.schema import AlertCondition, InsightThreshold
 def are_alerts_supported_for_insight(insight: Insight) -> bool:
     with conversion_to_query_based(insight):
         query = insight.query
+        while query.get("source"):
+            query = query["source"]
         if query is None or query.get("kind") != "TrendsQuery":
             return False
         if query.get("trendsFilter", {}).get("display") != "BoldNumber":
