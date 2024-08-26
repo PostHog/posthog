@@ -3,7 +3,7 @@ use std::io::prelude::*;
 
 use bytes::{Buf, Bytes};
 use flate2::read::GzDecoder;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use time::format_description::well_known::Iso8601;
 use time::OffsetDateTime;
@@ -56,6 +56,20 @@ pub struct EventFormData {
     pub data: String,
 }
 
+fn empty_string_is_none<'de, D>(deserializer: D) -> Result<Option<Uuid>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    if s.is_empty() {
+        Ok(None)
+    } else {
+        Uuid::parse_str(&s)
+            .map(Some)
+            .map_err(serde::de::Error::custom)
+    }
+}
+
 #[derive(Default, Debug, Deserialize, Serialize)]
 pub struct RawEvent {
     #[serde(
@@ -66,7 +80,10 @@ pub struct RawEvent {
     pub token: Option<String>,
     #[serde(alias = "$distinct_id", skip_serializing_if = "Option::is_none")]
     pub distinct_id: Option<Value>, // posthog-js accepts arbitrary values as distinct_id
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        deserialize_with = "empty_string_is_none",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub uuid: Option<Uuid>,
     pub event: String,
     #[serde(default)]
