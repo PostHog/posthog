@@ -317,7 +317,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                 // const variant = values.experimentForm.variants.fin
 
                 // actions.setExperimentFormValue('steps', newSteps)
-                // actions.incrementCounter()
+                actions.incrementCounter()
             }
         },
         deleteExperiment: async () => {

@@ -1,5 +1,5 @@
 import { IconPencil, IconPlus, IconSearch, IconTrash } from '@posthog/icons'
-import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
+import {LemonDivider, LemonSegmentedButton, LemonTag} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Field, Form, Group } from 'kea-forms'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -13,6 +13,7 @@ import { elementToQuery } from '~/toolbar/utils'
 import {experimentsTabLogic} from "~/toolbar/experiments/experimentsTabLogic";
 import {SelectorCount} from "~/toolbar/actions/SelectorCount";
 import {StepField} from "~/toolbar/actions/StepField";
+import clsx from "clsx";
 
 export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
     const {
@@ -22,6 +23,7 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
         elementsChainBeingEdited,
         editingSelectorValue,
         experimentForm,
+        selectedVariant,
     } = useValues(experimentsTabLogic)
     const {
         setExperimentFormValue,
@@ -88,7 +90,12 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                     size="small"
                                     sideIcon={<IconPlus/>}
                                     onClick={() =>
-                                        setExperimentFormValue('variants', [...(experimentForm.variants || {}), {}])
+                                        setExperimentFormValue('variants', {
+                                            ...experimentForm.variants,
+                                            "variant": {
+                                                "transforms": []
+                                            },
+                                    })
                                     }
                                 >
                                     Add Another Variant
@@ -104,8 +111,6 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                                     <th>Selector</th>
                                                     <th>text</th>
                                                     <th>html</th>
-                                                    <th>imgUrl</th>
-                                                    <th>className</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
@@ -158,7 +163,6 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                                         </div>
                                                     </td>
                                                     <td>
-                                                        {transform.selector && <SelectorCount selector={transform.selector} />}
                                                         <LemonInput
                                     placeholder="E.g. some text here"
                                     className="action-title-field"
@@ -171,22 +175,7 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                     stopPropagation={true}
                                     value={transform.html}
                                 /></td>
-                                                    <td>
-                                                        <LemonInput
-                                                            placeholder="E.g. some imgUrl here"
-                                                            className="action-title-field"
-                                                            stopPropagation={true}
-                                                            value={transform.imgUrl}
-                                                        />
-                                                    </td>
-                                                    <td>
-                                                        <LemonInput
-                                                            placeholder="E.g. some className here"
-                                                            className="action-title-field"
-                                                            stopPropagation={true}
-                                                            value={transform.className}
-                                                        />
-                                                    </td>
+
                                                 </tr>
                                             ))}
                                             </tbody>
