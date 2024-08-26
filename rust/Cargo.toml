@@ -1,7 +1,8 @@
 [workspace]
 resolver = "2"
 
-members = [ "autocomplete",
+members = [
+  "property-defs-rs",
   "capture",
   "common/health",
   "common/metrics",

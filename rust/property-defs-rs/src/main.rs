@@ -1,14 +1,14 @@
 use std::{collections::HashSet, sync::Arc, time::Duration};
 
-use autocomplete::{
+use axum::{routing::get, Router};
+use envconfig::Envconfig;
+use futures::future::ready;
+use property_defs_rs::{
     app_context::AppContext,
     config::Config,
     metrics_consts::{BATCH_SKIPPED, EVENTS_RECEIVED, FORCED_SMALL_BATCH, SMALL_BATCH_SLEEP},
     types::{Event, Update},
 };
-use axum::{routing::get, Router};
-use envconfig::Envconfig;
-use futures::future::ready;
 use rdkafka::{
     consumer::{Consumer, StreamConsumer},
     message::BorrowedMessage,
