@@ -358,6 +358,7 @@ name = "autocomplete"
 version = "0.1.0"
 dependencies = [
  "axum 0.7.5",
+ "chrono",
  "envconfig",
  "futures",
  "health",

@@ -1,5 +1,6 @@
 use std::{fmt, hash::Hash, str::FromStr};
 
+use chrono::{DateTime, Duration, DurationRound, RoundingError, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use tracing::warn;
@@ -85,6 +86,7 @@ pub struct EventDefinition {
     pub id: Uuid,
     pub name: String,
     pub team_id: i32,
+    pub last_seen_at: DateTime<Utc>,
 }
 
 // Represents a generic update, but comparable, allowing us to dedupe and cache updates
@@ -107,6 +109,9 @@ impl From<&Event> for EventDefinition {
             id: Uuid::now_v7(),
             name: sanitize_event_name(&event.event),
             team_id: event.team_id,
+            // We round last seen to the nearest day, as per the TS impl. Unwrap is safe here because we
+            // the duration is positive, non-zero, and smaller than time since epoch
+            last_seen_at: floor_datetime(Utc::now(), Duration::days(1)).unwrap(),
         }
     }
 }
@@ -295,7 +300,9 @@ impl Hash for PropertyDefinition {
 
 impl Hash for EventDefinition {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.id.hash(state);
+        self.team_id.hash(state);
+        self.name.hash(state);
+        self.last_seen_at.hash(state)
     }
 }
 
@@ -309,5 +316,16 @@ impl Hash for GroupType {
             GroupType::Unresolved(name) => name.hash(state),
             GroupType::Resolved(name, _) => name.hash(state),
         }
+    }
+}
+
+fn floor_datetime(dt: DateTime<Utc>, duration: Duration) -> Result<DateTime<Utc>, RoundingError> {
+    let rounded = dt.duration_round(duration)?;
+
+    // If we rounded up
+    if rounded > dt {
+        Ok(rounded - duration)
+    } else {
+        Ok(rounded)
     }
 }
