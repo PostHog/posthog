@@ -165,8 +165,8 @@ export const experimentLogic = kea<experimentLogicType>([
         closeExperimentExposureModal: true,
         openExperimentCollectionGoalModal: true,
         closeExperimentCollectionGoalModal: true,
-        openMakeDecisionModal: true,
-        closeMakeDecisionModal: true,
+        openShipVariantModal: true,
+        closeShipVariantModal: true,
         setCurrentFormStep: (stepIndex: number) => ({ stepIndex }),
         moveToNextFormStep: true,
     }),
@@ -305,11 +305,11 @@ export const experimentLogic = kea<experimentLogicType>([
                 closeExperimentCollectionGoalModal: () => false,
             },
         ],
-        isMakeDecisionModalOpen: [
+        isShipVariantModalOpen: [
             false,
             {
-                openMakeDecisionModal: () => true,
-                closeMakeDecisionModal: () => false,
+                openShipVariantModal: () => true,
+                closeShipVariantModal: () => false,
             },
         ],
         experimentValuesChangedLocally: [
@@ -706,8 +706,8 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         shipVariantSuccess: ({ payload }) => {
             lemonToast.success('The selected variant has been shipped')
-            actions.closeMakeDecisionModal()
-            if (payload.shouldStopExperiment) {
+            actions.closeShipVariantModal()
+            if (payload.shouldStopExperiment && !values.isExperimentStopped) {
                 actions.endExperiment()
             }
             actions.loadExperiment()
@@ -715,7 +715,7 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         shipVariantFailure: ({ error }) => {
             lemonToast.error(error)
-            actions.closeMakeDecisionModal()
+            actions.closeShipVariantModal()
         },
     })),
     loaders(({ actions, props, values }) => ({
