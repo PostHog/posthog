@@ -683,7 +683,7 @@ class Tuple(Expr):
 @dataclass(kw_only=True)
 class Lambda(Expr):
     args: list[str]
-    expr: Expr
+    expr: Expr | Block
 
 
 @dataclass(kw_only=True)
