@@ -4,6 +4,7 @@ import {
     InspectorListBrowserVisibility,
     InspectorListItem,
     InspectorListItemConsole,
+    InspectorListItemDoctor,
     InspectorListItemEvent,
     InspectorListOfflineStatusChange,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
@@ -78,6 +79,10 @@ function isException(item: InspectorListItem): boolean {
 
 function isErrorEvent(item: InspectorListItem): boolean {
     return isEvent(item) && item.data.event.toLowerCase().includes('error')
+}
+
+function isDoctorEvent(item: InspectorListItem): item is InspectorListItemDoctor {
+    return item.type === 'doctor'
 }
 
 export function filterInspectorListItems({
@@ -178,11 +183,14 @@ export function filterInspectorListItems({
                     ![...IMAGE_WEB_EXTENSIONS, 'css', 'js'].some((ext) => item.data.name?.includes(`.${ext}`)))
             )
         },
-        [SessionRecordingPlayerTab.DOCTOR]: (item: InspectorListItem) =>
-            isOfflineStatusChange(item) ||
-            isBrowserVisibilityEvent(item) ||
-            (item.type === SessionRecordingPlayerTab.EVENTS && item.data.event === '$exception') ||
-            (item.type === SessionRecordingPlayerTab.CONSOLE && item.data.level === 'error'),
+        [SessionRecordingPlayerTab.DOCTOR]: (item: InspectorListItem) => {
+            return (
+                isOfflineStatusChange(item) ||
+                isBrowserVisibilityEvent(item) ||
+                isException(item) ||
+                isDoctorEvent(item)
+            )
+        },
     }
 
     for (const item of allItems) {

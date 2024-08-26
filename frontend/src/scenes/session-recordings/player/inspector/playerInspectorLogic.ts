@@ -336,7 +336,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             const customEvent = snapshot as customEvent
                             const tag = customEvent.data.tag
 
-                            if (tag === '$pageview') {
+                            if (['$pageview', 'window hidden', 'browser offline', 'browser online'].includes(tag)) {
                                 return
                             }
 
