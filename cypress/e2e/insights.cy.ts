@@ -13,7 +13,7 @@ describe('Insights', () => {
     it('Saving an insight sets breadcrumbs', () => {
         createInsight('insight name')
 
-        cy.get('[data-attr=breadcrumb-organization]').should('contain', 'Hogflix')
+        cy.get('[data-attr=breadcrumb-organization]').should('contain', 'H') // "H" as the lettermark of "Hogflix"
         cy.get('[data-attr=breadcrumb-project]').should('contain', 'Hogflix Demo App')
         cy.get('[data-attr=breadcrumb-SavedInsights]').should('have.text', 'Product analytics')
         cy.get('[data-attr^="breadcrumb-Insight:"]').should('have.text', 'insight name')

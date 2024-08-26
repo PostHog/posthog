@@ -54,6 +54,7 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 from posthog.utils import get_machine_id, get_previous_day
+from posthog.warehouse.models import ExternalDataJob, ExternalDataSource
 
 logger = structlog.get_logger(__name__)
 
@@ -1095,46 +1096,21 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
     ) -> None:
         self._setup_teams()
 
+        source = ExternalDataSource.objects.create(
+            team=self.analytics_team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSource.Type.STRIPE,
+        )
+
         for i in range(5):
             start_time = (now() - relativedelta(hours=i)).strftime("%Y-%m-%dT%H:%M:%SZ")
-            _create_event(
-                distinct_id="3",
-                event="$data_sync_job_completed",
-                properties={
-                    "count": 10,
-                    "job_id": 10924,
-                    "start_time": start_time,
-                },
-                timestamp=now() - relativedelta(hours=i),
-                team=self.analytics_team,
-            )
-            # identical job id should be deduped and not counted
-            _create_event(
-                distinct_id="3",
-                event="$data_sync_job_completed",
-                properties={
-                    "count": 10,
-                    "job_id": 10924,
-                    "start_time": start_time,
-                },
-                timestamp=now() - relativedelta(hours=i, minutes=i),
-                team=self.analytics_team,
-            )
+            ExternalDataJob.objects.create(team_id=3, created_at=start_time, rows_synced=10, pipeline=source)
 
         for i in range(5):
-            _create_event(
-                distinct_id="4",
-                event="$data_sync_job_completed",
-                properties={
-                    "count": 10,
-                    "job_id": 10924,
-                    "start_time": (now() - relativedelta(hours=i)).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                },
-                timestamp=now() - relativedelta(hours=i),
-                team=self.analytics_team,
-            )
-
-        flush_persons_and_events()
+            start_time = (now() - relativedelta(hours=i)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            ExternalDataJob.objects.create(team_id=4, created_at=start_time, rows_synced=10, pipeline=source)
 
         period = get_previous_day(at=now() + relativedelta(days=1))
         period_start, period_end = period
@@ -1151,10 +1127,10 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
         )
 
         assert org_1_report["organization_name"] == "Org 1"
-        assert org_1_report["rows_synced_in_period"] == 20
+        assert org_1_report["rows_synced_in_period"] == 100
 
-        assert org_1_report["teams"]["3"]["rows_synced_in_period"] == 10
-        assert org_1_report["teams"]["4"]["rows_synced_in_period"] == 10
+        assert org_1_report["teams"]["3"]["rows_synced_in_period"] == 50
+        assert org_1_report["teams"]["4"]["rows_synced_in_period"] == 50
 
         assert org_2_report["organization_name"] == "Org 2"
         assert org_2_report["rows_synced_in_period"] == 0

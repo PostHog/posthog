@@ -19,6 +19,7 @@ BATCH_EXPORT_HTTP_UPLOAD_CHUNK_SIZE_BYTES: int = 1024 * 1024 * 10  # 10MB
 BATCH_EXPORT_HTTP_BATCH_SIZE: int = 1000
 
 UNCONSTRAINED_TIMESTAMP_TEAM_IDS: list[str] = get_list(os.getenv("UNCONSTRAINED_TIMESTAMP_TEAM_IDS", ""))
+ASYNC_ARROW_STREAMING_TEAM_IDS: list[str] = get_list(os.getenv("ASYNC_ARROW_STREAMING_TEAM_IDS", ""))
 DEFAULT_TIMESTAMP_LOOKBACK_DAYS = 7
 # Comma separated list of overrides in the format "team_id:lookback_days"
 OVERRIDE_TIMESTAMP_TEAM_IDS: dict[int, int] = dict(

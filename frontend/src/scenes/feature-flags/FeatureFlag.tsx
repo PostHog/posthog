@@ -55,6 +55,7 @@ import {
     NotebookNodeType,
     PropertyFilterType,
     PropertyOperator,
+    QueryBasedInsightModel,
     ReplayTabs,
     Resource,
 } from '~/types'
@@ -379,10 +380,9 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 checked={value}
                                             />
                                             <div className="text-muted text-sm pl-7">
-                                                If your feature flag is applied prior to an identify or authentication
-                                                event, use this to ensure that feature flags are not reset after a
-                                                person is identified. This ensures the experience for the anonymous
-                                                person is carried forward to the authenticated person.{' '}
+                                                If your feature flag is applied before identifying the user, use this to
+                                                ensure that the flag value remains consistent for the same user.
+                                                Depending on your setup, this option might not always be suitable.{' '}
                                                 <Link
                                                     to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
                                                     target="_blank"
@@ -617,7 +617,7 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
     } = featureFlag
     const { generateUsageDashboard, enrichUsageDashboard } = useActions(featureFlagLogic)
     const { featureFlagLoading } = useValues(featureFlagLogic)
-    let dashboard: DashboardType | null = null
+    let dashboard: DashboardType<QueryBasedInsightModel> | null = null
     if (dashboardId) {
         // FIXME: Refactor out into <ConnectedDashboard />, as React hooks under conditional branches are no good
         const dashboardLogicValues = useValues(

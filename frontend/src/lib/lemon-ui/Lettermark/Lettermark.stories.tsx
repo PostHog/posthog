@@ -65,3 +65,9 @@ Unknown.args = { name: null }
 
 export const Gray: Story = Template.bind({})
 Gray.args = { name: 5, color: LettermarkColor.Gray }
+
+export const ExtraSmall: Story = Template.bind({})
+ExtraSmall.args = { name: 'Xtra', size: 'xsmall' }
+
+export const ExtraLarge: Story = Template.bind({})
+ExtraLarge.args = { name: 'Xtra', size: 'xlarge' }

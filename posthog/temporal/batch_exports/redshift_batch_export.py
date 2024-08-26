@@ -150,13 +150,15 @@ class RedshiftClient(PostgreSQLClient):
             for field in merge_key
         )
 
-        delete_query = sql.SQL("""\
+        delete_query = sql.SQL(
+            """\
         DELETE FROM {stage_table}
         USING {final_table} AS final
         WHERE {merge_condition}
         AND {stage_table}.{stage_person_version_key} < final.{final_person_version_key}
         AND {stage_table}.{stage_person_distinct_id_version_key} < final.{final_person_distinct_id_version_key};
-        """).format(
+        """
+        ).format(
             final_table=final_table_identifier,
             stage_table=stage_table_identifier,
             merge_condition=delete_condition,
@@ -166,12 +168,14 @@ class RedshiftClient(PostgreSQLClient):
             final_person_distinct_id_version_key=sql.Identifier(person_distinct_id_version_key),
         )
 
-        merge_query = sql.SQL("""\
+        merge_query = sql.SQL(
+            """\
         MERGE INTO {final_table}
         USING {stage_table} AS stage
         ON {merge_condition}
         REMOVE DUPLICATES
-        """).format(
+        """
+        ).format(
             final_table=final_table_identifier,
             stage_table=stage_table_identifier,
             merge_condition=merge_condition,
@@ -434,7 +438,10 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
         requires_merge = (
             isinstance(inputs.batch_export_model, BatchExportModel) and inputs.batch_export_model.name == "persons"
         )
-        stagle_table_name = f"stage_{inputs.table_name}" if requires_merge else inputs.table_name
+        data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
+        stagle_table_name = (
+            f"stage_{inputs.table_name}_{data_interval_end_str}" if requires_merge else inputs.table_name
+        )
 
         if requires_merge:
             primary_key: Fields | None = (("team_id", "INTEGER"), ("distinct_id", "VARCHAR(200)"))

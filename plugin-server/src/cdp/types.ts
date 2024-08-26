@@ -32,12 +32,17 @@ export interface HogFunctionFilterAction extends HogFunctionFilterBase {
 
 export type HogFunctionFilter = HogFunctionFilterEvent | HogFunctionFilterAction
 
+export type HogFunctionFiltersMasking = {
+    ttl: number | null
+    hash: string
+    bytecode: HogBytecode
+    threshold: number | null
+}
+
 export interface HogFunctionFilters {
     events?: HogFunctionFilterEvent[]
     actions?: HogFunctionFilterAction[]
     filter_test_accounts?: boolean
-    // Loaded at run time from Team model
-    filter_test_accounts_bytecode?: boolean
     bytecode?: HogBytecode
 }
 
@@ -172,7 +177,10 @@ export type HogFunctionAsyncFunctionResponse = {
     /** An error message to indicate something went wrong and the invocation should be stopped */
     error?: any
     /** The data to be passed to the Hog function from the response */
-    response: any
+    response?: {
+        status: number
+        body: any
+    } | null
     timings?: HogFunctionTiming[]
     logs?: LogEntry[]
 }
@@ -228,6 +236,7 @@ export type HogFunctionType = {
     inputs_schema?: HogFunctionInputSchemaType[]
     inputs?: Record<string, HogFunctionInputType>
     filters?: HogFunctionFilters | null
+    masking?: HogFunctionFiltersMasking | null
     depends_on_integration_ids?: Set<IntegrationType['id']>
 }
 
@@ -255,12 +264,7 @@ type CdpOverflowMessageInvocations = {
     payload: HogFunctionOverflowedGlobals
 }
 
-type CdpOverflowMessageFunctionCallback = {
-    source: 'hog_function_callback'
-    payload: HogFunctionInvocationAsyncResponse
-}
-
-export type CdpOverflowMessage = CdpOverflowMessageInvocations | CdpOverflowMessageFunctionCallback
+export type CdpOverflowMessage = CdpOverflowMessageInvocations
 
 export type HogFunctionMessageToProduce = {
     topic: string

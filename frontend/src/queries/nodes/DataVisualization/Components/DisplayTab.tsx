@@ -1,7 +1,8 @@
 import { IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonLabel, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { ChartDisplayType } from '~/types'
 
@@ -17,13 +18,50 @@ export const DisplayTab = (): JSX.Element => {
 
     return (
         <div className="flex flex-col w-full">
-            <div className="mt-1 mb-2 flex">
+            <div className="mt-1 mb-2 flex flex-col">
+                <h3>Left Y-axis</h3>
+                <LemonField.Pure label="Scale" className="gap-0 mb-3">
+                    <LemonSelect
+                        value={chartSettings.leftYAxisSettings?.scale ?? 'linear'}
+                        options={[
+                            { value: 'linear', label: 'Linear' },
+                            { value: 'logarithmic', label: 'Logarithmic' },
+                        ]}
+                        onChange={(value) => {
+                            updateChartSettings({ leftYAxisSettings: { scale: value } })
+                        }}
+                    />
+                </LemonField.Pure>
                 <LemonSwitch
-                    className="flex-1"
-                    label="Begin Y axis at zero"
-                    checked={chartSettings.yAxisAtZero ?? true}
+                    className="flex-1 mb-3 w-full"
+                    label="Begin Y-axis at zero"
+                    checked={chartSettings.leftYAxisSettings?.startAtZero ?? chartSettings.yAxisAtZero ?? true}
                     onChange={(value) => {
-                        updateChartSettings({ yAxisAtZero: value })
+                        updateChartSettings({ leftYAxisSettings: { startAtZero: value } })
+                    }}
+                />
+            </div>
+
+            <div className="mt-1 mb-2 flex flex-col">
+                <h3>Right Y-axis</h3>
+                <LemonField.Pure label="Scale" className="gap-0 mb-3">
+                    <LemonSelect
+                        value={chartSettings.rightYAxisSettings?.scale ?? 'linear'}
+                        options={[
+                            { value: 'linear', label: 'Linear' },
+                            { value: 'logarithmic', label: 'Logarithmic' },
+                        ]}
+                        onChange={(value) => {
+                            updateChartSettings({ rightYAxisSettings: { scale: value } })
+                        }}
+                    />
+                </LemonField.Pure>
+                <LemonSwitch
+                    className="flex-1 mb-3 w-full"
+                    label="Begin Y-axis at zero"
+                    checked={chartSettings.rightYAxisSettings?.startAtZero ?? chartSettings.yAxisAtZero ?? true}
+                    onChange={(value) => {
+                        updateChartSettings({ rightYAxisSettings: { startAtZero: value } })
                     }}
                 />
             </div>

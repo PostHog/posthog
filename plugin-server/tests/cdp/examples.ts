@@ -359,7 +359,10 @@ export const HOG_INPUTS_EXAMPLES: Record<string, Pick<HogFunctionType, 'inputs' 
         ],
         inputs: {
             input_1: { value: 'test', bytecode: ['_h', 32, 'test'] },
-            secret_input_2: { value: { foo: 'bar' }, bytecode: { foo: ['_h', 32, 'bar'] } },
+            secret_input_2: {
+                value: { foo: 'bar', null: null, bool: false },
+                bytecode: { foo: ['_h', 32, 'bar'], null: ['_h', 32, null], bool: ['_h', 32, false] },
+            },
             secret_input_3: { value: 'super secret', bytecode: ['_h', 32, 'super secret'] },
         },
     },
@@ -412,6 +415,25 @@ export const HOG_FILTERS_EXAMPLES: Record<string, Pick<HogFunctionType, 'filters
                 4,
                 2,
             ],
+        },
+    },
+}
+
+export const HOG_MASK_EXAMPLES: Record<string, Pick<HogFunctionType, 'masking'>> = {
+    all: {
+        masking: {
+            ttl: 30,
+            hash: 'all',
+            bytecode: ['_h', 32, 'all'],
+            threshold: null,
+        },
+    },
+    person: {
+        masking: {
+            ttl: 30,
+            hash: '{person.uuid}',
+            bytecode: ['_h', 32, 'uuid', 32, 'person', 1, 2],
+            threshold: null,
         },
     },
 }

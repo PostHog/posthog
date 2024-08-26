@@ -19,6 +19,8 @@ jobs:
                     - hook-api
                     - hook-janitor
                     - hook-worker
+                    - cyclotron-janitor
+                    - cyclotron-fetch
         runs-on: depot-ubuntu-22.04-4
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
@@ -42,22 +44,19 @@ jobs:
             - name: Set up Depot CLI
               uses: depot/setup-action@v1
 
-            - name: Login to DockerHub
-              uses: docker/login-action@v2
+            - name: Set up QEMU
+              uses: docker/setup-qemu-action@v3
               with:
-                  username: posthog
-                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+                  image: tonistiigi/binfmt:latest
+                  platforms: all
 
             - name: Login to ghcr.io
-              uses: docker/login-action@v2
+              uses: docker/login-action@v3
               with:
                   registry: ghcr.io
                   username: ${{ github.actor }}
                   password: ${{ secrets.GITHUB_TOKEN }}
                   logout: false
-
-            - name: Set up QEMU
-              uses: docker/setup-qemu-action@v3
 
             - name: Docker meta
               id: meta
@@ -84,7 +83,7 @@ jobs:
                   push: true
                   tags: ${{ steps.meta.outputs.tags }}
                   labels: ${{ steps.meta.outputs.labels }}
-                  platforms: linux/arm64
+                  platforms: linux/arm64,linux/amd64
                   cache-from: type=gha
                   cache-to: type=gha,mode=max
                   build-args: BIN=${{ matrix.image }}

@@ -27,6 +27,7 @@ import {
     InsightQueryNode,
     InsightsQueryBase,
     LifecycleFilter,
+    MathType,
     NodeKind,
     PathsFilter,
     RetentionFilter,
@@ -63,7 +64,7 @@ import {
 
 import { cleanEntityProperties, cleanGlobalProperties } from './cleanProperties'
 
-const reverseInsightMap: Record<
+const insightTypeToNodeKind: Record<
     Exclude<InsightType, InsightType.JSON | InsightType.SQL | InsightType.HOG>,
     InsightNodeKind
 > = {
@@ -82,6 +83,8 @@ const actorsOnlyMathTypes = [
     GroupMathType.UniqueGroup,
     HogQLMathType.HogQL,
 ]
+
+const funnelsMathTypes = [BaseMathType.FirstTimeForUser]
 
 type FilterTypeActionsAndEvents = {
     events?: ActionFilter[]
@@ -121,6 +124,13 @@ export const legacyEntityToNode = (
             shared = {
                 ...shared,
                 math: BaseMathType.UniqueUsers,
+            }
+        } else if (mathAvailability === MathAvailability.FunnelsOnly) {
+            if (funnelsMathTypes.includes(entity.math as any)) {
+                shared = {
+                    ...shared,
+                    math: entity.math as MathType,
+                }
             }
         } else {
             shared = {
@@ -260,7 +270,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
     }
 
     const query: InsightsQueryBase<AnalyticsQueryResponseBase<unknown>> = {
-        kind: reverseInsightMap[filters.insight],
+        kind: insightTypeToNodeKind[filters.insight],
         properties: cleanGlobalProperties(filters.properties),
         filterTestAccounts: filters.filter_test_accounts,
     }
@@ -283,6 +293,8 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             includeMath = MathAvailability.All
         } else if (isStickinessQuery(query)) {
             includeMath = MathAvailability.ActorsOnly
+        } else if (isFunnelsQuery(query)) {
+            includeMath = MathAvailability.FunnelsOnly
         }
 
         const { events, actions, data_warehouse } = filters
@@ -424,6 +436,7 @@ export const retentionFilterToQuery = (filters: Partial<RetentionFilterType>): R
         targetEntity: sanitizeRetentionEntity(filters.target_entity),
         period: filters.period,
         showMean: filters.show_mean,
+        cumulative: filters.cumulative,
     })
     // TODO: query.aggregation_group_type_index
 }

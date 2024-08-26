@@ -1,3 +1,4 @@
+import cyclotron from '@posthog/cyclotron'
 import { captureException } from '@sentry/node'
 import { features, librdkafkaVersion, Message } from 'node-rdkafka'
 import { Counter, Histogram } from 'prom-client'
@@ -17,15 +18,17 @@ import { addSentryBreadcrumbsEventListeners } from '../main/ingestion-queues/kaf
 import { runInstrumentedFunction } from '../main/utils'
 import { AppMetric2Type, Hub, RawClickHouseEvent, TeamId, TimestampFormat } from '../types'
 import { KafkaProducerWrapper } from '../utils/db/kafka-producer-wrapper'
+import { captureTeamEvent } from '../utils/posthog'
 import { status } from '../utils/status'
-import { castTimestampOrNow, UUIDT } from '../utils/utils'
+import { castTimestampOrNow } from '../utils/utils'
 import { RustyHook } from '../worker/rusty-hook'
 import { AsyncFunctionExecutor } from './async-function-executor'
 import { GroupsManager } from './groups-manager'
 import { HogExecutor } from './hog-executor'
 import { HogFunctionManager } from './hog-function-manager'
-import { HogWatcher } from './hog-watcher/hog-watcher'
-import { HogWatcherState } from './hog-watcher/types'
+import { HogMasker } from './hog-masker'
+import { HogWatcher, HogWatcherState } from './hog-watcher'
+import { CdpRedis, createCdpRedisPool } from './redis'
 import {
     CdpOverflowMessage,
     HogFunctionAsyncFunctionResponse,
@@ -84,9 +87,11 @@ abstract class CdpConsumerBase {
     asyncFunctionExecutor: AsyncFunctionExecutor
     hogExecutor: HogExecutor
     hogWatcher: HogWatcher
+    hogMasker: HogMasker
     groupsManager: GroupsManager
     isStopping = false
     messagesToProduce: HogFunctionMessageToProduce[] = []
+    redis: CdpRedis
 
     protected kafkaProducer?: KafkaProducerWrapper
     protected abstract name: string
@@ -96,12 +101,38 @@ abstract class CdpConsumerBase {
     protected heartbeat = () => {}
 
     constructor(protected hub: Hub) {
-        this.hogWatcher = new HogWatcher(hub)
+        this.redis = createCdpRedisPool(hub)
         this.hogFunctionManager = new HogFunctionManager(hub.postgres, hub)
+        this.hogWatcher = new HogWatcher(hub, this.redis, (id, state) => {
+            void this.captureInternalPostHogEvent(id, 'hog function state changed', { state })
+        })
+        this.hogMasker = new HogMasker(this.redis)
         this.hogExecutor = new HogExecutor(this.hogFunctionManager)
         const rustyHook = this.hub?.rustyHook ?? new RustyHook(this.hub)
         this.asyncFunctionExecutor = new AsyncFunctionExecutor(this.hub, rustyHook)
         this.groupsManager = new GroupsManager(this.hub)
+    }
+
+    private async captureInternalPostHogEvent(
+        hogFunctionId: HogFunctionType['id'],
+        event: string,
+        properties: any = {}
+    ) {
+        const hogFunction = this.hogFunctionManager.getHogFunction(hogFunctionId)
+        if (!hogFunction) {
+            return
+        }
+        const team = await this.hub.teamManager.fetchTeam(hogFunction.team_id)
+
+        if (!team) {
+            return
+        }
+
+        captureTeamEvent(team, event, {
+            ...properties,
+            hog_function_id: hogFunctionId,
+            hog_function_url: `${this.hub.SITE_URL}/project/${team.id}/pipeline/destinations/hog-${hogFunctionId}`,
+        })
     }
 
     protected async runWithHeartbeat<T>(func: () => Promise<T> | T): Promise<T> {
@@ -180,7 +211,7 @@ abstract class CdpConsumerBase {
         counterFunctionInvocation.inc({ outcome: appMetric.metric_name }, appMetric.count)
     }
 
-    protected producelogs(result: HogFunctionInvocationResult) {
+    protected produceLogs(result: HogFunctionInvocationResult) {
         const logs = prepareLogEntriesForClickhouse(result)
 
         logs.forEach((logEntry) => {
@@ -208,7 +239,7 @@ abstract class CdpConsumerBase {
                             count: 1,
                         })
 
-                        this.producelogs(result)
+                        this.produceLogs(result)
 
                         // PostHog capture events
                         const capturedEvents = result.capturedPostHogEvents
@@ -257,46 +288,11 @@ abstract class CdpConsumerBase {
         return await runInstrumentedFunction({
             statsKey: `cdpConsumer.handleEachBatch.executeAsyncResponses`,
             func: async () => {
-                this.hogWatcher.currentObservations.observeAsyncFunctionResponses(asyncResponses)
                 asyncResponses.forEach((x) => {
                     counterAsyncFunctionResponse.inc({
                         outcome: x.asyncFunctionResponse.error ? 'failed' : 'succeeded',
                     })
                 })
-
-                // Filter for blocked functions
-                const asyncResponsesToRun: HogFunctionInvocationAsyncResponse[] = []
-
-                for (const item of asyncResponses) {
-                    const functionState = this.hogWatcher.getFunctionState(item.hogFunctionId)
-
-                    if (functionState === HogWatcherState.overflowed) {
-                        this.messagesToProduce.push({
-                            topic: KAFKA_CDP_FUNCTION_OVERFLOW,
-                            value: {
-                                source: 'hog_function_callback',
-                                payload: item,
-                            },
-                            key: new UUIDT().toString(), // Random key to spread across consumers
-                        })
-                        // We don't report overflowed metric to appmetrics as it is sort of a meta-metric
-                        counterFunctionInvocation.inc({ outcome: 'overflowed' })
-                    } else if (functionState > HogWatcherState.disabledForPeriod) {
-                        this.produceAppMetric({
-                            team_id: item.teamId,
-                            app_source_id: item.hogFunctionId,
-                            metric_kind: 'failure',
-                            metric_name:
-                                functionState === HogWatcherState.disabledForPeriod
-                                    ? 'disabled_temporarily'
-                                    : 'disabled_permanently',
-                            count: 1,
-                        })
-                        continue
-                    } else {
-                        asyncResponsesToRun.push(item)
-                    }
-                }
 
                 const invocationsWithResponses: [HogFunctionInvocation, HogFunctionAsyncFunctionResponse][] = []
 
@@ -319,7 +315,7 @@ abstract class CdpConsumerBase {
                     this.hogExecutor.executeAsyncResponse(...item)
                 )
 
-                this.hogWatcher.currentObservations.observeResults(results)
+                await this.hogWatcher.observeResults(results)
                 return results
             },
         })
@@ -331,13 +327,22 @@ abstract class CdpConsumerBase {
         return await runInstrumentedFunction({
             statsKey: `cdpConsumer.handleEachBatch.executeMatchingFunctions`,
             func: async () => {
-                const invocations: { globals: HogFunctionInvocationGlobals; hogFunction: HogFunctionType }[] = []
+                const possibleInvocations: { globals: HogFunctionInvocationGlobals; hogFunction: HogFunctionType }[] =
+                    []
 
                 // TODO: Add a helper to hog functions to determine if they require groups or not and then only load those
                 await this.groupsManager.enrichGroups(invocationGlobals)
 
+                // Find all functions that could need running
                 invocationGlobals.forEach((globals) => {
                     const { matchingFunctions, nonMatchingFunctions } = this.hogExecutor.findMatchingFunctions(globals)
+
+                    possibleInvocations.push(
+                        ...matchingFunctions.map((hogFunction) => ({
+                            globals,
+                            hogFunction,
+                        }))
+                    )
 
                     nonMatchingFunctions.forEach((item) =>
                         this.produceAppMetric({
@@ -348,70 +353,82 @@ abstract class CdpConsumerBase {
                             count: 1,
                         })
                     )
+                })
 
-                    // Filter for overflowed and disabled functions
-                    const hogFunctionsByState = matchingFunctions.reduce((acc, item) => {
-                        const state = this.hogWatcher.getFunctionState(item.id)
-                        return {
-                            ...acc,
-                            [state]: [...(acc[state] ?? []), item],
-                        }
-                        return acc
-                    }, {} as Record<HogWatcherState, HogFunctionType[] | undefined>)
+                const states = await this.hogWatcher.getStates(possibleInvocations.map((x) => x.hogFunction.id))
 
-                    if (hogFunctionsByState[HogWatcherState.overflowed]?.length) {
-                        const overflowed = hogFunctionsByState[HogWatcherState.overflowed]!
-                        // Group all overflowed functions into one event
-                        counterFunctionInvocation.inc({ outcome: 'overflowed' }, overflowed.length)
-
-                        this.messagesToProduce.push({
-                            topic: KAFKA_CDP_FUNCTION_OVERFLOW,
-                            value: {
-                                source: 'event_invocations',
-                                payload: {
-                                    hogFunctionIds: overflowed.map((x) => x.id),
-                                    globals,
-                                },
-                            },
-                            key: globals.event.uuid,
+                const notDisabledInvocations = possibleInvocations.filter((item) => {
+                    const state = states[item.hogFunction.id].state
+                    if (state >= HogWatcherState.disabledForPeriod) {
+                        this.produceAppMetric({
+                            team_id: item.globals.project.id,
+                            app_source_id: item.hogFunction.id,
+                            metric_kind: 'failure',
+                            metric_name:
+                                state === HogWatcherState.disabledForPeriod
+                                    ? 'disabled_temporarily'
+                                    : 'disabled_permanently',
+                            count: 1,
                         })
+                        return false
                     }
 
-                    hogFunctionsByState[HogWatcherState.disabledForPeriod]?.forEach((item) => {
-                        this.produceAppMetric({
-                            team_id: item.team_id,
-                            app_source_id: item.id,
-                            metric_kind: 'failure',
-                            metric_name: 'disabled_temporarily',
-                            count: 1,
-                        })
-                    })
+                    return true
+                })
 
-                    hogFunctionsByState[HogWatcherState.disabledIndefinitely]?.forEach((item) => {
-                        this.produceAppMetric({
-                            team_id: item.team_id,
-                            app_source_id: item.id,
-                            metric_kind: 'failure',
-                            metric_name: 'disabled_permanently',
-                            count: 1,
-                        })
-                    })
+                // Now we can filter by masking configs
+                const { masked, notMasked: notMaskedInvocations } = await this.hogMasker.filterByMasking(
+                    notDisabledInvocations
+                )
 
-                    hogFunctionsByState[HogWatcherState.healthy]?.forEach((item) => {
-                        invocations.push({
-                            globals,
-                            hogFunction: item,
-                        })
+                masked.forEach((item) => {
+                    this.produceAppMetric({
+                        team_id: item.globals.project.id,
+                        app_source_id: item.hogFunction.id,
+                        metric_kind: 'other',
+                        metric_name: 'masked',
+                        count: 1,
+                    })
+                })
+
+                const overflowGlobalsAndFunctions: Record<string, HogFunctionOverflowedGlobals> = {}
+
+                const notOverflowedInvocations = notMaskedInvocations.filter((item) => {
+                    const state = states[item.hogFunction.id].state
+
+                    if (state === HogWatcherState.degraded) {
+                        const key = `${item.globals.project.id}-${item.globals.event.uuid}`
+                        overflowGlobalsAndFunctions[key] = overflowGlobalsAndFunctions[key] || {
+                            globals: item.globals,
+                            hogFunctionIds: [],
+                        }
+
+                        overflowGlobalsAndFunctions[key].hogFunctionIds.push(item.hogFunction.id)
+                        counterFunctionInvocation.inc({ outcome: 'overflowed' }, 1)
+                        return false
+                    }
+
+                    return true
+                })
+
+                Object.values(overflowGlobalsAndFunctions).forEach((item) => {
+                    this.messagesToProduce.push({
+                        topic: KAFKA_CDP_FUNCTION_OVERFLOW,
+                        value: {
+                            source: 'event_invocations',
+                            payload: item,
+                        },
+                        key: item.globals.event.uuid,
                     })
                 })
 
                 const results = (
-                    await this.runManyWithHeartbeat(invocations, (item) =>
+                    await this.runManyWithHeartbeat(notOverflowedInvocations, (item) =>
                         this.hogExecutor.executeFunction(item.globals, item.hogFunction)
                     )
                 ).filter((x) => !!x) as HogFunctionInvocationResult[]
 
-                this.hogWatcher.currentObservations.observeResults(results)
+                await this.hogWatcher.observeResults(results)
                 return results
             },
         })
@@ -427,7 +444,12 @@ abstract class CdpConsumerBase {
         const globalConnectionConfig = createRdConnectionConfigFromEnvVars(this.hub)
         const globalProducerConfig = createRdProducerConfigFromEnvVars(this.hub)
 
-        await Promise.all([this.hogFunctionManager.start(), this.hogWatcher.start()])
+        await Promise.all([
+            this.hogFunctionManager.start(),
+            this.hub.CYCLOTRON_DATABASE_URL
+                ? cyclotron.initManager({ shards: [{ dbUrl: this.hub.CYCLOTRON_DATABASE_URL }] })
+                : Promise.resolve(),
+        ])
 
         this.kafkaProducer = new KafkaProducerWrapper(
             await createKafkaProducer(globalConnectionConfig, globalProducerConfig)
@@ -481,13 +503,12 @@ abstract class CdpConsumerBase {
         status.info('🔁', `${this.name} - stopping kafka producer`)
         await this.kafkaProducer?.disconnect()
         status.info('🔁', `${this.name} - stopping hog function manager and hog watcher`)
-        await Promise.all([this.hogFunctionManager.stop(), this.hogWatcher.stop()])
+        await Promise.all([this.hogFunctionManager.stop()])
 
         status.info('👍', `${this.name} - stopped!`)
     }
 
     public isHealthy() {
-        // TODO: Maybe extend this to check if we are shutting down so we don't get killed early.
         return this.batchConsumer?.isHealthy()
     }
 }
@@ -602,19 +623,14 @@ export class CdpOverflowConsumer extends CdpConsumerBase {
     protected consumerGroupId = 'cdp-overflow-consumer'
 
     public async _handleEachBatch(messages: Message[]): Promise<void> {
-        // This consumer can receive both events and callbacks so needs to check the message being parsed
-        const [overflowedGlobals, callbacks] = await this.runWithHeartbeat(() =>
+        const overflowedGlobals = await this.runWithHeartbeat(() =>
             runInstrumentedFunction({
                 statsKey: `cdpConsumer.handleEachBatch.parseKafkaMessages`,
                 func: () => Promise.resolve(this.parseMessages(messages)),
             })
         )
 
-        const invocationResults = (
-            await this.runWithHeartbeat(() =>
-                Promise.all([this.executeAsyncResponses(callbacks), this.executeOverflowedFunctions(overflowedGlobals)])
-            )
-        ).flat()
+        const invocationResults = await this.executeOverflowedFunctions(overflowedGlobals)
 
         await this.processInvocationResults(invocationResults)
     }
@@ -637,9 +653,11 @@ export class CdpOverflowConsumer extends CdpConsumerBase {
                     )
                     .flat()
 
+                const states = await this.hogWatcher.getStates(invocationGlobals.map((x) => x.hogFunctionIds).flat())
+
                 const results = (
                     await this.runManyWithHeartbeat(invocations, (item) => {
-                        const state = this.hogWatcher.getFunctionState(item.hogFunctionId)
+                        const state = states[item.hogFunctionId].state
                         if (state >= HogWatcherState.disabledForPeriod) {
                             this.produceAppMetric({
                                 team_id: item.globals.project.id,
@@ -657,23 +675,20 @@ export class CdpOverflowConsumer extends CdpConsumerBase {
                     })
                 ).filter((x) => !!x) as HogFunctionInvocationResult[]
 
-                this.hogWatcher.currentObservations.observeResults(results)
+                await this.hogWatcher.observeResults(results)
                 return results
             },
         })
     }
 
-    private parseMessages(messages: Message[]): [HogFunctionOverflowedGlobals[], HogFunctionInvocationAsyncResponse[]] {
+    private parseMessages(messages: Message[]): HogFunctionOverflowedGlobals[] {
         const invocationGlobals: HogFunctionOverflowedGlobals[] = []
-        const callbacks: HogFunctionInvocationAsyncResponse[] = []
         messages.map((message) => {
             try {
                 const parsed = JSON.parse(message.value!.toString()) as CdpOverflowMessage
 
                 if (parsed.source === 'event_invocations') {
                     invocationGlobals.push(parsed.payload)
-                } else if (parsed.source === 'hog_function_callback') {
-                    callbacks.push(parsed.payload)
                 }
             } catch (e) {
                 // TODO: We probably want to crash here right as this means something went really wrong and needs investigating?
@@ -681,6 +696,60 @@ export class CdpOverflowConsumer extends CdpConsumerBase {
             }
         })
 
-        return [invocationGlobals, callbacks]
+        return invocationGlobals
+    }
+}
+
+// TODO: Split out non-Kafka specific parts of CdpConsumerBase so that it can be used by the
+// Cyclotron worker below. Or maybe we can just wait, and rip the Kafka bits out once Cyclotron is
+// shipped (and rename it something other than consomer, probably). For now, this is an easy way to
+// use existing code and get an end-to-end demo shipped.
+export class CdpCyclotronWorker extends CdpConsumerBase {
+    protected name = 'CdpCyclotronWorker'
+    protected topic = 'UNUSED-CdpCyclotronWorker'
+    protected consumerGroupId = 'UNUSED-CdpCyclotronWorker'
+    private runningWorker: Promise<void> | undefined
+    private isUnhealthy = false
+
+    public async _handleEachBatch(_: Message[]): Promise<void> {
+        // Not called, we override `start` below to use Cyclotron instead.
+    }
+
+    private async innerStart() {
+        try {
+            const limit = 100 // TODO: Make configurable.
+            while (!this.isStopping) {
+                const jobs = await cyclotron.dequeueJobsWithVmState('hog', limit)
+                for (const job of jobs) {
+                    // TODO: Reassemble a HogFunctionInvocationAsyncResponse (or whatever proper type)
+                    // from the fields on the job, and then execute the next Hog step.
+                    console.log(job.id)
+                }
+            }
+        } catch (err) {
+            this.isUnhealthy = true
+            console.error('Error in Cyclotron worker', err)
+            throw err
+        }
+    }
+
+    public async start() {
+        await cyclotron.initManager({ shards: [{ dbUrl: this.hub.CYCLOTRON_DATABASE_URL }] })
+        await cyclotron.initWorker({ dbUrl: this.hub.CYCLOTRON_DATABASE_URL })
+
+        // Consumer `start` expects an async task is started, and not that `start` itself blocks
+        // indefinitely.
+        this.runningWorker = this.innerStart()
+
+        return Promise.resolve()
+    }
+
+    public async stop() {
+        await super.stop()
+        await this.runningWorker
+    }
+
+    public isHealthy() {
+        return this.isUnhealthy
     }
 }

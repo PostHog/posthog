@@ -295,6 +295,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         if (props.pinnedRecordings !== oldProps.pinnedRecordings) {
             actions.loadPinnedRecordings()
         }
+        if (props.filters && props.filters !== oldProps.filters) {
+            actions.setFilters(props.filters)
+        }
     }),
 
     loaders(({ props, values, actions }) => ({

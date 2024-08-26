@@ -12,6 +12,11 @@ from posthog.temporal.data_imports.pipelines.stripe.settings import (
     INCREMENTAL_FIELDS as STRIPE_INCREMENTAL_FIELDS,
 )
 from posthog.temporal.data_imports.pipelines.hubspot.settings import ENDPOINTS as HUBSPOT_ENDPOINTS
+from posthog.temporal.data_imports.pipelines.salesforce.settings import (
+    ENDPOINTS as SALESFORCE_ENDPOINTS,
+    INCREMENTAL_ENDPOINTS as SALESFORCE_INCREMENTAL_ENDPOINTS,
+    INCREMENTAL_FIELDS as SALESFORCE_INCREMENTAL_FIELDS,
+)
 
 PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING = {
     ExternalDataSource.Type.STRIPE: STRIPE_ENDPOINTS,
@@ -21,6 +26,7 @@ PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING = {
     ),
     ExternalDataSource.Type.POSTGRES: (),
     ExternalDataSource.Type.SNOWFLAKE: (),
+    ExternalDataSource.Type.SALESFORCE: SALESFORCE_ENDPOINTS,
     ExternalDataSource.Type.MYSQL: (),
 }
 
@@ -30,6 +36,7 @@ PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING = {
     ExternalDataSource.Type.ZENDESK: ZENDESK_INCREMENTAL_ENDPOINTS,
     ExternalDataSource.Type.POSTGRES: (),
     ExternalDataSource.Type.SNOWFLAKE: (),
+    ExternalDataSource.Type.SALESFORCE: SALESFORCE_INCREMENTAL_ENDPOINTS,
     ExternalDataSource.Type.MYSQL: (),
 }
 
@@ -39,5 +46,6 @@ PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING: dict[ExternalDataSource.Type, dict[str
     ExternalDataSource.Type.ZENDESK: ZENDESK_INCREMENTAL_FIELDS,
     ExternalDataSource.Type.POSTGRES: {},
     ExternalDataSource.Type.SNOWFLAKE: {},
+    ExternalDataSource.Type.SALESFORCE: SALESFORCE_INCREMENTAL_FIELDS,
     ExternalDataSource.Type.MYSQL: {},
 }

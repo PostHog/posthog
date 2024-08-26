@@ -9,22 +9,20 @@ import { getInsightId } from 'scenes/insights/utils'
 import { urls } from 'scenes/urls'
 
 import { AlertType } from '~/types'
-import { InsightShortId } from '~/types'
 
 import type { alertLogicType } from './alertLogicType'
-import { alertsLogic } from './alertsLogic'
+import { alertsLogic, AlertsLogicProps } from './alertsLogic'
 
-export interface AlertLogicProps {
+export interface AlertLogicProps extends AlertsLogicProps {
     id: number | 'new'
-    insightShortId: InsightShortId
 }
 
 export const alertLogic = kea<alertLogicType>([
     path(['lib', 'components', 'Alerts', 'alertLogic']),
     props({} as AlertLogicProps),
     key(({ id, insightShortId }) => `${insightShortId}-${id ?? 'new'}`),
-    connect(({ id, insightShortId }: AlertLogicProps) => ({
-        actions: [alertsLogic({ id, insightShortId }), ['loadAlerts']],
+    connect(() => ({
+        actions: [alertsLogic, ['loadAlerts']],
     })),
 
     loaders(({ props }) => ({

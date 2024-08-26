@@ -8,11 +8,22 @@ use crate::{api::FlagError, database::Client as DatabaseClient, redis::Client as
 // TODO: Add integration tests across repos to ensure this doesn't happen.
 pub const TEAM_TOKEN_CACHE_PREFIX: &str = "posthog:1:team_token:";
 
-#[derive(Debug, Deserialize, Serialize, sqlx::FromRow)]
+#[derive(Clone, Debug, Deserialize, Serialize, sqlx::FromRow)]
 pub struct Team {
     pub id: i32,
     pub name: String,
     pub api_token: String,
+    // TODO: the following fields are used for the `/decide` response,
+    // but they're not used for flags and they don't live in redis.
+    // At some point I'll need to differentiate between teams in Redis and teams
+    // with additional fields in Postgres, since the Postgres team is a superset of the fields
+    // we use for flags, anyway.
+    // pub surveys_opt_in: bool,
+    // pub heatmaps_opt_in: bool,
+    // pub capture_performance_opt_in: bool,
+    // pub autocapture_web_vitals_opt_in: bool,
+    // pub autocapture_opt_out: bool,
+    // pub autocapture_exceptions_opt_in: bool,
 }
 
 impl Team {
@@ -23,7 +34,7 @@ impl Team {
         client: Arc<dyn RedisClient + Send + Sync>,
         token: String,
     ) -> Result<Team, FlagError> {
-        // TODO: Instead of failing here, i.e. if not in redis, fallback to pg
+        // NB: if this lookup fails, we fall back to the database before returning an error
         let serialized_team = client
             .get(format!("{TEAM_TOKEN_CACHE_PREFIX}{}", token))
             .await?;
@@ -35,6 +46,30 @@ impl Team {
         })?;
 
         Ok(team)
+    }
+
+    #[instrument(skip_all)]
+    pub async fn update_redis_cache(
+        client: Arc<dyn RedisClient + Send + Sync>,
+        team: &Team,
+    ) -> Result<(), FlagError> {
+        let serialized_team = serde_json::to_string(&team).map_err(|e| {
+            tracing::error!("Failed to serialize team: {}", e);
+            FlagError::DataParsingError
+        })?;
+
+        client
+            .set(
+                format!("{TEAM_TOKEN_CACHE_PREFIX}{}", team.api_token),
+                serialized_team,
+            )
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to update Redis cache: {}", e);
+                FlagError::CacheUpdateError
+            })?;
+
+        Ok(())
     }
 
     pub async fn from_pg(

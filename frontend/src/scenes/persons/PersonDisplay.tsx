@@ -119,8 +119,8 @@ export function PersonDisplay({
                 }
                 visible={visible}
                 onClickOutside={() => setVisible(false)}
-                placement="right"
-                fallbackPlacements={['bottom', 'top']}
+                placement="top"
+                fallbackPlacements={['bottom', 'right']}
                 showArrow
             >
                 {content}

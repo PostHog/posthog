@@ -1,26 +1,25 @@
-from natsort import natsorted, ns
+import threading
 from copy import deepcopy
 from datetime import timedelta
 from math import ceil
 from operator import itemgetter
-import threading
-from typing import Optional, Any, Union
-from django.conf import settings
+from typing import Any, Optional, Union
 
+from django.conf import settings
 from django.utils.timezone import datetime
+from natsort import natsorted, ns
+
 from posthog.caching.insights_api import (
     BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL,
-    REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
     REAL_TIME_INSIGHT_REFRESH_INTERVAL,
+    REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
 )
 from posthog.clickhouse import query_tagging
-
 from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext, MAX_SELECT_RETURNED_ROWS, BREAKDOWN_VALUES_LIMIT
+from posthog.hogql.constants import BREAKDOWN_VALUES_LIMIT, MAX_SELECT_RETURNED_ROWS, LimitContext
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
-from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.breakdown import (
     BREAKDOWN_NULL_DISPLAY,
     BREAKDOWN_NULL_STRING_LABEL,
@@ -28,9 +27,10 @@ from posthog.hogql_queries.insights.trends.breakdown import (
     BREAKDOWN_OTHER_DISPLAY,
     BREAKDOWN_OTHER_STRING_LABEL,
 )
-from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
-from posthog.hogql_queries.insights.trends.trends_actors_query_builder import TrendsActorsQueryBuilder
+from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithExtras
+from posthog.hogql_queries.insights.trends.trends_actors_query_builder import TrendsActorsQueryBuilder
+from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.formula_ast import FormulaAST
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
@@ -47,30 +47,30 @@ from posthog.queries.util import correct_result_for_sampling
 from posthog.schema import (
     ActionsNode,
     BreakdownItem,
+    BreakdownType,
     CachedTrendsQueryResponse,
     ChartDisplayType,
     Compare,
     CompareItem,
     DashboardFilter,
+    DataWarehouseEventsModifier,
+    DataWarehouseNode,
     DayItem,
     EventsNode,
-    DataWarehouseNode,
+    HogQLQueryModifiers,
     HogQLQueryResponse,
     InCohortVia,
     InsightActorsQueryOptionsResponse,
+    IntervalType,
     MultipleBreakdownOptions,
     MultipleBreakdownType,
     QueryTiming,
     Series,
     TrendsQuery,
     TrendsQueryResponse,
-    HogQLQueryModifiers,
-    DataWarehouseEventsModifier,
-    BreakdownType,
-    IntervalType,
 )
-from posthog.warehouse.models import DataWarehouseTable
 from posthog.utils import format_label_date, multisort
+from posthog.warehouse.models import DataWarehouseTable
 
 
 class TrendsQueryRunner(QueryRunner):
@@ -422,8 +422,15 @@ class TrendsQueryRunner(QueryRunner):
             if isinstance(timing, list):
                 timings.extend(timing)
 
+        has_more = False
+        if self.breakdown_enabled and any(self._is_other_breakdown(item["breakdown_value"]) for item in final_result):
+            if self.query.breakdownFilter and self.query.breakdownFilter.breakdown_hide_other_aggregation:
+                final_result = [item for item in final_result if not self._is_other_breakdown(item["breakdown_value"])]
+            has_more = True
+
         return TrendsQueryResponse(
             results=final_result,
+            hasMore=has_more,
             timings=timings,
             hogql=response_hogql,
             modifiers=self.modifiers,
@@ -782,13 +789,20 @@ class TrendsQueryRunner(QueryRunner):
             for result in results:
                 if isinstance(result, list):
                     for item in result:
-                        all_breakdown_values.add(itemgetter(*keys)(item))
+                        data = itemgetter(*keys)(item)
+                        all_breakdown_values.add(tuple(data) if isinstance(data, list) else data)
 
             # sort the results so that the breakdown values are in the correct order
             sorted_breakdown_values = natsorted(list(all_breakdown_values), alg=ns.IGNORECASE)
 
             computed_results = []
-            for breakdown_value in sorted_breakdown_values:
+            for single_or_multiple_breakdown_value in sorted_breakdown_values:
+                breakdown_value = (
+                    list(single_or_multiple_breakdown_value)
+                    if isinstance(single_or_multiple_breakdown_value, tuple)
+                    else single_or_multiple_breakdown_value
+                )
+
                 any_result: Optional[dict[str, Any]] = None
                 for result in results:
                     matching_result = [item for item in result if itemgetter(*keys)(item) == breakdown_value]
@@ -1046,3 +1060,10 @@ class TrendsQueryRunner(QueryRunner):
                 res_breakdown.append(item)
 
         return res_breakdown
+
+    def _is_other_breakdown(self, breakdown: BreakdownItem | list[BreakdownItem]) -> bool:
+        return (
+            breakdown == BREAKDOWN_OTHER_STRING_LABEL
+            or isinstance(breakdown, list)
+            and BREAKDOWN_OTHER_STRING_LABEL in breakdown
+        )

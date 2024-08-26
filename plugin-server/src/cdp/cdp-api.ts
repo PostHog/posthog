@@ -8,8 +8,7 @@ import { delay } from '../utils/utils'
 import { AsyncFunctionExecutor } from './async-function-executor'
 import { HogExecutor } from './hog-executor'
 import { HogFunctionManager } from './hog-function-manager'
-import { HogWatcher } from './hog-watcher/hog-watcher'
-import { HogWatcherState } from './hog-watcher/types'
+import { HogWatcher, HogWatcherState } from './hog-watcher'
 import { HogFunctionInvocation, HogFunctionInvocationAsyncRequest, HogFunctionType, LogEntry } from './types'
 
 export class CdpApi {
@@ -52,7 +51,7 @@ export class CdpApi {
         () =>
         async (req: express.Request, res: express.Response): Promise<void> => {
             const { id } = req.params
-            const summary = await this.hogWatcher.fetchWatcher(id)
+            const summary = await this.hogWatcher.getState(id)
 
             res.json(summary)
         }
@@ -69,7 +68,7 @@ export class CdpApi {
                 return
             }
 
-            const summary = await this.hogWatcher.fetchWatcher(id)
+            const summary = await this.hogWatcher.getState(id)
 
             // Only allow patching the status if it is different from the current status
 
@@ -80,7 +79,7 @@ export class CdpApi {
             // Hacky - wait for a little to give a chance for the state to change
             await delay(100)
 
-            res.json(await this.hogWatcher.fetchWatcher(id))
+            res.json(await this.hogWatcher.getState(id))
         }
 
     private postFunctionInvocation = async (req: express.Request, res: express.Response): Promise<void> => {

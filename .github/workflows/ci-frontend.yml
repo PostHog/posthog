@@ -42,6 +42,8 @@ jobs:
                         - .eslintrc.js
                         - .prettier*
                         - babel.config.js
+                        - package.json
+                        - pnpm-lock.yaml
                         - jest.*.ts
                         - tsconfig.json
                         - tsconfig.*.json

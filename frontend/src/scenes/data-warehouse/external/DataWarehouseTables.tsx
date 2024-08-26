@@ -11,27 +11,20 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
-import { DatabaseSchemaTable, NodeKind } from '~/queries/schema'
+import { DatabaseSchemaTable } from '~/queries/schema'
+import { InsightLogicProps } from '~/types'
 
 import { dataWarehouseSceneLogic } from '../settings/dataWarehouseSceneLogic'
 import { viewLinkLogic } from '../viewLinkLogic'
 import { ViewLinkModal } from '../ViewLinkModal'
 import { DeleteTableModal, TableData } from './TableData'
 
-export const DataWarehouseTables = (): JSX.Element => {
-    // insightLogic
-    const logic = insightLogic({
-        dashboardItemId: 'new-dataWarehouse',
-        cachedInsight: null,
-    })
-    const { insightProps } = useValues(logic)
-    // insightDataLogic
-    const { query } = useValues(
-        insightDataLogic({
-            ...insightProps,
-        })
-    )
+interface DataWarehousetTablesProps {
+    insightProps: InsightLogicProps
+}
 
+export const DataWarehouseTables = ({ insightProps }: DataWarehousetTablesProps): JSX.Element => {
+    const { query } = useValues(insightDataLogic(insightProps))
     const { setQuery: setInsightQuery } = useActions(insightDataLogic(insightProps))
 
     return (
@@ -130,12 +123,7 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
             {table.type == 'view' && (
                 <LemonButton
                     onClick={() => {
-                        router.actions.push(
-                            urls.dataWarehouseView(table.id, {
-                                kind: NodeKind.DataVisualizationNode,
-                                source: table.query,
-                            })
-                        )
+                        router.actions.push(urls.dataWarehouseView(table.id))
                     }}
                     data-attr="schema-list-item-edit"
                     fullWidth
@@ -241,14 +229,14 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
         <div
             className={clsx(
                 `bg-bg-light space-y-px rounded border p-2 overflow-y-auto`,
-                !collapsed ? 'min-w-80 flex-1' : 'flex-0'
+                !collapsed ? 'min-w-80 flex-1' : ''
             )}
         >
             {collapsed ? (
                 <LemonButton icon={<IconDatabase />} onClick={() => setCollapsed(false)} />
             ) : (
                 <>
-                    <LemonButton size="xsmall" onClick={() => setCollapsed(true)} fullWidth>
+                    <LemonButton size="xsmall" onClick={() => setCollapsed(true)} fullWidth icon={<IconDatabase />}>
                         <span className="uppercase text-muted-alt tracking-wider">Sources</span>
                     </LemonButton>
                     <DatabaseTableTree onSelectRow={selectRow} items={treeItems()} selectedRow={selectedRow} />

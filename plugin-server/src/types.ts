@@ -85,6 +85,7 @@ export enum PluginServerMode {
     cdp_processed_events = 'cdp-processed-events',
     cdp_function_callbacks = 'cdp-function-callbacks',
     cdp_function_overflow = 'cdp-function-overflow',
+    cdp_cyclotron_worker = 'cdp-cyclotron-worker',
     functional_tests = 'functional-tests',
 }
 
@@ -96,15 +97,21 @@ export const stringToPluginServerMode = Object.fromEntries(
 ) as Record<string, PluginServerMode>
 
 export type CdpConfig = {
-    CDP_WATCHER_OBSERVATION_PERIOD: number
-    CDP_WATCHER_DISABLED_PERIOD: number
-    CDP_WATCHER_MAX_RECORDED_STATES: number
-    CDP_WATCHER_MAX_RECORDED_RATINGS: number
-    CDP_WATCHER_MAX_ALLOWED_TEMPORARY_DISABLED: number
-    CDP_WATCHER_MIN_OBSERVATIONS: number
-    CDP_WATCHER_OVERFLOW_RATING_THRESHOLD: number
-    CDP_WATCHER_DISABLED_RATING_THRESHOLD: number
+    CDP_WATCHER_COST_ERROR: number // The max cost of an erroring function
+    CDP_WATCHER_COST_TIMING: number // The max cost of a slow function
+    CDP_WATCHER_COST_TIMING_LOWER_MS: number // The lower bound in ms where the timing cost is not incurred
+    CDP_WATCHER_COST_TIMING_UPPER_MS: number // The upper bound in ms where the timing cost is fully incurred
+    CDP_WATCHER_THRESHOLD_DEGRADED: number // Percentage of the bucket where we count it as degraded
+    CDP_WATCHER_BUCKET_SIZE: number // The total bucket size
+    CDP_WATCHER_TTL: number // The expiry for the rate limit key
+    CDP_WATCHER_REFILL_RATE: number // The number of tokens to be refilled per second
+    CDP_WATCHER_DISABLED_TEMPORARY_TTL: number // How long a function should be temporarily disabled for
+    CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT: number // How many times a function can be disabled before it is disabled permanently
     CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS: string
+    CDP_ASYNC_FUNCTIONS_CYCLOTRON_TEAMS: string
+    CDP_REDIS_HOST: string
+    CDP_REDIS_PORT: number
+    CDP_REDIS_PASSWORD: string
 }
 
 export interface PluginsServerConfig extends CdpConfig {
@@ -274,6 +281,8 @@ export interface PluginsServerConfig extends CdpConfig {
 
     // kafka debug stats interval
     SESSION_RECORDING_KAFKA_CONSUMPTION_STATISTICS_EVENT_INTERVAL_MS: number
+
+    CYCLOTRON_DATABASE_URL: string
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -340,6 +349,7 @@ export interface PluginServerCapabilities {
     cdpProcessedEvents?: boolean
     cdpFunctionCallbacks?: boolean
     cdpFunctionOverflow?: boolean
+    cdpCyclotronWorker?: boolean
     appManagementSingleton?: boolean
     preflightSchedules?: boolean // Used for instance health checks on hobby deploy, not useful on cloud
     http?: boolean
@@ -451,7 +461,6 @@ export interface PluginConfig {
     // we'll need to know which method this plugin is using to call it the right way
     // undefined for old plugins with multiple or deprecated methods
     method?: PluginMethod
-    filters?: PluginConfigFilters
 }
 
 export interface PluginJsonConfig {
@@ -990,30 +999,6 @@ export interface ActionStep {
     properties: PropertyFilter[] | null
 }
 
-// subset of EntityFilter
-export interface PluginConfigFilterBase {
-    id: string
-    name: string | null
-    order: number
-    properties: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter)[]
-}
-
-export interface PluginConfigFilterEvents extends PluginConfigFilterBase {
-    type: 'events'
-}
-
-export interface PluginConfigFilterActions extends PluginConfigFilterBase {
-    type: 'actions'
-}
-
-export type PluginConfigFilter = PluginConfigFilterEvents | PluginConfigFilterActions
-
-export interface PluginConfigFilters {
-    events?: PluginConfigFilterEvents[]
-    actions?: PluginConfigFilterActions[]
-    filter_test_accounts?: boolean
-}
-
 /** Raw Action row from database. */
 export interface RawAction {
     id: number
@@ -1233,6 +1218,6 @@ export type AppMetric2Type = {
     app_source_id: string
     instance_id?: string
     metric_kind: 'failure' | 'success' | 'other'
-    metric_name: 'succeeded' | 'failed' | 'filtered' | 'disabled_temporarily' | 'disabled_permanently'
+    metric_name: 'succeeded' | 'failed' | 'filtered' | 'disabled_temporarily' | 'disabled_permanently' | 'masked'
     count: number
 }

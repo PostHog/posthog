@@ -33,8 +33,6 @@ export interface InsightCardProps extends Resizeable, React.HTMLAttributes<HTMLD
     loadingQueued?: boolean
     /** Whether the insight is loading. */
     loading?: boolean
-    /** Whether the insight likely showing stale data. */
-    stale?: boolean
     /** Whether an error occurred on the server. */
     apiErrored?: boolean
     /** Whether the card should be highlighted with a blue border. */
@@ -52,6 +50,7 @@ export interface InsightCardProps extends Resizeable, React.HTMLAttributes<HTMLD
     removeFromDashboard?: () => void
     deleteWithUndo?: () => Promise<void>
     refresh?: () => void
+    refreshEnabled?: boolean
     rename?: () => void
     duplicate?: () => void
     moveToDashboard?: (dashboard: DashboardBasicType) => void
@@ -70,7 +69,6 @@ function InsightCardInternal(
         ribbonColor,
         loadingQueued,
         loading,
-        stale,
         apiErrored,
         timedOut,
         highlighted,
@@ -82,6 +80,7 @@ function InsightCardInternal(
         removeFromDashboard,
         deleteWithUndo,
         refresh,
+        refreshEnabled,
         rename,
         duplicate,
         moveToDashboard,
@@ -132,6 +131,7 @@ function InsightCardInternal(
                         removeFromDashboard={removeFromDashboard}
                         deleteWithUndo={deleteWithUndo}
                         refresh={refresh}
+                        refreshEnabled={refreshEnabled}
                         loading={loadingQueued || loading}
                         rename={rename}
                         duplicate={duplicate}
@@ -145,11 +145,10 @@ function InsightCardInternal(
                     <div className="InsightCard__viz">
                         <Query
                             query={insight.query}
-                            cachedResults={insight.result}
+                            cachedResults={insight}
                             context={{
                                 insightProps: insightLogicProps,
                             }}
-                            stale={stale}
                             readOnly
                             embedded
                         />

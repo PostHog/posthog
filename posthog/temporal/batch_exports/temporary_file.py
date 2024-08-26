@@ -85,7 +85,8 @@ class BatchExportTemporaryFile:
 
     def __exit__(self, exc, value, tb):
         """Context-manager protocol exit method."""
-        return self._file.__exit__(exc, value, tb)
+        self._file.__exit__(exc, value, tb)
+        return False
 
     def __iter__(self):
         yield from self._file
@@ -334,9 +335,11 @@ class BatchExportWriter(abc.ABC):
 
             try:
                 yield
-            except Exception as e:
-                self.error = e
+
+            except Exception as temp_err:
+                self.error = temp_err
                 raise
+
             finally:
                 self.track_bytes_written(temp_file)
 
@@ -347,7 +350,7 @@ class BatchExportWriter(abc.ABC):
                     #    `write_record_batch`. For example, footer bytes.
                     await self.flush(self.last_inserted_at, is_last=True)
 
-        self._batch_export_file = None
+                self._batch_export_file = None
 
     @property
     def batch_export_file(self):
@@ -445,21 +448,24 @@ class JSONLBatchExportWriter(BatchExportWriter):
 
         self.default = default
 
-    def write(self, content: bytes) -> int:
+    def write_dict(self, d: dict[str, typing.Any]) -> int:
         """Write a single row of JSONL."""
         try:
-            n = self.batch_export_file.write(orjson.dumps(content, default=str) + b"\n")
+            n = self.batch_export_file.write(orjson.dumps(d, default=str) + b"\n")
         except orjson.JSONEncodeError:
             # orjson is very strict about invalid unicode. This slow path protects us against
             # things we've observed in practice, like single surrogate codes, e.g. "\ud83d"
-            cleaned_content = replace_broken_unicode(content)
+            cleaned_content = replace_broken_unicode(d)
             n = self.batch_export_file.write(orjson.dumps(cleaned_content, default=str) + b"\n")
         return n
 
     def _write_record_batch(self, record_batch: pa.RecordBatch) -> None:
         """Write records to a temporary file as JSONL."""
-        for record in record_batch.to_pylist():
-            self.write(record)
+        for record_dict in record_batch.to_pylist():
+            if not record_dict:
+                continue
+
+            self.write_dict(record_dict)
 
 
 class CSVBatchExportWriter(BatchExportWriter):

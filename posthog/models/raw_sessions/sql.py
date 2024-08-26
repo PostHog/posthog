@@ -16,7 +16,7 @@ DROP_RAW_SESSION_TABLE_SQL = (
     lambda: f"DROP TABLE IF EXISTS {RAW_SESSIONS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
 )
 DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL = (
-    lambda: f"DROP MATERIALISED VIEW IF EXISTS {TABLE_BASE_NAME}_mv ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
+    lambda: f"DROP TABLE IF EXISTS {TABLE_BASE_NAME}_mv ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
 )
 DROP_RAW_SESSION_VIEW_SQL = (
     lambda: f"DROP VIEW IF EXISTS {TABLE_BASE_NAME}_v ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
@@ -96,7 +96,10 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     screen_uniq AggregateFunction(uniq, Nullable(UUID)),
 
     -- replay
-    maybe_has_session_replay SimpleAggregateFunction(max, Bool) -- will be written False to by the events table mv and True to by the replay table mv
+    maybe_has_session_replay SimpleAggregateFunction(max, Bool), -- will be written False to by the events table mv and True to by the replay table mv
+
+    -- as a performance optimisation, also keep track of the uniq events for all of these combined, a bounce is a session with <2 of these
+    page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID))
 ) ENGINE = {engine}
 """
 
@@ -214,7 +217,10 @@ SELECT
     initializeAggregation('uniqState', if(event='screen', uuid, NULL)) as screen_uniq,
 
     -- replay
-    false as maybe_has_session_replay
+    false as maybe_has_session_replay,
+
+    -- perf
+    initializeAggregation('uniqUpToState(1)', if(event='$pageview' OR event='$screen' OR event='$autocapture', uuid, NULL)) as page_screen_autocapture_uniq_up_to
 FROM {database}.events
 WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
 """.format(
@@ -320,7 +326,10 @@ SELECT
     uniqState(if(event='$screen', uuid, NULL)) as screen_uniq,
 
     -- replay
-    false as maybe_has_session_replay
+    false as maybe_has_session_replay,
+
+    -- perf
+    uniqUpToState(1)(if(event='$pageview' OR event='$screen' OR event='$autocapture', uuid, NULL)) as page_screen_autocapture_uniq_up_to
 FROM {database}.sharded_events
 WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7)
 GROUP BY
@@ -425,7 +434,7 @@ SELECT
     session_id_v7,
     fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)) as session_timestamp,
     team_id,
-    any(distinct_id) as distinct_id,
+    argMaxMerge(distinct_id) as distinct_id,
     min(min_timestamp) as min_timestamp,
     max(max_timestamp) as max_timestamp,
 
@@ -479,7 +488,9 @@ SELECT
     sum(screen_count) as screen_count,
     uniqMerge(screen_uniq) as screen_uniq,
 
-    max(maybe_has_session_replay) as maybe_has_session_replay
+    max(maybe_has_session_replay) as maybe_has_session_replay,
+
+    uniqUpToMerge(1)(page_screen_autocapture_uniq_up_to) as page_screen_autocapture_uniq_up_to
 FROM {TABLE_BASE_NAME}
 GROUP BY session_id_v7, team_id
 """

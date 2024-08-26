@@ -21,10 +21,8 @@ import { CUSTOM_OPTION_KEY } from './components/DateFilter/types'
 import { LemonTagType } from './lemon-ui/LemonTag'
 import { getAppContext } from './utils/getAppContext'
 
-/**
- * WARNING: Be very careful importing things here. This file is heavily used and can trigger a lot of cyclic imports
- * Preferably create a dedicated file in utils/..
- */
+// WARNING: Be very careful importing things here. This file is heavily used and can trigger a lot of cyclic imports
+// Preferably create a dedicated file in utils/..
 
 export function uuid(): string {
     return '10000000-1000-4000-8000-100000000000'.replace(/[018]/g, (c) =>

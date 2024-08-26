@@ -4,19 +4,19 @@ from typing import Any, Optional
 from unittest import mock
 from unittest.case import skip
 from unittest.mock import patch
-
 from zoneinfo import ZoneInfo
+
 from django.test import override_settings
 from django.utils import timezone
 from freezegun import freeze_time
-from posthog.caching.insight_cache import update_cache
-from posthog.caching.insight_caching_state import TargetCacheAge
-from posthog.hogql.query import execute_hogql_query
-from rest_framework import status
 from parameterized import parameterized
+from rest_framework import status
 
 from posthog import settings
 from posthog.api.test.dashboards import DashboardAPI
+from posthog.caching.insight_cache import update_cache
+from posthog.caching.insight_caching_state import TargetCacheAge
+from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import (
     Cohort,
@@ -25,12 +25,12 @@ from posthog.models import (
     Filter,
     Insight,
     InsightViewed,
-    Person,
-    Team,
-    User,
-    SharingConfiguration,
     OrganizationMembership,
+    Person,
+    SharingConfiguration,
+    Team,
     Text,
+    User,
 )
 from posthog.models.insight_caching_state import InsightCachingState
 from posthog.schema import (
@@ -52,6 +52,7 @@ from posthog.schema import (
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
+    FuzzyInt,
     QueryMatchingTest,
     _create_event,
     _create_person,
@@ -59,7 +60,6 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
     snapshot_postgres_queries,
-    FuzzyInt,
 )
 from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.test_journeys import journeys_for
@@ -311,6 +311,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 dashboard=mock.ANY,
                 execution_mode=ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
                 user=mock.ANY,
+                filters_override=None,
             )
 
         with patch(
@@ -322,6 +323,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 dashboard=mock.ANY,
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
                 user=mock.ANY,
+                filters_override=None,
             )
 
     def test_get_insight_by_short_id(self) -> None:
@@ -3489,3 +3491,39 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         self.assertNotIn("code", response)
         self.assertIsNotNone(response["results"][0]["hogql"])
+
+    def test_insight_returns_cached_types(self) -> None:
+        insight = Insight.objects.create(
+            query={
+                "kind": NodeKind.HOG_QL_QUERY,
+                "query": """
+                        select toDate(timestamp) as timestamp, count()
+                        from events
+                        where {filters} and timestamp <= now()
+                        group by timestamp
+                        order by timestamp asc
+                        limit 100
+                    """,
+            },
+            team=self.team,
+            created_by=self.user,
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights",
+            data={
+                "short_id": insight.short_id,
+            },
+        ).json()
+
+        self.assertNotIn("code", response)
+        self.assertEqual(response["results"][0]["last_refresh"], None)
+        self.assertIsNone(response["results"][0]["types"])
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights",
+            data={"short_id": insight.short_id, "refresh": True},
+        ).json()
+
+        self.assertNotIn("code", response)
+        self.assertIsNotNone(response["results"][0]["types"])

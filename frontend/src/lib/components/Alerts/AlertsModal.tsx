@@ -8,21 +8,20 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
-import { ChartDisplayType, InsightShortId, QueryBasedInsightModel } from '~/types'
+import { QueryBasedInsightModel } from '~/types'
 
+import { AlertsLogicProps, areAlertsSupportedForInsight } from './alertsLogic'
 import { EditAlert } from './views/EditAlert'
 import { ManageAlerts } from './views/ManageAlerts'
 
-export interface AlertsModalProps {
+export interface AlertsModalProps extends AlertsLogicProps {
     isOpen: boolean
     closeModal: () => void
     alertId: number | 'new' | null
-    insightShortId: InsightShortId
 }
 
 export function AlertsModal(props: AlertsModalProps): JSX.Element {
-    const { closeModal, insightShortId, alertId, isOpen } = props
+    const { closeModal, insightShortId, insightLogicProps, alertId, isOpen } = props
     const { push } = useActions(router)
     const { userLoading } = useValues(userLogic)
 
@@ -34,6 +33,7 @@ export function AlertsModal(props: AlertsModalProps): JSX.Element {
             {!alertId ? (
                 <ManageAlerts
                     insightShortId={insightShortId}
+                    insightLogicProps={insightLogicProps}
                     onCancel={closeModal}
                     onSelect={(id) => push(urls.alert(insightShortId, id.toString()))}
                 />
@@ -41,6 +41,7 @@ export function AlertsModal(props: AlertsModalProps): JSX.Element {
                 <EditAlert
                     id={alertId}
                     insightShortId={insightShortId}
+                    insightLogicProps={insightLogicProps}
                     onCancel={() => push(urls.alerts(insightShortId))}
                     onDelete={() => push(urls.alerts(insightShortId))}
                 />
@@ -61,13 +62,7 @@ export function AlertsButton({ insight }: AlertsButtonProps): JSX.Element {
     if (!showAlerts) {
         return <></>
     }
-    const isAlertAvailableForInsight =
-        isInsightVizNode(insight.query) &&
-        isTrendsQuery(insight.query.source) &&
-        insight.query.source.trendsFilter != null &&
-        insight.query.source.trendsFilter.display == ChartDisplayType.BoldNumber
-
-    if (!isAlertAvailableForInsight) {
+    if (!areAlertsSupportedForInsight(insight.query)) {
         return (
             <LemonButton
                 data-attr="disabled-alerts-button"

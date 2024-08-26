@@ -37,7 +37,7 @@ export function Sources(): JSX.Element {
                     <DataWarehouseManagedSourcesTable />
                 </div>
                 <div>
-                    <h2>Self-managed sources</h2>
+                    <h2>Self managed sources</h2>
                     <p>Connect to your own data sources, making them queryable in PostHog</p>
                     <DataWarehouseSelfManagedSourcesTable />
                 </div>

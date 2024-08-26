@@ -1,5 +1,15 @@
 import { IconGear, IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonLabel, LemonSelect, LemonTag, Popover } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonInput,
+    LemonLabel,
+    LemonSegmentedButton,
+    LemonSelect,
+    LemonSwitch,
+    LemonTabs,
+    LemonTag,
+    Popover,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { getSeriesColor } from 'lib/colors'
@@ -10,13 +20,25 @@ import { hexToRGBA, lightenDarkenColor, RGBToRGBA } from 'lib/utils'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { AxisSeries, dataVisualizationLogic } from '../dataVisualizationLogic'
-import { ySeriesLogic } from './ySeriesLogic'
+import { ySeriesLogic, YSeriesLogicProps, YSeriesSettingsTab } from './ySeriesLogic'
 
 export const SeriesTab = (): JSX.Element => {
-    const { columns, numericalColumns, xData, yData, responseLoading } = useValues(dataVisualizationLogic)
+    const { columns, numericalColumns, xData, yData, responseLoading, showTableSettings, tabularColumns } =
+        useValues(dataVisualizationLogic)
     const { updateXSeries, addYSeries } = useActions(dataVisualizationLogic)
 
     const hideAddYSeries = yData.length >= numericalColumns.length
+
+    if (showTableSettings) {
+        return (
+            <div className="flex flex-col w-full">
+                <LemonLabel>Columns</LemonLabel>
+                {tabularColumns.map((series, index) => (
+                    <YSeries series={series} index={index} key={`${series.column.name}-${index}`} />
+                ))}
+            </div>
+        )
+    }
 
     const options = columns.map(({ name, type }) => ({
         value: name,
@@ -65,35 +87,39 @@ export const SeriesTab = (): JSX.Element => {
 }
 
 const YSeries = ({ series, index }: { series: AxisSeries<number>; index: number }): JSX.Element => {
-    const { columns, numericalColumns, responseLoading, dataVisualizationProps } = useValues(dataVisualizationLogic)
-    const { updateYSeries, deleteYSeries } = useActions(dataVisualizationLogic)
+    const { columns, numericalColumns, responseLoading, dataVisualizationProps, showTableSettings } =
+        useValues(dataVisualizationLogic)
+    const { updateSeriesIndex, deleteYSeries } = useActions(dataVisualizationLogic)
 
-    const seriesLogicProps = { series, seriesIndex: index, dataVisualizationProps }
+    const seriesLogicProps: YSeriesLogicProps = { series, seriesIndex: index, dataVisualizationProps }
     const seriesLogic = ySeriesLogic(seriesLogicProps)
 
-    const { isSettingsOpen, canOpenSettings } = useValues(seriesLogic)
-    const { setSettingsOpen, submitFormatting } = useActions(seriesLogic)
+    const { isSettingsOpen, canOpenSettings, activeSettingsTab } = useValues(seriesLogic)
+    const { setSettingsOpen, submitFormatting, submitDisplay, setSettingsTab } = useActions(seriesLogic)
 
     const { isDarkModeOn } = useValues(themeLogic)
     const seriesColor = getSeriesColor(index)
 
-    const options = numericalColumns.map(({ name, type }) => ({
+    const columnsInOptions = showTableSettings ? columns : numericalColumns
+    const options = columnsInOptions.map(({ name, type }) => ({
         value: name,
         label: (
             <div className="items-center flex flex-1">
-                <SeriesGlyph
-                    style={{
-                        borderColor: seriesColor,
-                        color: seriesColor,
-                        backgroundColor: isDarkModeOn
-                            ? RGBToRGBA(lightenDarkenColor(seriesColor, -20), 0.3)
-                            : hexToRGBA(seriesColor, 0.2),
-                    }}
-                    className="mr-2"
-                >
-                    <></>
-                </SeriesGlyph>
-                {name}
+                {!showTableSettings && (
+                    <SeriesGlyph
+                        style={{
+                            borderColor: seriesColor,
+                            color: seriesColor,
+                            backgroundColor: isDarkModeOn
+                                ? RGBToRGBA(lightenDarkenColor(seriesColor, -20), 0.3)
+                                : hexToRGBA(seriesColor, 0.2),
+                        }}
+                        className="mr-2"
+                    >
+                        <></>
+                    </SeriesGlyph>
+                )}
+                {series.settings?.display?.label && series.column.name === name ? series.settings.display.label : name}
                 <LemonTag className="ml-2" type="default">
                     {type.name}
                 </LemonTag>
@@ -111,36 +137,31 @@ const YSeries = ({ series, index }: { series: AxisSeries<number>; index: number 
                 onChange={(value) => {
                     const column = columns.find((n) => n.name === value)
                     if (column) {
-                        updateYSeries(index, column.name)
+                        updateSeriesIndex(index, column.name)
                     }
                 }}
             />
             <Popover
                 overlay={
-                    <Form logic={ySeriesLogic} props={seriesLogicProps} formKey="formatting" className="m-2 space-y-2">
-                        <LemonField name="style" label="Style" className="gap-1">
-                            <LemonSelect
-                                options={[
-                                    { value: 'none', label: 'None' },
-                                    { value: 'number', label: 'Number' },
-                                    { value: 'percent', label: 'Percentage' },
-                                ]}
-                            />
-                        </LemonField>
-                        <LemonField name="prefix" label="Prefix">
-                            <LemonInput placeholder="$" />
-                        </LemonField>
-                        <LemonField name="suffix" label="Suffix">
-                            <LemonInput placeholder="USD" />
-                        </LemonField>
-                        <LemonField name="decimalPlaces" label="Decimal places">
-                            <LemonInput type="number" min={0} />
-                        </LemonField>
-                    </Form>
+                    <div className="m-2">
+                        <LemonTabs
+                            activeKey={activeSettingsTab}
+                            barClassName="justify-around"
+                            onChange={(tab) => setSettingsTab(tab as YSeriesSettingsTab)}
+                            tabs={Object.values(Y_SERIES_SETTINGS_TABS).map(({ label, Component }, index) => ({
+                                label: label,
+                                key: Object.keys(Y_SERIES_SETTINGS_TABS)[index],
+                                content: <Component ySeriesLogicProps={seriesLogicProps} />,
+                            }))}
+                        />
+                    </div>
                 }
                 visible={isSettingsOpen}
                 placement="bottom"
-                onClickOutside={() => submitFormatting()}
+                onClickOutside={() => {
+                    submitFormatting()
+                    submitDisplay()
+                }}
             >
                 <LemonButton
                     key="seriesSettings"
@@ -151,14 +172,119 @@ const YSeries = ({ series, index }: { series: AxisSeries<number>; index: number 
                     disabledReasonWrapperClass="flex"
                 />
             </Popover>
-            <LemonButton
-                key="delete"
-                icon={<IconTrash />}
-                status="danger"
-                title="Delete Y-series"
-                noPadding
-                onClick={() => deleteYSeries(index)}
-            />
+            {!showTableSettings && (
+                <LemonButton
+                    key="delete"
+                    icon={<IconTrash />}
+                    status="danger"
+                    title="Delete Y-series"
+                    noPadding
+                    onClick={() => deleteYSeries(index)}
+                />
+            )}
         </div>
     )
+}
+
+const YSeriesFormattingTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLogicProps }): JSX.Element => {
+    return (
+        <Form logic={ySeriesLogic} props={ySeriesLogicProps} formKey="formatting" className="space-y-4">
+            {ySeriesLogicProps.series.column.type.isNumerical && (
+                <LemonField name="style" label="Style" className="gap-1">
+                    <LemonSelect
+                        options={[
+                            { value: 'none', label: 'None' },
+                            { value: 'number', label: 'Number' },
+                            { value: 'percent', label: 'Percentage' },
+                        ]}
+                    />
+                </LemonField>
+            )}
+            <LemonField name="prefix" label="Prefix">
+                <LemonInput placeholder="$" />
+            </LemonField>
+            <LemonField name="suffix" label="Suffix">
+                <LemonInput placeholder="USD" />
+            </LemonField>
+            {ySeriesLogicProps.series.column.type.isNumerical && (
+                <LemonField name="decimalPlaces" label="Decimal places">
+                    <LemonInput type="number" min={0} />
+                </LemonField>
+            )}
+        </Form>
+    )
+}
+
+const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLogicProps }): JSX.Element => {
+    const { showTableSettings } = useValues(dataVisualizationLogic)
+
+    return (
+        <Form logic={ySeriesLogic} props={ySeriesLogicProps} formKey="display" className="space-y-4">
+            <LemonField name="label" label="Label">
+                <LemonInput />
+            </LemonField>
+            {!showTableSettings && (
+                <>
+                    <LemonField name="trendLine" label="Trend line">
+                        {({ value, onChange }) => (
+                            <LemonSwitch checked={value} onChange={(newValue) => onChange(newValue)} />
+                        )}
+                    </LemonField>
+                    <LemonField name="yAxisPosition" label="Y-axis position">
+                        {({ value, onChange }) => (
+                            <LemonSegmentedButton
+                                value={value}
+                                className="w-full"
+                                options={[
+                                    {
+                                        label: 'Left',
+                                        value: 'left',
+                                    },
+                                    {
+                                        label: 'Right',
+                                        value: 'right',
+                                    },
+                                ]}
+                                onChange={(newValue) => onChange(newValue)}
+                            />
+                        )}
+                    </LemonField>
+                    <LemonField name="displayType" label="Display type">
+                        {({ value, onChange }) => (
+                            <LemonSegmentedButton
+                                value={value}
+                                className="w-full"
+                                options={[
+                                    {
+                                        label: 'Auto',
+                                        value: 'auto',
+                                    },
+                                    {
+                                        label: 'Line',
+                                        value: 'line',
+                                    },
+                                    {
+                                        label: 'Bar',
+                                        value: 'bar',
+                                    },
+                                ]}
+                                onChange={(newValue) => onChange(newValue)}
+                            />
+                        )}
+                    </LemonField>
+                </>
+            )}
+        </Form>
+    )
+}
+
+const Y_SERIES_SETTINGS_TABS = {
+    [YSeriesSettingsTab.Formatting]: {
+        label: 'Formatting',
+        Component: YSeriesFormattingTab,
+    },
+    [YSeriesSettingsTab.Display]: {
+        label: 'Display',
+        Component: YSeriesDisplayTab,
+    },
 }

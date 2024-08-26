@@ -255,7 +255,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
         ) : (
             <div
                 {...commonDivProps}
-                className={`${commonDivProps.className} skeleton-row`}
+                className={commonDivProps.className}
                 data-attr={`prop-skeleton-${listGroupType}-${rowIndex}`}
             >
                 <LemonSkeleton />

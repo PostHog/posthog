@@ -15,6 +15,8 @@ deletions_counter = Counter("deletions_executed", "Total number of deletions sen
 # We purposely set this lower than the 256KB limit in ClickHouse to account for the potential overhead of the argument
 # substitution and settings injection. This is a conservative estimate, but it's better to be safe than hit the limit.
 MAX_QUERY_SIZE = 230_000  # 230KB which is less than 256KB limit in ClickHouse
+MAX_SELECT_EXECUTION_TIME = 1 * 60 * 60  # 1 hour(s)
+
 
 # Note: Session recording, dead letter queue, logs deletion will be handled by TTL
 TABLES_TO_DELETE_TEAM_DATA_FROM = [
@@ -127,7 +129,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
             WHERE {" OR ".join(conditions)}
             """,
             args,
-            settings={"max_execution_time": 30 * 60},
+            settings={"max_execution_time": MAX_SELECT_EXECUTION_TIME},
         )
         return {tuple(row) for row in clickhouse_result}
 
