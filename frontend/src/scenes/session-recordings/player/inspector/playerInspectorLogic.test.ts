@@ -32,6 +32,30 @@ describe('playerInspectorLogic', () => {
 
     describe('filtering inspector list items', () => {
         describe('the events tab', () => {
+            it('filters by window id', () => {
+                expect(
+                    filterInspectorListItems({
+                        allItems: [
+                            {
+                                type: SessionRecordingPlayerTab.EVENTS,
+                                windowId: 'this window',
+                                data: { event: '$exception' } as unknown as PerformanceEvent,
+                            } as unknown as InspectorListItemEvent,
+                            {
+                                type: SessionRecordingPlayerTab.EVENTS,
+                                windowId: 'a different window',
+                                data: { event: '$exception' } as unknown as PerformanceEvent,
+                            } as unknown as InspectorListItemEvent,
+                        ],
+                        tab: SessionRecordingPlayerTab.EVENTS,
+                        miniFiltersByKey: { 'events-all': { enabled: true } as unknown as SharedListMiniFilter },
+                        showOnlyMatching: false,
+                        showMatchingEventsFilter: false,
+                        windowIdFilter: 'a different window',
+                    })
+                ).toHaveLength(1)
+            })
+
             it('includes browser visibility', () => {
                 expect(
                     filterInspectorListItems({

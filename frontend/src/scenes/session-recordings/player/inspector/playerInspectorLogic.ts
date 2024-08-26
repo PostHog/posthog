@@ -179,20 +179,12 @@ export function filterInspectorListItems({
 
         if (item.type === 'offline-status' || item.type === 'browser-visibility') {
             const allowedMiniFilters = !!(
-                miniFiltersByKey['performance-all']?.enabled ||
-                miniFiltersByKey['all-everything']?.enabled ||
-                miniFiltersByKey['all-automatic']?.enabled ||
-                miniFiltersByKey['console-all']?.enabled ||
-                miniFiltersByKey['events-all']?.enabled
+                miniFiltersByKey['all-everything']?.enabled || miniFiltersByKey['all-automatic']?.enabled
             )
 
             const isCurrentlyShowingFilteredEvents = showMatchingEventsFilter && showOnlyMatching
 
             include = isDoctorTab || (allowedMiniFilters && !isCurrentlyShowingFilteredEvents)
-
-            if (windowIdFilter && item.windowId && item.windowId !== windowIdFilter) {
-                include = false
-            }
         }
 
         if (item.type === SessionRecordingPlayerTab.DOCTOR && isDoctorTab) {
@@ -257,10 +249,6 @@ export function filterInspectorListItems({
                     // Special case - overrides the others
                     include = include && item.highlightColor === 'primary'
                 }
-
-                if (windowIdFilter && item.data.properties?.$window_id !== windowIdFilter) {
-                    include = false
-                }
             }
         }
 
@@ -293,10 +281,6 @@ export function filterInspectorListItems({
                 item.data.level === 'error'
             ) {
                 include = true
-            }
-
-            if (windowIdFilter && item.data.windowId !== windowIdFilter) {
-                include = false
             }
         }
 
@@ -384,7 +368,9 @@ export function filterInspectorListItems({
             }
         }
 
-        if (!include) {
+        const excludedByWindowFilter = !!windowIdFilter && !!item.windowId && item.windowId !== windowIdFilter
+
+        if (!include || excludedByWindowFilter) {
             continue
         }
 
