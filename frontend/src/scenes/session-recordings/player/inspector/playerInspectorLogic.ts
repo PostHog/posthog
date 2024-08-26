@@ -209,7 +209,7 @@ export function filterInspectorListItems({
         // EVENTS
         if (item.type === SessionRecordingPlayerTab.EVENTS) {
             if (tab === SessionRecordingPlayerTab.DOCTOR) {
-                if (item.data.event === '$exception' || item.data.event.toLowerCase().includes('error')) {
+                if (item.data.event === '$exception') {
                     include = true
                 }
             } else {
