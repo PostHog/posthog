@@ -926,7 +926,7 @@ class _Printer(Visitor):
         group value and the function can be rewritten so that it can be eligible for use by the property group's map's
         key bloom filter index, or can be optimized to avoid reading the property group's map ``values`` subcolumn.
         """
-        if not self.context.modifiers.propertyGroupsMode == PropertyGroupsMode.OPTIMIZED:
+        if self.context.modifiers.propertyGroupsMode != PropertyGroupsMode.OPTIMIZED:
             return None
 
         # XXX: A lot of this is duplicated (sometimes just copy/pasted) from the null equality comparison logic -- it
