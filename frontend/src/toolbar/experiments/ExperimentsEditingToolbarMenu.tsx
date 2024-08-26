@@ -1,5 +1,21 @@
-import { IconPencil, IconPlus, IconSearch, IconTrash } from '@posthog/icons'
-import {LemonDivider, LemonSegmentedButton, LemonTag} from '@posthog/lemon-ui'
+import {
+    IconAIText,
+    IconBug,
+    IconCode,
+    IconMessage,
+    IconPencil,
+    IconPlus,
+    IconQuestion,
+    IconSearch,
+    IconTrash
+} from '@posthog/icons'
+import {
+    LemonDivider,
+    LemonSegmentedButton,
+    LemonSegmentedButtonOption,
+    LemonTag,
+    LemonTextArea
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Field, Form, Group } from 'kea-forms'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -14,6 +30,29 @@ import {experimentsTabLogic} from "~/toolbar/experiments/experimentsTabLogic";
 import {SelectorCount} from "~/toolbar/actions/SelectorCount";
 import {StepField} from "~/toolbar/actions/StepField";
 import clsx from "clsx";
+import {SupportTicketKind} from "lib/components/Support/supportLogic";
+import {IconFeedback} from "lib/lemon-ui/icons";
+import {LemonField} from "lib/lemon-ui/LemonField";
+import {useState} from "react";
+
+type elementTransformKind = 'html' | 'text' | 'css'
+const ELEMENT_TRANSFORM_OPTIONS: LemonSegmentedButtonOption<elementTransformKind>[] = [
+    {
+        value: 'html',
+        label: 'HTML',
+        icon: <IconCode />,
+    },
+    {
+        value: 'text',
+        label: 'Text',
+        icon: <IconMessage />,
+    },
+    {
+        value: 'css',
+        label: 'CSS',
+        icon: <IconAIText />,
+    },
+]
 
 export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
     const {
@@ -34,6 +73,8 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
         setElementSelector,
         editSelectorWithIndex,
     } = useActions(experimentsTabLogic)
+
+    const [transformSelected, setTransformSelected] = useState('')
 
     // const experimentVariants = Object.keys(experimentForm.variants!)
     // console.log(`experimentForm.variants is `, experimentForm.variants)
@@ -103,20 +144,11 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                 {Object.keys(experimentForm.variants!).map((variant, index) => (
                                     <Group key={variant} name={['variants', index]}>
                                         <div className="p-1 flex flex-col gap-2">
-                                            <h3>{variant} </h3> (Rollout Percentage : {experimentForm.variants![variant].rollout_percentage}% )
+                                            <h3 className='mb-0'>{variant} </h3>
+                                            {/*(Rollout Percentage : {experimentForm.variants![variant].rollout_percentage}% )*/}
                                     <LemonDivider/>
-                                        <table>
-                                            <thead>
-                                                <tr>
-                                                    <th>Selector</th>
-                                                    <th>text</th>
-                                                    <th>html</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
                                             {experimentForm.variants![variant].transforms.map((transform, tIndex) => (
-                                                <tr key={tIndex}>
-                                                    <td> {transform.selector}
+                                                <div key={tIndex}> {transform.selector}
                                                         <div className="action-inspect">
                                                             <LemonButton
                                                                 size="small"
@@ -130,6 +162,32 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                                             >
                                                                 {transform.selector ? 'Change Element' : 'Select Element'}
                                                             </LemonButton>
+                                                            <LemonSegmentedButton fullWidth options={ELEMENT_TRANSFORM_OPTIONS}
+
+                                                                                  onChange={(e) => setTransformSelected(e)}
+                                                            value ={
+                                                                transform.html ? "html": transform.text ? "text" : "css"
+                                                            }/>
+                                                            { transformSelected == 'text' && (
+                                                                <LemonTextArea
+                                                                    value={transform.text ?? ''}
+                                                                    stopPropagation={true}
+                                                                />
+                                                            )}
+
+                                                            { transformSelected == 'html' && (
+                                                                <LemonTextArea
+                                                                    value={transform.html ?? ''}
+                                                                    stopPropagation={true}
+                                                                />
+                                                            )}
+
+                                                            { transformSelected == 'css' && (
+                                                                <LemonTextArea
+                                                                    value={transform.className ?? ''}
+                                                                    stopPropagation={true}
+                                                                />
+                                                            )}
 
                                                             {inspectingElement === tIndex ? (
                                                                 <>
@@ -161,25 +219,8 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                                                 </>
                                                             ): null}
                                                         </div>
-                                                    </td>
-                                                    <td>
-                                                        <LemonInput
-                                    placeholder="E.g. some text here"
-                                    className="action-title-field"
-                                    stopPropagation={true}
-                                    value={transform.text}
-                                /></td>
-                                                    <td><LemonInput
-                                    placeholder="E.g. some html here"
-                                    className="action-title-field"
-                                    stopPropagation={true}
-                                    value={transform.html}
-                                /></td>
-
-                                                </tr>
+                                                   </div>
                                             ))}
-                                            </tbody>
-                                        </table>
                                             </div>
                                     </Group>
                                 ))}
