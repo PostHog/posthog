@@ -538,7 +538,7 @@ class Resolver(CloningVisitor):
 
         new_node = cast(ast.Lambda, clone_expr(node))
         new_node.type = node_type
-        new_node.expr = self.visit(new_node.expr)
+        new_node.expr = cast(ast.Expr | ast.Block, self.visit(new_node.expr))
 
         self.scopes.pop()
 
