@@ -518,6 +518,12 @@ class Resolver(CloningVisitor):
         )
         return node
 
+    def visit_expr_call(self, node: ast.ExprCall):
+        raise QueryError("You can only call simple functions in HogQL, not expressions")
+
+    def visit_block(self, node: ast.Block):
+        raise QueryError("You can not use blocks in HogQL")
+
     def visit_lambda(self, node: ast.Lambda):
         """Visit each SELECT query or subquery."""
 
