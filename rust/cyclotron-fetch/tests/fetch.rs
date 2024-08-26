@@ -34,7 +34,7 @@ pub async fn test_completes_fetch(db: PgPool) {
     });
 
     let params = construct_params(server.url("/test"), HttpMethod::Get);
-    let job = construct_job(params);
+    let job = construct_job(params, None);
     producer.create_job(job).await.unwrap();
 
     let started = tick(context).await.unwrap();
@@ -50,8 +50,10 @@ pub async fn test_completes_fetch(db: PgPool) {
         panic!("Expected success response");
     };
 
+    let body = String::from_utf8(returned[0].blob.clone().unwrap()).unwrap();
+
     assert_eq!(response.status, 200);
-    assert_eq!(response.body, "Hello, world!");
+    assert_eq!(body, "Hello, world!");
 
     mock.assert_hits(1);
 }
@@ -71,7 +73,7 @@ pub async fn test_returns_failure_after_retries(db: PgPool) {
     let mut params = construct_params(server.url("/test"), HttpMethod::Get);
     params.max_tries = Some(2);
 
-    let job = construct_job(params);
+    let job = construct_job(params, None);
     producer.create_job(job).await.unwrap();
 
     // Tick twice for retry
@@ -95,7 +97,6 @@ pub async fn test_returns_failure_after_retries(db: PgPool) {
     assert!(trace.len() == 2);
     for attempt in trace {
         assert_eq!(attempt.status, Some(500));
-        assert_eq!(attempt.body, Some("test server error body".to_string()));
     }
 
     mock.assert_hits(2);
@@ -114,7 +115,7 @@ pub fn fetch_discards_bad_metadata(db: PgPool) {
     });
 
     let params = construct_params(server.url("/test"), HttpMethod::Get);
-    let mut job = construct_job(params);
+    let mut job = construct_job(params, None);
     job.metadata = Some("bad json".as_bytes().to_owned());
     producer.create_job(job).await.unwrap();
 
@@ -131,8 +132,10 @@ pub fn fetch_discards_bad_metadata(db: PgPool) {
         panic!("Expected success response");
     };
 
+    let body = String::from_utf8(returned[0].blob.clone().unwrap()).unwrap();
+
     assert_eq!(response.status, 200);
-    assert_eq!(response.body, "Hello, world!");
+    assert_eq!(body, "Hello, world!");
 
     mock.assert_hits(1);
 }
@@ -150,7 +153,7 @@ pub fn fetch_with_minimum_params_works(db: PgPool) {
     });
 
     let params = construct_params(server.url("/test"), HttpMethod::Get);
-    let mut job = construct_job(params);
+    let mut job = construct_job(params, None);
 
     let url = server.url("/test");
     let manual_params = json!({
@@ -177,8 +180,10 @@ pub fn fetch_with_minimum_params_works(db: PgPool) {
         panic!("Expected success response");
     };
 
+    let body = String::from_utf8(returned[0].blob.clone().unwrap()).unwrap();
+
     assert_eq!(response.status, 200);
-    assert_eq!(response.body, "Hello, world!");
+    assert_eq!(body, "Hello, world!");
 
     mock.assert_hits(1);
 }
@@ -202,7 +207,7 @@ pub async fn test_completes_fetch_with_headers(db: PgPool) {
     headers.insert("X-Test".to_string(), "test".to_string());
     params.headers = Some(headers);
 
-    let job = construct_job(params);
+    let job = construct_job(params, None);
     producer.create_job(job).await.unwrap();
 
     let started = tick(context).await.unwrap();
@@ -218,8 +223,10 @@ pub async fn test_completes_fetch_with_headers(db: PgPool) {
         panic!("Expected success response");
     };
 
+    let body = String::from_utf8(returned[0].blob.clone().unwrap()).unwrap();
+
     assert_eq!(response.status, 200);
-    assert_eq!(response.body, "Hello, world!");
+    assert_eq!(body, "Hello, world!");
 
     mock.assert_hits(1);
 }
@@ -236,10 +243,9 @@ pub async fn test_completes_fetch_with_body(db: PgPool) {
         then.status(200).body("Hello, world!");
     });
 
-    let mut params = construct_params(server.url("/test"), HttpMethod::Post);
-    params.body = Some("test body".to_string());
+    let params = construct_params(server.url("/test"), HttpMethod::Post);
 
-    let job = construct_job(params);
+    let job = construct_job(params, Some("test body".to_string().into()));
     producer.create_job(job).await.unwrap();
 
     let started = tick(context).await.unwrap();
@@ -255,8 +261,10 @@ pub async fn test_completes_fetch_with_body(db: PgPool) {
         panic!("Expected success response");
     };
 
+    let body = String::from_utf8(returned[0].blob.clone().unwrap()).unwrap();
+
     assert_eq!(response.status, 200);
-    assert_eq!(response.body, "Hello, world!");
+    assert_eq!(body, "Hello, world!");
 
     mock.assert_hits(1);
 }
@@ -274,7 +282,7 @@ pub async fn test_completes_fetch_with_vm_state(db: PgPool) {
     });
 
     let params = construct_params(server.url("/test"), HttpMethod::Get);
-    let mut job = construct_job(params);
+    let mut job = construct_job(params, None);
     job.vm_state = Some(json!({"test": "state"}).to_string().into_bytes());
     producer.create_job(job).await.unwrap();
 
@@ -295,8 +303,10 @@ pub async fn test_completes_fetch_with_vm_state(db: PgPool) {
         panic!("Expected success response");
     };
 
+    let body = String::from_utf8(returned[0].blob.clone().unwrap()).unwrap();
+
     assert_eq!(response.status, 200);
-    assert_eq!(response.body, "Hello, world!");
+    assert_eq!(body, "Hello, world!");
 
     mock.assert_hits(1);
 }

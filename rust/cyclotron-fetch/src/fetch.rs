@@ -1,7 +1,7 @@
 use std::{cmp::min, collections::HashMap, fmt::Display, sync::Arc};
 
 use chrono::{DateTime, Duration, Utc};
-use cyclotron_core::{Job, JobState, QueueError, Worker};
+use cyclotron_core::{types::Bytes, Job, JobState, QueueError, Worker};
 use futures::StreamExt;
 use http::StatusCode;
 use reqwest::Response;
@@ -68,7 +68,6 @@ pub struct FetchParameters {
     pub method: HttpMethod,
     pub return_queue: String,
     pub headers: Option<HashMap<String, String>>,
-    pub body: Option<String>,
     pub max_tries: Option<u32>,      // Defaults to 3
     pub on_finish: Option<OnFinish>, // Defaults to Return
 }
@@ -117,7 +116,6 @@ impl FetchResult {
 pub struct FetchFailure {
     pub kind: FetchFailureKind,
     pub message: String,
-    pub body: Option<String>, // If we have a body, we include it in the failure
     pub headers: Option<HashMap<String, String>>, // If we have headers, we include them in the failure
     pub status: Option<u16>, // If we have a status, we include it in the failure
     pub timestamp: DateTime<Utc>, // Useful for users to correlate logs when debugging
@@ -129,7 +127,6 @@ impl FetchFailure {
             kind,
             message: message.as_ref().to_string(),
             timestamp: Utc::now(),
-            body: None,
             headers: None,
             status: None,
         }
@@ -140,16 +137,8 @@ impl FetchFailure {
             kind: FetchFailureKind::FailureStatus,
             message: format!("Received failure status: {}", status),
             timestamp: Utc::now(),
-            body: None,
             headers: None,
             status: Some(status.as_u16()),
-        }
-    }
-
-    pub fn with_body(self, body: String) -> Self {
-        Self {
-            body: Some(body),
-            ..self
         }
     }
 
@@ -179,7 +168,6 @@ impl From<reqwest::Error> for FetchFailure {
             kind,
             message: e.to_string(),
             timestamp: Utc::now(),
-            body: None,
             headers: None,
             status: None,
         }
@@ -204,7 +192,6 @@ pub enum FetchFailureKind {
 pub struct FetchResponse {
     pub status: u16,
     pub headers: HashMap<String, String>,
-    pub body: String,
 }
 
 #[instrument(skip_all)]
@@ -282,6 +269,12 @@ impl From<&Job> for FetchMetadata {
 
         m
     }
+// Mostly a thin wrapper to make ser/de a bit easier
+struct FetchJob<'a> {
+    _job: &'a Job,
+    metadata: FetchMetadata,
+    parameters: FetchParameters,
+    body: Option<Bytes>,
 }
 
 impl TryFrom<&Job> for FetchParameters {
@@ -324,6 +317,7 @@ impl TryFrom<&Job> for FetchParameters {
             _job: job,
             metadata,
             parameters,
+            body: job.blob.clone(),
         })
     }
 }
@@ -450,6 +444,7 @@ pub async fn run_job(
                 params.return_queue,
                 params.on_finish.unwrap_or(DEFAULT_ON_FINISH),
                 e,
+                None,
             )
             .await;
             job_total.label(OUTCOME_LABEL, "request_error").fin();
@@ -489,7 +484,7 @@ pub async fn run_job(
     )
     .await?;
     let body = match body {
-        Ok(b) => b,
+        Ok(b) => Some(b.into_bytes()),
         Err(e) => {
             body_time.label(OUTCOME_LABEL, "body_fetch_error").fin();
             common_metrics::inc(BODY_FETCH_FAILED, &labels, 1);
@@ -503,6 +498,7 @@ pub async fn run_job(
                 params.return_queue,
                 params.on_finish.unwrap_or(DEFAULT_ON_FINISH),
                 e,
+                None,
             )
             .await;
             job_total.label(OUTCOME_LABEL, "body_fetch_error").fin();
@@ -516,9 +512,7 @@ pub async fn run_job(
     // to be polite - retrying a permanent failure isn't a correctness problem, but it's
     // rude (and inefficient)
     if !status.is_success() {
-        let failure = FetchFailure::failure_status(status)
-            .with_body(body)
-            .with_headers(headers);
+        let failure = FetchFailure::failure_status(status).with_headers(headers);
         let res = handle_fetch_failure(
             &context,
             &job,
@@ -527,6 +521,7 @@ pub async fn run_job(
             params.return_queue,
             params.on_finish.unwrap_or(DEFAULT_ON_FINISH),
             failure,
+            body,
         )
         .await;
         job_total.label(OUTCOME_LABEL, "failure_status").fin();
@@ -537,7 +532,6 @@ pub async fn run_job(
         response: FetchResponse {
             status: status.as_u16(),
             headers,
-            body,
         },
     };
 
@@ -547,6 +541,7 @@ pub async fn run_job(
         params.return_queue,
         params.on_finish.unwrap_or(DEFAULT_ON_FINISH),
         result,
+        body,
     )
     .await;
     job_total.label(OUTCOME_LABEL, "success").fin();
@@ -580,6 +575,7 @@ pub async fn handle_fetch_failure<F>(
     return_queue: String,
     on_finish: OnFinish,
     failure: F,
+    body: Option<Bytes>,
 ) -> Result<(), FetchError>
 where
     F: Into<FetchFailure>,
@@ -618,7 +614,7 @@ where
         let result = FetchResult::Failure {
             trace: metadata.trace.clone(),
         };
-        complete_job(&context.worker, job, return_queue, on_finish, result).await?;
+        complete_job(&context.worker, job, return_queue, on_finish, result, body).await?;
     }
 
     Ok(())
@@ -631,6 +627,7 @@ pub async fn complete_job(
     return_queue: String,
     on_finish: OnFinish,
     result: FetchResult,
+    body: Option<Bytes>,
 ) -> Result<(), FetchError> {
     worker.set_state(job.id, JobState::Available)?;
     worker.set_queue(job.id, &return_queue)?;
@@ -653,6 +650,7 @@ pub async fn complete_job(
     }
 
     worker.set_parameters(job.id, Some(result))?;
+    worker.set_blob(job.id, body)?;
     worker.set_metadata(job.id, None)?; // We're finished with the job, so clear our internal state
     worker.flush_job(job.id).await?;
 

@@ -3,7 +3,7 @@ mod ops;
 // We do this pattern (privately use a module, then re-export parts of it) so we can refactor/rename or generally futz around with the internals without breaking the public API
 
 // Types
-mod types;
+pub mod types;
 pub use types::BulkInsertResult;
 pub use types::Job;
 pub use types::JobInit;
