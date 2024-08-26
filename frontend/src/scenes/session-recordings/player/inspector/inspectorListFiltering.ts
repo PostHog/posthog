@@ -21,12 +21,12 @@ const PostHogMobileEvents = [
     'Application Became Active',
 ]
 
-function isMobileEvent(item: InspectorListItem): boolean {
+function isPostHogMobileEvent(item: InspectorListItem): boolean {
     return isEvent(item) && PostHogMobileEvents.includes(item.data.event)
 }
 
 function isPostHogEvent(item: InspectorListItem): boolean {
-    return (isEvent(item) && item.data.event.startsWith('$')) || isMobileEvent(item)
+    return (isEvent(item) && item.data.event.startsWith('$')) || isPostHogMobileEvent(item)
 }
 
 function isNetworkEvent(item: InspectorListItem): item is InspectorListItemPerformance {
@@ -117,7 +117,7 @@ export function filterInspectorListItems({
                     isNavigationEvent(item) ||
                     isNetworkError(item) ||
                     isSlowNetwork(item) ||
-                    isMobileEvent(item) ||
+                    isPostHogMobileEvent(item) ||
                     isPageviewOrScreen(item) ||
                     isAutocapture(item))
             const isAllErrors =
