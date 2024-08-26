@@ -596,7 +596,11 @@ export function stripHTTP(url: string): string {
 
 export function isDomain(url: string): boolean {
     try {
-        const parsedUrl = new URL(url)
+        // Firefox does not allow you construct a new URL with e.g. https://*.example.com (which is to be fair more standards compliant than Chrome)
+        // we only care if the proposed URL has a path so
+        // https://*.example.com, https://example.com/*, https://x.example.com, and https://example.com/x are all equivalent as a probe
+        const dewildcardedURL = url.replace(/\*/g, 'x')
+        const parsedUrl = new URL(dewildcardedURL)
         if (parsedUrl.protocol.includes('http') && (!parsedUrl.pathname || parsedUrl.pathname === '/')) {
             return true
         }
