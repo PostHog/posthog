@@ -1,7 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { filterInspectorListItems } from 'scenes/session-recordings/player/inspector/inspectorListFiltering'
 import {
-    filterInspectorListItems,
     InspectorListBrowserVisibility,
     InspectorListItemEvent,
     InspectorListOfflineStatusChange,

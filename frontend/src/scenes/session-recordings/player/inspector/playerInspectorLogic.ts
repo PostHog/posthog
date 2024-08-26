@@ -12,7 +12,8 @@ import {
     InspectorListItemPerformance,
     performanceEventDataLogic,
 } from 'scenes/session-recordings/apm/performanceEventDataLogic'
-import { playerSettingsLogic, type SharedListMiniFilter } from 'scenes/session-recordings/player/playerSettingsLogic'
+import { filterInspectorListItems } from 'scenes/session-recordings/player/inspector/inspectorListFiltering'
+import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import {
     convertUniversalFiltersToLegacyFilters,
     MatchingEventsMatchType,
@@ -100,23 +101,6 @@ export interface PlayerInspectorLogicProps extends SessionRecordingPlayerLogicPr
     matchingEventsMatchType?: MatchingEventsMatchType
 }
 
-const PostHogMobileEvents = [
-    'Deep Link Opened',
-    'Application Opened',
-    'Application Backgrounded',
-    'Application Updated',
-    'Application Installed',
-    'Application Became Active',
-]
-
-function isMobileEvent(item: InspectorListItemEvent): boolean {
-    return PostHogMobileEvents.includes(item.data.event)
-}
-
-function isPostHogEvent(item: InspectorListItemEvent): boolean {
-    return item.data.event.startsWith('$') || isMobileEvent(item)
-}
-
 function _isCustomSnapshot(x: unknown): x is customEvent {
     return (x as customEvent).type === 5
 }
@@ -151,143 +135,6 @@ function timeRelativeToStart(
     const timestamp = dayjs(thingWithTime.timestamp)
     const timeInRecording = timestamp.valueOf() - (start?.valueOf() ?? 0)
     return { timestamp, timeInRecording }
-}
-
-export function filterInspectorListItems({
-    allItems,
-    tab,
-    miniFiltersByKey,
-    showMatchingEventsFilter,
-    showOnlyMatching,
-    windowIdFilter,
-}: {
-    allItems: InspectorListItem[]
-    tab: SessionRecordingPlayerTab
-    miniFiltersByKey: {
-        [key: string]: SharedListMiniFilter
-    }
-    showMatchingEventsFilter: boolean
-    showOnlyMatching: boolean
-    windowIdFilter: string | null
-}): InspectorListItem[] {
-    const items: InspectorListItem[] = []
-
-    const shortCircuitExclude = (item: InspectorListItem): boolean =>
-        item.type === SessionRecordingPlayerTab.NETWORK && item.data.entry_type === 'paint'
-
-    const eventsAllowedPerTab: Record<SessionRecordingPlayerTab, (item: InspectorListItem) => boolean> = {
-        [SessionRecordingPlayerTab.ALL]: (item: InspectorListItem) => {
-            return (
-                miniFiltersByKey['all-everything'].enabled === true ||
-                (miniFiltersByKey['all-automatic'].enabled &&
-                    (item.type === 'offline-status' ||
-                        item.type === 'browser-visibility' ||
-                        (item.type === SessionRecordingPlayerTab.NETWORK &&
-                            ['navigation'].includes(item.data.entry_type || '')) ||
-                        (item.type === SessionRecordingPlayerTab.NETWORK && (item.data.response_status || -1) >= 400) ||
-                        // is a slow request
-                        (item.type === SessionRecordingPlayerTab.NETWORK && (item.data.duration || -1) >= 1000) ||
-                        (item.type === SessionRecordingPlayerTab.EVENTS && isMobileEvent(item)) ||
-                        (item.type === SessionRecordingPlayerTab.EVENTS &&
-                            ['$pageview', '$screen'].includes(item.data.event)) ||
-                        (item.type === SessionRecordingPlayerTab.EVENTS && item.data.event === '$autocapture'))) ||
-                (miniFiltersByKey['all-errors'].enabled &&
-                    ((item.type === SessionRecordingPlayerTab.NETWORK && (item.data.response_status || -1) >= 400) ||
-                        (item.type === SessionRecordingPlayerTab.CONSOLE && item.data.level === 'error') ||
-                        (item.type === SessionRecordingPlayerTab.EVENTS &&
-                            (item.data.event === '$exception' || item.data.event.toLowerCase().includes('error')))))
-            )
-        },
-        [SessionRecordingPlayerTab.EVENTS]: (item: InspectorListItem) => {
-            if (item.type !== SessionRecordingPlayerTab.EVENTS) {
-                return false
-            }
-            return (
-                miniFiltersByKey['events-all'].enabled ||
-                (miniFiltersByKey['events-posthog'].enabled && isPostHogEvent(item)) ||
-                (miniFiltersByKey['events-custom'].enabled && !isPostHogEvent(item)) ||
-                (miniFiltersByKey['events-pageview'].enabled && ['$pageview', '$screen'].includes(item.data.event)) ||
-                (miniFiltersByKey['events-autocapture'].enabled && item.data.event === '$autocapture') ||
-                (miniFiltersByKey['events-exceptions'].enabled && item.data.event === '$exception')
-            )
-        },
-        [SessionRecordingPlayerTab.CONSOLE]: (item: InspectorListItem) => {
-            if (item.type !== SessionRecordingPlayerTab.CONSOLE) {
-                return false
-            }
-            return (
-                miniFiltersByKey['console-all'].enabled ||
-                (miniFiltersByKey['console-info'].enabled && ['log', 'info'].includes(item.data.level)) ||
-                (miniFiltersByKey['console-warn'].enabled && item.data.level === 'warn') ||
-                (miniFiltersByKey['console-error'].enabled && item.data.level === 'error')
-            )
-        },
-        [SessionRecordingPlayerTab.NETWORK]: (item: InspectorListItem) => {
-            if (item.type !== SessionRecordingPlayerTab.NETWORK) {
-                return false
-            }
-            return (
-                miniFiltersByKey['performance-all'].enabled === true ||
-                (miniFiltersByKey['performance-document'].enabled &&
-                    ['navigation'].includes(item.data.entry_type || '')) ||
-                (miniFiltersByKey['performance-fetch'].enabled &&
-                    item.data.entry_type === 'resource' &&
-                    ['fetch', 'xmlhttprequest'].includes(item.data.initiator_type || '')) ||
-                (miniFiltersByKey['performance-assets-js'].enabled &&
-                    item.data.entry_type === 'resource' &&
-                    (item.data.initiator_type === 'script' ||
-                        (['link', 'other'].includes(item.data.initiator_type || '') &&
-                            item.data.name?.includes('.js')))) ||
-                (miniFiltersByKey['performance-assets-css'].enabled &&
-                    item.data.entry_type === 'resource' &&
-                    (item.data.initiator_type === 'css' ||
-                        (['link', 'other'].includes(item.data.initiator_type || '') &&
-                            item.data.name?.includes('.css')))) ||
-                (miniFiltersByKey['performance-assets-img'].enabled &&
-                    item.data.entry_type === 'resource' &&
-                    (item.data.initiator_type === 'img' ||
-                        (['link', 'other'].includes(item.data.initiator_type || '') &&
-                            !!IMAGE_WEB_EXTENSIONS.some((ext) => item.data.name?.includes(`.${ext}`))))) ||
-                (miniFiltersByKey['performance-other'].enabled &&
-                    item.data.entry_type === 'resource' &&
-                    ['other'].includes(item.data.initiator_type || '') &&
-                    ![...IMAGE_WEB_EXTENSIONS, 'css', 'js'].some((ext) => item.data.name?.includes(`.${ext}`)))
-            )
-        },
-        [SessionRecordingPlayerTab.DOCTOR]: (item: InspectorListItem) =>
-            item.type === 'offline-status' ||
-            item.type === 'browser-visibility' ||
-            (item.type === SessionRecordingPlayerTab.EVENTS && item.data.event === '$exception') ||
-            (item.type === SessionRecordingPlayerTab.CONSOLE && item.data.level === 'error'),
-    }
-
-    for (const item of allItems) {
-        let include = false
-
-        if (shortCircuitExclude(item)) {
-            continue
-        }
-
-        if (eventsAllowedPerTab[tab](item)) {
-            include = true
-        }
-
-        if (showMatchingEventsFilter && showOnlyMatching) {
-            // Special case - overrides the others
-            include = include && item.highlightColor === 'primary'
-        }
-
-        const itemWindowId = item.windowId // how do we use sometimes properties $window_id... maybe we just shouldn't need to :shrug:
-        const excludedByWindowFilter = !!windowIdFilter && !!itemWindowId && itemWindowId !== windowIdFilter
-
-        if (!include || excludedByWindowFilter) {
-            continue
-        }
-
-        items.push(item)
-    }
-
-    return items
 }
 
 export const playerInspectorLogic = kea<playerInspectorLogicType>([
