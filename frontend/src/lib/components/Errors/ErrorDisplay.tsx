@@ -133,7 +133,7 @@ export function getExceptionPropertiesFrom(eventProperties: Record<string, any>)
     }
     // exception autocapture sets $exception_list for chained exceptions.
     // If it's not present, get this list from the sentry_exception
-    if (!$exception_list && $sentry_exception) {
+    if (!$exception_list?.length && $sentry_exception) {
         if (Array.isArray($sentry_exception.values)) {
             $exception_list = $sentry_exception.values
         }
