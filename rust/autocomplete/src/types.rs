@@ -89,11 +89,20 @@ pub struct EventDefinition {
     pub last_seen_at: DateTime<Utc>,
 }
 
+// Derived hash since these are keyed on all fields in the DB
+#[derive(Clone, Debug, Hash, Eq, PartialEq)]
+pub struct EventProperty {
+    team_id: i32,
+    event: String,
+    property: String,
+}
+
 // Represents a generic update, but comparable, allowing us to dedupe and cache updates
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
 pub enum Update {
     Event(EventDefinition),
     Property(PropertyDefinition),
+    EventProperty(EventProperty),
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -198,11 +207,17 @@ impl Event {
         parent_type: PropertyParentType,
         group_type: Option<GroupType>,
     ) {
-        updates.reserve(set.len());
+        updates.reserve(set.len() * 2);
         for (key, value) in set {
             if SKIP_PROPERTIES.contains(&key.as_str()) && parent_type == PropertyParentType::Event {
                 continue;
             }
+
+            updates.push(Update::EventProperty(EventProperty {
+                team_id: self.team_id,
+                event: self.event.clone(),
+                property: key.clone(),
+            }));
 
             let property_type = detect_property_type(key, value);
             let is_numerical = matches!(property_type, Some(PropertyValueType::Numeric));
