@@ -191,7 +191,7 @@ class TestBytecode(BaseTest):
     def test_bytecode_create_not_implemented_error(self):
         with self.assertRaises(NotImplementedError) as e:
             to_bytecode("(select 1)")
-        self.assertEqual(str(e.exception), "BytecodeBuilder has no method visit_select_query")
+        self.assertEqual(str(e.exception), "BytecodeCompiler has no method visit_select_query")
 
     def test_bytecode_create_query_error(self):
         with self.assertRaises(QueryError) as e:
