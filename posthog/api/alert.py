@@ -6,7 +6,13 @@ from django.db.models import QuerySet
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models import User
-from posthog.models.alert import AlertConfiguration, AlertCheck, Threshold, AlertSubscription
+from posthog.models.alert import (
+    AlertConfiguration,
+    AlertCheck,
+    Threshold,
+    AlertSubscription,
+    are_alerts_supported_for_insight,
+)
 
 
 class ThresholdSerializer(serializers.ModelSerializer):
@@ -152,6 +158,11 @@ class AlertSerializer(serializers.ModelSerializer):
                 )
 
         return super().update(instance, validated_data)
+
+    def validate_insight(self, value):
+        if value and not are_alerts_supported_for_insight(value):
+            raise ValidationError("Alerts are not supported for this insight.")
+        return value
 
     def validate_subscribed_users(self, value):
         if not value:

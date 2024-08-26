@@ -4,17 +4,19 @@ from typing import Any, Optional
 from django.db import models
 from django.core.exceptions import ValidationError
 
+from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import conversion_to_query_based
 from posthog.models.insight import Insight
 from posthog.models.utils import UUIDModel, CreatedMetaFields
 from posthog.schema import AlertCondition, InsightThreshold
 
 
 def are_alerts_supported_for_insight(insight: Insight) -> bool:
-    query = insight.query
-    if query is None or query.get("kind") != "TrendsQuery":
-        return False
-    if query.get("trendsFilter", {}).get("display") != "BoldNumber":
-        return False
+    with conversion_to_query_based(insight):
+        query = insight.query
+        if query is None or query.get("kind") != "TrendsQuery":
+            return False
+        if query.get("trendsFilter", {}).get("display") != "BoldNumber":
+            return False
     return True
 
 
