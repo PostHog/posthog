@@ -1,7 +1,7 @@
 import clsx from 'clsx'
-import IconStripe from 'public/services/stripe.png'
 import { useEffect, useRef, useState } from 'react'
 
+import GenericNode from './Node'
 import { TableFields } from './TableFields'
 
 interface Position {
@@ -11,39 +11,10 @@ interface Position {
 
 interface NodePosition {
     id: string
-    node: (props: any) => JSX.Element
+    name: string
     position: Position
     leaf: string[]
 }
-
-const NODES: NodePosition[] = [
-    {
-        id: 'posthog',
-        node: PostHogNode,
-        position: { x: 400, y: 200 },
-        leaf: ['schema'],
-    },
-    {
-        id: 'stripe',
-        node: StripeNode,
-        position: { x: 400, y: 400 },
-        leaf: ['stripe-invoice', 'stripe-customer', 'stripe-account'],
-    },
-    {
-        id: 'stripe-invoice',
-        node: StripeInvoiceNode,
-        position: { x: 700, y: 400 },
-        leaf: ['tax_code'],
-    },
-    {
-        id: 'stripe-account',
-        node: StripeCustomerNode,
-        position: { x: 700, y: 600 },
-        leaf: ['account_size', 'customer_email'],
-    },
-]
-
-const TABLE_POSITION = { x: 1000, y: 100 }
 
 interface Edge {
     from: Position
@@ -54,6 +25,52 @@ interface NodePositionWithBounds extends NodePosition {
     left: Position | null
     right: Position | null
 }
+
+const calculateNodePositions = (): NodePosition[] => {
+    const windowWidth = window.innerWidth
+    const windowHeight = window.innerHeight
+    const padding = 50
+    const verticalSpacing = 150
+    const horizontalSpacing = 300
+
+    const nodes: NodePosition[] = [
+        {
+            id: 'posthog',
+            name: 'PostHog',
+            position: { x: padding, y: padding },
+            leaf: ['schema'],
+        },
+        {
+            id: 'stripe',
+            name: 'Stripe',
+            position: { x: padding, y: padding + verticalSpacing },
+            leaf: ['stripe-invoice', 'stripe-customer', 'stripe-account'],
+        },
+        {
+            id: 'stripe-invoice',
+            name: 'Stripe invoice',
+            position: { x: padding + horizontalSpacing, y: padding + verticalSpacing },
+            leaf: ['tax_code'],
+        },
+        {
+            id: 'stripe-account',
+            name: 'Stripe account',
+            position: { x: padding + horizontalSpacing, y: padding + 2 * verticalSpacing },
+            leaf: ['account_size', 'customer_email'],
+        },
+    ]
+
+    nodes.forEach((node) => {
+        node.position.x = Math.min(node.position.x, windowWidth - padding)
+        node.position.y = Math.min(node.position.y, windowHeight - padding)
+    })
+
+    return nodes
+}
+
+const NODES: NodePosition[] = calculateNodePositions()
+
+const TABLE_POSITION = { x: Math.min(700, window.innerWidth - 300), y: 100 }
 
 const calculateEdges = (nodeRefs: (HTMLDivElement | null)[], nodes: NodePosition[]): Edge[] => {
     const nodes_map = nodes.reduce((acc: Record<string, NodePosition>, node) => {
@@ -179,10 +196,11 @@ const ScrollableDraggableCanvas = (): JSX.Element => {
         }
 
         const allNodes = [...NODES]
+        // calculated table row positions
         rowsRefs.current.forEach((ref) => {
             const rect = ref?.getBoundingClientRect()
             const nodeRect = tableNodeRef.current?.getBoundingClientRect()
-            // fill rect
+
             if (!rect) {
                 return
             }
@@ -190,7 +208,7 @@ const ScrollableDraggableCanvas = (): JSX.Element => {
             if (nodeRect && ref) {
                 allNodes.push({
                     id: ref.id,
-                    node: TableFieldNode,
+                    name: 'Table',
                     position: { x: TABLE_POSITION.x, y: TABLE_POSITION.y + (rect.y - nodeRect.y) },
                     leaf: [],
                 })
@@ -227,6 +245,24 @@ const ScrollableDraggableCanvas = (): JSX.Element => {
 
             drawGrid(ctx, width, height)
         }
+
+        const handleResize = (): void => {
+            if (canvas) {
+                const { width, height } = canvas.getBoundingClientRect()
+                canvas.width = width
+                canvas.height = height
+                const ctx = canvas.getContext('2d')
+                if (ctx) {
+                    drawGrid(ctx, width, height)
+                }
+            }
+        }
+
+        window.addEventListener('resize', handleResize)
+
+        return () => {
+            window.removeEventListener('resize', handleResize)
+        }
     }, [offset])
 
     const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>): void => {
@@ -259,7 +295,7 @@ const ScrollableDraggableCanvas = (): JSX.Element => {
                 onMouseLeave={handleMouseUp}
                 className={clsx('w-full h-full', isDragging ? 'cursor-grabbing' : 'cursor-grab')}
             />
-            {NODES.map(({ node: Node, position, id }, idx) => {
+            {NODES.map(({ name, position, id }, idx) => {
                 return (
                     <div
                         key={id}
@@ -270,12 +306,14 @@ const ScrollableDraggableCanvas = (): JSX.Element => {
                             top: `${position.y + offset.y}px`,
                         }}
                     >
-                        <Node
+                        <GenericNode
                             pref={(el: HTMLDivElement | null) => {
                                 nodeRefs.current[idx] = el
                                 nodeRefs.current[idx]?.setAttribute('id', id)
                             }}
-                        />
+                        >
+                            {name}
+                        </GenericNode>
                     </div>
                 )
             })}
@@ -295,55 +333,6 @@ const ScrollableDraggableCanvas = (): JSX.Element => {
 }
 
 export default ScrollableDraggableCanvas
-
-interface NodeProps {
-    pref: (el: HTMLDivElement | null) => void
-}
-
-function StripeNode({ pref }: NodeProps): JSX.Element {
-    return (
-        <div
-            ref={pref}
-            className="w-[100px] h-[50px] flex justify-center items-center space-between gap-1 bg-white border border-black border-2 rounded-lg"
-        >
-            <img src={IconStripe} alt="stripe" height={30} width={30} className="rounded" />
-            <span>Stripe</span>
-        </div>
-    )
-}
-
-function StripeInvoiceNode({ pref }: NodeProps): JSX.Element {
-    return (
-        <div
-            ref={pref}
-            className="w-[120px] h-[50px] flex justify-center items-center space-between gap-1 bg-white border border-black border-2 rounded-lg"
-        >
-            <span>Stripe invoice</span>
-        </div>
-    )
-}
-
-function StripeCustomerNode({ pref }: NodeProps): JSX.Element {
-    return (
-        <div
-            ref={pref}
-            className="w-[120px] h-[50px] flex justify-center items-center space-between gap-1 bg-white border border-black border-2 rounded-lg"
-        >
-            <span>Stripe customer</span>
-        </div>
-    )
-}
-
-function PostHogNode({ pref }: NodeProps): JSX.Element {
-    return (
-        <div
-            ref={pref}
-            className="w-[100px] h-[50px] flex justify-center items-center bg-white border border-black border-2 rounded-lg"
-        >
-            PostHog
-        </div>
-    )
-}
 
 const FAKE_JOINED_DATA = [
     { name: 'customer_email', type: 'string', table: 'prod_stripe_invoice' },
