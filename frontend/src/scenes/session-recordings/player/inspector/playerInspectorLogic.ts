@@ -172,203 +172,113 @@ export function filterInspectorListItems({
 }): InspectorListItem[] {
     const items: InspectorListItem[] = []
 
+    const shortCircuitExclude = (item: InspectorListItem): boolean =>
+        item.type === SessionRecordingPlayerTab.NETWORK && item.data.entry_type === 'paint'
+
+    const eventsAllowedPerTab: Record<SessionRecordingPlayerTab, (item: InspectorListItem) => boolean> = {
+        [SessionRecordingPlayerTab.ALL]: (item: InspectorListItem) => {
+            return (
+                miniFiltersByKey['all-everything'].enabled === true ||
+                (miniFiltersByKey['all-automatic'].enabled &&
+                    (item.type === 'offline-status' ||
+                        item.type === 'browser-visibility' ||
+                        (item.type === SessionRecordingPlayerTab.NETWORK &&
+                            ['navigation'].includes(item.data.entry_type || '')) ||
+                        (item.type === SessionRecordingPlayerTab.NETWORK && (item.data.response_status || -1) >= 400) ||
+                        // is a slow request
+                        (item.type === SessionRecordingPlayerTab.NETWORK && (item.data.duration || -1) >= 1000) ||
+                        (item.type === SessionRecordingPlayerTab.EVENTS && isMobileEvent(item)) ||
+                        (item.type === SessionRecordingPlayerTab.EVENTS &&
+                            ['$pageview', '$screen'].includes(item.data.event)) ||
+                        (item.type === SessionRecordingPlayerTab.EVENTS && item.data.event === '$autocapture'))) ||
+                (miniFiltersByKey['all-errors'].enabled &&
+                    ((item.type === SessionRecordingPlayerTab.NETWORK && (item.data.response_status || -1) >= 400) ||
+                        (item.type === SessionRecordingPlayerTab.CONSOLE && item.data.level === 'error') ||
+                        (item.type === SessionRecordingPlayerTab.EVENTS &&
+                            (item.data.event === '$exception' || item.data.event.toLowerCase().includes('error')))))
+            )
+        },
+        [SessionRecordingPlayerTab.EVENTS]: (item: InspectorListItem) => {
+            if (item.type !== SessionRecordingPlayerTab.EVENTS) {
+                return false
+            }
+            return (
+                miniFiltersByKey['events-all'].enabled ||
+                (miniFiltersByKey['events-posthog'].enabled && isPostHogEvent(item)) ||
+                (miniFiltersByKey['events-custom'].enabled && !isPostHogEvent(item)) ||
+                (miniFiltersByKey['events-pageview'].enabled && ['$pageview', '$screen'].includes(item.data.event)) ||
+                (miniFiltersByKey['events-autocapture'].enabled && item.data.event === '$autocapture') ||
+                (miniFiltersByKey['events-exceptions'].enabled && item.data.event === '$exception')
+            )
+        },
+        [SessionRecordingPlayerTab.CONSOLE]: (item: InspectorListItem) => {
+            if (item.type !== SessionRecordingPlayerTab.CONSOLE) {
+                return false
+            }
+            return (
+                miniFiltersByKey['console-all'].enabled ||
+                (miniFiltersByKey['console-info'].enabled && ['log', 'info'].includes(item.data.level)) ||
+                (miniFiltersByKey['console-warn'].enabled && item.data.level === 'warn') ||
+                (miniFiltersByKey['console-error'].enabled && item.data.level === 'error')
+            )
+        },
+        [SessionRecordingPlayerTab.NETWORK]: (item: InspectorListItem) => {
+            if (item.type !== SessionRecordingPlayerTab.NETWORK) {
+                return false
+            }
+            return (
+                miniFiltersByKey['performance-all'].enabled === true ||
+                (miniFiltersByKey['performance-document'].enabled &&
+                    ['navigation'].includes(item.data.entry_type || '')) ||
+                (miniFiltersByKey['performance-fetch'].enabled &&
+                    item.data.entry_type === 'resource' &&
+                    ['fetch', 'xmlhttprequest'].includes(item.data.initiator_type || '')) ||
+                (miniFiltersByKey['performance-assets-js'].enabled &&
+                    item.data.entry_type === 'resource' &&
+                    (item.data.initiator_type === 'script' ||
+                        (['link', 'other'].includes(item.data.initiator_type || '') &&
+                            item.data.name?.includes('.js')))) ||
+                (miniFiltersByKey['performance-assets-css'].enabled &&
+                    item.data.entry_type === 'resource' &&
+                    (item.data.initiator_type === 'css' ||
+                        (['link', 'other'].includes(item.data.initiator_type || '') &&
+                            item.data.name?.includes('.css')))) ||
+                (miniFiltersByKey['performance-assets-img'].enabled &&
+                    item.data.entry_type === 'resource' &&
+                    (item.data.initiator_type === 'img' ||
+                        (['link', 'other'].includes(item.data.initiator_type || '') &&
+                            !!IMAGE_WEB_EXTENSIONS.some((ext) => item.data.name?.includes(`.${ext}`))))) ||
+                (miniFiltersByKey['performance-other'].enabled &&
+                    item.data.entry_type === 'resource' &&
+                    ['other'].includes(item.data.initiator_type || '') &&
+                    ![...IMAGE_WEB_EXTENSIONS, 'css', 'js'].some((ext) => item.data.name?.includes(`.${ext}`)))
+            )
+        },
+        [SessionRecordingPlayerTab.DOCTOR]: (item: InspectorListItem) =>
+            item.type === 'offline-status' ||
+            item.type === 'browser-visibility' ||
+            (item.type === SessionRecordingPlayerTab.EVENTS && item.data.event === '$exception') ||
+            (item.type === SessionRecordingPlayerTab.CONSOLE && item.data.level === 'error'),
+    }
+
     for (const item of allItems) {
         let include = false
 
-        const isDoctorTab = tab === SessionRecordingPlayerTab.DOCTOR
-
-        if (item.type === 'offline-status' || item.type === 'browser-visibility') {
-            const allowedMiniFilters = !!(
-                miniFiltersByKey['all-everything']?.enabled || miniFiltersByKey['all-automatic']?.enabled
-            )
-
-            const isCurrentlyShowingFilteredEvents = showMatchingEventsFilter && showOnlyMatching
-
-            include = isDoctorTab || (allowedMiniFilters && !isCurrentlyShowingFilteredEvents)
+        if (shortCircuitExclude(item)) {
+            continue
         }
 
-        if (item.type === SessionRecordingPlayerTab.DOCTOR && isDoctorTab) {
+        if (eventsAllowedPerTab[tab](item)) {
             include = true
-            if (
-                windowIdFilter &&
-                item.data?.properties?.$window_id &&
-                item.data.properties.$window_id !== windowIdFilter
-            ) {
-                include = false
-            }
         }
 
-        // EVENTS
-        if (item.type === SessionRecordingPlayerTab.EVENTS) {
-            if (tab === SessionRecordingPlayerTab.DOCTOR) {
-                if (item.data.event === '$exception') {
-                    include = true
-                }
-            } else {
-                if (tab !== SessionRecordingPlayerTab.EVENTS && tab !== SessionRecordingPlayerTab.ALL) {
-                    continue
-                }
-
-                if (miniFiltersByKey['events-all']?.enabled || miniFiltersByKey['all-everything']?.enabled) {
-                    include = true
-                }
-                if (miniFiltersByKey['events-posthog']?.enabled && isPostHogEvent(item)) {
-                    include = true
-                }
-                // include Mobile events as part of the Auto-Summary
-                if (miniFiltersByKey['all-automatic']?.enabled && isMobileEvent(item)) {
-                    include = true
-                }
-                if (
-                    (miniFiltersByKey['events-custom']?.enabled || miniFiltersByKey['all-automatic']?.enabled) &&
-                    !isPostHogEvent(item)
-                ) {
-                    include = true
-                }
-                if (
-                    (miniFiltersByKey['events-pageview']?.enabled || miniFiltersByKey['all-automatic']?.enabled) &&
-                    ['$pageview', '$screen'].includes(item.data.event)
-                ) {
-                    include = true
-                }
-                if (
-                    (miniFiltersByKey['events-autocapture']?.enabled || miniFiltersByKey['all-automatic']?.enabled) &&
-                    item.data.event === '$autocapture'
-                ) {
-                    include = true
-                }
-
-                if (
-                    (miniFiltersByKey['all-errors']?.enabled || miniFiltersByKey['events-exceptions']?.enabled) &&
-                    (item.data.event === '$exception' || item.data.event.toLowerCase().includes('error'))
-                ) {
-                    include = true
-                }
-
-                if (showMatchingEventsFilter && showOnlyMatching) {
-                    // Special case - overrides the others
-                    include = include && item.highlightColor === 'primary'
-                }
-            }
+        if (showMatchingEventsFilter && showOnlyMatching) {
+            // Special case - overrides the others
+            include = include && item.highlightColor === 'primary'
         }
 
-        // CONSOLE LOGS
-        if (item.type === SessionRecordingPlayerTab.CONSOLE) {
-            if (isDoctorTab && item.data.level === 'error') {
-                include = true
-            }
-
-            if (tab !== SessionRecordingPlayerTab.CONSOLE && tab !== SessionRecordingPlayerTab.ALL) {
-                continue
-            }
-
-            if (miniFiltersByKey['console-all']?.enabled || miniFiltersByKey['all-everything']?.enabled) {
-                include = true
-            }
-            if (miniFiltersByKey['console-info']?.enabled && ['log', 'info'].includes(item.data.level)) {
-                include = true
-            }
-            if (
-                (miniFiltersByKey['console-warn']?.enabled || miniFiltersByKey['all-automatic']?.enabled) &&
-                item.data.level === 'warn'
-            ) {
-                include = true
-            }
-            if (
-                (miniFiltersByKey['console-error']?.enabled ||
-                    miniFiltersByKey['all-errors']?.enabled ||
-                    miniFiltersByKey['all-automatic']?.enabled) &&
-                item.data.level === 'error'
-            ) {
-                include = true
-            }
-        }
-
-        // NETWORK
-        if (item.type === SessionRecordingPlayerTab.NETWORK) {
-            if (tab !== SessionRecordingPlayerTab.NETWORK && tab !== SessionRecordingPlayerTab.ALL) {
-                continue
-            }
-
-            const responseStatus = item.data.response_status || 200
-            const responseTime = item.data.duration || 0
-
-            if (miniFiltersByKey['performance-all']?.enabled || miniFiltersByKey['all-everything']?.enabled) {
-                include = true
-            }
-            if (
-                (miniFiltersByKey['performance-document']?.enabled || miniFiltersByKey['all-automatic']?.enabled) &&
-                ['navigation'].includes(item.data.entry_type || '')
-            ) {
-                include = true
-            }
-            if (
-                miniFiltersByKey['performance-fetch']?.enabled &&
-                item.data.entry_type === 'resource' &&
-                ['fetch', 'xmlhttprequest'].includes(item.data.initiator_type || '')
-            ) {
-                include = true
-            }
-
-            if (
-                miniFiltersByKey['performance-assets-js']?.enabled &&
-                item.data.entry_type === 'resource' &&
-                (item.data.initiator_type === 'script' ||
-                    (['link', 'other'].includes(item.data.initiator_type || '') && item.data.name?.includes('.js')))
-            ) {
-                include = true
-            }
-
-            if (
-                miniFiltersByKey['performance-assets-css']?.enabled &&
-                item.data.entry_type === 'resource' &&
-                (item.data.initiator_type === 'css' ||
-                    (['link', 'other'].includes(item.data.initiator_type || '') && item.data.name?.includes('.css')))
-            ) {
-                include = true
-            }
-
-            if (
-                miniFiltersByKey['performance-assets-img']?.enabled &&
-                item.data.entry_type === 'resource' &&
-                (item.data.initiator_type === 'img' ||
-                    (['link', 'other'].includes(item.data.initiator_type || '') &&
-                        !!IMAGE_WEB_EXTENSIONS.some((ext) => item.data.name?.includes(`.${ext}`))))
-            ) {
-                include = true
-            }
-
-            if (
-                miniFiltersByKey['performance-other']?.enabled &&
-                item.data.entry_type === 'resource' &&
-                ['other'].includes(item.data.initiator_type || '') &&
-                ![...IMAGE_WEB_EXTENSIONS, 'css', 'js'].some((ext) => item.data.name?.includes(`.${ext}`))
-            ) {
-                include = true
-            }
-
-            if (
-                (miniFiltersByKey['all-errors']?.enabled || miniFiltersByKey['all-automatic']?.enabled) &&
-                responseStatus >= 400
-            ) {
-                include = true
-            }
-
-            if (miniFiltersByKey['all-automatic']?.enabled && responseTime >= 1000) {
-                include = true
-            }
-
-            if (windowIdFilter && item.data.window_id !== windowIdFilter) {
-                include = false
-            }
-
-            if (item.data.entry_type === 'paint') {
-                // We don't include paint events as they are covered in the navigation events
-                include = false
-            }
-        }
-
-        const excludedByWindowFilter = !!windowIdFilter && !!item.windowId && item.windowId !== windowIdFilter
+        const itemWindowId = item.windowId // how do we use sometimes properties $window_id... maybe we just shouldn't need to :shrug:
+        const excludedByWindowFilter = !!windowIdFilter && !!itemWindowId && itemWindowId !== windowIdFilter
 
         if (!include || excludedByWindowFilter) {
             continue
@@ -825,11 +735,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         return false
                     }
 
-                    if (showMatchingEventsFilter && showOnlyMatching && item.highlightColor !== 'primary') {
-                        return false
-                    }
-
-                    return true
+                    return !(showMatchingEventsFilter && showOnlyMatching && item.highlightColor !== 'primary')
                 }) as InspectorListItemEvent[]
 
                 if (items.length > MAX_SEEKBAR_ITEMS) {
@@ -838,11 +744,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     })
 
                     items = items.filter((_, i) => {
-                        if (i % Math.ceil(items.length / MAX_SEEKBAR_ITEMS) === 0) {
-                            return true
-                        }
-
-                        return false
+                        return i % Math.ceil(items.length / MAX_SEEKBAR_ITEMS) === 0
                     })
                 }
 

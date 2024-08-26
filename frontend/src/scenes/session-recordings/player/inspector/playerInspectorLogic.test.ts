@@ -64,7 +64,7 @@ describe('playerInspectorLogic', () => {
                                 type: 'browser-visibility',
                             } as InspectorListBrowserVisibility,
                         ],
-                        tab: SessionRecordingPlayerTab.EVENTS,
+                        tab: SessionRecordingPlayerTab.ALL,
                         miniFiltersByKey: { 'all-everything': { enabled: true } as unknown as SharedListMiniFilter },
                         showOnlyMatching: false,
                         showMatchingEventsFilter: false,
