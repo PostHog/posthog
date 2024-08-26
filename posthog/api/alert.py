@@ -76,7 +76,11 @@ class AlertSerializer(serializers.ModelSerializer):
     checks = AlertCheckSerializer(many=True, read_only=True)
     threshold = ThresholdSerializer()
     subscribed_users = serializers.PrimaryKeyRelatedField(
-        queryset=User.objects.filter(is_active=True), many=True, required=True, write_only=True
+        queryset=User.objects.filter(is_active=True),
+        many=True,
+        required=True,
+        write_only=True,
+        allow_empty=False,
     )
 
     class Meta:
@@ -165,8 +169,6 @@ class AlertSerializer(serializers.ModelSerializer):
         return value
 
     def validate_subscribed_users(self, value):
-        if not value:
-            raise ValidationError("Subscribed users list cannot be empty.")
         for user in value:
             if not user.teams.filter(pk=self.context["team_id"]).exists():
                 raise ValidationError("User does not belong to the same organization as the alert's team.")
