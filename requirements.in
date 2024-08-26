@@ -38,7 +38,7 @@ dlt[deltalake]==0.5.3
 dnspython==2.2.1
 drf-exceptions-hog==0.4.0
 drf-extensions==0.7.0
-drf-spectacular==0.27.1
+drf-spectacular==0.27.2
 geoip2==4.6.0
 google-cloud-bigquery==3.11.4
 gunicorn==20.1.0
@@ -58,7 +58,7 @@ pdpyras==5.2.0
 posthoganalytics==3.5.0
 psycopg2-binary==2.9.7
 PyMySQL==1.1.1
-psycopg[binary]==3.1.18
+psycopg[binary]==3.1.20
 pyarrow==17.0.0
 pydantic==2.5.3
 pyjwt==2.4.0

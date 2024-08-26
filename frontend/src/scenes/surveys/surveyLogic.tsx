@@ -910,7 +910,8 @@ export const surveyLogic = kea<surveyLogicType>([
                 if (survey.id === 'new') {
                     return null
                 }
-                const createdAt = (survey as Survey).created_at
+                const surveyWithResults = survey as Survey
+                const startDate = surveyWithResults.start_date || surveyWithResults.created_at
                 return {
                     kind: NodeKind.DataTableNode,
                     source: {
@@ -934,7 +935,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         ],
                         orderBy: ['timestamp DESC'],
                         where: [`event == 'survey sent'`],
-                        after: createdAt,
+                        after: startDate,
                         properties: [
                             {
                                 type: PropertyFilterType.Event,

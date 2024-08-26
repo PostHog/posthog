@@ -495,6 +495,7 @@ export const routes: Record<string, Scene> = {
     [urls.pipelineNodeNew(':stage', ':id')]: Scene.PipelineNodeNew,
     [urls.pipeline(':tab')]: Scene.Pipeline,
     [urls.pipelineNode(':stage', ':id', ':nodeTab')]: Scene.PipelineNode,
+    [urls.pipelineNode(':stage', ':id')]: Scene.PipelineNode,
     [urls.groups(':groupTypeIndex')]: Scene.PersonsManagement,
     [urls.group(':groupTypeIndex', ':groupKey', false)]: Scene.Group,
     [urls.group(':groupTypeIndex', ':groupKey', false, ':groupTab')]: Scene.Group,

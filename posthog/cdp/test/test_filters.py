@@ -65,6 +65,20 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
     def test_filters_empty(self):
         assert self.filters_to_bytecode(filters={}) == snapshot(["_h", 29])
 
+    def test_filters_all_events(self):
+        assert self.filters_to_bytecode(
+            filters={
+                "events": [
+                    {
+                        "id": None,
+                        "name": "All events",
+                        "type": "events",
+                        "order": 0,
+                    }
+                ]
+            }
+        ) == snapshot(["_h", 3, 0, 29, 4, 2])
+
     def test_filters_events(self):
         assert self.filters_to_bytecode(filters={"events": self.filters["events"]}) == snapshot(
             [

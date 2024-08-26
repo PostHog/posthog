@@ -399,7 +399,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                           },
                           {
                               identifier: Scene.PersonsManagement,
-                              label: 'People',
+                              label: 'People and groups',
                               icon: <IconPeople />,
                               logic: isUsingSidebar ? personsAndGroupsSidebarLogic : undefined,
                               to: isUsingSidebar ? undefined : urls.persons(),
@@ -501,11 +501,11 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   to: isUsingSidebar ? undefined : urls.dataWarehouse(),
                               }
                             : {
-                                identifier: Scene.DataModel,
-                                label: 'Data model',
-                                icon: <IconServer />,
-                                to: isUsingSidebar ? undefined : urls.dataModel(),
-                            },
+                                  identifier: Scene.DataModel,
+                                  label: 'Data model',
+                                  icon: <IconServer />,
+                                  to: isUsingSidebar ? undefined : urls.dataModel(),
+                              },
                         featureFlags[FEATURE_FLAGS.PRODUCT_INTRO_PAGES] !== 'test' || hasOnboardedFeatureFlags
                             ? {
                                   identifier: Scene.EarlyAccessFeatures,

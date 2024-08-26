@@ -657,5 +657,5 @@ def get_dlt_mapping_for_external_table(table):
             "nullable": True,
         }
         for _, field in external_tables[table].items()
-        if type(field) != ast.ExpressionField
+        if type(field) is not ast.ExpressionField
     }

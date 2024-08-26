@@ -14,6 +14,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { ExportedInsight } from '~/exporter/ExportedInsight/ExportedInsight'
 import { ExportedData, ExportType } from '~/exporter/types'
+import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
 import { Logo } from '~/toolbar/assets/Logo'
 import { DashboardPlacement } from '~/types'
 
@@ -78,7 +79,7 @@ export function Exporter(props: ExportedData): JSX.Element {
             ) : dashboard ? (
                 <Dashboard
                     id={String(dashboard.id)}
-                    dashboard={dashboard}
+                    dashboard={getQueryBasedDashboard(dashboard)!}
                     placement={type === ExportType.Image ? DashboardPlacement.Export : DashboardPlacement.Public}
                 />
             ) : recording ? (

@@ -19,20 +19,16 @@ class OrganizationResourceAccess(models.Model):
         INSIGHTS = "insights", "insights"
         DASHBOARDS = "dashboards", "dashboards"
 
-    resource: models.CharField = models.CharField(max_length=32, choices=Resources.choices)
-    access_level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
-        default=AccessLevel.CAN_ALWAYS_EDIT, choices=AccessLevel.choices
-    )
-    organization: models.ForeignKey = models.ForeignKey(
-        Organization, on_delete=models.CASCADE, related_name="resource_access"
-    )
-    created_by: models.ForeignKey = models.ForeignKey(
+    resource = models.CharField(max_length=32, choices=Resources.choices)
+    access_level = models.PositiveSmallIntegerField(default=AccessLevel.CAN_ALWAYS_EDIT, choices=AccessLevel.choices)
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="resource_access")
+    created_by = models.ForeignKey(
         "posthog.User",
         on_delete=models.SET_NULL,
         null=True,
     )
-    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
-    updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         constraints = [

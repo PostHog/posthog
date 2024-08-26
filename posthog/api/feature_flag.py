@@ -11,7 +11,7 @@ from rest_framework import (
     status,
     viewsets,
 )
-from rest_framework.decorators import action
+from posthog.api.utils import action
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -537,7 +537,7 @@ class FeatureFlagViewSet(
     )
     def local_evaluation(self, request: request.Request, **kwargs):
         feature_flags: QuerySet[FeatureFlag] = FeatureFlag.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION).filter(
-            team_id=self.team_id, deleted=False, active=True
+            team__project_id=self.project_id, deleted=False, active=True
         )
 
         should_send_cohorts = "send_cohorts" in request.GET
@@ -758,4 +758,4 @@ class FeatureFlagViewSet(
 
 
 class LegacyFeatureFlagViewSet(FeatureFlagViewSet):
-    derive_current_team_from_user_only = True
+    param_derived_from_user_current_team = "project_id"

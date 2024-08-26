@@ -1,9 +1,7 @@
 import { Meta, Story } from '@storybook/react'
 import { useState } from 'react'
 
-import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { NodeKind } from '~/queries/schema'
 import { ChartDisplayType, InsightColor, InsightModel, InsightShortId, TrendsFilterType } from '~/types'
 
 import EXAMPLE_DATA_TABLE_NODE_EVENTS_QUERY from '../../../../mocks/fixtures/api/projects/team_id/insights/dataTableEvents.json'
@@ -19,7 +17,6 @@ import EXAMPLE_TRENDS_PIE from '../../../../mocks/fixtures/api/projects/team_id/
 import EXAMPLE_TRENDS_TABLE from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsTable.json'
 import EXAMPLE_TRENDS_HORIZONTAL_BAR from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsValue.json'
 import EXAMPLE_TRENDS_WORLD_MAP from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsWorldMap.json'
-import EXAMPLE_PATHS from '../../../../mocks/fixtures/api/projects/team_id/insights/userPaths.json'
 import { InsightCard as InsightCardComponent } from './index'
 
 const examples = [
@@ -32,7 +29,6 @@ const examples = [
     EXAMPLE_TRENDS_WORLD_MAP,
     EXAMPLE_FUNNEL,
     EXAMPLE_RETENTION,
-    EXAMPLE_PATHS,
     EXAMPLE_STICKINESS,
     EXAMPLE_LIFECYCLE,
     EXAMPLE_DATA_TABLE_NODE_HOGQL_QUERY,
@@ -73,8 +69,7 @@ export const InsightCard: Story = (args) => {
     const [wasItemRemoved, setWasItemRemoved] = useState(false)
 
     return (
-        // eslint-disable-next-line react/forbid-dom-props
-        <div style={{ display: 'grid', gap: '1rem', gridTemplateColumns: 'repeat(2, 1fr)', minWidth: '50rem' }}>
+        <div className="grid gap-4 grid-cols-2 min-w-[50rem]">
             {!wasItemRemoved && (
                 <InsightCardComponent
                     insight={getQueryBasedInsightModel({
@@ -178,7 +173,7 @@ export const InsightCard: Story = (args) => {
             {examples.map((e) => (
                 <InsightCardComponent
                     key={e.id}
-                    insight={getQueryBasedInsightModel(e)}
+                    insight={getQueryBasedInsightModel(e as unknown as InsightModel)}
                     rename={() => {}}
                     duplicate={() => {}}
                     placement="SavedInsightGrid"
@@ -189,44 +184,6 @@ export const InsightCard: Story = (args) => {
                     showResizeHandles={args.resizable}
                 />
             ))}
-        </div>
-    )
-}
-
-export const QueryInsightCard: Story = (args) => {
-    return (
-        // eslint-disable-next-line react/forbid-dom-props
-        <div style={{ display: 'grid', gap: '1rem', gridTemplateColumns: 'repeat(2, 1fr)', minWidth: '50rem' }}>
-            {examples.map((insight) => {
-                // turn into HogQL based insight
-                if (!insight.filters.insight || insight.query) {
-                    return null
-                }
-
-                const query = {
-                    kind: NodeKind.InsightVizNode,
-                    source: filtersToQueryNode(insight.filters),
-                }
-                const { filters: _, ...baseInsight } = insight
-                return (
-                    <InsightCardComponent
-                        key={insight.id}
-                        insight={{
-                            ...baseInsight,
-                            query,
-                        }}
-                        rename={() => {}}
-                        duplicate={() => {}}
-                        placement="SavedInsightGrid"
-                        loading={args.loading}
-                        apiErrored={args.apiErrored}
-                        highlighted={args.highlighted}
-                        timedOut={args.timedOut}
-                        showResizeHandles={args.resizable}
-                        doNotLoad
-                    />
-                )
-            })}
         </div>
     )
 }
