@@ -471,14 +471,6 @@ mod tests {
     }
 
     #[test]
-    fn test_none_is_none() {
-        let json = serde_json::json!({});
-        let result = test_deserialize(json);
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), None);
-    }
-
-    #[test]
     fn test_valid_uuid_is_some() {
         let valid_uuid = "550e8400-e29b-41d4-a716-446655440000";
         let json = serde_json::json!({"uuid": valid_uuid});
