@@ -56,7 +56,7 @@ pub struct EventFormData {
     pub data: String,
 }
 
-fn empty_string_is_none<'de, D>(deserializer: D) -> Result<Option<Uuid>, D::Error>
+pub fn empty_string_is_none<'de, D>(deserializer: D) -> Result<Option<Uuid>, D::Error>
 where
     D: Deserializer<'de>,
 {
@@ -256,14 +256,29 @@ pub struct ProcessingContext {
 #[cfg(test)]
 mod tests {
     use crate::token::InvalidTokenReason;
+    use crate::v0_request::empty_string_is_none;
     use base64::Engine as _;
     use bytes::Bytes;
     use rand::distributions::Alphanumeric;
     use rand::Rng;
+    use serde::Deserialize;
     use serde_json::json;
+    use serde_json::Value;
+    use uuid::Uuid;
 
     use super::CaptureError;
     use super::RawRequest;
+
+    fn test_deserialize(json: Value) -> Result<Option<Uuid>, serde_json::Error> {
+        #[derive(Deserialize)]
+        struct TestStruct {
+            #[serde(deserialize_with = "empty_string_is_none")]
+            uuid: Option<Uuid>,
+        }
+
+        let result: TestStruct = serde_json::from_value(json)?;
+        Ok(result.uuid)
+    }
 
     #[test]
     fn decode_uncompressed_raw_event() {
@@ -448,5 +463,30 @@ mod tests {
         // Return token from single event if present
         assert_extracted_token(r#"{"event":"e","$token":"single_token"}"#, "single_token");
         assert_extracted_token(r#"{"event":"e","api_key":"single_token"}"#, "single_token");
+    }
+
+    #[test]
+    fn test_empty_string_is_none() {
+        let json = serde_json::json!({"uuid": ""});
+        let result = test_deserialize(json);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), None);
+    }
+
+    #[test]
+    fn test_valid_uuid_is_some() {
+        let valid_uuid = "550e8400-e29b-41d4-a716-446655440000";
+        let json = serde_json::json!({"uuid": valid_uuid});
+        let result = test_deserialize(json);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Some(Uuid::parse_str(valid_uuid).unwrap()));
+    }
+
+    #[test]
+    fn test_invalid_uuid_is_error() {
+        let invalid_uuid = "not-a-uuid";
+        let json = serde_json::json!({"uuid": invalid_uuid});
+        let result = test_deserialize(json);
+        assert!(result.is_err());
     }
 }
