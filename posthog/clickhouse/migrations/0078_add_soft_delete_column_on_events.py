@@ -14,11 +14,17 @@ ALTER TABLE {table} ON CLUSTER {cluster}
 ADD COLUMN IF NOT EXISTS is_deleted Boolean False
 """
 
+ADD_COLUMNS_INDEX_EVENTS = """
+ALTER TABLE {table} ON CLUSTER {cluster}
+ADD INDEX IF NOT EXISTS is_deleted_idx (is_deleted) TYPE minmax GRANULARITY 1
+"""
+
 
 def add_columns_to_required_tables(_):
     with ch_pool.get_client() as client:
         client.execute(DROP_COLUMNS_SHARDED_EVENTS.format(table="sharded_events", cluster=CLICKHOUSE_CLUSTER))
         client.execute(ADD_COLUMNS_SHARDED_EVENTS.format(table="sharded_events", cluster=CLICKHOUSE_CLUSTER))
+        client.execute(ADD_COLUMNS_INDEX_EVENTS.format(table="sharded_events", cluster=CLICKHOUSE_CLUSTER))
 
 
 operations = [
