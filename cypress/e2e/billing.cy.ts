@@ -20,6 +20,7 @@ describe('Billing', () => {
         cy.contains('.LemonModal .LemonButton', 'Unsubscribe').click()
 
         cy.window().then((win) => {
+            win.console.warn('_CYPRESS_POSTHOG_CAPTURES', (win as any)._cypress_posthog_captures)
             const events = (win as any)._cypress_posthog_captures
             const matchingEvents = events.filter((event) => event.event === 'survey sent')
             expect(matchingEvents.length).to.equal(1)
