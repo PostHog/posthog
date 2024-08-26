@@ -66,6 +66,7 @@ pub struct RawEvent {
     pub token: Option<String>,
     #[serde(alias = "$distinct_id", skip_serializing_if = "Option::is_none")]
     pub distinct_id: Option<Value>, // posthog-js accepts arbitrary values as distinct_id
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub uuid: Option<Uuid>,
     pub event: String,
     #[serde(default)]
