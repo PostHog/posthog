@@ -63,7 +63,8 @@ export const alertLogic = kea<alertLogicType>([
 
                     return updatedAlert
                 } catch (error: any) {
-                    lemonToast.error(`Error saving alert: ${error.detail}`)
+                    const field = error.data?.attr?.replace(/_/g, ' ')
+                    lemonToast.error(`Error saving alert: ${field}: ${error.detail}`)
                     throw error
                 }
             },
