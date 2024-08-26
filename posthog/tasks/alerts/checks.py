@@ -35,11 +35,11 @@ def check_all_alerts() -> None:
         alert_ids = list(AlertConfiguration.objects.filter(team=team, enabled=True).values_list("id", flat=True))
 
         # We chain the task execution to prevent queries *for a single team* running at the same time
-        chain(*(check_alert_task.si(alert_id).set(expires=expire_after) for alert_id in alert_ids))()
+        chain(*(check_alert_task.si(str(alert_id)).set(expires=expire_after) for alert_id in alert_ids))()
 
 
 @transaction.atomic
-def check_alert(alert_id: int) -> None:
+def check_alert(alert_id: str) -> None:
     try:
         alert = AlertConfiguration.objects.select_for_update().get(id=alert_id, enabled=True)
     except AlertConfiguration.DoesNotExist:
@@ -100,7 +100,7 @@ def check_all_alerts_task() -> None:
     max_retries=10,
     expires=60 * 60,
 )
-def check_alert_task(alert_id: int) -> None:
+def check_alert_task(alert_id: str) -> None:
     check_alert(alert_id)
 
 
