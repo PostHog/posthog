@@ -14,12 +14,14 @@ import { FunnelsQuery, LifecycleQuery, StickinessQuery, TrendsQuery } from '~/qu
 import { isInsightQueryNode } from '~/queries/utils'
 import { FilterType } from '~/types'
 
-import { actionsAndEventsCount, actionsAndEventsToSeries } from '../InsightQuery/utils/filtersToQueryNode'
+import { actionsAndEventsToSeries } from '../InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '../InsightQuery/utils/queryNodeToFilter'
 
 export function TrendsSeries(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { querySource, isLifecycle, isStickiness, display, hasFormula } = useValues(insightVizDataLogic(insightProps))
+    const { querySource, isLifecycle, isStickiness, display, hasFormula, series } = useValues(
+        insightVizDataLogic(insightProps)
+    )
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
 
     const { showGroupsOptions, groupsTaxonomicTypes } = useValues(groupsModel)
@@ -88,7 +90,7 @@ export function TrendsSeries(): JSX.Element | null {
                     TaxonomicFilterGroupType.Actions,
                     TaxonomicFilterGroupType.DataWarehouse,
                 ]}
-                hideDeleteBtn={actionsAndEventsCount(filters as any) === 1}
+                hideDeleteBtn={series?.length === 1}
             />
         </>
     )

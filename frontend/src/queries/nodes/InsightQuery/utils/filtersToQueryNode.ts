@@ -188,15 +188,6 @@ export const actionsAndEventsToSeries = (
     return series
 }
 
-export const actionsAndEventsCount = ({
-    actions,
-    events,
-    data_warehouse,
-    new_entity,
-}: FilterTypeActionsAndEvents): number => {
-    return [...(actions || []), ...(events || []), ...(data_warehouse || []), ...(new_entity || [])].length
-}
-
 /**
  * Converts `hidden_legend_keys` in trends and stickiness insights to an array of hidden indexes.
  * Example: `{1: true, 2: false}` will become `[1]`.
