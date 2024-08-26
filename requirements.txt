@@ -660,7 +660,7 @@ types-protobuf==4.22.0.0
     # via temporalio
 types-setuptools==69.0.0.0
     # via requirements-parser
-typing-extensions==4.7.1
+typing-extensions==4.12.2
     # via
     #   dlt
     #   openai

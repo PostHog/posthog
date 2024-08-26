@@ -428,6 +428,9 @@
                     "$ref": "#/definitions/RecordingPropertyFilter"
                 },
                 {
+                    "$ref": "#/definitions/LogEntryPropertyFilter"
+                },
+                {
                     "$ref": "#/definitions/GroupPropertyFilter"
                 },
                 {
@@ -5115,7 +5118,7 @@
             "description": "HogQL Query Options are automatically set per team. However, they can be overriden in the query.",
             "properties": {
                 "bounceRatePageViewMode": {
-                    "enum": ["count_pageviews", "uniq_urls"],
+                    "enum": ["count_pageviews", "uniq_urls", "uniq_page_screen_autocaptures"],
                     "type": "string"
                 },
                 "dataWarehouseEventsModifiers": {
@@ -6067,6 +6070,29 @@
             "enum": ["new", "resurrecting", "returning", "dormant"],
             "type": "string"
         },
+        "LogEntryPropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "log_entry",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "operator", "type"],
+            "type": "object"
+        },
         "MathType": {
             "anyOf": [
                 {
@@ -6436,6 +6462,7 @@
         },
         "PersonsNode": {
             "additionalProperties": false,
+            "deprecated": "Use `ActorsQuery` instead.",
             "properties": {
                 "cohort": {
                     "type": "integer"
@@ -6491,6 +6518,7 @@
                 "session",
                 "cohort",
                 "recording",
+                "log_entry",
                 "group",
                 "hogql",
                 "data_warehouse",
@@ -9038,6 +9066,7 @@
                 "session_properties",
                 "hogql_expression",
                 "notebooks",
+                "log_entries",
                 "replay"
             ],
             "type": "string"

@@ -6,7 +6,7 @@ from django.db.models import QuerySet
 
 from rest_framework import serializers, viewsets, exceptions
 from rest_framework.serializers import BaseSerializer
-from rest_framework.decorators import action
+from posthog.api.utils import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 

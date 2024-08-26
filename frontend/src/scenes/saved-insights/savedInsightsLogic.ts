@@ -2,12 +2,10 @@ import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api, { CountedPaginatedResponse } from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { Sorting } from 'lib/lemon-ui/LemonTable'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectDiffShallow, objectsEqual, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
@@ -69,7 +67,7 @@ function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters
 export const savedInsightsLogic = kea<savedInsightsLogicType>([
     path(['scenes', 'saved-insights', 'savedInsightsLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags'], sceneLogic, ['activeScene']],
+        values: [teamLogic, ['currentTeamId'], sceneLogic, ['activeScene']],
         logic: [eventUsageLogic],
     })),
     actions({
@@ -112,7 +110,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
 
                 if (filters.search && String(filters.search).match(/^[0-9]+$/)) {
                     try {
-                        const insight = await insightsApi.getByNumericId(Number(filters.search), { readAsQuery: true })
+                        const insight = await insightsApi.getByNumericId(Number(filters.search))
                         return {
                             ...response,
                             count: response.count + 1,
@@ -141,13 +139,9 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 } as CountedPaginatedResponse<QueryBasedInsightModel> & { offset: number }
             },
             updateFavoritedInsight: async ({ insight, favorited }) => {
-                const response = await insightsApi.update(
-                    insight.id,
-                    {
-                        favorited,
-                    },
-                    { writeAsQuery: values.queryBasedInsightSaving, readAsQuery: true }
-                )
+                const response = await insightsApi.update(insight.id, {
+                    favorited,
+                })
                 const updatedInsights = values.insights.results.map((i) =>
                     i.short_id === insight.short_id ? response : i
                 )
@@ -181,10 +175,6 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
         ],
     }),
     selectors({
-        queryBasedInsightSaving: [
-            (s) => [s.featureFlags],
-            (featureFlags) => !!featureFlags[FEATURE_FLAGS.QUERY_BASED_INSIGHTS_SAVING],
-        ],
         filters: [(s) => [s.rawFilters], (rawFilters): SavedInsightFilters => cleanFilters(rawFilters || {})],
         count: [(s) => [s.insights], (insights) => insights.count],
         usingFilters: [
@@ -287,10 +277,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             insightsModel.actions.renameInsight(insight)
         },
         duplicateInsight: async ({ insight, redirectToInsight }) => {
-            const newInsight = await insightsApi.duplicate(insight, {
-                writeAsQuery: values.queryBasedInsightSaving,
-                readAsQuery: true,
-            })
+            const newInsight = await insightsApi.duplicate(insight)
             actions.addInsight(newInsight)
             redirectToInsight && router.actions.push(urls.insightEdit(newInsight.short_id))
         },
@@ -355,7 +342,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 // `fromItem` for legacy /insights url redirect support
                 const insightNumericId = parseInt(hashParams.fromItem)
                 try {
-                    const insight = await insightsApi.getByNumericId(insightNumericId, { readAsQuery: true })
+                    const insight = await insightsApi.getByNumericId(insightNumericId)
                     if (!insight?.short_id) {
                         throw new Error('Could not find insight or missing short_id')
                     }

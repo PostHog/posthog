@@ -26,20 +26,20 @@ class DataWarehouseViewLink(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         warn("DataWarehouseViewLink is deprecated, use DataWarehouseJoin", DeprecationWarning, stacklevel=2)
         super().__init__(*args, **kwargs)
 
-    team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
-    table: models.CharField = models.CharField(max_length=128)
-    from_join_key: models.CharField = models.CharField(max_length=400)
-    saved_query: models.ForeignKey = models.ForeignKey(DataWarehouseSavedQuery, on_delete=models.CASCADE)
-    to_join_key: models.CharField = models.CharField(max_length=400)
+    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    table = models.CharField(max_length=128)
+    from_join_key = models.CharField(max_length=400)
+    saved_query = models.ForeignKey(DataWarehouseSavedQuery, on_delete=models.CASCADE)
+    to_join_key = models.CharField(max_length=400)
 
 
 class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
-    team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
-    source_table_name: models.CharField = models.CharField(max_length=400)
-    source_table_key: models.CharField = models.CharField(max_length=400)
-    joining_table_name: models.CharField = models.CharField(max_length=400)
-    joining_table_key: models.CharField = models.CharField(max_length=400)
-    field_name: models.CharField = models.CharField(max_length=400)
+    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    source_table_name = models.CharField(max_length=400)
+    source_table_key = models.CharField(max_length=400)
+    joining_table_name = models.CharField(max_length=400)
+    joining_table_key = models.CharField(max_length=400)
+    field_name = models.CharField(max_length=400)
 
     def join_function(
         self, override_source_table_key: Optional[str] = None, override_joining_table_key: Optional[str] = None

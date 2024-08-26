@@ -117,9 +117,9 @@ function DashboardScene(): JSX.Element {
                                 >
                                     {[DashboardPlacement.Public].includes(placement) ? (
                                         <LastRefreshText />
-                                    ) : (
+                                    ) : !(dashboardMode === DashboardMode.Edit) ? (
                                         <DashboardReloadAction />
-                                    )}
+                                    ) : null}
                                 </div>
                             </div>
                         )}
