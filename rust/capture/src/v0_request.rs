@@ -60,13 +60,13 @@ pub fn empty_string_is_none<'de, D>(deserializer: D) -> Result<Option<Uuid>, D::
 where
     D: Deserializer<'de>,
 {
-    let s = String::deserialize(deserializer)?;
-    if s.is_empty() {
-        Ok(None)
-    } else {
-        Uuid::parse_str(&s)
+    let opt = Option::<String>::deserialize(deserializer)?;
+    match opt {
+        None => Ok(None),
+        Some(s) if s.is_empty() => Ok(None),
+        Some(s) => Uuid::parse_str(&s)
             .map(Some)
-            .map_err(serde::de::Error::custom)
+            .map_err(serde::de::Error::custom),
     }
 }
 
@@ -80,10 +80,7 @@ pub struct RawEvent {
     pub token: Option<String>,
     #[serde(alias = "$distinct_id", skip_serializing_if = "Option::is_none")]
     pub distinct_id: Option<Value>, // posthog-js accepts arbitrary values as distinct_id
-    #[serde(
-        deserialize_with = "empty_string_is_none",
-        skip_serializing_if = "Option::is_none"
-    )]
+    #[serde(default, deserialize_with = "empty_string_is_none")]
     pub uuid: Option<Uuid>,
     pub event: String,
     #[serde(default)]
@@ -468,6 +465,14 @@ mod tests {
     #[test]
     fn test_empty_string_is_none() {
         let json = serde_json::json!({"uuid": ""});
+        let result = test_deserialize(json);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), None);
+    }
+
+    #[test]
+    fn test_none_is_none() {
+        let json = serde_json::json!({});
         let result = test_deserialize(json);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), None);
