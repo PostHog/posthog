@@ -655,7 +655,7 @@ class _Printer(Visitor):
                     return f"not({property_source.has_expr})"
 
                 printed_expr = f"equals({property_source.value_expr}, {self.visit(constant_expr)})"
-                if constant_expr.value == "":  # TODO: check type?
+                if constant_expr.value == "":
                     # If we're comparing to an empty string literal, we need to disambiguate this from the default value
                     # for the ``Map(String, String)`` type used for storing property group values by also ensuring that
                     # the property key is present in the map. If this is in a ``WHERE`` clause, this also ensures we can
@@ -701,7 +701,7 @@ class _Printer(Visitor):
                         return None  # only optimize constants for now, see above
                     elif expr.value is None:
                         node.right.exprs.remove(expr)
-                    elif expr.value == "":  # XXX: check type?
+                    elif expr.value == "":
                         default_value_expr = expr
                         node.right.exprs.remove(expr)
                 if len(node.right.exprs) > 0:
