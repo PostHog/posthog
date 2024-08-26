@@ -26,7 +26,7 @@ from django.db.models import QuerySet, Prefetch, prefetch_related_objects, Outer
 from django.db.models.expressions import F
 from django.utils import timezone
 from rest_framework import serializers, viewsets, request, status
-from rest_framework.decorators import action
+from posthog.api.utils import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -471,7 +471,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
 
 class LegacyCohortViewSet(CohortViewSet):
-    derive_current_team_from_user_only = True
+    param_derived_from_user_current_team = "project_id"
 
 
 def will_create_loops(cohort: Cohort) -> bool:

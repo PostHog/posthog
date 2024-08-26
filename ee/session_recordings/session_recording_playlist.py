@@ -7,7 +7,7 @@ from django.utils.timezone import now
 from django_filters.rest_framework import DjangoFilterBackend
 from loginas.utils import is_impersonated_session
 from rest_framework import request, response, serializers, viewsets
-from rest_framework.decorators import action
+from posthog.api.utils import action
 from rest_framework.exceptions import PermissionDenied
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel

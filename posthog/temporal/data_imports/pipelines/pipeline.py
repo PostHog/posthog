@@ -48,11 +48,6 @@ class DataImportPipeline:
     ):
         self.inputs = inputs
         self.logger = logger
-        if incremental:
-            # Incremental syncs: Assuming each page is 100 items for now so bound each run at 50_000 items
-            self.source = source.add_limit(500)
-        else:
-            self.source = source
 
         self._incremental = incremental
         self.refresh_dlt = reset_pipeline
@@ -61,6 +56,12 @@ class DataImportPipeline:
             and inputs.job_type != ExternalDataSource.Type.POSTGRES
             and inputs.job_type != ExternalDataSource.Type.SNOWFLAKE
         )
+
+        if self.should_chunk_pipeline:
+            # Incremental syncs: Assuming each page is 100 items for now so bound each run at 50_000 items
+            self.source = source.add_limit(500)
+        else:
+            self.source = source
 
     def _get_pipeline_name(self):
         return f"{self.inputs.job_type}_pipeline_{self.inputs.team_id}_run_{self.inputs.schema_id}"

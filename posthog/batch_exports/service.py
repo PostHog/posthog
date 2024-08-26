@@ -537,7 +537,7 @@ def update_batch_export_run(
         run_id: The id of the BatchExportRun to update.
     """
     model = BatchExportRun.objects.filter(id=run_id)
-    update_at = dt.datetime.now()
+    update_at = dt.datetime.now(dt.UTC)
 
     updated = model.update(
         **kwargs,
@@ -560,7 +560,7 @@ async def aupdate_batch_export_run(
         run_id: The id of the BatchExportRun to update.
     """
     model = BatchExportRun.objects.filter(id=run_id)
-    update_at = dt.datetime.now()
+    update_at = dt.datetime.now(dt.UTC)
 
     updated = await model.aupdate(
         **kwargs,

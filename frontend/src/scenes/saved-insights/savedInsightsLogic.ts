@@ -1,13 +1,11 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
+import api, { CountedPaginatedResponse } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { Sorting } from 'lib/lemon-ui/LemonTable'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectDiffShallow, objectsEqual, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
@@ -19,6 +17,7 @@ import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
+import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { InsightModel, LayoutView, QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
 
 import { teamLogic } from '../teamLogic'
@@ -27,7 +26,7 @@ import type { savedInsightsLogicType } from './savedInsightsLogicType'
 export const INSIGHTS_PER_PAGE = 30
 
 export interface InsightsResult {
-    results: InsightModel[]
+    results: QueryBasedInsightModel[]
     count: number
     previous?: string
     next?: string
@@ -67,10 +66,10 @@ function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters
 
 export const savedInsightsLogic = kea<savedInsightsLogicType>([
     path(['scenes', 'saved-insights', 'savedInsightsLogic']),
-    connect({
-        values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags'], sceneLogic, ['activeScene']],
+    connect(() => ({
+        values: [teamLogic, ['currentTeamId'], sceneLogic, ['activeScene']],
         logic: [eventUsageLogic],
-    }),
+    })),
     actions({
         setSavedInsightsFilters: (
             filters: Partial<SavedInsightFilters>,
@@ -84,8 +83,8 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             redirectToInsight,
         }),
         loadInsights: (debounce: boolean = true) => ({ debounce }),
-        setInsight: (insight: InsightModel) => ({ insight }),
-        addInsight: (insight: InsightModel) => ({ insight }),
+        updateInsight: (insight: QueryBasedInsightModel) => ({ insight }),
+        addInsight: (insight: QueryBasedInsightModel) => ({ insight }),
     }),
     loaders(({ values }) => ({
         insights: {
@@ -101,21 +100,24 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                     basic: true,
                 }
 
-                const response = await api.get(
+                const legacyResponse: CountedPaginatedResponse<InsightModel> = await api.get(
                     `api/projects/${teamLogic.values.currentTeamId}/insights/?${toParams(params)}`
                 )
+                const response = {
+                    ...legacyResponse,
+                    results: legacyResponse.results.map((legacyInsight) => getQueryBasedInsightModel(legacyInsight)),
+                }
 
                 if (filters.search && String(filters.search).match(/^[0-9]+$/)) {
                     try {
-                        const insight: InsightModel = await api.get(
-                            `api/projects/${teamLogic.values.currentTeamId}/insights/${filters.search}/`
-                        )
+                        const insight = await insightsApi.getByNumericId(Number(filters.search))
                         return {
                             ...response,
                             count: response.count + 1,
                             results: [insight, ...response.results],
                             filters,
-                        }
+                            offset: params.offset,
+                        } as CountedPaginatedResponse<QueryBasedInsightModel> & { offset: number }
                     } catch (e) {
                         // no insight with this ID found, discard
                     }
@@ -123,22 +125,23 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
 
                 // scroll to top if the page changed, except if changed via back/forward
                 if (
-                    sceneLogic.values.activeScene === Scene.SavedInsights &&
+                    sceneLogic.findMounted()?.values.activeScene === Scene.SavedInsights &&
                     router.values.lastMethod !== 'POP' &&
                     values.insights.filters?.page !== filters.page
                 ) {
                     window.scrollTo(0, 0)
                 }
 
-                return { ...response, filters, offset: params.offset }
+                return {
+                    ...response,
+                    filters,
+                    offset: params.offset,
+                } as CountedPaginatedResponse<QueryBasedInsightModel> & { offset: number }
             },
             updateFavoritedInsight: async ({ insight, favorited }) => {
-                const response = await api.update(
-                    `api/projects/${teamLogic.values.currentTeamId}/insights/${insight.id}`,
-                    {
-                        favorited,
-                    }
-                )
+                const response = await insightsApi.update(insight.id, {
+                    favorited,
+                })
                 const updatedInsights = values.insights.results.map((i) =>
                     i.short_id === insight.short_id ? response : i
                 )
@@ -148,7 +151,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
     })),
     reducers({
         insights: {
-            setInsight: (state, { insight }) => ({
+            updateInsight: (state, { insight }) => ({
                 ...state,
                 results: state.results.map((i) => (i.short_id === insight.short_id ? insight : i)),
             }),
@@ -172,10 +175,6 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
         ],
     }),
     selectors({
-        queryBasedInsightSaving: [
-            (s) => [s.featureFlags],
-            (featureFlags) => !!featureFlags[FEATURE_FLAGS.QUERY_BASED_INSIGHTS_SAVING],
-        ],
         filters: [(s) => [s.rawFilters], (rawFilters): SavedInsightFilters => cleanFilters(rawFilters || {})],
         count: [(s) => [s.insights], (insights) => insights.count],
         usingFilters: [
@@ -278,10 +277,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             insightsModel.actions.renameInsight(insight)
         },
         duplicateInsight: async ({ insight, redirectToInsight }) => {
-            const newInsight = await insightsApi.duplicate(insight, {
-                writeAsQuery: values.queryBasedInsightSaving,
-                readAsQuery: false,
-            })
+            const newInsight = await insightsApi.duplicate(insight)
             actions.addInsight(newInsight)
             redirectToInsight && router.actions.push(urls.insightEdit(newInsight.short_id))
         },
@@ -289,12 +285,12 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             actions.loadInsights()
         },
         [insightsModel.actionTypes.renameInsightSuccess]: ({ item }) => {
-            actions.setInsight(item)
+            actions.updateInsight(item)
         },
         [dashboardsModel.actionTypes.updateDashboardInsight]: ({ insight }) => {
             const matchingInsightIndex = values.insights.results.findIndex((i) => i.id === insight.id)
             if (matchingInsightIndex >= 0) {
-                actions.setInsight(insight)
+                actions.updateInsight(insight)
             } else {
                 actions.addInsight(insight)
             }
@@ -346,13 +342,13 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 // `fromItem` for legacy /insights url redirect support
                 const insightNumericId = parseInt(hashParams.fromItem)
                 try {
-                    const { short_id }: InsightModel = await api.get(
-                        `api/projects/${teamLogic.values.currentTeamId}/insights/${insightNumericId}`
-                    )
-                    if (!short_id) {
-                        throw new Error('Could not find short_id')
+                    const insight = await insightsApi.getByNumericId(insightNumericId)
+                    if (!insight?.short_id) {
+                        throw new Error('Could not find insight or missing short_id')
                     }
-                    router.actions.replace(hashParams.edit ? urls.insightEdit(short_id) : urls.insightView(short_id))
+                    router.actions.replace(
+                        hashParams.edit ? urls.insightEdit(insight.short_id) : urls.insightView(insight.short_id)
+                    )
                 } catch (e) {
                     lemonToast.error(`Insight ID ${insightNumericId} couldn't be retrieved`)
                     router.actions.push(urls.savedInsights())
