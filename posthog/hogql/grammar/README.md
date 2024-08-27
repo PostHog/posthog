@@ -2,18 +2,16 @@
 
 Grammar is located inside `HogQLLexer.g4` and `HogQLParser.g4` files.
 
-To generate source code you need to install locally the `antlr` binary. Run this on macOS:
+To generate source code you need to install locally the `antlr` binary:
 
 ```bash
 brew install antlr
 ```
 
-In case this installs a newer version than 4.13.2, update [ci-hog.yml](https://github.com/PostHog/posthog/blob/master/.github/workflows/ci-hog.yml) to reflect the changes. 
-
-Run this if you're using bash on ubuntu:
+or this piece of art if you're using bash on ubuntu for quick access:
 
 ```bash
-export ANTLR_VERSION=4.13.2
+export ANTLR_VERSION=4.11.1
 
 sudo apt-get install default-jre
 mkdir antlr

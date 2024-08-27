@@ -1,5 +1,5 @@
 
-// Generated from HogQLLexer.g4 by ANTLR 4.13.2
+// Generated from HogQLLexer.g4 by ANTLR 4.13.1
 
 
 #include "HogQLLexer.h"
@@ -45,7 +45,7 @@ struct HogQLLexerStaticData final {
 #if ANTLR4_USE_THREAD_LOCAL_CACHE
 static thread_local
 #endif
-std::unique_ptr<HogQLLexerStaticData> hogqllexerLexerStaticData = nullptr;
+HogQLLexerStaticData *hogqllexerLexerStaticData = nullptr;
 
 void hogqllexerLexerInitialize() {
 #if ANTLR4_USE_THREAD_LOCAL_CACHE
@@ -673,7 +673,7 @@ void hogqllexerLexerInitialize() {
   for (size_t i = 0; i < count; i++) { 
     staticData->decisionToDFA.emplace_back(staticData->atn->getDecisionState(i), i);
   }
-  hogqllexerLexerStaticData = std::move(staticData);
+  hogqllexerLexerStaticData = staticData.release();
 }
 
 }

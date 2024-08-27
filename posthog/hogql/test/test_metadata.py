@@ -2,7 +2,7 @@ from typing import Optional
 
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.models import PropertyDefinition, Cohort
-from posthog.schema import HogQLMetadata, HogQLMetadataResponse, HogQLQuery, HogLanguage
+from posthog.schema import HogQLMetadata, HogQLMetadataResponse, HogQLQuery
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from django.test import override_settings
 
@@ -14,7 +14,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         return get_hogql_metadata(
             query=HogQLMetadata(
                 kind="HogQLMetadata",
-                language=HogLanguage.HOG_QL_EXPR,
+                language="hogQLExpr",
                 query=query,
                 sourceQuery=HogQLQuery(query=f"select * from {table}"),
                 response=None,
@@ -25,21 +25,19 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
 
     def _select(self, query: str) -> HogQLMetadataResponse:
         return get_hogql_metadata(
-            query=HogQLMetadata(kind="HogQLMetadata", language=HogLanguage.HOG_QL, query=query, response=None),
+            query=HogQLMetadata(kind="HogQLMetadata", language="hogQL", query=query, response=None),
             team=self.team,
         )
 
     def _program(self, query: str, globals: Optional[dict] = None) -> HogQLMetadataResponse:
         return get_hogql_metadata(
-            query=HogQLMetadata(
-                kind="HogQLMetadata", language=HogLanguage.HOG, query=query, globals=globals, response=None
-            ),
+            query=HogQLMetadata(kind="HogQLMetadata", language="hog", query=query, globals=globals, response=None),
             team=self.team,
         )
 
     def _template(self, query: str) -> HogQLMetadataResponse:
         return get_hogql_metadata(
-            query=HogQLMetadata(kind="HogQLMetadata", language=HogLanguage.HOG_TEMPLATE, query=query, response=None),
+            query=HogQLMetadata(kind="HogQLMetadata", language="hogTemplate", query=query, response=None),
             team=self.team,
         )
 

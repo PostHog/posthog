@@ -398,7 +398,7 @@ class TestPrinter(BaseTest):
         )
         self._assert_expr_error(
             "quantile()(event)",
-            "Aggregation 'quantile' expects 1 parameter, found 0",
+            "Aggregation 'quantile' requires parameters in addition to arguments",
         )
         self._assert_expr_error(
             "quantile(0.5, 2)(event)",
@@ -444,13 +444,12 @@ class TestPrinter(BaseTest):
 
     def test_expr_syntax_errors(self):
         self._assert_expr_error("(", "no viable alternative at input '('")
-        self._assert_expr_error("())", "mismatched input ')' expecting '->'")
+        self._assert_expr_error("())", "no viable alternative at input '()'")
         self._assert_expr_error("(3 57", "no viable alternative at input '(3 57'")
         self._assert_expr_error("select query from events", "mismatched input 'query' expecting <EOF>")
         self._assert_expr_error("this makes little sense", "mismatched input 'makes' expecting <EOF>")
         self._assert_expr_error("1;2", "mismatched input ';' expecting <EOF>")
-        self._assert_expr_error("b.a(bla)", "You can only call simple functions in HogQL, not expressions")
-        self._assert_expr_error("a -> { print(2) }", "You can not use blocks in HogQL")
+        self._assert_expr_error("b.a(bla)", "mismatched input '(' expecting <EOF>")
 
     def test_logic(self):
         self.assertEqual(

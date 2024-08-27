@@ -118,9 +118,9 @@ jobs:
                   antlr | grep "Version"
                   npm run grammar:build && git diff --exit-code
               env:
-                  # Installing a version of ANTLR compatible with what's in Homebrew as of August 2024 (version 4.13.2),
+                  # Installing a version of ANTLR compatible with what's in Homebrew as of October 2023 (version 4.13),
                   # as apt-get is quite out of date. The same version must be set in hogql_parser/pyproject.toml
-                  ANTLR_VERSION: '4.13.2'
+                  ANTLR_VERSION: '4.13.1'
 
             - name: Run HogVM Python tests
               if: needs.changes.outputs.hog == 'true'

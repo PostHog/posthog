@@ -112,7 +112,7 @@ class Resolver(CloningVisitor):
         self.database = context.database
         self.cte_counter = 0
 
-    def visit(self, node: ast.AST | None):
+    def visit(self, node: ast.Expr | None) -> ast.Expr:
         if isinstance(node, ast.Expr) and node.type is not None:
             raise ResolutionError(
                 f"Type already resolved for {type(node).__name__} ({type(node.type).__name__}). Can't run again."
@@ -517,12 +517,6 @@ class Resolver(CloningVisitor):
             return_type=return_type,
         )
         return node
-
-    def visit_expr_call(self, node: ast.ExprCall):
-        raise QueryError("You can only call simple functions in HogQL, not expressions")
-
-    def visit_block(self, node: ast.Block):
-        raise QueryError("You can not use blocks in HogQL")
 
     def visit_lambda(self, node: ast.Lambda):
         """Visit each SELECT query or subquery."""
