@@ -1,7 +1,7 @@
 use std::{cmp::min, collections::HashMap, fmt::Display, sync::Arc};
 
 use chrono::{DateTime, Duration, Utc};
-use cyclotron_core::{types::Bytes, Job, JobState, QueueError, Worker};
+use cyclotron_core::{Bytes, Job, JobState, QueueError, Worker};
 use futures::StreamExt;
 use http::StatusCode;
 use reqwest::Response;
@@ -103,6 +103,19 @@ impl FetchResult {
     pub fn is_success(&self) -> bool {
         matches!(self, FetchResult::Success { .. })
     }
+
+    pub fn take_body(self) -> (Self, Option<Bytes>) {
+        match self {
+            FetchResult::Success { mut response } => {
+                let body = response.body.take();
+                (FetchResult::Success { response }, body)
+            }
+            FetchResult::Failure { mut trace } => {
+                let body = trace.last_mut().and_then(|f| f.body.take());
+                (FetchResult::Failure { trace }, body)
+            }
+        }
+    }
 }
 
 // We distinguish between a "fetch failure" and a "worker failure" -
@@ -119,6 +132,8 @@ pub struct FetchFailure {
     pub headers: Option<HashMap<String, String>>, // If we have headers, we include them in the failure
     pub status: Option<u16>, // If we have a status, we include it in the failure
     pub timestamp: DateTime<Utc>, // Useful for users to correlate logs when debugging
+    #[serde(skip)] // We serialise the body seperately into blob
+    pub body: Option<Bytes>, // If we have a body, we include it in the final failure (but not the trace)
 }
 
 impl FetchFailure {
@@ -129,6 +144,7 @@ impl FetchFailure {
             timestamp: Utc::now(),
             headers: None,
             status: None,
+            body: None,
         }
     }
 
@@ -139,6 +155,7 @@ impl FetchFailure {
             timestamp: Utc::now(),
             headers: None,
             status: Some(status.as_u16()),
+            body: None,
         }
     }
 
@@ -152,6 +169,13 @@ impl FetchFailure {
     pub fn with_status(self, status: u16) -> Self {
         Self {
             status: Some(status),
+            ..self
+        }
+    }
+
+    pub fn with_body(self, body: Bytes) -> Self {
+        Self {
+            body: Some(body),
             ..self
         }
     }
@@ -170,6 +194,7 @@ impl From<reqwest::Error> for FetchFailure {
             timestamp: Utc::now(),
             headers: None,
             status: None,
+            body: None,
         }
     }
 }
@@ -183,7 +208,7 @@ pub enum FetchFailureKind {
     InvalidParameters,
     RequestError,
     FailureStatus,
-    InvalidBody, // Generally means the body could not be parsed toa  utf8 string
+    InvalidBody, // We force bodies to be a utf8 string, for the sake of callers. TODO - we should consider letting callers enforce a body schema
     ResponseTooLarge,
 }
 
@@ -192,6 +217,8 @@ pub enum FetchFailureKind {
 pub struct FetchResponse {
     pub status: u16,
     pub headers: HashMap<String, String>,
+    #[serde(skip)] // We serialise the body seperately into blob
+    pub body: Option<Bytes>, // This is only an option to let us `take` it, to avoid body copies on serialisation
 }
 
 #[instrument(skip_all)]
@@ -260,7 +287,7 @@ impl From<&Job> for FetchMetadata {
             };
         };
 
-        let Ok(m) = serde_json::from_str(m) else {
+        let Ok(m) = serde_json::from_slice(m) else {
             return FetchMetadata {
                 tries: 0,
                 trace: vec![],
@@ -269,56 +296,25 @@ impl From<&Job> for FetchMetadata {
 
         m
     }
-// Mostly a thin wrapper to make ser/de a bit easier
-struct FetchJob<'a> {
-    _job: &'a Job,
-    metadata: FetchMetadata,
-    parameters: FetchParameters,
-    body: Option<Bytes>,
 }
 
 impl TryFrom<&Job> for FetchParameters {
     type Error = FetchFailure;
 
     fn try_from(job: &Job) -> Result<Self, Self::Error> {
-        let Some(parameters) = &job.parameters else {
+        let params = job.parameters.as_ref().ok_or(FetchFailure::new(
+            FetchFailureKind::MissingParameters,
+            "Missing parameters",
+        ))?;
+
+        let Ok(p) = serde_json::from_slice(params) else {
             return Err(FetchFailure::new(
-                FetchFailureKind::MissingParameters,
-                "Job is missing parameters",
+                FetchFailureKind::InvalidParameters,
+                "Invalid parameters",
             ));
         };
-        let parameters: FetchParameters = match serde_json::from_slice(parameters) {
-            Ok(p) => p,
-            Err(e) => {
-                return Err(FetchFailure::new(
-                    FetchFailureKind::InvalidParameters,
-                    format!("Failed to parse parameters: {}", e),
-                ))
-            }
-        };
-        let metadata = match &job.metadata {
-            Some(m) => match serde_json::from_slice(m) {
-                Ok(m) => m,
-                Err(_) => {
-                    // If we can't decode the metadata, assume this is the first time we've seen the job
-                    // TODO - this is maybe too lenient, I'm not sure.
-                    FetchMetadata {
-                        tries: 0,
-                        trace: vec![],
-                    }
-                }
-            },
-            None => FetchMetadata {
-                tries: 0,
-                trace: vec![],
-            },
-        };
-        Ok(Self {
-            _job: job,
-            metadata,
-            parameters,
-            body: job.blob.clone(),
-        })
+
+        Ok(p)
     }
 }
 
@@ -343,7 +339,7 @@ pub async fn run_job(
                 .dead_letter(job.id, "Could not parse job parameters")
                 .await;
             job_total
-                .label(OUTCOME_LABEL, "missing_parameters_dead_letter")
+                .label(OUTCOME_LABEL, "bad_parameters_dead_letter")
                 .fin();
             return Ok(res?);
         }
@@ -351,7 +347,6 @@ pub async fn run_job(
 
     let method = (&params.method).into();
 
-    // Parsing errors are always dead letters - it /will/ fail every time, so dump it
     let url: reqwest::Url = match (params.url).parse() {
         Ok(u) => u,
         Err(e) => {
@@ -362,6 +357,7 @@ pub async fn run_job(
                 format!("Invalid url: {} - {}", &params.url, e),
             );
 
+            // We can skip retries here - this failure will happen every time
             let res = quick_fail_job(
                 &context.worker,
                 job,
@@ -371,9 +367,7 @@ pub async fn run_job(
             )
             .await;
 
-            job_total
-                .label(OUTCOME_LABEL, "url_parse_dead_letter")
-                .fin();
+            job_total.label(OUTCOME_LABEL, "url_parse_failed").fin();
             return res;
         }
     };
@@ -397,13 +391,13 @@ pub async fn run_job(
             .await;
 
             job_total
-                .label(OUTCOME_LABEL, "headers_parse_dead_letter")
+                .label(OUTCOME_LABEL, "headers_parse_failure")
                 .fin();
             return res;
         }
     };
 
-    let body = reqwest::Body::from(params.body.unwrap_or_default());
+    let body = reqwest::Body::from(job.blob.unwrap_or_default());
 
     let mut send_fut = context
         .client
@@ -438,13 +432,13 @@ pub async fn run_job(
             common_metrics::inc(RESPONSE_RECEIVED, &labels, 1);
             let res = handle_fetch_failure(
                 &context,
-                &job,
+                job.id,
+                job.priority,
                 &metadata,
                 params.max_tries.unwrap_or(DEFAULT_RETRIES),
                 params.return_queue,
                 params.on_finish.unwrap_or(DEFAULT_ON_FINISH),
                 e,
-                None,
             )
             .await;
             job_total.label(OUTCOME_LABEL, "request_error").fin();
@@ -478,13 +472,14 @@ pub async fn run_job(
     // We pre-emptively get the response body, because we incldued it in the failure trace, even if we got a failure status
     let body = first_n_bytes_of_response(
         &context.worker,
-        &job,
+        job.id,
         res,
         context.config.max_response_bytes,
     )
     .await?;
+
     let body = match body {
-        Ok(b) => Some(b.into_bytes()),
+        Ok(b) => b.into_bytes(),
         Err(e) => {
             body_time.label(OUTCOME_LABEL, "body_fetch_error").fin();
             common_metrics::inc(BODY_FETCH_FAILED, &labels, 1);
@@ -492,13 +487,13 @@ pub async fn run_job(
             let e = e.with_status(status.as_u16()).with_headers(headers);
             let res = handle_fetch_failure(
                 &context,
-                &job,
+                job.id,
+                job.priority,
                 &metadata,
                 params.max_tries.unwrap_or(DEFAULT_RETRIES),
                 params.return_queue,
                 params.on_finish.unwrap_or(DEFAULT_ON_FINISH),
                 e,
-                None,
             )
             .await;
             job_total.label(OUTCOME_LABEL, "body_fetch_error").fin();
@@ -512,16 +507,18 @@ pub async fn run_job(
     // to be polite - retrying a permanent failure isn't a correctness problem, but it's
     // rude (and inefficient)
     if !status.is_success() {
-        let failure = FetchFailure::failure_status(status).with_headers(headers);
+        let failure = FetchFailure::failure_status(status)
+            .with_headers(headers)
+            .with_body(body);
         let res = handle_fetch_failure(
             &context,
-            &job,
+            job.id,
+            job.priority,
             &metadata,
             params.max_tries.unwrap_or(DEFAULT_RETRIES),
             params.return_queue,
             params.on_finish.unwrap_or(DEFAULT_ON_FINISH),
             failure,
-            body,
         )
         .await;
         job_total.label(OUTCOME_LABEL, "failure_status").fin();
@@ -532,16 +529,16 @@ pub async fn run_job(
         response: FetchResponse {
             status: status.as_u16(),
             headers,
+            body: Some(body),
         },
     };
 
     let res = complete_job(
         &context.worker,
-        &job,
+        job.id,
         params.return_queue,
         params.on_finish.unwrap_or(DEFAULT_ON_FINISH),
         result,
-        body,
     )
     .await;
     job_total.label(OUTCOME_LABEL, "success").fin();
@@ -560,7 +557,7 @@ pub async fn quick_fail_job(
     let result = FetchResult::Failure {
         trace: vec![failure],
     };
-    complete_job(worker, &job, return_queue, on_finish, result).await
+    complete_job(worker, job.id, return_queue, on_finish, result).await
 }
 
 // Checks if the retry limit has been reached, and does one of:
@@ -569,18 +566,18 @@ pub async fn quick_fail_job(
 #[allow(clippy::too_many_arguments)]
 pub async fn handle_fetch_failure<F>(
     context: &AppContext,
-    job: &Job,
+    job_id: Uuid,
+    old_priority: i16,
     metadata: &FetchMetadata,
     max_tries: u32,
     return_queue: String,
     on_finish: OnFinish,
     failure: F,
-    body: Option<Bytes>,
 ) -> Result<(), FetchError>
 where
     F: Into<FetchFailure>,
 {
-    let failure = failure.into();
+    let failure: FetchFailure = failure.into();
     let mut metadata = metadata.clone();
     metadata.tries += 1;
     metadata.trace.push(failure);
@@ -597,24 +594,23 @@ where
         let next_available =
             next_available + Duration::seconds((rand::random::<u64>() % 30) as i64);
 
-        // Set us up for a retry - update metadata, reschedule, and put back in the queue we pulled from
+        // Set us up for a retry - update metadata, reschedule
         context
             .worker
-            .set_metadata(job.id, Some(serde_json::to_vec(&metadata)?))?;
-        context.worker.set_state(job.id, JobState::Available)?;
-        context.worker.set_queue(job.id, &job.queue_name)?;
-        context.worker.set_scheduled_at(job.id, next_available)?;
+            .set_metadata(job_id, Some(serde_json::to_vec(&metadata)?))?;
+        context.worker.set_state(job_id, JobState::Available)?;
+        context.worker.set_scheduled_at(job_id, next_available)?;
 
         // We downgrade the priority of jobs that fail, so first attempts at jobs get better QoS
-        context.worker.set_priority(job.id, job.priority + 1)?;
+        context.worker.set_priority(job_id, old_priority + 1)?;
 
-        context.worker.flush_job(job.id).await?;
+        context.worker.flush_job(job_id).await?;
     } else {
         // Complete the job, with a Failed result
-        let result = FetchResult::Failure {
-            trace: metadata.trace.clone(),
+        let result: FetchResult = FetchResult::Failure {
+            trace: metadata.trace,
         };
-        complete_job(&context.worker, job, return_queue, on_finish, result, body).await?;
+        complete_job(&context.worker, job_id, return_queue, on_finish, result).await?;
     }
 
     Ok(())
@@ -623,36 +619,37 @@ where
 // Complete the job with some result.
 pub async fn complete_job(
     worker: &Worker,
-    job: &Job,
+    job_id: Uuid,
     return_queue: String,
     on_finish: OnFinish,
     result: FetchResult,
-    body: Option<Bytes>,
 ) -> Result<(), FetchError> {
-    worker.set_state(job.id, JobState::Available)?;
-    worker.set_queue(job.id, &return_queue)?;
+    worker.set_state(job_id, JobState::Available)?;
+    worker.set_queue(job_id, &return_queue)?;
+    let (result, body) = result.take_body();
 
     let is_success = result.is_success();
 
-    let result = do_or_dead_letter(worker, job.id, || serde_json::to_string(&result)).await??;
+    let result = do_or_dead_letter(worker, job_id, || serde_json::to_vec(&result)).await??;
 
     match (on_finish, is_success) {
         (OnFinish::Complete, true) => {
-            worker.set_state(job.id, JobState::Completed)?;
+            worker.set_state(job_id, JobState::Completed)?;
         }
         (OnFinish::Complete, false) => {
-            worker.set_state(job.id, JobState::Failed)?;
+            worker.set_state(job_id, JobState::Failed)?;
         }
         (OnFinish::Return, _) => {
             // If we're retuning the job, we don't care whether it succeeded or not, the caller wants it back
-            worker.set_state(job.id, JobState::Available)?;
+            worker.set_state(job_id, JobState::Available)?;
         }
     }
 
-    worker.set_parameters(job.id, Some(result))?;
-    worker.set_blob(job.id, body)?;
-    worker.set_metadata(job.id, None)?; // We're finished with the job, so clear our internal state
-    worker.flush_job(job.id).await?;
+    worker.set_priority(job_id, 0)?; // Reset job priority on completion
+    worker.set_parameters(job_id, Some(result))?;
+    worker.set_blob(job_id, body)?;
+    worker.set_metadata(job_id, None)?; // We're finished with the job, so clear our internal state
+    worker.flush_job(job_id).await?;
 
     Ok(())
 }
@@ -660,15 +657,15 @@ pub async fn complete_job(
 // Pulls the body, while maintaining the job heartbeat.
 pub async fn first_n_bytes_of_response(
     worker: &Worker,
-    job: &Job,
+    job_id: Uuid,
     response: Response,
     n: usize,
 ) -> Result<Result<String, FetchFailure>, FetchError> {
     let mut body = response.bytes_stream();
     // We deserialize into a vec<u8>, and then parse to a string
-    let mut buffer = Vec::with_capacity(n);
+    let mut buffer = Vec::with_capacity(n / 4); // Assume most request responses will be significantly smaller than the max
 
-    worker.heartbeat(job.id).await?;
+    worker.heartbeat(job_id).await?;
 
     loop {
         tokio::select! {
@@ -690,14 +687,20 @@ pub async fn first_n_bytes_of_response(
             _ = tokio::time::sleep(Duration::milliseconds(HEARTBEAT_INTERVAL_MS).to_std().unwrap()) => {}
         }
         // Heartbeat every time we get a new body chunk, or every HEARTBEAT_INTERVAL_MS
-        worker.heartbeat(job.id).await?;
+        worker.heartbeat(job_id).await?;
     }
 
-    let Ok(body) = String::from_utf8(buffer) else {
-        return Ok(Err(FetchFailure::new(
-            FetchFailureKind::InvalidBody,
-            "Body could not be parsed as utf8",
-        )));
+    // TODO - we can handle binary data here, but for now we force response bodies to be utf8 string
+    let body = match String::from_utf8(buffer) {
+        Ok(s) => s,
+        Err(e) => {
+            let buffer = e.into_bytes();
+            return Ok(Err(FetchFailure::new(
+                FetchFailureKind::InvalidBody,
+                "Body could not be parsed as utf8",
+            )
+            .with_body(buffer)));
+        }
     };
 
     Ok(Ok(body))

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use chrono::{Duration, Utc};
 
-use cyclotron_core::{types::Bytes, Job, JobInit, QueueError, Worker};
+use cyclotron_core::{Bytes, Job, JobInit, QueueError, Worker};
 use cyclotron_fetch::{
     config::AppConfig,
     context::AppContext,
