@@ -100,7 +100,6 @@ export const createHogExecutionGlobals = (
 ): HogFunctionInvocationGlobals => {
     return {
         ...data,
-        groups: data.groups ?? {},
         person: {
             uuid: 'uuid',
             name: 'test',
