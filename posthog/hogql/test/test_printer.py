@@ -445,13 +445,17 @@ class TestPrinter(BaseTest):
             expected_skip_indexes_used={"properties_group_custom_keys_bf", "properties_group_custom_values_bf"},
         )
 
-        # NOTE: We'll want to actually support this type of expression where the right hand side is trivially resolved
-        # to a constant value at some point, but for right now we only want to optimize comparisons to constant values
-        # directly for simplicity.
+        # TODO: We'll want to eventually support this type of expression where the right hand side is a non-``Nullable``
+        # value, since this would allow expressions that only reference constant values to also use the appropriate
+        # index, but for right now we only want to optimize comparisons to constant values directly for simplicity.
         self._test_property_group_comparison("properties.key = lower('value')", None)
 
-        # Comparisons to non-constant values can't utilize the data skipping indexes anyway, so leave them alone.
-        self._test_property_group_comparison("properties.key1 = properties.key2", None)
+        # The opposite case as above: ``Nullable`` values should _not_ be optimized (because we don't know which
+        # optimization to apply).
+        self._test_property_group_comparison("properties.key = nullIf('a', 'a')", None)
+
+        # ... unless we can distinguish ``Nullable(Nothing)`` from ``Nullable(*)`` -- this _could_ be safely optimized.
+        self._test_property_group_comparison("properties.key = lower(NULL)", None)
 
     def test_property_groups_optimized_empty_string_equality_comparisons(self) -> None:
         # Keys that don't exist in a map return default values for the type -- in our case empty strings -- so we need
