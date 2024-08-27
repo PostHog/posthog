@@ -2,7 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
-import { HogFunctionTemplateType, HogFunctionType } from '~/types'
+import { HogFunctionTemplateType, HogFunctionType, PropertyFilterType, PropertyOperator } from '~/types'
 
 jest.mock('lib/api', () => ({
     ...jest.requireActual('lib/api'),
@@ -49,9 +49,9 @@ const HOG_TEMPLATE: HogFunctionTemplateType = {
                         properties: [
                             {
                                 key: '$survey_response',
-                                type: 'event',
+                                type: PropertyFilterType.Event,
                                 value: 'is_set',
-                                operator: 'is_set',
+                                operator: PropertyOperator.IsSet,
                             },
                         ],
                     },
