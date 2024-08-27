@@ -145,7 +145,7 @@ describe('Signup', () => {
         // We can't actually test the social login feature.
         // But, we can make sure the form exists as it should, and that upon submit
         // we get the expected error that no social session exists.
-        auth.logout()
+        cy.clearAllCookies()
         cy.visit('/organization/confirm-creation?organization_name=&first_name=Test&email=test%40posthog.com')
 
         cy.get('[name=email]').should('have.value', 'test@posthog.com')
@@ -168,7 +168,7 @@ describe('Signup', () => {
             )
         )
 
-        auth.logout()
+        cy.clearAllCookies()
 
         cy.visit('/signup?maintenanceRedirect=true', {
             onLoad(win: Cypress.AUTWindow) {

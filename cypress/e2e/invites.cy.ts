@@ -93,7 +93,7 @@ describe('Invite Signup', () => {
         cy.location('pathname').should('include', 'verify_email')
 
         // Log out, log in as main
-        auth.logout()
+        cy.clearAllCookies()
         cy.login()
 
         // Go to organization settings
