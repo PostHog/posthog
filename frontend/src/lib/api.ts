@@ -10,16 +10,19 @@ import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import {
+    AlertType,
+    AlertTypeWrite,
     DatabaseSerializedFieldType,
     ErrorTrackingGroup,
     QuerySchema,
     QueryStatusResponse,
+    RecordingsQuery,
+    RecordingsQueryResponse,
     RefreshType,
 } from '~/queries/schema'
 import {
     ActionType,
     ActivityScope,
-    AlertType,
     AppMetricsTotalsV2Response,
     AppMetricsV2RequestParams,
     AppMetricsV2Response,
@@ -93,7 +96,6 @@ import {
     SessionRecordingPlaylistType,
     SessionRecordingSnapshotParams,
     SessionRecordingSnapshotResponse,
-    SessionRecordingsResponse,
     SessionRecordingType,
     SharingConfigurationType,
     SlackChannelType,
@@ -730,12 +732,12 @@ class ApiRequest {
     }
 
     // # Alerts
-    public alerts(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('alerts')
+    public alerts(id: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.insight(id, teamId).addPathComponent('alerts')
     }
 
-    public alert(id: AlertType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.alerts(teamId).addPathComponent(id)
+    public alert(id: AlertType['id'], insightId: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.alerts(insightId, teamId).addPathComponent(id)
     }
 
     // Resource Access Permissions
@@ -1750,7 +1752,7 @@ const api = {
     },
 
     recordings: {
-        async list(params: Record<string, any>): Promise<SessionRecordingsResponse> {
+        async list(params: RecordingsQuery): Promise<RecordingsQueryResponse> {
             return await new ApiRequest().recordings().withQueryString(toParams(params)).get()
         },
         async getMatchingEvents(params: string): Promise<{ results: string[] }> {
@@ -1838,7 +1840,7 @@ const api = {
         async listPlaylistRecordings(
             playlistId: SessionRecordingPlaylistType['short_id'],
             params: Record<string, any> = {}
-        ): Promise<SessionRecordingsResponse> {
+        ): Promise<RecordingsQueryResponse> {
             return await new ApiRequest()
                 .recordingPlaylist(playlistId)
                 .withAction('recordings')
@@ -2264,20 +2266,20 @@ const api = {
     },
 
     alerts: {
-        async get(alertId: AlertType['id']): Promise<AlertType> {
-            return await new ApiRequest().alert(alertId).get()
+        async get(insightId: number, alertId: AlertType['id']): Promise<AlertType> {
+            return await new ApiRequest().alert(alertId, insightId).get()
         },
-        async create(data: Partial<AlertType>): Promise<AlertType> {
-            return await new ApiRequest().alerts().create({ data })
+        async create(insightId: number, data: Partial<AlertTypeWrite>): Promise<AlertType> {
+            return await new ApiRequest().alerts(insightId).create({ data })
         },
-        async update(alertId: AlertType['id'], data: Partial<AlertType>): Promise<AlertType> {
-            return await new ApiRequest().alert(alertId).update({ data })
+        async update(insightId: number, alertId: AlertType['id'], data: Partial<AlertTypeWrite>): Promise<AlertType> {
+            return await new ApiRequest().alert(alertId, insightId).update({ data })
         },
         async list(insightId: number): Promise<PaginatedResponse<AlertType>> {
-            return await new ApiRequest().alerts().withQueryString(`insight=${insightId}`).get()
+            return await new ApiRequest().alerts(insightId).get()
         },
-        async delete(alertId: AlertType['id']): Promise<void> {
-            return await new ApiRequest().alert(alertId).delete()
+        async delete(insightId: number, alertId: AlertType['id']): Promise<void> {
+            return await new ApiRequest().alert(alertId, insightId).delete()
         },
     },
 
