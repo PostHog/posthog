@@ -7,6 +7,7 @@ import { router } from 'kea-router'
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -60,6 +61,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
     } = useActions(earlyAccessFeatureLogic)
 
     const isNewEarlyAccessFeature = id === 'new' || id === undefined
+    const showLinkedHogFunctions = useFeatureFlag('HOG_FUNCTIONS_LINKED')
 
     if (earlyAccessFeatureMissing) {
         return <NotFound object="early access feature" />
@@ -70,7 +72,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
     }
 
     const destinationFilters: HogFunctionFiltersType | null =
-        !isEditingFeature && !isNewEarlyAccessFeature && 'id' in earlyAccessFeature
+        !isEditingFeature && !isNewEarlyAccessFeature && 'id' in earlyAccessFeature && showLinkedHogFunctions
             ? {
                   events: [
                       {

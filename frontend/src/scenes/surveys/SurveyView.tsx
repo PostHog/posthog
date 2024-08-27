@@ -8,6 +8,7 @@ import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { PageHeader } from 'lib/components/PageHeader'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -49,6 +50,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
     const { deleteSurvey } = useActions(surveysLogic)
 
     const [tabKey, setTabKey] = useState(survey.start_date ? 'results' : 'overview')
+    const showLinkedHogFunctions = useFeatureFlag('HOG_FUNCTIONS_LINKED')
 
     useEffect(() => {
         if (survey.start_date) {
@@ -393,41 +395,43 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                 key: 'overview',
                                 label: 'Overview',
                             },
-                            {
-                                key: 'notifications',
-                                label: 'Notifications',
-                                content: (
-                                    <div>
-                                        <p>Get notified whenever a survey result is submitted</p>
-                                        <LinkedHogFunctions
-                                            subTemplateIds={['survey_response']}
-                                            filters={{
-                                                events: [
-                                                    {
-                                                        id: 'survey sent',
-                                                        type: 'events',
-                                                        order: 0,
-                                                        properties: [
-                                                            {
-                                                                key: '$survey_response',
-                                                                type: PropertyFilterType.Event,
-                                                                value: 'is_set',
-                                                                operator: PropertyOperator.IsSet,
-                                                            },
-                                                            {
-                                                                key: '$survey_id',
-                                                                type: PropertyFilterType.Event,
-                                                                value: id,
-                                                                operator: PropertyOperator.Exact,
-                                                            },
-                                                        ],
-                                                    },
-                                                ],
-                                            }}
-                                        />
-                                    </div>
-                                ),
-                            },
+                            showLinkedHogFunctions
+                                ? {
+                                      key: 'notifications',
+                                      label: 'Notifications',
+                                      content: (
+                                          <div>
+                                              <p>Get notified whenever a survey result is submitted</p>
+                                              <LinkedHogFunctions
+                                                  subTemplateIds={['survey_response']}
+                                                  filters={{
+                                                      events: [
+                                                          {
+                                                              id: 'survey sent',
+                                                              type: 'events',
+                                                              order: 0,
+                                                              properties: [
+                                                                  {
+                                                                      key: '$survey_response',
+                                                                      type: PropertyFilterType.Event,
+                                                                      value: 'is_set',
+                                                                      operator: PropertyOperator.IsSet,
+                                                                  },
+                                                                  {
+                                                                      key: '$survey_id',
+                                                                      type: PropertyFilterType.Event,
+                                                                      value: id,
+                                                                      operator: PropertyOperator.Exact,
+                                                                  },
+                                                              ],
+                                                          },
+                                                      ],
+                                                  }}
+                                              />
+                                          </div>
+                                      ),
+                                  }
+                                : null,
                             {
                                 label: 'History',
                                 key: 'History',

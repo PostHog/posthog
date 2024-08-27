@@ -19,6 +19,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
@@ -56,10 +57,9 @@ export function Surveys(): JSX.Element {
     } = useValues(surveysLogic)
 
     const { deleteSurvey, updateSurvey, setSearchTerm, setSurveysFilters, setTab } = useActions(surveysLogic)
-
     const { user } = useValues(userLogic)
-
     const shouldShowEmptyState = !surveysLoading && surveys.length === 0
+    const showLinkedHogFunctions = useFeatureFlag('HOG_FUNCTIONS_LINKED')
 
     return (
         <div>
@@ -109,7 +109,7 @@ export function Surveys(): JSX.Element {
                 tabs={[
                     { key: SurveysTabs.Active, label: 'Active' },
                     { key: SurveysTabs.Archived, label: 'Archived' },
-                    { key: SurveysTabs.Notifications, label: 'Notifications' },
+                    showLinkedHogFunctions ? { key: SurveysTabs.Notifications, label: 'Notifications' } : null,
                     { key: SurveysTabs.History, label: 'History' },
                 ]}
             />

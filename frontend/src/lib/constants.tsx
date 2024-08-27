@@ -196,6 +196,7 @@ export const FEATURE_FLAGS = {
     SETTINGS_PERSONS_ON_EVENTS_HIDDEN: 'settings-persons-on-events-hidden', // owner: @Twixes
     HOG: 'hog', // owner: @mariusandra
     HOG_FUNCTIONS: 'hog-functions', // owner: #team-cdp
+    HOG_FUNCTIONS_LINKED: 'hog-functions-linked', // owner: #team-cdp
     PERSONLESS_EVENTS_NOT_SUPPORTED: 'personless-events-not-supported', // owner: @raquelmsmith
     ALERTS: 'alerts', // owner: github.com/nikitaevg
     ERROR_TRACKING: 'error-tracking', // owner: #team-replay
