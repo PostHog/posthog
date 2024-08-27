@@ -346,7 +346,7 @@ export function ActionFilterRow({
         <LemonButton
             key="delete"
             icon={<IconTrash />}
-            // title="Delete graph series"
+            title="Delete graph series"
             data-attr={`delete-prop-filter-${index}`}
             noPadding={!enablePopup}
             onClick={() => {

@@ -4,8 +4,9 @@ from typing import Optional, Literal, Union
 from posthog.hogql import ast
 from posthog.constants import PERSON_UUID_FILTER, SESSION_RECORDINGS_FILTER_IDS, PropertyOperatorType
 from posthog.models.filters.mixins.common import BaseParamMixin
+from posthog.models.filters.mixins.property import PropertyMixin
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.models.property import Property
+from posthog.models.property import PropertyGroup
 
 
 class PersonUUIDMixin(BaseParamMixin):
@@ -14,10 +15,10 @@ class PersonUUIDMixin(BaseParamMixin):
         return self._data.get(PERSON_UUID_FILTER, None)
 
 
-class SessionRecordingsMixin(BaseParamMixin):
+class SessionRecordingsMixin(PropertyMixin, BaseParamMixin):
     @cached_property
-    def console_search_query(self) -> str | None:
-        return self._data.get("console_search_query", None)
+    def order(self) -> str:
+        return self._data.get("order", "start_time")
 
     # Supports a legacy use case where events were ORed not ANDed
     # Can be removed and replaced with ast_operand once the new universal replay filtering is out
@@ -27,8 +28,10 @@ class SessionRecordingsMixin(BaseParamMixin):
         return ast.And if operand == "AND" else ast.Or
 
     @cached_property
-    def _operand(self) -> Literal["AND"] | Literal["OR"]:
-        return self._data.get("operand", "AND")
+    def console_log_filters(self) -> PropertyGroup:
+        property_group = self._parse_data(key="console_log_filters")
+        property_group.type = self.property_operand
+        return property_group
 
     @cached_property
     def property_operand(self) -> PropertyOperatorType:
@@ -39,36 +42,8 @@ class SessionRecordingsMixin(BaseParamMixin):
         return ast.And if self._operand == "AND" else ast.Or
 
     @cached_property
-    def console_logs_filter(self) -> list[Literal["error", "warn", "info"]]:
-        user_value = self._data.get("console_logs", None) or []
-        if isinstance(user_value, str):
-            user_value = json.loads(user_value)
-        valid_values = [x for x in user_value if x in ["error", "warn", "info"]]
-        return valid_values
-
-    @cached_property
-    def duration_type_filter(self) -> Literal["duration", "active_seconds", "inactive_seconds"]:
-        user_value = self._data.get("duration_type_filter", None)
-        if user_value in ["duration", "active_seconds", "inactive_seconds"]:
-            return user_value
-        else:
-            return "duration"
-
-    @cached_property
-    def recording_duration_filter(self) -> Optional[Property]:
-        duration_filter_data_str = self._data.get("session_recording_duration", None)
-        if duration_filter_data_str:
-            filter_data = json.loads(duration_filter_data_str)
-            return Property(**filter_data)
-        return None
-
-    @cached_property
-    def snapshot_source_filter(self) -> Optional[Property]:
-        snapshot_source_data_str = self._data.get("snapshot_source", None)
-        if isinstance(snapshot_source_data_str, str):
-            filter_data = json.loads(snapshot_source_data_str)
-            return Property(**filter_data)
-        return None
+    def _operand(self) -> Literal["AND"] | Literal["OR"]:
+        return self._data.get("operand", "AND")
 
     @cached_property
     def session_ids(self) -> Optional[list[str]]:
@@ -92,3 +67,7 @@ class SessionRecordingsMixin(BaseParamMixin):
 
         # If the property is at all present, we assume that the user wants to filter by it
         return []
+
+    @cached_property
+    def having_predicates(self) -> PropertyGroup:
+        return self._parse_data(key="having_predicates")

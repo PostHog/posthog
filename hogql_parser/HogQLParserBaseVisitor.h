@@ -1,5 +1,5 @@
 
-// Generated from HogQLParser.g4 by ANTLR 4.13.1
+// Generated from HogQLParser.g4 by ANTLR 4.13.2
 
 #pragma once
 
@@ -375,6 +375,10 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitColumnExprCall(HogQLParser::ColumnExprCallContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitColumnExprArrayAccess(HogQLParser::ColumnExprArrayAccessContext *ctx) override {
     return visitChildren(ctx);
   }
@@ -427,6 +431,10 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitColumnExprLambda(HogQLParser::ColumnExprLambdaContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitColumnExprIdentifier(HogQLParser::ColumnExprIdentifierContext *ctx) override {
     return visitChildren(ctx);
   }
@@ -436,14 +444,6 @@ public:
   }
 
   virtual std::any visitColumnExprAsterisk(HogQLParser::ColumnExprAsteriskContext *ctx) override {
-    return visitChildren(ctx);
-  }
-
-  virtual std::any visitColumnArgList(HogQLParser::ColumnArgListContext *ctx) override {
-    return visitChildren(ctx);
-  }
-
-  virtual std::any visitColumnArgExpr(HogQLParser::ColumnArgExprContext *ctx) override {
     return visitChildren(ctx);
   }
 
