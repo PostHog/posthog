@@ -17,6 +17,7 @@ const configWithSentry = (config: Partial<PostHogConfig>): Partial<PostHogConfig
 }
 
 export function loadPostHogJS(): void {
+    window.console.warn('SETTING _CYPRESS_POSTHOG_CAPTURES in loadPostHogJS')
     ;(window as any)._cypress_posthog_captures = []
     if (window.JS_POSTHOG_API_KEY) {
         posthog.init(
