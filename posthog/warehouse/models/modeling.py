@@ -499,8 +499,6 @@ class DataWarehouseModelPath(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     objects: DataWarehouseModelPathManager = DataWarehouseModelPathManager()
 
     path = LabelTreeField(null=False)
-    team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
-    table: models.ForeignKey = models.ForeignKey(DataWarehouseTable, null=True, default=None, on_delete=models.SET_NULL)
-    saved_query: models.ForeignKey = models.ForeignKey(
-        DataWarehouseSavedQuery, null=True, default=None, on_delete=models.SET_NULL
-    )
+    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    table = models.ForeignKey(DataWarehouseTable, null=True, default=None, on_delete=models.SET_NULL)
+    saved_query = models.ForeignKey(DataWarehouseSavedQuery, null=True, default=None, on_delete=models.SET_NULL)
