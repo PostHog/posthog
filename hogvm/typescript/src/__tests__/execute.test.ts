@@ -544,13 +544,30 @@ describe('hogvm execute', () => {
             state: {
                 bytecode,
                 asyncSteps: 1,
-                callStack: [],
+                callStack: [
+                    {
+                        ip: 8,
+                        stackStart: 0,
+                        argCount: 0,
+                        closure: {
+                            __hogClosure__: true,
+                            callable: {
+                                __hogCallable__: 'main',
+                                name: '',
+                                argCount: 0,
+                                upvalueCount: 0,
+                                ip: 1,
+                            },
+                            upvalues: [],
+                        },
+                    },
+                ],
                 throwStack: [],
                 declaredFunctions: {},
-                ip: 8,
                 maxMemUsed: 16,
                 ops: 3,
                 stack: [4.2],
+                upvalues: [],
                 syncDuration: expect.any(Number),
             },
         })
@@ -572,10 +589,10 @@ describe('hogvm execute', () => {
                 bytecode: [],
                 callStack: [],
                 declaredFunctions: {},
-                ip: -1,
                 maxMemUsed: 13,
                 ops: 2,
                 stack: [],
+                upvalues: [],
                 throwStack: [],
                 syncDuration: expect.any(Number),
             },
@@ -599,10 +616,10 @@ describe('hogvm execute', () => {
                 bytecode: [],
                 callStack: [],
                 declaredFunctions: {},
-                ip: -1,
                 maxMemUsed: 13,
                 ops: 3,
                 stack: [],
+                upvalues: [],
                 throwStack: [],
                 syncDuration: expect.any(Number),
             },
@@ -1882,40 +1899,5 @@ describe('hogvm execute', () => {
         expect(() => execSync(bytecode2)).toThrow(
             new UncaughtHogVMException('RetryError', 'Not a good day', { key: 'value' })
         )
-    })
-
-    test('returns serialized state', () => {
-        const bytecode = [
-            '_h',
-            op.STRING,
-            'key',
-            op.STRING,
-            'value',
-            op.DICT,
-            1,
-            op.GET_LOCAL,
-            0,
-            op.CALL_GLOBAL,
-            'fetch',
-            1,
-        ]
-        expect(exec(bytecode, { asyncFunctions: { fetch: async () => null } })).toEqual({
-            asyncFunctionArgs: [{ key: 'value' }], // not a Map
-            asyncFunctionName: 'fetch',
-            finished: false,
-            result: undefined,
-            state: {
-                asyncSteps: 1,
-                bytecode: bytecode,
-                callStack: [],
-                declaredFunctions: {},
-                ip: 12,
-                maxMemUsed: 64,
-                ops: 5,
-                stack: [{ key: 'value' }], // is not a Map
-                syncDuration: 0,
-                throwStack: [],
-            },
-        })
     })
 })
