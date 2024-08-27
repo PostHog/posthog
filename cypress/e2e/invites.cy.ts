@@ -94,6 +94,7 @@ describe('Invite Signup', () => {
 
         // Log out, log in as main
         cy.clearAllCookies()
+        cy.visit('/login')
         cy.login()
 
         // Go to organization settings
