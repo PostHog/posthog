@@ -28,6 +28,7 @@ import {
     HogFunctionInputType,
     HogFunctionInvocationGlobals,
     HogFunctionSubTemplateIdType,
+    HogFunctionSubTemplateType,
     HogFunctionTemplateType,
     HogFunctionType,
     PipelineNodeTab,
@@ -98,20 +99,25 @@ export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFu
     return payload
 }
 
-const templateToConfiguration = (template: HogFunctionTemplateType): HogFunctionConfigurationType => {
+const templateToConfiguration = (
+    template: HogFunctionTemplateType,
+    subTemplate?: HogFunctionSubTemplateType | null
+): HogFunctionConfigurationType => {
     const inputs: Record<string, HogFunctionInputType> = {}
 
     template.inputs_schema?.forEach((schema) => {
-        if (schema.default) {
+        if (typeof subTemplate?.inputs?.[schema.key] !== 'undefined') {
+            inputs[schema.key] = { value: subTemplate.inputs[schema.key] }
+        } else if (schema.default) {
             inputs[schema.key] = { value: schema.default }
         }
     })
 
     return {
-        name: template.name,
-        description: template.description,
+        name: subTemplate?.name ?? template.name,
+        description: subTemplate?.name ?? template.description,
         inputs_schema: template.inputs_schema,
-        filters: template.filters,
+        filters: subTemplate?.filters ?? template.filters,
         hog: template.hog,
         icon_url: template.icon_url,
         inputs,
@@ -134,7 +140,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         upsertHogFunction: (configuration: HogFunctionConfigurationType) => ({ configuration }),
         duplicate: true,
         duplicateFromTemplate: true,
-        resetToTemplate: (keepInputs = true) => ({ keepInputs }),
+        resetToTemplate: true,
         deleteHogFunction: true,
         sparklineQueryChanged: (sparklineQuery: TrendsQuery) => ({ sparklineQuery } as { sparklineQuery: TrendsQuery }),
         setSubTemplateId: (subTemplateId: HogFunctionSubTemplateIdType | null) => ({ subTemplateId }),
@@ -301,23 +307,12 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
         defaultFormState: [
-            (s) => [s.template, s.hogFunction],
-            (template, hogFunction): HogFunctionConfigurationType => {
+            (s) => [s.template, s.hogFunction, s.subTemplate],
+            (template, hogFunction, subTemplate): HogFunctionConfigurationType | null => {
                 if (template) {
-                    // Fill defaults from template
-                    const inputs: Record<string, HogFunctionInputType> = {}
-
-                    template.inputs_schema?.forEach((schema) => {
-                        if (schema.default) {
-                            inputs[schema.key] = { value: schema.default }
-                        }
-                    })
-
-                    return templateToConfiguration(template)
-                } else if (hogFunction) {
-                    return hogFunction
+                    return templateToConfiguration(template, subTemplate)
                 }
-                return {} as HogFunctionConfigurationType
+                return hogFunction ?? null
             },
         ],
 
@@ -564,9 +559,13 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         },
 
         resetForm: () => {
+            const baseConfig = values.defaultFormState
+            if (!baseConfig) {
+                return
+            }
+
             const config: HogFunctionConfigurationType = {
-                ...values.defaultFormState,
-                // ...(cache.configFromUrl || {}),
+                ...baseConfig,
             }
 
             const paramsFromUrl = cache.paramsFromUrl ?? {}
@@ -577,13 +576,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 }
             }
 
-            // if (paramsFromUrl.sub_template) {
-            //     const subTemplate = values.template?.sub_templates?.find((st) => st.id === paramsFromUrl.sub_template)
-
-            //     if (subTemplate) {
-            //         actions.setSubTemplate(subTemplate)
-            //     }
-            // }
+            // TODO: Pull out sub template info
 
             actions.resetConfiguration(config)
         },
@@ -618,25 +611,17 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 )
             }
         },
-        resetToTemplate: async ({ keepInputs }) => {
+        resetToTemplate: async () => {
             const template = values.hogFunction?.template ?? values.template
             if (template) {
-                // Fill defaults from template
-                const inputs: Record<string, HogFunctionInputType> = {}
-
-                template.inputs_schema?.forEach((schema) => {
-                    inputs[schema.key] = (keepInputs ? values.configuration.inputs?.[schema.key] : undefined) ?? {
-                        value: schema.default,
-                    }
-                })
+                const config = templateToConfiguration(template, values.subTemplate)
 
                 actions.setConfigurationValues({
-                    ...templateToConfiguration(template),
-                    filters: values.configuration.filters ?? template.filters,
-                    // Keep some existing things
+                    ...config,
+                    filters: config.filters ?? values.configuration.filters,
+                    // Keep some existing things when manually resetting the template
                     name: values.configuration.name,
                     description: values.configuration.description,
-                    inputs,
                 })
 
                 lemonToast.success('Template updates applied but not saved.')
@@ -673,28 +658,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         },
 
         setSubTemplateId: () => {
-            if (!values.subTemplate) {
-                return
-            }
-            const newValues: Partial<HogFunctionConfigurationType> = {}
-
-            if (values.subTemplate.filters) {
-                newValues.filters = values.subTemplate.filters
-            }
-            if (values.subTemplate.inputs) {
-                newValues.inputs = values.configuration.inputs ?? {}
-
-                Object.entries(values.subTemplate.inputs).forEach(([key, value]) => {
-                    newValues.inputs![key] = {
-                        value,
-                    }
-                })
-            }
-            if (values.subTemplate.masking) {
-                newValues.masking = values.subTemplate.masking
-            }
-
-            actions.setConfigurationValues(newValues)
+            actions.resetToTemplate()
         },
     })),
     afterMount(({ props, actions, cache }) => {
@@ -703,6 +667,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             integration_target: router.values.searchParams.integration_target,
             sub_template: router.values.searchParams.sub_template,
         }
+
+        actions.setSubTemplateId(router.values.searchParams.sub_template)
 
         if (props.templateId) {
             cache.configFromUrl = router.values.hashParams.configuration

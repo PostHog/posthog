@@ -128,10 +128,11 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
 
                     return combineUrl(
                         urls.pipelineNodeNew(PipelineStage.Destination, `hog-${template.id}`),
-                        {},
+                        {
+                            sub_template: subTemplateId,
+                        },
                         {
                             configuration: {
-                                sub_template_id: subTemplateId,
                                 filters: filters.filters,
                             },
                         }
