@@ -70,7 +70,11 @@ export function loadPostHogJS(): void {
 
         // window.console.warn('POSTHOG CONFIG _onCapture is ,', config._onCapture?.toString())
 
-        posthog.init(window.JS_POSTHOG_API_KEY, config)
+        const instance = posthog.init(window.JS_POSTHOG_API_KEY, config)
+        instance?._addCaptureHook((event, payload) => {
+            ;(window as any).console.warn('DEBUG: _addCaptureHook :: event is  ', event, '  payload is ', payload)
+        })
+
         window.posthog?.capture('capturing posthog event')
         window.console.warn('POSTHOG LOADED, STANDARD EVENT CAPTURED')
         if (config._onCapture) {
