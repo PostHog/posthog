@@ -4,7 +4,6 @@ import { useActions, useValues } from 'kea'
 import { PayGateButton } from 'lib/components/PayGateMini/PayGateButton'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { useEffect } from 'react'
-import { urls } from 'scenes/urls'
 
 import { AvailableFeature, PipelineStage } from '~/types'
 
@@ -58,7 +57,7 @@ export function HogFunctionTemplateList({
                         render: (_, template) => {
                             return (
                                 <LemonTableLink
-                                    to={urls.pipelineNodeNew(PipelineStage.Destination, `hog-${template.id}`)}
+                                    to={urlForTemplate(template)}
                                     title={template.name}
                                     description={template.description}
                                 />
@@ -69,14 +68,12 @@ export function HogFunctionTemplateList({
                     {
                         width: 0,
                         render: function Render(_, template) {
-                            const url = urlForTemplate(template)
-
                             return canEnableHogFunction(template) ? (
                                 <LemonButton
                                     type="primary"
                                     data-attr={`new-${PipelineStage.Destination}`}
                                     icon={<IconPlusSmall />}
-                                    to={url}
+                                    to={urlForTemplate(template)}
                                     fullWidth
                                 >
                                     Create
