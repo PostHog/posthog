@@ -100,7 +100,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": ${{ toJson(github.repository) }},
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.workflow_run.created_at }}"
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
 
             - name: Check for changes in plugins directory
@@ -126,7 +126,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": ${{ toJson(github.repository) }},
                         "labels": ${{ toJson(steps.labels.outputs.labels) }},
-                        "timestamp": "${{ github.event.workflow_run.created_at }}"
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
 
             - name: Check for changes that affect batch exports temporal worker
@@ -152,7 +152,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": ${{ toJson(github.repository) }},
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.workflow_run.created_at }}"
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
 
             - name: Check for changes that affect general purpose temporal worker
@@ -178,7 +178,7 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": ${{ toJson(github.repository) }},
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.workflow_run.created_at }}"
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
 
             - name: Check for changes that affect data warehouse temporal worker
@@ -204,5 +204,5 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": ${{ toJson(github.repository) }},
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.workflow_run.created_at }}"
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }

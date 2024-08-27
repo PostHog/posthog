@@ -85,5 +85,5 @@ jobs:
                         "release": "livestream",
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": ${{ toJson(github.repository) }},
-                        "timestamp": "${{ github.event.workflow_run.created_at }}"
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
