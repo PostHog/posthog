@@ -131,18 +131,17 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
 
     const asyncSteps = vmState ? vmState.asyncSteps : 0
     const syncDuration = vmState ? vmState.syncDuration : 0
-    const sortedUpValues: HogUpValue[] = vmState ? vmState.upvalues : []
+    const sortedUpValues: HogUpValue[] = vmState
+        ? vmState.upvalues.map((v) => ({ ...v, value: convertJSToHog(v.value) }))
+        : []
     const upvaluesById: Record<number, HogUpValue> = {}
     for (const upvalue of sortedUpValues) {
         upvaluesById[upvalue.id] = upvalue
-        if (upvalue.value !== null) {
-            upvalue.value === convertJSToHog(upvalue.value, upvaluesById)
-        }
     }
-    const stack: any[] = vmState ? vmState.stack.map((v) => convertJSToHog(v, upvaluesById)) : []
+    const stack: any[] = vmState ? vmState.stack.map(convertJSToHog) : []
     const memStack: number[] = stack.map((s) => calculateCost(s))
     const callStack: CallFrame[] = vmState
-        ? vmState.callStack.map((v) => ({ ...v, closure: convertJSToHog(v.closure, upvaluesById) }))
+        ? vmState.callStack.map((v) => ({ ...v, closure: convertJSToHog(v.closure) }))
         : []
     const throwStack: ThrowFrame[] = vmState ? vmState.throwStack : []
     const declaredFunctions: Record<string, [number, number]> = vmState ? vmState.declaredFunctions : {}
@@ -378,7 +377,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 }
 
                 if (options?.globals && chain[0] in options.globals && Object.hasOwn(options.globals, chain[0])) {
-                    pushStack(convertJSToHog(getNestedValue(options.globals, chain), upvaluesById))
+                    pushStack(convertJSToHog(getNestedValue(options.globals, chain)))
                 } else if (
                     options?.asyncFunctions &&
                     chain.length == 1 &&
@@ -625,12 +624,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                             : stackKeepFirstElements(stack.length - temp)
 
                     if (options?.functions && Object.hasOwn(options.functions, name) && options.functions[name]) {
-                        pushStack(
-                            convertJSToHog(
-                                options.functions[name](...args.map((v) => convertHogToJS(v, upvaluesById))),
-                                upvaluesById
-                            )
-                        )
+                        pushStack(convertJSToHog(options.functions[name](...args.map(convertHogToJS))))
                     } else if (
                         name !== 'toString' &&
                         ((options?.asyncFunctions &&
@@ -648,14 +642,14 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                             result: undefined,
                             finished: false,
                             asyncFunctionName: name,
-                            asyncFunctionArgs: args.map((v) => convertHogToJS(v, upvaluesById)),
+                            asyncFunctionArgs: args.map(convertHogToJS),
                             state: {
                                 bytecode,
-                                stack: stack.map((v) => convertHogToJS(v, upvaluesById)),
+                                stack: stack.map(convertHogToJS),
                                 upvalues: sortedUpValues,
                                 callStack: callStack.map((v) => ({
                                     ...v,
-                                    closure: convertHogToJS(v.closure, upvaluesById),
+                                    closure: convertHogToJS(v.closure),
                                 })),
                                 throwStack,
                                 declaredFunctions,
@@ -746,14 +740,14 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                         result: undefined,
                         finished: false,
                         asyncFunctionName: closure.callable.name,
-                        asyncFunctionArgs: args.map((v) => convertHogToJS(v, upvaluesById)),
+                        asyncFunctionArgs: args.map(convertHogToJS),
                         state: {
                             bytecode,
-                            stack: stack.map((v) => convertHogToJS(v, upvaluesById)),
+                            stack: stack.map(convertHogToJS),
                             upvalues: sortedUpValues,
                             callStack: callStack.map((v) => ({
                                 ...v,
-                                closure: convertHogToJS(v.closure, upvaluesById),
+                                closure: convertHogToJS(v.closure),
                             })),
                             throwStack,
                             declaredFunctions,
