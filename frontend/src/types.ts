@@ -4331,9 +4331,9 @@ export type HogFunctionMasking = {
 // subset of EntityFilter
 export interface HogFunctionFilterBase {
     id: string
-    name: string | null
-    order: number
-    properties: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter)[]
+    name?: string | null
+    order?: number
+    properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter)[]
 }
 
 export interface HogFunctionFilterEvents extends HogFunctionFilterBase {
@@ -4374,27 +4374,36 @@ export type HogFunctionType = {
     hog: string
 
     inputs_schema?: HogFunctionInputSchemaType[]
-    inputs?: Record<string, HogFunctionInputType>
+    inputs?: Record<string, HogFunctionInputType> | null
     masking?: HogFunctionMasking | null
     filters?: HogFunctionFiltersType | null
     template?: HogFunctionTemplateType
     status?: HogFunctionStatus
 }
 
+export type HogFunctionTemplateStatus = 'alpha' | 'beta' | 'stable' | 'free' | 'deprecated'
+export type HogFunctionSubTemplateIdType = 'early_access_feature_enrollment' | 'survey_response'
+
 export type HogFunctionConfigurationType = Omit<
     HogFunctionType,
-    'created_at' | 'created_by' | 'updated_at' | 'status' | 'hog'
+    'id' | 'created_at' | 'created_by' | 'updated_at' | 'status' | 'hog'
 > & {
     hog?: HogFunctionType['hog'] // In the config it can be empty if using a template
+    sub_template_id?: HogFunctionSubTemplateIdType
 }
 
-export type HogFunctionTemplateStatus = 'alpha' | 'beta' | 'stable' | 'free' | 'deprecated'
+export type HogFunctionSubTemplateType = Pick<HogFunctionType, 'filters' | 'inputs' | 'masking'> & {
+    id: HogFunctionSubTemplateIdType
+    name: string
+    description: string | null
+}
 
 export type HogFunctionTemplateType = Pick<
     HogFunctionType,
-    'id' | 'name' | 'description' | 'hog' | 'inputs_schema' | 'filters' | 'icon_url'
+    'id' | 'name' | 'description' | 'hog' | 'inputs_schema' | 'filters' | 'icon_url' | 'masking'
 > & {
     status: HogFunctionTemplateStatus
+    sub_templates?: HogFunctionSubTemplateType[]
 }
 
 export type HogFunctionIconResponse = {
