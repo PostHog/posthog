@@ -296,7 +296,7 @@ impl FeatureFlagMatcher {
 
         // If there are matching property overrides, use them instead of cache/DB
         if let Some(overrides) = self.group_property_overrides.as_ref() {
-            if let Some(override_propserties) = overrides.get(group_name) {
+            if let Some(override_properties) = overrides.get(group_name) {
                 return Ok(override_properties.clone());
             }
         };
