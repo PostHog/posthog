@@ -64,7 +64,14 @@ export function loadPostHogJS(): void {
             })
         )
         window.posthog?.capture('capturing posthog event')
-        window.console.warn('POSTHOG LOADED, EVENT CAPTURED')
+        window.console.warn('POSTHOG LOADED, STANDARD EVENT CAPTURED')
+        window.posthog?._onCapture('capturing posthog event', {
+            uuid: '01919505-3a07-7404-b4de-1877b907e539',
+            event: 'capturing posthog event',
+            properties: {},
+        })
+        window.console.warn('POSTHOG LOADED, EVENT CAPTURED VIA _ONCAPTURE DIRECTLY')
+        window.console.warn('WHAT IS IN _CYPRESS_POSTHOG_CAPTURES', window._cypress_posthog_captures)
 
         const Cypress = (window as any).Cypress
 
