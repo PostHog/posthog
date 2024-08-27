@@ -2,7 +2,7 @@ import { exec } from '@posthog/hogvm'
 import { createHash } from 'crypto'
 
 import { CdpRedis } from './redis'
-import { HogFunctionInvocationGlobals, HogFunctionType } from './types'
+import { HogFunctionInvocation } from './types'
 
 export const BASE_REDIS_KEY = process.env.NODE_ENV == 'test' ? '@posthog-test/hog-masker' : '@posthog/hog-masker'
 const REDIS_KEY_TOKENS = `${BASE_REDIS_KEY}/mask`
@@ -20,12 +20,7 @@ type MaskContext = {
     threshold: number | null
 }
 
-type HogInvocationContext = {
-    globals: HogFunctionInvocationGlobals
-    hogFunction: HogFunctionType
-}
-
-type HogInvocationContextWithMasker = HogInvocationContext & {
+type HogInvocationContextWithMasker = HogFunctionInvocation & {
     masker?: MaskContext
 }
 
@@ -39,9 +34,9 @@ type HogInvocationContextWithMasker = HogInvocationContext & {
 export class HogMasker {
     constructor(private redis: CdpRedis) {}
 
-    public async filterByMasking(invocations: HogInvocationContext[]): Promise<{
-        masked: HogInvocationContext[]
-        notMasked: HogInvocationContext[]
+    public async filterByMasking(invocations: HogFunctionInvocation[]): Promise<{
+        masked: HogFunctionInvocation[]
+        notMasked: HogFunctionInvocation[]
     }> {
         const invocationsWithMasker: HogInvocationContextWithMasker[] = [...invocations]
         const masks: Record<string, MaskContext> = {}
@@ -124,7 +119,7 @@ export class HogMasker {
                 }
                 return acc
             },
-            { masked: [], notMasked: [] } as { masked: HogInvocationContext[]; notMasked: HogInvocationContext[] }
+            { masked: [], notMasked: [] } as { masked: HogFunctionInvocation[]; notMasked: HogFunctionInvocation[] }
         )
     }
 }
