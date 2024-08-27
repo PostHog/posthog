@@ -120,5 +120,21 @@ export function initKea({ routerHistory, routerLocation, beforePlugins }: InitKe
 
     resetContext({
         plugins: plugins,
+        createStore: {
+            // Disable redux dev-tools's compose by passing `compose` from redux directly
+            compose: ((...funcs: any[]) => {
+                if (funcs.length === 0) {
+                    return <T>(arg: T) => arg
+                }
+                if (funcs.length === 1) {
+                    return funcs[0]
+                }
+                return funcs.reduce(
+                    (a, b) =>
+                        (...args: any) =>
+                            a(b(...args))
+                )
+            }) as any,
+        },
     })
 }
