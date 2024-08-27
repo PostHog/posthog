@@ -122,6 +122,7 @@ const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element =
             >
                 Cancel
             </LemonButton>
+            <br />
             <div className="grid grid-cols-2 border rounded [&_>*]:px-2 [&_>*]:py-0.5 mb-4 bg-bg-light">
                 <div className="col-span-full flex justify-between border-b bg-bg-white py-1">
                     <div>
