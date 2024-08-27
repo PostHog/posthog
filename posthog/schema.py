@@ -581,6 +581,7 @@ class HogQLNotice(BaseModel):
 class BounceRatePageViewMode(StrEnum):
     COUNT_PAGEVIEWS = "count_pageviews"
     UNIQ_URLS = "uniq_urls"
+    UNIQ_PAGE_SCREEN_AUTOCAPTURES = "uniq_page_screen_autocaptures"
 
 
 class InCohortVia(StrEnum):
@@ -825,6 +826,7 @@ class PropertyFilterType(StrEnum):
     SESSION = "session"
     COHORT = "cohort"
     RECORDING = "recording"
+    LOG_ENTRY = "log_entry"
     GROUP = "group"
     HOGQL = "hogql"
     DATA_WAREHOUSE = "data_warehouse"
@@ -1124,6 +1126,7 @@ class TaxonomicFilterGroupType(StrEnum):
     SESSION_PROPERTIES = "session_properties"
     HOGQL_EXPRESSION = "hogql_expression"
     NOTEBOOKS = "notebooks"
+    LOG_ENTRIES = "log_entries"
     REPLAY = "replay"
 
 
@@ -2511,6 +2514,17 @@ class LifecycleQueryResponse(BaseModel):
     )
 
 
+class LogEntryPropertyFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str
+    label: Optional[str] = None
+    operator: PropertyOperator
+    type: Literal["log_entry"] = "log_entry"
+    value: Optional[Union[str, float, list[Union[str, float]]]] = None
+
+
 class MultipleBreakdownOptions(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3435,6 +3449,7 @@ class DashboardFilter(BaseModel):
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
+                LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -3491,6 +3506,7 @@ class DataWarehouseNode(BaseModel):
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
+                LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -3522,6 +3538,7 @@ class DataWarehouseNode(BaseModel):
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
+                LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -3574,6 +3591,7 @@ class EntityNode(BaseModel):
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
+                LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -3603,6 +3621,7 @@ class EntityNode(BaseModel):
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
+                LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -3630,6 +3649,7 @@ class EventsNode(BaseModel):
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
+                LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -3661,6 +3681,7 @@ class EventsNode(BaseModel):
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
+                LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -3691,6 +3712,7 @@ class EventsQuery(BaseModel):
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
+                LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -3720,6 +3742,7 @@ class EventsQuery(BaseModel):
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
+                LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -3748,6 +3771,7 @@ class FunnelExclusionActionsNode(BaseModel):
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
+                LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -3780,6 +3804,7 @@ class FunnelExclusionActionsNode(BaseModel):
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
+                LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -3807,6 +3832,7 @@ class FunnelExclusionEventsNode(BaseModel):
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
+                LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -3840,6 +3866,7 @@ class FunnelExclusionEventsNode(BaseModel):
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
+                LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -3867,6 +3894,7 @@ class HogQLFilters(BaseModel):
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
+                LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -3923,6 +3951,7 @@ class PersonsNode(BaseModel):
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
+                LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -3950,6 +3979,7 @@ class PersonsNode(BaseModel):
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
+                LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -3978,6 +4008,7 @@ class PropertyGroupFilterValue(BaseModel):
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
+                LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -4063,6 +4094,7 @@ class ActionsNode(BaseModel):
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
+                LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -4093,6 +4125,7 @@ class ActionsNode(BaseModel):
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
+                LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -4188,6 +4221,7 @@ class RetentionQuery(BaseModel):
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
+                    LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
@@ -4231,6 +4265,7 @@ class StickinessQuery(BaseModel):
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
+                    LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
@@ -4281,6 +4316,7 @@ class TrendsQuery(BaseModel):
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
+                    LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
@@ -4350,6 +4386,7 @@ class FunnelsQuery(BaseModel):
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
+                    LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
@@ -4391,6 +4428,7 @@ class InsightsQueryBaseFunnelsQueryResponse(BaseModel):
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
+                    LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
@@ -4429,6 +4467,7 @@ class InsightsQueryBaseLifecycleQueryResponse(BaseModel):
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
+                    LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
@@ -4467,6 +4506,7 @@ class InsightsQueryBasePathsQueryResponse(BaseModel):
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
+                    LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
@@ -4505,6 +4545,7 @@ class InsightsQueryBaseRetentionQueryResponse(BaseModel):
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
+                    LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
@@ -4543,6 +4584,7 @@ class InsightsQueryBaseTrendsQueryResponse(BaseModel):
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
+                    LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
@@ -4588,6 +4630,7 @@ class LifecycleQuery(BaseModel):
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
+                    LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
@@ -4778,6 +4821,7 @@ class PathsQuery(BaseModel):
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
+                    LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
@@ -4858,6 +4902,7 @@ class FunnelCorrelationActorsQuery(BaseModel):
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
+                LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,

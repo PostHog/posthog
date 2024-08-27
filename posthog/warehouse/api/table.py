@@ -1,7 +1,7 @@
 from typing import Any
 
 from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
-from rest_framework.decorators import action
+from posthog.api.utils import action
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer

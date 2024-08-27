@@ -1,13 +1,14 @@
 import './Experiment.scss'
 
-import { IconArchive, IconInfo } from '@posthog/icons'
-import { LemonTable, Tooltip } from '@posthog/lemon-ui'
+import { IconArchive } from '@posthog/icons'
+import { LemonTable } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { FunnelLayout } from 'lib/constants'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { queryFromFilters } from '~/queries/nodes/InsightViz/utils'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema'
 import { ChartDisplayType, FilterType, FunnelVizType, InsightShortId, InsightType } from '~/types'
@@ -30,7 +31,6 @@ export function ExperimentResult({ secondaryMetricId }: ExperimentResultProps): 
         secondaryMetricResultsLoading,
         conversionRateForVariant,
         getIndexForVariant,
-        areTrendResultsConfusing,
         sortedExperimentResultVariants,
         experimentMathAggregationForTrends,
     } = useValues(experimentLogic)
@@ -165,15 +165,7 @@ export function ExperimentResult({ secondaryMetricId }: ExperimentResultProps): 
                                                             </span>
                                                         </div>
                                                     </b>{' '}
-                                                    {countDataForVariant(targetResults, variant)}{' '}
-                                                    {areTrendResultsConfusing && idx === 0 && (
-                                                        <Tooltip
-                                                            placement="right"
-                                                            title="It might seem confusing that the best variant has lower absolute count, but this can happen when fewer people are exposed to this variant, so its relative count is higher."
-                                                        >
-                                                            <IconInfo className="py-1 px-0.5" />
-                                                        </Tooltip>
-                                                    )}
+                                                    {countDataForVariant(targetResults, variant)}
                                                 </div>
                                                 <div className="flex">
                                                     <b className="pr-1">Exposure:</b>{' '}
@@ -226,10 +218,12 @@ export function ExperimentResult({ secondaryMetricId }: ExperimentResultProps): 
                                 dashboardItemId: targetResults.fakeInsightId as InsightShortId,
                                 cachedInsight: {
                                     short_id: targetResults.fakeInsightId as InsightShortId,
-                                    filters: transformResultFilters(targetResults.filters ?? {}),
+                                    query: targetResults?.filters
+                                        ? queryFromFilters(transformResultFilters(targetResults.filters))
+                                        : null,
                                     result: targetResults.insight,
                                     disable_baseline: true,
-                                    last_refresh: targetResults.last_refresh,
+                                    last_refresh: targetResults.last_refresh || null,
                                 },
                                 doNotLoad: true,
                             },

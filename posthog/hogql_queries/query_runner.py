@@ -542,6 +542,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         tag_queries(cache_key=cache_key)
         tag_queries(sentry_trace=get_traceparent())
         set_tag("cache_key", cache_key)
+        set_tag("query_type", getattr(self.query, "kind", "Other"))
         if insight_id:
             tag_queries(insight_id=insight_id)
             set_tag("insight_id", str(insight_id))

@@ -12,15 +12,15 @@ import {
     DashboardType,
     DatedAnnotationType,
     InsightLogicProps,
-    InsightModel,
     IntervalType,
+    QueryBasedInsightModel,
 } from '~/types'
 
 import type { annotationsOverlayLogicType } from './annotationsOverlayLogicType'
 
 export interface AnnotationsOverlayLogicProps extends Omit<InsightLogicProps, 'dashboardId'> {
     dashboardId: DashboardType['id'] | undefined
-    insightNumericId: InsightModel['id'] | 'new'
+    insightNumericId: QueryBasedInsightModel['id'] | 'new'
     dates: string[]
     ticks: Tick[]
 }

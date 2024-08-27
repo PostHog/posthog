@@ -12,7 +12,7 @@ import { dataVisualizationLogic } from '../dataVisualizationLogic'
 interface TableProps {
     query: DataVisualizationNode
     uniqueKey: string | number | undefined
-    context: QueryContext | undefined
+    context: QueryContext<DataVisualizationNode> | undefined
     cachedResults: HogQLQueryResponse | undefined
 }
 

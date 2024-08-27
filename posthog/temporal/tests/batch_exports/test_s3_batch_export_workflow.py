@@ -1407,7 +1407,7 @@ async def test_s3_export_workflow_with_request_timeouts(
     elif model is not None:
         batch_export_schema = model
 
-    raised = False
+    raised = 0
 
     class FakeSession(aioboto3.Session):
         @contextlib.asynccontextmanager
@@ -1420,8 +1420,8 @@ async def test_s3_export_workflow_with_request_timeouts(
                 async def faulty_upload_part(*args, **kwargs):
                     nonlocal raised
 
-                    if not raised:
-                        raised = True
+                    if raised < 5:
+                        raised = raised + 1
                         raise botocore.exceptions.ClientError(
                             error_response={
                                 "Error": {"Code": "RequestTimeout", "Message": "Oh no!"},
@@ -1436,6 +1436,11 @@ async def test_s3_export_workflow_with_request_timeouts(
 
                 yield client
 
+    class DoNotRetryPolicy(RetryPolicy):
+        def __init__(self, *args, **kwargs):
+            kwargs["maximum_attempts"] = 1
+            super().__init__(*args, **kwargs)
+
     workflow_id = str(uuid.uuid4())
     inputs = S3BatchExportInputs(
         team_id=ateam.pk,
@@ -1447,8 +1452,9 @@ async def test_s3_export_workflow_with_request_timeouts(
         **s3_batch_export.destination.config,
     )
 
-    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-        async with Worker(
+    async with (
+        await WorkflowEnvironment.start_time_skipping() as activity_environment,
+        Worker(
             activity_environment.client,
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[S3BatchExportWorkflow],
@@ -1458,16 +1464,20 @@ async def test_s3_export_workflow_with_request_timeouts(
                 finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
+        ),
+    ):
+        with (
+            mock.patch("posthog.temporal.batch_exports.s3_batch_export.aioboto3.Session", FakeSession),
+            mock.patch("posthog.temporal.batch_exports.batch_exports.RetryPolicy", DoNotRetryPolicy),
         ):
-            with mock.patch("posthog.temporal.batch_exports.s3_batch_export.aioboto3.Session", FakeSession):
-                await activity_environment.client.execute_workflow(
-                    S3BatchExportWorkflow.run,
-                    inputs,
-                    id=workflow_id,
-                    task_queue=settings.TEMPORAL_TASK_QUEUE,
-                    retry_policy=RetryPolicy(maximum_attempts=2),
-                    execution_timeout=dt.timedelta(seconds=10),
-                )
+            await activity_environment.client.execute_workflow(
+                S3BatchExportWorkflow.run,
+                inputs,
+                id=workflow_id,
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+                retry_policy=RetryPolicy(maximum_attempts=2),
+                execution_timeout=dt.timedelta(minutes=2),
+            )
 
     runs = await afetch_batch_export_runs(batch_export_id=s3_batch_export.id)
     assert len(runs) == 2
@@ -1478,6 +1488,10 @@ async def test_s3_export_workflow_with_request_timeouts(
     (events_to_export_created, persons_to_export_created) = generate_test_data
     assert run.status == "FailedRetryable"
     assert run.records_completed is None
+    assert (
+        run.latest_error
+        == "IntermittentUploadPartTimeoutError: An intermittent `RequestTimeout` was raised while attempting to upload part 1"
+    )
 
     run = runs[1]
     (events_to_export_created, persons_to_export_created) = generate_test_data
