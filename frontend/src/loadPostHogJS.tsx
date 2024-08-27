@@ -49,28 +49,17 @@ export function loadPostHogJS(): void {
 
             // Helper to capture events for assertions in Cypress
             _onCapture: (event, eventPayload) => {
-                ;(window as any).console
-                    .warn(
-                        '_CYPRESS_POSTHOG_CAPTURES',
-                        (window as any)._cypress_posthog_captures
-                    )(window as any)
-                    .console.warn(
-                        '_CYPRESS_POSTHOG_CAPTURES EVENT',
-                        event
-                    )(window as any)
-                    .console.warn(
-                        '_CYPRESS_POSTHOG_CAPTURES EVENT Data',
-                        eventPayload
-                    )(
-                    // if not exist, initialize as empty array
-                    window as any
-                )._cypress_posthog_captures =
-                    (window as any)._cypress_posthog_captures ||
-                    [](window as any)._cypress_posthog_captures.push(eventPayload)
+                ;(window as any).console.warn('_CYPRESS_POSTHOG_CAPTURES', (window as any)._cypress_posthog_captures)
+                ;(window as any).console.warn('_CYPRESS_POSTHOG_CAPTURES EVENT', event)
+                ;(window as any).console.warn('_CYPRESS_POSTHOG_CAPTURES EVENT Data', eventPayload)
+
+                // if not exist, initialize as empty array
+                ;(window as any)._cypress_posthog_captures = (window as any)._cypress_posthog_captures || []
+                ;(window as any)._cypress_posthog_captures.push(eventPayload)
             },
         })
 
-        window.console.warn('POSTHOG CONFIG _onCapture is ,', config._onCapture)
+        window.console.warn('POSTHOG CONFIG _onCapture is ,', config._onCapture?.toString())
 
         posthog.init(window.JS_POSTHOG_API_KEY, config)
         window.posthog?.capture('capturing posthog event')
