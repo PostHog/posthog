@@ -17,6 +17,7 @@ export function ActionHogFunctions(): JSX.Element | null {
         actions: [
             {
                 id: `${action?.id}`,
+                name: action?.name,
                 type: 'actions',
             },
         ],
