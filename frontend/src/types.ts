@@ -33,7 +33,6 @@ import { Scene } from 'scenes/sceneTypes'
 import { QueryContext } from '~/queries/types'
 
 import type {
-    AnomalyCondition,
     DashboardFilter,
     DatabaseSchemaField,
     HogQLQuery,
@@ -4450,14 +4449,6 @@ export type HogFunctionInvocationGlobals = {
             properties: Record<string, any>
         }
     >
-}
-
-export interface AlertType {
-    id: number
-    name: string
-    insight?: number
-    target_value: string
-    anomaly_condition: AnomalyCondition
 }
 
 export type AppMetricsV2Response = {

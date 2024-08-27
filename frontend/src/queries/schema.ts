@@ -32,6 +32,7 @@ import {
     SessionRecordingType,
     StickinessFilterType,
     TrendsFilterType,
+    UserBasicType,
 } from '~/types'
 
 export { ChartDisplayCategory }
@@ -1716,11 +1717,47 @@ export interface DashboardFilter {
     properties?: AnyPropertyFilter[] | null
 }
 
-export interface AbsoluteThreshold {
-    lower?: number | null
-    upper?: number | null
+export interface InsightsThresholdAbsolute {
+    lower?: number
+    upper?: number
 }
 
-export interface AnomalyCondition {
-    absoluteThreshold: AbsoluteThreshold
+export interface InsightThreshold {
+    absoluteThreshold?: InsightsThresholdAbsolute
+    // More types of thresholds or conditions can be added here
+}
+
+export interface AlertCondition {
+    // Conditions in addition to the separate threshold
+    // TODO: Think about things like relative thresholds, rate of change, etc.
+}
+
+export interface AlertCheck {
+    id: string
+    created_at: string
+    calculated_value: number
+    state: string
+    targets_notified: boolean
+}
+
+export interface AlertTypeBase {
+    name: string
+    condition: AlertCondition
+    enabled: boolean
+    insight: number
+}
+
+export interface AlertTypeWrite extends AlertTypeBase {
+    subscribed_users: integer[]
+}
+
+export interface AlertType extends AlertTypeBase {
+    id: string
+    subscribed_users: UserBasicType[]
+    threshold: { configuration: InsightThreshold }
+    created_by: UserBasicType
+    created_at: string
+    state: string
+    last_notified_at: string
+    checks: AlertCheck[]
 }
