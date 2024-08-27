@@ -11,9 +11,8 @@ print('-- test while loop --')
 print('-- test for loop --')
 {
     for (let i := 0; i < 3; i := i + 1) {
-        print(i) -- prints 3 times
+        print(i) // prints 3 times
     }
-    print(i) -- global does not print
 }
 
 print('-- test emptier for loop --')
