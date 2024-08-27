@@ -74,7 +74,7 @@ def execute_bytecode(
                         type="main",
                         arg_count=0,
                         upvalue_count=0,
-                        ip=1,
+                        ip=2 if bytecode[0] == HOGQL_BYTECODE_IDENTIFIER else 1,
                         name="",
                     )
                 ),
