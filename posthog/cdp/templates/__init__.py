@@ -1,7 +1,7 @@
 from .webhook.template_webhook import template as webhook
 from .slack.template_slack import template as slack
 from .hubspot.template_hubspot import template as hubspot
-from .customerio.template_customerio import template as customerio
+from .customerio.template_customerio import template as customerio, TemplateCustomerioMigrator
 from .intercom.template_intercom import template as intercom
 from .sendgrid.template_sendgrid import template as sendgrid
 from .clearbit.template_clearbit import template as clearbit
@@ -36,5 +36,9 @@ HOG_FUNCTION_TEMPLATES = [
 
 
 HOG_FUNCTION_TEMPLATES_BY_ID = {template.id: template for template in HOG_FUNCTION_TEMPLATES}
+
+HOG_FUNCTION_MIGRATORS = {
+    TemplateCustomerioMigrator.plugin_url: TemplateCustomerioMigrator,
+}
 
 __all__ = ["HOG_FUNCTION_TEMPLATES", "HOG_FUNCTION_TEMPLATES_BY_ID"]

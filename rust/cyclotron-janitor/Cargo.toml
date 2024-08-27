@@ -8,7 +8,6 @@ workspace = true
 
 [dependencies]
 tracing-subscriber = { workspace = true }
-sqlx = { workspace = true }
 chrono = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
@@ -16,7 +15,9 @@ uuid = { workspace = true }
 envconfig = { workspace = true }
 axum = { workspace = true }
 eyre = { workspace = true }
-metrics = { workspace = true }
 cyclotron-core = { path = "../cyclotron-core" }
 common-metrics = { path = "../common/metrics" }
 health = { path = "../common/health" }
+
+[dev-dependencies]
+sqlx = { workspace = true }

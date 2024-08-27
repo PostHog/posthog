@@ -2,11 +2,7 @@ use std::sync::Arc;
 
 use chrono::{Duration, Utc};
 use common::{assert_job_matches_init, create_new_job, dates_match};
-use cyclotron_core::{
-    base_ops::{bulk_create_jobs, JobState},
-    manager::QueueManager,
-    worker::Worker,
-};
+use cyclotron_core::{JobState, QueueManager, Worker};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -233,6 +229,7 @@ async fn test_queue(db: PgPool) {
 #[sqlx::test(migrations = "./migrations")]
 pub async fn test_bulk_insert(db: PgPool) {
     let worker = Worker::from_pool(db.clone());
+    let manager = QueueManager::from_pool(db.clone());
 
     let job_template = create_new_job();
 
@@ -244,7 +241,8 @@ pub async fn test_bulk_insert(db: PgPool) {
         })
         .collect::<Vec<_>>();
 
-    bulk_create_jobs(&db, &jobs).await.unwrap();
+    let result = manager.bulk_create_jobs(jobs).await;
+    assert!(result.all_succeeded());
 
     let dequeue_jobs = worker
         .dequeue_jobs(&job_template.queue_name, 1000)

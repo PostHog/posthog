@@ -274,6 +274,10 @@ class PluginAttachment(models.Model):
 
 
 class PluginStorage(models.Model):
+    plugin_config = models.ForeignKey("PluginConfig", on_delete=models.CASCADE)
+    key = models.CharField(max_length=200)
+    value = models.TextField(blank=True, null=True)
+
     class Meta:
         constraints = [
             models.UniqueConstraint(
@@ -281,10 +285,6 @@ class PluginStorage(models.Model):
                 name="posthog_unique_plugin_storage_key",
             )
         ]
-
-    plugin_config = models.ForeignKey("PluginConfig", on_delete=models.CASCADE)
-    key = models.CharField(max_length=200)
-    value = models.TextField(blank=True, null=True)
 
 
 class PluginLogEntrySource(StrEnum):

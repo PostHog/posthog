@@ -25,9 +25,6 @@ logger = structlog.get_logger(__name__)
 
 
 class FeatureFlag(models.Model):
-    class Meta:
-        constraints = [models.UniqueConstraint(fields=["team", "key"], name="unique key for team")]
-
     # When adding new fields, make sure to update organization_feature_flags.py::copy_flags
     key = models.CharField(max_length=400)
     name = models.TextField(
@@ -56,6 +53,9 @@ class FeatureFlag(models.Model):
     )
     # whether a feature is sending us rich analytics, like views & interactions.
     has_enriched_analytics = models.BooleanField(default=False, null=True, blank=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["team", "key"], name="unique key for team")]
 
     def __str__(self):
         return f"{self.key} ({self.pk})"
@@ -360,14 +360,6 @@ def refresh_flag_cache_on_updates(sender, instance, **kwargs):
 
 
 class FeatureFlagHashKeyOverride(models.Model):
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(
-                fields=["team", "person", "feature_flag_key"],
-                name="Unique hash_key for a user/team/feature_flag combo",
-            )
-        ]
-
     # Can't use a foreign key to feature_flag_key directly, since
     # the unique constraint is on (team_id+key), and not just key.
     # A standard id foreign key leads to INNER JOINs every time we want to get the key
@@ -377,9 +369,22 @@ class FeatureFlagHashKeyOverride(models.Model):
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     hash_key = models.CharField(max_length=400)
 
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "person", "feature_flag_key"],
+                name="Unique hash_key for a user/team/feature_flag combo",
+            )
+        ]
+
 
 # DEPRECATED: This model is no longer used, but it's not deleted to avoid downtime
 class FeatureFlagOverride(models.Model):
+    feature_flag = models.ForeignKey("FeatureFlag", on_delete=models.CASCADE)
+    user = models.ForeignKey("User", on_delete=models.CASCADE)
+    override_value = models.JSONField()
+    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+
     class Meta:
         constraints = [
             models.UniqueConstraint(
@@ -387,11 +392,6 @@ class FeatureFlagOverride(models.Model):
                 name="unique feature flag for a user/team combo",
             )
         ]
-
-    feature_flag = models.ForeignKey("FeatureFlag", on_delete=models.CASCADE)
-    user = models.ForeignKey("User", on_delete=models.CASCADE)
-    override_value = models.JSONField()
-    team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
 
 def set_feature_flags_for_team_in_cache(

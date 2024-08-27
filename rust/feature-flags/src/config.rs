@@ -8,10 +8,10 @@ pub struct Config {
     #[envconfig(default = "127.0.0.1:3001")]
     pub address: SocketAddr,
 
-    #[envconfig(default = "postgres://posthog:posthog@localhost:5432/test_posthog")]
+    #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog")]
     pub write_database_url: String,
 
-    #[envconfig(default = "postgres://posthog:posthog@localhost:5432/test_posthog")]
+    #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog")]
     pub read_database_url: String,
 
     #[envconfig(default = "1024")]
@@ -57,11 +57,11 @@ mod tests {
         );
         assert_eq!(
             config.write_database_url,
-            "postgres://posthog:posthog@localhost:5432/test_posthog"
+            "postgres://posthog:posthog@localhost:5432/posthog"
         );
         assert_eq!(
             config.read_database_url,
-            "postgres://posthog:posthog@localhost:5432/test_posthog"
+            "postgres://posthog:posthog@localhost:5432/posthog"
         );
         assert_eq!(config.max_concurrent_jobs, 1024);
         assert_eq!(config.max_pg_connections, 100);

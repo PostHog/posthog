@@ -20,7 +20,7 @@ logger = structlog.get_logger(__name__)
 TARGET_TABLE = "raw_sessions"
 
 SETTINGS = {
-    "max_execution_time": 3600  # 1 hour
+    "max_execution_time": 7200  # 2 hours
 }
 
 

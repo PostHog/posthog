@@ -23,7 +23,7 @@ from django_otp import login as otp_login
 from django_otp.util import random_hex
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, mixins, serializers, viewsets
-from rest_framework.decorators import action
+from posthog.api.utils import action
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response

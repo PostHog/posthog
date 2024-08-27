@@ -1,11 +1,8 @@
 use std::sync::Arc;
 
 use chrono::{Duration, Utc};
-use cyclotron_core::{
-    base_ops::{Job, JobInit},
-    error::QueueError,
-    worker::Worker,
-};
+
+use cyclotron_core::{Job, JobInit, QueueError, Worker};
 use cyclotron_fetch::{
     config::AppConfig,
     context::AppContext,
@@ -32,6 +29,7 @@ pub async fn get_app_test_context(db: PgPool) -> AppContext {
         host: "localhost".to_string(),
         port: 16,
         worker_id: "test".to_string(),
+        shard_id: "test".to_string(),
         job_poll_interval: Duration::seconds(10),
         max_retry_attempts: 3,
         queue_served: FETCH_QUEUE.to_string(),
@@ -47,6 +45,7 @@ pub async fn get_app_test_context(db: PgPool) -> AppContext {
         concurrency_limit,
         liveness,
         config,
+        metric_labels: Default::default(),
     }
 }
 

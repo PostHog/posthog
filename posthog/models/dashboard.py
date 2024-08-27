@@ -77,7 +77,7 @@ class Dashboard(models.Model):
     is_shared = models.BooleanField(default=False)
 
     objects = DashboardManager()
-    objects_including_soft_deleted = models.Manager()
+    objects_including_soft_deleted: models.Manager["Dashboard"] = models.Manager()
 
     __repr__ = sane_repr("team_id", "id", "name")
 

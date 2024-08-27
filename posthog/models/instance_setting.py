@@ -9,11 +9,11 @@ from posthog.settings import CONSTANCE_CONFIG, CONSTANCE_DATABASE_PREFIX
 
 
 class InstanceSetting(models.Model):
-    class Meta:
-        constraints = [models.UniqueConstraint(fields=["key"], name="unique key")]
-
     key = models.CharField(max_length=128, null=False, blank=False)
     raw_value = models.CharField(max_length=1024, null=False, blank=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["key"], name="unique key")]
 
     @property
     def value(self):

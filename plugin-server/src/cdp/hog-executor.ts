@@ -1,4 +1,4 @@
-import { calculateCost, convertHogToJS, convertJSToHog, exec, ExecResult } from '@posthog/hogvm'
+import { calculateCost, convertHogToJS, exec, ExecResult } from '@posthog/hogvm'
 import { DateTime } from 'luxon'
 import { Histogram } from 'prom-client'
 
@@ -217,7 +217,7 @@ export class HogExecutor {
         }
 
         // Add the response to the stack to continue execution
-        invocation.vmState.stack.push(convertJSToHog(response))
+        invocation.vmState.stack.push(response)
         invocation.timings.push(...timings)
 
         const res = this.execute(hogFunction, invocation)

@@ -40,13 +40,6 @@ class Integration(models.Model):
         SALESFORCE = "salesforce"
         HUBSPOT = "hubspot"
 
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(
-                fields=["team", "kind", "integration_id"], name="posthog_integration_kind_id_unique"
-            )
-        ]
-
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
     # The integration type identifier
@@ -63,6 +56,13 @@ class Integration(models.Model):
     # Meta
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "kind", "integration_id"], name="posthog_integration_kind_id_unique"
+            )
+        ]
 
     @property
     def display_name(self) -> str:
@@ -322,7 +322,7 @@ class SlackIntegration:
         return sorted(channels, key=lambda x: x["name"])
 
     def _list_channels_by_type(self, type: Literal["public_channel", "private_channel"]) -> list[dict]:
-        max_page = 10
+        max_page = 20
         channels = []
         cursor = None
 
