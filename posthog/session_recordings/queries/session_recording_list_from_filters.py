@@ -488,7 +488,8 @@ class ReplayFiltersEventsSubQuery:
 
         (event_where_exprs, _) = self._event_predicates
         if event_where_exprs:
-            exprs.append(self._filter.events_operand(exprs=event_where_exprs))
+            # we OR all events in the where and use hasAll / hasAny in the HAVING clause
+            exprs.append(ast.Or(exprs=event_where_exprs))
 
         if self._team.person_on_events_mode and self.person_properties:
             exprs.append(property_to_expr(self.person_properties, team=self._team, scope="event"))
