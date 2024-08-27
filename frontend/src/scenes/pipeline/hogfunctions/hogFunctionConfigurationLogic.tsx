@@ -527,6 +527,13 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 return subTemplate
             },
         ],
+
+        forcedSubTemplateId: [
+            () => [router.selectors.searchParams],
+            ({ sub_template }) => {
+                return !!sub_template
+            },
+        ],
     })),
 
     listeners(({ actions, values, cache }) => ({

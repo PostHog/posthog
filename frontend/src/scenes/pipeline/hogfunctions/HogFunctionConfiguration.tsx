@@ -55,6 +55,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
         template,
         subTemplate,
         templateHasChanged,
+        forcedSubTemplateId,
     } = useValues(logic)
     const {
         submitConfiguration,
@@ -289,7 +290,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                         </div>
 
                         <div className="flex-2 min-w-100 space-y-4">
-                            {template?.sub_templates && (
+                            {!forcedSubTemplateId && template?.sub_templates && (
                                 <>
                                     <div className="border bg-bg-light rounded p-3 space-y-2">
                                         <div className="flex items-center gap-2">
