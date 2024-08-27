@@ -83,6 +83,12 @@ class SnowflakeConnectionError(Exception):
     pass
 
 
+class SnowflakeRetryableConnectionError(Exception):
+    """Raised when a connection to Snowflake is not established."""
+
+    pass
+
+
 @dataclasses.dataclass
 class SnowflakeHeartbeatDetails(BatchExportHeartbeatDetails):
     """The Snowflake batch export details included in every heartbeat.
@@ -192,7 +198,13 @@ class SnowflakeClient:
             )
 
         except OperationalError as err:
-            raise SnowflakeConnectionError("Could not connect to Snowflake") from err
+            if err.errno == 251012:
+                # 251012: Generic retryable error code
+                raise SnowflakeRetryableConnectionError(
+                    "Could not connect to Snowflake but this error may be retried"
+                ) from err
+            else:
+                raise SnowflakeConnectionError(f"Could not connect to Snowflake - {err.errno}: {err.msg}") from err
 
         self._connection = connection
 

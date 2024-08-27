@@ -8,9 +8,9 @@ use reqwest::Response;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::sync::OwnedSemaphorePermit;
-use tracing::error;
+use tracing::{error, instrument, warn};
 
-use crate::context::AppContext;
+use crate::{context::AppContext, metrics_constants::*};
 
 // TODO - a lot of these should maybe be configurable
 pub const DEAD_LETTER_QUEUE: &str = "fetch-dead-letter";
@@ -207,26 +207,34 @@ pub struct FetchResponse {
     pub body: String,
 }
 
-pub fn report_worker_saturation(context: &AppContext) {
-    metrics::gauge!("fetch_worker_available_permits")
-        .set(context.concurrency_limit.available_permits() as f64);
-}
-
+#[instrument(skip_all)]
 pub async fn tick(context: Arc<AppContext>) -> Result<usize, FetchError> {
-    report_worker_saturation(&context);
+    let labels = Arc::new(context.metric_labels());
+
+    common_metrics::gauge(
+        WORKER_SAT,
+        &labels,
+        context.concurrency_limit.available_permits() as f64,
+    );
 
     let max_jobs = min(
         context.concurrency_limit.available_permits(),
         context.config.batch_size,
     );
 
-    let jobs = context
-        .worker
-        .dequeue_jobs(&context.config.queue_served, max_jobs)
-        .await?;
+    let jobs = {
+        let _time = common_metrics::timing_guard(DEQUEUE_TIME, &labels);
+        context
+            .worker
+            .dequeue_jobs(&context.config.queue_served, max_jobs)
+            .await?
+    };
 
     let num_jobs = jobs.len();
 
+    common_metrics::inc(WORKER_DEQUEUED, &labels, num_jobs as u64);
+
+    let _time = common_metrics::timing_guard(SPAWN_TIME, &labels);
     for job in jobs {
         let context = context.clone();
         // We grab job permits individually, so that as soon as a job is finished, the
@@ -239,12 +247,16 @@ pub async fn tick(context: Arc<AppContext>) -> Result<usize, FetchError> {
             .acquire_owned()
             .await
             .unwrap();
+        let labels = labels.clone();
         tokio::spawn(async move {
             // TODO - since worker errors are never an indication of a fetch failure,
             // only of some internal worker issue, we should report unhealthy or fall
             // over or something here.
             if let Err(e) = run_job(context.clone(), job, permit).await {
                 error!("Error running job: {:?}", e);
+                common_metrics::inc(FETCH_JOB_ERRORS, &labels, 1)
+            } else {
+                common_metrics::inc(FETCH_JOBS_COMPLETED, &labels, 1);
             }
         });
     }
@@ -303,17 +315,28 @@ impl<'a> TryFrom<&'a Job> for FetchJob<'a> {
     }
 }
 
+#[instrument(skip_all)]
 pub async fn run_job(
     context: Arc<AppContext>,
     job: Job,
     _permit: OwnedSemaphorePermit,
 ) -> Result<(), FetchError> {
+    let labels = context.metric_labels();
+    let job_total = common_metrics::timing_guard(JOB_TOTAL_TIME, &labels);
     let parsed: FetchJob = match (&job).try_into() {
         Ok(p) => p,
-        Err(e) => return dead_letter_job(&context.worker, job, vec![e]).await,
+        Err(e) => {
+            warn!("Failed to parse job: {:?}", e);
+            let res = dead_letter_job(&context.worker, job, vec![e]).await;
+            common_metrics::inc(FETCH_DEAD_LETTER, &labels, 1);
+            job_total
+                .label(OUTCOME_LABEL, "immediate_dead_letter")
+                .fin();
+            return res;
+        }
     };
 
-    let method: http::Method = (&parsed.parameters.method).into();
+    let method = (&parsed.parameters.method).into();
 
     // Parsing errors are always dead letters - it /will/ fail every time, so dump it
     // TODO - We should probably decide whether to dead letter or return Failed on the basis of OnFinish,
@@ -321,7 +344,9 @@ pub async fn run_job(
     let url: reqwest::Url = match (parsed.parameters.url).parse() {
         Ok(u) => u,
         Err(e) => {
-            return dead_letter_job(
+            warn!("Failed to parse URL: {}", e);
+            common_metrics::inc(FETCH_DEAD_LETTER, &labels, 1);
+            let res = dead_letter_job(
                 &context.worker,
                 job,
                 vec![FetchFailure::new(
@@ -330,36 +355,44 @@ pub async fn run_job(
                 )],
             )
             .await;
+            job_total
+                .label(OUTCOME_LABEL, "url_parse_dead_letter")
+                .fin();
+            return res;
         }
     };
-    let headers: reqwest::header::HeaderMap =
-        match (&parsed.parameters.headers.unwrap_or_default()).try_into() {
-            Ok(h) => h,
-            Err(e) => {
-                return dead_letter_job(
-                    &context.worker,
-                    job,
-                    vec![FetchFailure::new(
-                        FetchFailureKind::InvalidParameters,
-                        format!("Invalid headers: {}", e),
-                    )],
-                )
-                .await;
-            }
-        };
+
+    let headers = match (&parsed.parameters.headers.unwrap_or_default()).try_into() {
+        Ok(h) => h,
+        Err(e) => {
+            let res = dead_letter_job(
+                &context.worker,
+                job,
+                vec![FetchFailure::new(
+                    FetchFailureKind::InvalidParameters,
+                    format!("Invalid headers: {}", e),
+                )],
+            )
+            .await;
+            warn!("Failed to parse headers: {}", e);
+            common_metrics::inc(FETCH_DEAD_LETTER, &labels, 1);
+            job_total
+                .label(OUTCOME_LABEL, "headers_parse_dead_letter")
+                .fin();
+            return res;
+        }
+    };
 
     let body = reqwest::Body::from(parsed.parameters.body.unwrap_or_default());
 
-    let send_fut = context
+    let mut send_fut = context
         .client
         .request(method, url)
         .headers(headers)
         .body(body)
         .send();
 
-    let mut send_fut = Box::pin(send_fut);
-
-    let start = Utc::now();
+    let request_time = common_metrics::timing_guard(JOB_INITIAL_REQUEST_TIME, &labels);
     let res = loop {
         tokio::select! {
             res = &mut send_fut => {
@@ -371,15 +404,19 @@ pub async fn run_job(
         }
     };
 
-    // If we took, say, 25% of the heartbeat interval to send the request, we may as well heartbeat now
-    if Utc::now() - start > Duration::milliseconds(HEARTBEAT_INTERVAL_MS / 4) {
-        context.worker.heartbeat(job.id).await?;
-    }
-
     let res = match res {
         Ok(r) => r,
         Err(e) => {
-            return handle_fetch_failure(
+            // Record the request time before any queue operations
+            request_time.label(OUTCOME_LABEL, "request_error").fin();
+            // For the counter, we push a response status of "error"
+            let mut labels = labels.clone();
+            labels.push((
+                RESPONSE_STATUS_LABEL.to_string(),
+                "request_error".to_string(),
+            ));
+            common_metrics::inc(RESPONSE_RECEIVED, &labels, 1);
+            let res = handle_fetch_failure(
                 &context,
                 &job,
                 &parsed.metadata,
@@ -388,10 +425,11 @@ pub async fn run_job(
                 parsed.parameters.on_finish.unwrap_or(DEFAULT_ON_FINISH),
                 e,
             )
-            .await
+            .await;
+            job_total.label(OUTCOME_LABEL, "request_error").fin();
+            return res;
         }
     };
-
     // Grab the response metadata, since getting the body moves it
     let status = res.status();
     let headers: HashMap<String, String> = res
@@ -405,6 +443,17 @@ pub async fn run_job(
         })
         .collect();
 
+    request_time.label(OUTCOME_LABEL, &status.to_string()).fin();
+    // Label the job with the request status, re-binding to avoid dropping the guard
+    let job_total = job_total.label(RESPONSE_STATUS_LABEL, &status.to_string());
+
+    let mut labels = labels.clone(); // We can't move out of labels because it's borrowed by the timing guards
+    labels.push((RESPONSE_STATUS_LABEL.to_string(), status.to_string()));
+    let labels = labels;
+
+    common_metrics::inc(RESPONSE_RECEIVED, &labels, 1);
+
+    let body_time = common_metrics::timing_guard(BODY_FETCH_TIME, &labels);
     // We pre-emptively get the response body, because we incldued it in the failure trace, even if we got a failure status
     let body = first_n_bytes_of_response(
         &context.worker,
@@ -416,9 +465,11 @@ pub async fn run_job(
     let body = match body {
         Ok(b) => b,
         Err(e) => {
+            body_time.label(OUTCOME_LABEL, "body_fetch_error").fin();
+            common_metrics::inc(BODY_FETCH_FAILED, &labels, 1);
             // Tag the status and headers onto the failure
             let e = e.with_status(status.as_u16()).with_headers(headers);
-            return handle_fetch_failure(
+            let res = handle_fetch_failure(
                 &context,
                 &job,
                 &parsed.metadata,
@@ -428,8 +479,12 @@ pub async fn run_job(
                 e,
             )
             .await;
+            job_total.label(OUTCOME_LABEL, "body_fetch_error").fin();
+            return res;
         }
     };
+    body_time.label(OUTCOME_LABEL, "success").fin();
+    common_metrics::inc(BODY_FETCH_SUCCEEDED, &labels, 1);
 
     // TODO - we should handle "retryable" and "permanent" failures differently, mostly
     // to be polite - retrying a permanent failure isn't a correctness problem, but it's
@@ -438,7 +493,7 @@ pub async fn run_job(
         let failure = FetchFailure::failure_status(status)
             .with_body(body)
             .with_headers(headers);
-        return handle_fetch_failure(
+        let res = handle_fetch_failure(
             &context,
             &job,
             &parsed.metadata,
@@ -448,6 +503,8 @@ pub async fn run_job(
             failure,
         )
         .await;
+        job_total.label(OUTCOME_LABEL, "failure_status").fin();
+        return res;
     }
 
     let result = FetchResult::Success {
@@ -458,14 +515,16 @@ pub async fn run_job(
         },
     };
 
-    complete_job(
+    let res = complete_job(
         &context.worker,
         &job,
         parsed.parameters.return_queue,
         parsed.parameters.on_finish.unwrap_or(DEFAULT_ON_FINISH),
         result,
     )
-    .await
+    .await;
+    job_total.label(OUTCOME_LABEL, "success").fin();
+    res
 }
 
 // Checks if the retry limit has been reached, and does one of:

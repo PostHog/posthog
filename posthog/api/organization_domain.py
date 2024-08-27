@@ -2,7 +2,7 @@ import re
 from typing import Any, cast
 
 from rest_framework import exceptions, request, response, serializers
-from rest_framework.decorators import action
+from posthog.api.utils import action
 from rest_framework.viewsets import ModelViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
