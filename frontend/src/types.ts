@@ -4374,7 +4374,7 @@ export type HogFunctionType = {
     hog: string
 
     inputs_schema?: HogFunctionInputSchemaType[]
-    inputs?: Record<string, HogFunctionInputType>
+    inputs?: Record<string, HogFunctionInputType> | null
     masking?: HogFunctionMasking | null
     filters?: HogFunctionFiltersType | null
     template?: HogFunctionTemplateType
@@ -4395,7 +4395,7 @@ export type HogFunctionConfigurationType = Omit<
 export type HogFunctionSubTemplateType = Pick<HogFunctionType, 'filters' | 'inputs' | 'masking'> & {
     id: HogFunctionSubTemplateIdType
     name: string
-    description?: string
+    description: string | null
 }
 
 export type HogFunctionTemplateType = Pick<
