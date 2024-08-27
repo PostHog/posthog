@@ -1916,7 +1916,8 @@ describe('hogvm execute', () => {
             'fetch',
             1,
         ]
-        expect(exec(bytecode, { asyncFunctions: { fetch: async () => null } })).toEqual({
+        const result = exec(bytecode, { asyncFunctions: { fetch: async () => null } })
+        expect(result).toEqual({
             asyncFunctionArgs: [{ key: 'value' }], // not a Map
             asyncFunctionName: 'fetch',
             finished: false,
@@ -1924,14 +1925,31 @@ describe('hogvm execute', () => {
             state: {
                 asyncSteps: 1,
                 bytecode: bytecode,
-                callStack: [],
+                callStack: [
+                    {
+                        ip: 12,
+                        stackStart: 0,
+                        argCount: 0,
+                        closure: {
+                            __hogClosure__: true,
+                            callable: {
+                                __hogCallable__: 'main',
+                                name: '',
+                                argCount: 0,
+                                upvalueCount: 0,
+                                ip: 1,
+                            },
+                            upvalues: [],
+                        },
+                    },
+                ],
                 declaredFunctions: {},
-                ip: 12,
                 maxMemUsed: 64,
                 ops: 5,
                 stack: [{ key: 'value' }], // is not a Map
                 syncDuration: 0,
                 throwStack: [],
+                upvalues: [],
             },
         })
     })

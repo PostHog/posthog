@@ -94,10 +94,10 @@ export async function execAsync(bytecode: any[], options?: ExecOptions): Promise
                 const result = await options?.asyncFunctions[response.asyncFunctionName](
                     ...response.asyncFunctionArgs.map(convertHogToJS)
                 )
-                vmState.stack.push(convertJSToHog(result))
+                vmState.stack.push(result)
             } else if (response.asyncFunctionName in ASYNC_STL) {
                 const result = await ASYNC_STL[response.asyncFunctionName].fn(
-                    response.asyncFunctionArgs,
+                    response.asyncFunctionArgs.map(convertHogToJS),
                     response.asyncFunctionName,
                     options?.timeout ?? DEFAULT_TIMEOUT_MS
                 )
@@ -133,7 +133,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
 
     const asyncSteps = vmState ? vmState.asyncSteps : 0
     const syncDuration = vmState ? vmState.syncDuration : 0
-    const stack: any[] = vmState ? vmState.stack : []
+    const stack: any[] = vmState ? vmState.stack.map(convertJSToHog) : []
     const upvalues: HogUpValue[] = vmState ? vmState.upvalues : []
     const memStack: number[] = stack.map((s) => calculateCost(s))
     const callStack: CallFrame[] = vmState ? vmState.callStack : []
@@ -634,10 +634,10 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                             result: undefined,
                             finished: false,
                             asyncFunctionName: name,
-                            asyncFunctionArgs: args,
+                            asyncFunctionArgs: args.map(convertHogToJS),
                             state: {
                                 bytecode,
-                                stack,
+                                stack: stack.map(convertHogToJS),
                                 upvalues,
                                 callStack,
                                 throwStack,
@@ -729,10 +729,10 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                         result: undefined,
                         finished: false,
                         asyncFunctionName: closure.callable.name,
-                        asyncFunctionArgs: args,
+                        asyncFunctionArgs: args.map(convertHogToJS),
                         state: {
                             bytecode,
-                            stack,
+                            stack: stack.map(convertHogToJS),
                             upvalues,
                             callStack,
                             throwStack,
