@@ -251,6 +251,7 @@ describe('Hog Executor', () => {
 
             const resultsShouldMatch = executor.findMatchingFunctions(
                 createHogExecutionGlobals({
+                    groups: {},
                     event: {
                         name: '$pageview',
                         properties: {
@@ -370,6 +371,7 @@ describe('Hog Executor', () => {
             })
 
             const globals = createHogExecutionGlobals({
+                groups: {},
                 event: {
                     properties: {
                         $hog_function_execution_count: 1,
