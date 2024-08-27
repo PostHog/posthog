@@ -1,7 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { filterInspectorListItems } from 'scenes/session-recordings/player/inspector/inspectorListFiltering'
 import {
-    filterInspectorListItems,
     InspectorListBrowserVisibility,
     InspectorListItemEvent,
     InspectorListOfflineStatusChange,
@@ -32,6 +32,30 @@ describe('playerInspectorLogic', () => {
 
     describe('filtering inspector list items', () => {
         describe('the events tab', () => {
+            it('filters by window id', () => {
+                expect(
+                    filterInspectorListItems({
+                        allItems: [
+                            {
+                                type: SessionRecordingPlayerTab.EVENTS,
+                                windowId: 'this window',
+                                data: { event: '$exception' } as unknown as PerformanceEvent,
+                            } as unknown as InspectorListItemEvent,
+                            {
+                                type: SessionRecordingPlayerTab.EVENTS,
+                                windowId: 'a different window',
+                                data: { event: '$exception' } as unknown as PerformanceEvent,
+                            } as unknown as InspectorListItemEvent,
+                        ],
+                        tab: SessionRecordingPlayerTab.EVENTS,
+                        miniFiltersByKey: { 'events-all': { enabled: true } as unknown as SharedListMiniFilter },
+                        showOnlyMatching: false,
+                        showMatchingEventsFilter: false,
+                        windowIdFilter: 'a different window',
+                    })
+                ).toHaveLength(1)
+            })
+
             it('includes browser visibility', () => {
                 expect(
                     filterInspectorListItems({
@@ -40,7 +64,7 @@ describe('playerInspectorLogic', () => {
                                 type: 'browser-visibility',
                             } as InspectorListBrowserVisibility,
                         ],
-                        tab: SessionRecordingPlayerTab.EVENTS,
+                        tab: SessionRecordingPlayerTab.ALL,
                         miniFiltersByKey: { 'all-everything': { enabled: true } as unknown as SharedListMiniFilter },
                         showOnlyMatching: false,
                         showMatchingEventsFilter: false,
