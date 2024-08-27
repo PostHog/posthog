@@ -120,7 +120,7 @@ export function Surveys(): JSX.Element {
                 <>
                     <p>Get notified whenever a survey result is submitted</p>
                     <LinkedHogFunctions
-                        subTemplateIds={['survey_response']}
+                        subTemplateId="survey_response"
                         filters={{
                             events: [
                                 {

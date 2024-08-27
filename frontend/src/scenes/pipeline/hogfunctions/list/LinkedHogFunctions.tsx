@@ -9,10 +9,10 @@ import { HogFunctionTemplateList } from './HogFunctionTemplateList'
 
 export type LinkedHogFunctionsProps = {
     filters: HogFunctionFiltersType
-    subTemplateIds?: HogFunctionSubTemplateIdType[]
+    subTemplateId?: HogFunctionSubTemplateIdType
 }
 
-export function LinkedHogFunctions({ filters, subTemplateIds }: LinkedHogFunctionsProps): JSX.Element | null {
+export function LinkedHogFunctions({ filters, subTemplateId }: LinkedHogFunctionsProps): JSX.Element | null {
     const hogFunctionsEnabled = useFeatureFlag('HOG_FUNCTIONS')
     const [showNewDestination, setShowNewDestination] = useState(false)
 
@@ -23,7 +23,7 @@ export function LinkedHogFunctions({ filters, subTemplateIds }: LinkedHogFunctio
     return showNewDestination ? (
         <HogFunctionTemplateList
             defaultFilters={{}}
-            forceFilters={{ filters, subTemplateIds }}
+            forceFilters={{ filters, subTemplateId }}
             extraControls={
                 <>
                     <LemonButton type="secondary" size="small" onClick={() => setShowNewDestination(false)}>

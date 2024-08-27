@@ -332,7 +332,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                         <p>Get notified when people opt in or out of your feature.</p>
                         <LinkedHogFunctions
                             filters={destinationFilters}
-                            subTemplateIds={['early_access_feature_enrollment']}
+                            subTemplateId="early_access_feature_enrollment"
                         />
                     </>
                 )}
