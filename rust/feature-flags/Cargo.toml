@@ -28,6 +28,7 @@ thiserror = { workspace = true }
 serde-pickle = { version = "1.1.1"}
 sha1 = "0.10.6"
 regex = "1.10.4"
+maxminddb = "0.17"
 sqlx = { workspace = true }
 uuid = { workspace = true }
 
