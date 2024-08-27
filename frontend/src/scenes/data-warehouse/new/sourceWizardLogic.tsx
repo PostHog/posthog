@@ -3,6 +3,8 @@ import { actions, connect, kea, listeners, path, props, reducers, selectors } fr
 import { forms } from 'kea-forms'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -666,6 +668,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             ['dataWarehouseSources'],
             preflightLogic,
             ['preflight'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [
             dataWarehouseTableLogic,
@@ -846,15 +850,21 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             (selectedConnector, isManualLinkFormVisible) => selectedConnector || isManualLinkFormVisible,
         ],
         connectors: [
-            (s) => [s.dataWarehouseSources],
-            (sources): SourceConfig[] => {
-                return Object.values(SOURCE_DETAILS).map((connector) => ({
+            (s) => [s.dataWarehouseSources, s.featureFlags],
+            (sources, featureFlags): SourceConfig[] => {
+                const connectors = Object.values(SOURCE_DETAILS).map((connector) => ({
                     ...connector,
                     disabledReason:
                         sources && sources.results.find((source) => source.source_type === connector.name)
                             ? 'Already linked'
                             : null,
                 }))
+
+                if (!featureFlags[FEATURE_FLAGS.MSSQL_SOURCE]) {
+                    return connectors.filter((n) => n.name !== 'MSSQL')
+                }
+
+                return connectors
             },
         ],
         manualConnectors: [
