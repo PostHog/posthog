@@ -2,14 +2,15 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { getInsightId } from 'scenes/insights/utils'
 
+import { AlertType } from '~/queries/schema'
 import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
-import { AlertType, ChartDisplayType, InsightLogicProps, InsightShortId } from '~/types'
+import { ChartDisplayType, InsightLogicProps, InsightShortId } from '~/types'
 
 import type { alertsLogicType } from './alertsLogicType'
 
 export interface AlertsLogicProps {
+    insightId: number
     insightShortId: InsightShortId
     insightLogicProps: InsightLogicProps
 }
@@ -27,9 +28,9 @@ export const areAlertsSupportedForInsight = (query?: Record<string, any> | null)
 export const alertsLogic = kea<alertsLogicType>([
     path(['lib', 'components', 'Alerts', 'alertsLogic']),
     props({} as AlertsLogicProps),
-    key(({ insightShortId }) => `insight-${insightShortId}`),
+    key(({ insightId }) => `insight-${insightId}`),
     actions({
-        deleteAlert: (id: number) => ({ id }),
+        deleteAlert: (id: string) => ({ id }),
         setShouldShowAlertDeletionWarning: (show: boolean) => ({ show }),
     }),
 
@@ -41,11 +42,7 @@ export const alertsLogic = kea<alertsLogicType>([
         alerts: {
             __default: [] as AlertType[],
             loadAlerts: async () => {
-                const insightId = await getInsightId(props.insightShortId)
-                if (!insightId) {
-                    return []
-                }
-                const response = await api.alerts.list(insightId)
+                const response = await api.alerts.list(props.insightId)
                 return response.results
             },
         },
@@ -63,9 +60,9 @@ export const alertsLogic = kea<alertsLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         deleteAlert: async ({ id }) => {
-            await api.alerts.delete(id)
+            await api.alerts.delete(props.insightId, id)
         },
         setQuery: ({ query }) => {
             if (values.alerts.length === 0 || areAlertsSupportedForInsight(query)) {
