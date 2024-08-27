@@ -1101,7 +1101,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               tileId: TileId.GOALS,
                               title: 'Goals',
                               layout: {
-                                  colSpanClassName: 'md:col-span-2',
+                                  colSpanClassName: 'md:col-span-1',
                               },
                               query: {
                                   full: true,
@@ -1150,6 +1150,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     {
                         kind: 'query',
                         tileId: TileId.RETENTION,
+                        title: 'Retention',
                         layout: {
                             colSpanClassName: 'md:col-span-1',
                         },
