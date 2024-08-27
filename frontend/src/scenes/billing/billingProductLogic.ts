@@ -163,7 +163,10 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 return product.usage_key ? billing?.custom_limits_usd?.[product.usage_key] ?? null : null
             },
         ],
-        hasCustomLimitSet: [(s) => [s.customLimitUsd], (customLimitUsd) => !!customLimitUsd && customLimitUsd >= 0],
+        hasCustomLimitSet: [
+            (s) => [s.customLimitUsd],
+            (customLimitUsd) => (!!customLimitUsd || customLimitUsd === 0) && customLimitUsd >= 0,
+        ],
         currentAndUpgradePlans: [
             (_s, p) => [p.product],
             (product) => {
@@ -209,7 +212,11 @@ export const billingProductLogic = kea<billingProductLogicType>([
                               productAndAddonTiers,
                               billing?.discount_percent
                           )
-                        : convertAmountToUsage(`${customLimitUsd}`, productAndAddonTiers, billing?.discount_percent)
+                        : convertAmountToUsage(
+                              customLimitUsd ? `${customLimitUsd}` : '',
+                              productAndAddonTiers,
+                              billing?.discount_percent
+                          )
                     : 0
             },
         ],

@@ -19,6 +19,7 @@ import {
     FilterLogicalOperator,
     GroupPropertyFilter,
     HogQLPropertyFilter,
+    LogEntryPropertyFilter,
     PersonPropertyFilter,
     PropertyDefinitionType,
     PropertyFilterType,
@@ -103,6 +104,7 @@ export const PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE: Record<Propert
         [PropertyFilterType.DataWarehouse]: TaxonomicFilterGroupType.DataWarehouse,
         [PropertyFilterType.DataWarehousePersonProperty]: TaxonomicFilterGroupType.DataWarehousePersonProperties,
         [PropertyFilterType.Recording]: TaxonomicFilterGroupType.Replay,
+        [PropertyFilterType.LogEntry]: TaxonomicFilterGroupType.LogEntries,
     }
 
 export function formatPropertyLabel(
@@ -202,6 +204,9 @@ export function isSessionPropertyFilter(filter?: AnyFilterLike | null): filter i
 export function isRecordingPropertyFilter(filter?: AnyFilterLike | null): filter is RecordingPropertyFilter {
     return filter?.type === PropertyFilterType.Recording
 }
+export function isLogEntryPropertyFilter(filter?: AnyFilterLike | null): filter is LogEntryPropertyFilter {
+    return filter?.type === PropertyFilterType.LogEntry
+}
 export function isGroupPropertyFilter(filter?: AnyFilterLike | null): filter is GroupPropertyFilter {
     return filter?.type === PropertyFilterType.Group
 }
@@ -223,6 +228,7 @@ export function isAnyPropertyfilter(filter?: AnyFilterLike | null): filter is An
         isSessionPropertyFilter(filter) ||
         isCohortPropertyFilter(filter) ||
         isRecordingPropertyFilter(filter) ||
+        isLogEntryPropertyFilter(filter) ||
         isFeaturePropertyFilter(filter) ||
         isGroupPropertyFilter(filter)
     )
@@ -236,6 +242,7 @@ export function isPropertyFilterWithOperator(
     | ElementPropertyFilter
     | SessionPropertyFilter
     | RecordingPropertyFilter
+    | LogEntryPropertyFilter
     | FeaturePropertyFilter
     | GroupPropertyFilter
     | DataWarehousePropertyFilter {
@@ -246,6 +253,7 @@ export function isPropertyFilterWithOperator(
             isElementPropertyFilter(filter) ||
             isSessionPropertyFilter(filter) ||
             isRecordingPropertyFilter(filter) ||
+            isLogEntryPropertyFilter(filter) ||
             isFeaturePropertyFilter(filter) ||
             isGroupPropertyFilter(filter) ||
             isDataWarehousePropertyFilter(filter))
@@ -345,10 +353,6 @@ export function taxonomicFilterTypeToPropertyFilterType(
 
     if (filterType == TaxonomicFilterGroupType.DataWarehousePersonProperties) {
         return PropertyFilterType.DataWarehousePersonProperty
-    }
-
-    if (filterType == TaxonomicFilterGroupType.Replay) {
-        return PropertyFilterType.Recording
     }
 
     return Object.entries(propertyFilterMapping).find(([, v]) => v === filterType)?.[0] as

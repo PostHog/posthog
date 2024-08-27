@@ -100,7 +100,30 @@ const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element =
 
     return (
         <Section title="Email an engineer">
-            <div className="grid grid-cols-2 border rounded [&_>*]:px-2 [&_>*]:py-0.5 mb-4 bg-bg-light">
+            <SupportForm />
+            <LemonButton
+                form="support-modal-form"
+                htmlType="submit"
+                type="primary"
+                data-attr="submit"
+                fullWidth
+                center
+                className="mt-4"
+            >
+                Submit
+            </LemonButton>
+            <LemonButton
+                form="support-modal-form"
+                type="secondary"
+                onClick={onCancel}
+                fullWidth
+                center
+                className="mt-2 mb-4"
+            >
+                Cancel
+            </LemonButton>
+            <br />
+            <div className="grid grid-cols-2 border rounded [&_>*]:px-2 [&_>*]:py-0.5 mb-4 bg-bg-light pt-4">
                 <div className="col-span-full flex justify-between border-b bg-bg-white py-1">
                     <div>
                         <strong>Avg support response times</strong>
@@ -131,28 +154,6 @@ const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element =
                     )
                 })}
             </div>
-            <SupportForm />
-            <LemonButton
-                form="support-modal-form"
-                htmlType="submit"
-                type="primary"
-                data-attr="submit"
-                fullWidth
-                center
-                className="mt-4"
-            >
-                Submit
-            </LemonButton>
-            <LemonButton
-                form="support-modal-form"
-                type="secondary"
-                onClick={onCancel}
-                fullWidth
-                center
-                className="mt-2"
-            >
-                Cancel
-            </LemonButton>
         </Section>
     )
 }

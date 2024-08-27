@@ -137,15 +137,16 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
                         ).url,
                         status: hogFunction.status,
                     })),
-                    ...Object.values(plugins).map((plugin) => ({
-                        icon: <RenderApp plugin={plugin} />,
-                        name: plugin.name,
-                        description: plugin.description || '',
-                        backend: PipelineBackend.Plugin,
-                        url: urls.pipelineNodeNew(PipelineStage.Destination, `${plugin.id}`),
-                        status: hogFunctionsEnabled ? ('deprecated' as const) : undefined,
-                    })),
-
+                    ...Object.values(plugins)
+                        .filter((x) => !hogFunctionsEnabled || !x.hog_function_migration_available)
+                        .map((plugin) => ({
+                            icon: <RenderApp plugin={plugin} />,
+                            name: plugin.name,
+                            description: plugin.description || '',
+                            backend: PipelineBackend.Plugin,
+                            url: urls.pipelineNodeNew(PipelineStage.Destination, `${plugin.id}`),
+                            status: hogFunctionsEnabled ? ('deprecated' as const) : undefined,
+                        })),
                     ...batchExportServiceNames.map((service) => ({
                         icon: <RenderBatchExportIcon type={service} />,
                         name: humanizeBatchExportName(service),

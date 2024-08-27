@@ -3,7 +3,7 @@ import './InsightViz.scss'
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -78,9 +78,19 @@ export function InsightViz({ uniqueKey, query, setQuery, context, readOnly, embe
     const showingResults = query.showResults ?? true
     const isEmbedded = embedded || (query.embedded ?? false)
 
-    const Wrapper = ({ children }: { children: React.ReactElement }): JSX.Element => {
-        return isEmbedded ? <>{children}</> : <div className="flex-1 h-full overflow-auto">{children}</div>
-    }
+    const display = (
+        <InsightVizDisplay
+            insightMode={insightMode}
+            context={context}
+            disableHeader={disableHeader}
+            disableTable={disableTable}
+            disableCorrelationTable={disableCorrelationTable}
+            disableLastComputation={disableLastComputation}
+            disableLastComputationRefresh={disableLastComputationRefresh}
+            showingResults={showingResults}
+            embedded={isEmbedded}
+        />
+    )
 
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
@@ -98,20 +108,7 @@ export function InsightViz({ uniqueKey, query, setQuery, context, readOnly, embe
                         {!readOnly && (
                             <EditorFilters query={query.source} showing={showingFilters} embedded={isEmbedded} />
                         )}
-
-                        <Wrapper>
-                            <InsightVizDisplay
-                                insightMode={insightMode}
-                                context={context}
-                                disableHeader={disableHeader}
-                                disableTable={disableTable}
-                                disableCorrelationTable={disableCorrelationTable}
-                                disableLastComputation={disableLastComputation}
-                                disableLastComputationRefresh={disableLastComputationRefresh}
-                                showingResults={showingResults}
-                                embedded={isEmbedded}
-                            />
-                        </Wrapper>
+                        {!isEmbedded ? <div className="flex-1 h-full overflow-auto">{display}</div> : display}
                     </div>
                 </BindLogic>
             </BindLogic>

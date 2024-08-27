@@ -20,6 +20,7 @@ from operator import itemgetter
 from typing import TYPE_CHECKING, Any, Optional, Union, cast
 from urllib.parse import unquote, urljoin, urlparse
 from zoneinfo import ZoneInfo
+from rest_framework import serializers
 
 import lzstring
 import posthoganalytics
@@ -68,7 +69,6 @@ ANONYMOUS_REGEX = r"^([a-z0-9]+\-){4}([a-z0-9]+)$"
 UUID_REGEX = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 
 DEFAULT_DATE_FROM_DAYS = 7
-
 
 logger = structlog.get_logger(__name__)
 
@@ -1041,6 +1041,18 @@ def refresh_requested_by_client(request: Request) -> bool | str:
 
 def cache_requested_by_client(request: Request) -> bool | str:
     return _request_has_key_set("use_cache", request)
+
+
+def filters_override_requested_by_client(request: Request) -> Optional[dict]:
+    raw_filters = request.query_params.get("filters_override")
+
+    if raw_filters is not None:
+        try:
+            return json.loads(raw_filters)
+        except Exception:
+            raise serializers.ValidationError({"filters_override": "Invalid JSON passed in filters_override parameter"})
+
+    return None
 
 
 def _request_has_key_set(key: str, request: Request, allowed_values: Optional[list[str]] = None) -> bool | str:

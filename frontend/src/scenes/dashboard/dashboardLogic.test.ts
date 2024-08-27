@@ -15,7 +15,7 @@ import { examples } from '~/queries/examples'
 import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
 import { DashboardFilter, InsightVizNode, TrendsQuery } from '~/queries/schema'
 import { initKeaTests } from '~/test/init'
-import { DashboardTile, DashboardType, InsightColor, InsightShortId, QueryBasedInsightModel, TileLayout } from '~/types'
+import { DashboardTile, DashboardType, InsightColor, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import _dashboardJson from './__mocks__/dashboard.json'
 
@@ -300,11 +300,13 @@ describe('dashboardLogic', () => {
             logic.mount()
         })
 
-        it('saving layouts with no provided tiles updates all tiles', async () => {
+        it('saving layouts creates api call with all tiles', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
             jest.spyOn(api, 'update')
 
             await expectLogic(logic, () => {
-                logic.actions.saveLayouts()
+                logic.actions.updateFiltersAndLayouts()
             }).toFinishAllListeners()
 
             expect(api.update).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}/dashboards/5`, {
@@ -322,23 +324,11 @@ describe('dashboardLogic', () => {
                         layouts: {},
                     },
                 ],
-            })
-        })
-
-        it('saving layouts with provided tiles updates only those tiles', async () => {
-            jest.spyOn(api, 'update')
-
-            await expectLogic(logic, () => {
-                logic.actions.saveLayouts([{ id: 1, layouts: { sm: {} as TileLayout, xs: {} as TileLayout } }])
-            }).toFinishAllListeners()
-
-            expect(api.update).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}/dashboards/5`, {
-                tiles: [
-                    {
-                        id: 1,
-                        layouts: { sm: {} as TileLayout, xs: {} as TileLayout },
-                    },
-                ],
+                filters: {
+                    date_from: null,
+                    date_to: null,
+                    properties: [],
+                },
             })
         })
     })

@@ -2,13 +2,20 @@
 resolver = "2"
 
 members = [
+  "property-defs-rs",
   "capture",
   "common/health",
+  "common/metrics",
+  "common/dns",
   "feature-flags",
   "hook-api",
   "hook-common",
   "hook-janitor",
   "hook-worker",
+  "cyclotron-core",
+  "cyclotron-node",
+  "cyclotron-janitor",
+  "cyclotron-fetch",
 ]
 
 [workspace.lints.rust]
@@ -34,7 +41,7 @@ axum = { version = "0.7.5", features = ["http2", "macros", "matched-path"] }
 axum-client-ip = "0.6.0"
 base64 = "0.22.0"
 bytes = "1"
-chrono = { version = "0.4" }
+chrono = { version = "0.4.38", features = ["default", "serde"] }
 envconfig = "0.10.0"
 eyre = "0.6.9"
 flate2 = "1.0"
@@ -80,3 +87,4 @@ tracing-opentelemetry = "0.23.0"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 url = { version = "2.5.0 " }
 uuid = { version = "1.6.1", features = ["v7", "serde"] }
+neon = "1"

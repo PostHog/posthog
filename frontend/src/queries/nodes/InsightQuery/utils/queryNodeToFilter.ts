@@ -10,7 +10,6 @@ import {
     InsightNodeKind,
     InsightQueryNode,
     LifecycleFilterLegacy,
-    Node,
     NodeKind,
     PathsFilterLegacy,
     RetentionFilterLegacy,
@@ -22,14 +21,13 @@ import {
     isDataWarehouseNode,
     isEventsNode,
     isFunnelsQuery,
-    isInsightVizNode,
     isLifecycleQuery,
     isPathsQuery,
     isRetentionQuery,
     isStickinessQuery,
     isTrendsQuery,
 } from '~/queries/utils'
-import { ActionFilter, EntityTypes, FilterType, InsightType, QueryBasedInsightModel } from '~/types'
+import { ActionFilter, EntityTypes, FilterType, InsightType } from '~/types'
 
 type FilterTypeActionsAndEvents = {
     events?: ActionFilter[]
@@ -121,28 +119,6 @@ const nodeKindToFilterKey: Record<InsightNodeKind, string> = {
     [NodeKind.PathsQuery]: 'pathsFilter',
     [NodeKind.StickinessQuery]: 'stickinessFilter',
     [NodeKind.LifecycleQuery]: 'lifecycleFilter',
-}
-
-/** Returns a `query` or converted `filters` for a query based insight,
- * depending on the feature flag. This is necessary as we want to
- * transition to query based insights on the frontend, while the backend
- * still has filter based insights (and or conversion function is frontend side).
- *
- * The feature flag can be enabled once we want to persist query based insights
- * backend side. Once the flag is rolled out 100% this function becomes obsolete.
- */
-export const getInsightFilterOrQueryForPersistance = (
-    insight: QueryBasedInsightModel,
-    queryBasedInsightSavingFlag: boolean
-): { filters: Partial<FilterType> | undefined; query: Node<Record<string, any>> | null | undefined } => {
-    let filters
-    let query
-    if (!queryBasedInsightSavingFlag && isInsightVizNode(insight.query)) {
-        filters = queryNodeToFilter(insight.query.source)
-    } else {
-        query = insight.query
-    }
-    return { filters, query }
 }
 
 export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> => {

@@ -46,15 +46,9 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { setInsightMode } = useActions(insightSceneLogic)
 
     // insightLogic
-    const {
-        insightProps,
-        canEditInsight,
-        insight,
-        queryBasedInsightSaving,
-        insightChanged,
-        insightSaving,
-        hasDashboardItemId,
-    } = useValues(insightLogic(insightLogicProps))
+    const { insightProps, canEditInsight, insight, insightChanged, insightSaving, hasDashboardItemId } = useValues(
+        insightLogic(insightLogicProps)
+    )
     const { setInsightMetadata, saveAs, saveInsight } = useActions(insightLogic(insightLogicProps))
 
     // savedInsightsLogic
@@ -84,7 +78,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         isOpen={insightMode === ItemMode.Subscriptions}
                         closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
                         insightShortId={insight.short_id}
-                        subscriptionId={itemId}
+                        subscriptionId={typeof itemId === 'number' || itemId === 'new' ? itemId : null}
                     />
                     <SharingModal
                         title="Insight sharing"
@@ -104,8 +98,9 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
                         isOpen={insightMode === ItemMode.Alerts}
                         insightLogicProps={insightLogicProps}
+                        insightId={insight.id as number}
                         insightShortId={insight.short_id as InsightShortId}
-                        alertId={itemId}
+                        alertId={typeof itemId === 'string' ? itemId : null}
                     />
                     <NewDashboardModal />
                 </>
@@ -156,7 +151,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                 Share or embed
                                             </LemonButton>
                                             <SubscribeButton insightShortId={insight.short_id} />
-                                            <AlertsButton insight={insight} />
                                             {exportContext ? (
                                                 <ExportButton
                                                     fullWidth
@@ -176,6 +170,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                     ]}
                                                 />
                                             ) : null}
+                                            <AlertsButton insight={insight} />
                                             <LemonDivider />
                                         </>
                                     )}
@@ -247,10 +242,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                         callback: () => {
                                                             loadInsights()
                                                             push(urls.savedInsights())
-                                                        },
-                                                        options: {
-                                                            writeAsQuery: queryBasedInsightSaving,
-                                                            readAsQuery: true,
                                                         },
                                                     })
                                                 }
