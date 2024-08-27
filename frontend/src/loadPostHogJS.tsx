@@ -20,56 +20,70 @@ export function loadPostHogJS(): void {
     window.console.warn('LOADING POSTHOG')
     if (window.JS_POSTHOG_API_KEY) {
         window.console.warn('LOADING POSTHOG WITH KEY', window.JS_POSTHOG_API_KEY)
-        posthog.init(
-            window.JS_POSTHOG_API_KEY,
-            configWithSentry({
-                api_host: window.JS_POSTHOG_HOST,
-                ui_host: window.JS_POSTHOG_UI_HOST,
-                rageclick: true,
-                persistence: 'localStorage+cookie',
-                bootstrap: window.POSTHOG_USER_IDENTITY_WITH_FLAGS ? window.POSTHOG_USER_IDENTITY_WITH_FLAGS : {},
-                opt_in_site_apps: true,
-                api_transport: 'fetch',
-                loaded: (posthog) => {
-                    if (posthog.sessionRecording) {
-                        posthog.sessionRecording._forceAllowLocalhostNetworkCapture = true
-                    }
+        const config = configWithSentry({
+            api_host: window.JS_POSTHOG_HOST,
+            ui_host: window.JS_POSTHOG_UI_HOST,
+            rageclick: true,
+            persistence: 'localStorage+cookie',
+            bootstrap: window.POSTHOG_USER_IDENTITY_WITH_FLAGS ? window.POSTHOG_USER_IDENTITY_WITH_FLAGS : {},
+            opt_in_site_apps: true,
+            api_transport: 'fetch',
+            loaded: (posthog) => {
+                if (posthog.sessionRecording) {
+                    posthog.sessionRecording._forceAllowLocalhostNetworkCapture = true
+                }
 
-                    if (window.IMPERSONATED_SESSION) {
-                        window.console.warn('IMPERSONATING SESSION', window.IMPERSONATED_SESSION)
-                        posthog.opt_out_capturing()
-                    } else {
-                        window.console.warn('OPTING IN CAPTURING')
-                        posthog.opt_in_capturing()
-                    }
-                },
-                scroll_root_selector: ['main', 'html'],
-                autocapture: {
-                    capture_copied_text: true,
-                },
-                person_profiles: 'always',
+                if (window.IMPERSONATED_SESSION) {
+                    window.console.warn('IMPERSONATING SESSION', window.IMPERSONATED_SESSION)
+                    posthog.opt_out_capturing()
+                } else {
+                    window.console.warn('OPTING IN CAPTURING')
+                    posthog.opt_in_capturing()
+                }
+            },
+            scroll_root_selector: ['main', 'html'],
+            autocapture: {
+                capture_copied_text: true,
+            },
+            person_profiles: 'always',
 
-                // Helper to capture events for assertions in Cypress
-                _onCapture: (_, event) => {
-                    ;(window as any).console.warn(
+            // Helper to capture events for assertions in Cypress
+            _onCapture: (event, eventPayload) => {
+                ;(window as any).console
+                    .warn(
                         '_CYPRESS_POSTHOG_CAPTURES',
                         (window as any)._cypress_posthog_captures
-                    )
-                    ;(window as any).console.warn('_CYPRESS_POSTHOG_CAPTURES EVENT', event)
-
+                    )(window as any)
+                    .console.warn(
+                        '_CYPRESS_POSTHOG_CAPTURES EVENT',
+                        event
+                    )(window as any)
+                    .console.warn(
+                        '_CYPRESS_POSTHOG_CAPTURES EVENT Data',
+                        eventPayload
+                    )(
                     // if not exist, initialize as empty array
-                    ;(window as any)._cypress_posthog_captures = (window as any)._cypress_posthog_captures || []
-                    ;(window as any)._cypress_posthog_captures.push(event)
-                },
-            })
-        )
+                    window as any
+                )._cypress_posthog_captures =
+                    (window as any)._cypress_posthog_captures ||
+                    [](window as any)._cypress_posthog_captures.push(eventPayload)
+            },
+        })
+
+        window.console.warn('POSTHOG CONFIG _onCapture is ,', config._onCapture)
+
+        posthog.init(window.JS_POSTHOG_API_KEY, config)
         window.posthog?.capture('capturing posthog event')
         window.console.warn('POSTHOG LOADED, STANDARD EVENT CAPTURED')
-        window.posthog?._onCapture('capturing posthog event', {
-            uuid: '01919505-3a07-7404-b4de-1877b907e539',
-            event: 'capturing posthog event',
-            properties: {},
-        })
+        if (config._onCapture) {
+            config._onCapture('capturing posthog event', {
+                uuid: '01919505-3a07-7404-b4de-1877b907e539',
+                event: 'capturing posthog event',
+                properties: {},
+            })
+        } else {
+            window.console.warn('POSTHOG CONFIG _onCapture is undefined, cannot be called')
+        }
         window.console.warn('POSTHOG LOADED, EVENT CAPTURED VIA _ONCAPTURE DIRECTLY')
         window.console.warn('WHAT IS IN _CYPRESS_POSTHOG_CAPTURES', window._cypress_posthog_captures)
 
