@@ -845,6 +845,12 @@ class _Printer(Visitor):
                                     args.append("''")
                                 else:
                                     args.append(self.visit(arg))
+                            elif (
+                                len(arg.args) == 1
+                                and isinstance(arg.args[0].type, ast.CallType)
+                                and arg.args[0].type.return_type.nullable is False
+                            ):
+                                args.append(self.visit(arg))
                             else:
                                 args.append(f"ifNull({self.visit(arg)}, '')")
                         else:
@@ -1271,12 +1277,30 @@ class _Printer(Visitor):
     def _is_nullable(self, node: ast.Expr) -> bool:
         if isinstance(node, ast.Constant):
             return node.value is None
+        elif (
+            isinstance(node.type, ast.IntegerType)
+            or isinstance(node.type, ast.FloatType)
+            or isinstance(node.type, ast.StringType)
+            or isinstance(node.type, ast.BooleanType)
+            or isinstance(node.type, ast.DateType)
+            or isinstance(node.type, ast.DateTimeType)
+            or isinstance(node.type, ast.UUIDType)
+        ):
+            return node.type.nullable
         elif isinstance(node.type, ast.PropertyType):
             return True
+        elif isinstance(node.type, ast.CallType):
+            return node.type.return_type.nullable
         elif isinstance(node.type, ast.FieldType):
             return node.type.is_nullable(self.context)
+        elif isinstance(node.type, ast.FieldAliasType):
+            return node.type.resolve_constant_type(self.context).nullable
         elif isinstance(node, ast.Alias):
             return self._is_nullable(node.expr)
+        elif isinstance(node, ast.Tuple):
+            return any(self._is_nullable(expr) for expr in node.exprs)
+        elif isinstance(node, ast.Array):
+            return any(self._is_nullable(expr) for expr in node.exprs)
 
         # we don't know if it's nullable, so we assume it can be
         return True

@@ -69,6 +69,7 @@ class CTE(Expr):
 class ConstantType(Type):
     data_type: ConstantDataType
     nullable: bool = field(default=True)
+    is_timezone_type: bool = field(default=False)
 
     def resolve_constant_type(self, context: "HogQLContext") -> "ConstantType":
         return self

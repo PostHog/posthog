@@ -190,15 +190,15 @@
          data.reached_to_step_count AS reached_to_step_count,
          if(ifNull(greater(data.reached_from_step_count, 0), 0), round(multiply(divide(data.reached_to_step_count, data.reached_from_step_count), 100), 2), 0) AS conversion_rate
   FROM
-    (SELECT plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-05-01 00:00:00'), 6, 'UTC')), 0), toIntervalWeek(period_offsets.number)) AS entrance_period_start
-     FROM numbers(plus(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-05-01 00:00:00'), 6, 'UTC')), 0), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-05-07 23:59:59'), 6, 'UTC')), 0)), 1)) AS period_offsets) AS fill
+    (SELECT plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-05-01 00:00:00'), 6, 'UTC')), 0, 'UTC'), toIntervalWeek(period_offsets.number)) AS entrance_period_start
+     FROM numbers(plus(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-05-01 00:00:00'), 6, 'UTC')), 0, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-05-07 23:59:59'), 6, 'UTC')), 0, 'UTC')), 1)) AS period_offsets) AS fill
   LEFT OUTER JOIN
     (SELECT entrance_period_start AS entrance_period_start,
             countIf(ifNull(greaterOrEquals(steps_completed, 1), 0)) AS reached_from_step_count,
             countIf(ifNull(greaterOrEquals(steps_completed, 3), 0)) AS reached_to_step_count
      FROM
        (SELECT aggregation_target AS aggregation_target,
-               toStartOfWeek(timestamp, 0) AS entrance_period_start,
+               toStartOfWeek(timestamp, 0, 'UTC') AS entrance_period_start,
                max(steps) AS steps_completed
         FROM
           (SELECT aggregation_target AS aggregation_target,

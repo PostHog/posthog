@@ -2266,6 +2266,7 @@
                   alias: "a"
                   type: {
                     data_type: "int"
+                    is_timezone_type: False
                     nullable: False
                   }
                 },
@@ -2273,6 +2274,7 @@
                   alias: "b"
                   type: {
                     data_type: "int"
+                    is_timezone_type: False
                     nullable: False
                   }
                 }
@@ -2372,6 +2374,7 @@
                     alias: "a"
                     type: {
                       data_type: "int"
+                      is_timezone_type: False
                       nullable: False
                     }
                   },
@@ -2379,6 +2382,7 @@
                     alias: "b"
                     type: {
                       data_type: "int"
+                      is_timezone_type: False
                       nullable: False
                     }
                   }
@@ -3313,12 +3317,14 @@
           arg_types: [
             {
               data_type: "datetime"
+              is_timezone_type: False
               nullable: False
             }
           ]
           name: "max"
           return_type: {
             data_type: "unknown"
+            is_timezone_type: False
             nullable: True
           }
         }
@@ -3507,6 +3513,7 @@
             }
             type: {
               data_type: "bool"
+              is_timezone_type: False
               nullable: False
             }
           }
@@ -3552,6 +3559,7 @@
           {
             type: {
               data_type: "int"
+              is_timezone_type: False
               nullable: False
             }
             value: 1
@@ -3559,6 +3567,7 @@
           {
             type: {
               data_type: "int"
+              is_timezone_type: False
               nullable: False
             }
             value: 1
@@ -3566,6 +3575,7 @@
         ]
         type: {
           data_type: "bool"
+          is_timezone_type: False
           nullable: False
         }
       },
@@ -3574,6 +3584,7 @@
           {
             type: {
               data_type: "int"
+              is_timezone_type: False
               nullable: False
             }
             value: 1
@@ -3581,6 +3592,7 @@
           {
             type: {
               data_type: "int"
+              is_timezone_type: False
               nullable: False
             }
             value: 1
@@ -3588,6 +3600,7 @@
         ]
         type: {
           data_type: "bool"
+          is_timezone_type: False
           nullable: False
         }
       },
@@ -3595,12 +3608,14 @@
         expr: {
           type: {
             data_type: "bool"
+            is_timezone_type: False
             nullable: False
           }
           value: True
         }
         type: {
           data_type: "bool"
+          is_timezone_type: False
           nullable: False
         }
       }
@@ -3622,6 +3637,7 @@
       {
         type: {
           data_type: "int"
+          is_timezone_type: False
           nullable: False
         }
         value: 1
@@ -3629,6 +3645,7 @@
       {
         type: {
           data_type: "str"
+          is_timezone_type: False
           nullable: False
         }
         value: "boo"
@@ -3636,6 +3653,7 @@
       {
         type: {
           data_type: "bool"
+          is_timezone_type: False
           nullable: False
         }
         value: True
@@ -3643,6 +3661,7 @@
       {
         type: {
           data_type: "float"
+          is_timezone_type: False
           nullable: False
         }
         value: 1.1232
@@ -3650,12 +3669,14 @@
       {
         type: {
           data_type: "unknown"
+          is_timezone_type: False
           nullable: True
         }
       },
       {
         type: {
           data_type: "date"
+          is_timezone_type: False
           nullable: False
         }
         value: 2020-01-10
@@ -3663,6 +3684,7 @@
       {
         type: {
           data_type: "datetime"
+          is_timezone_type: False
           nullable: False
         }
         value: 2020-01-10 00:00:00+00:00
@@ -3670,6 +3692,7 @@
       {
         type: {
           data_type: "uuid"
+          is_timezone_type: False
           nullable: False
         }
         value: 00000000-0000-4000-8000-000000000000
@@ -3677,8 +3700,10 @@
       {
         type: {
           data_type: "array"
+          is_timezone_type: False
           item_type: {
             data_type: "unknown"
+            is_timezone_type: False
             nullable: True
           }
           nullable: False
@@ -3688,8 +3713,10 @@
       {
         type: {
           data_type: "array"
+          is_timezone_type: False
           item_type: {
             data_type: "int"
+            is_timezone_type: False
             nullable: False
           }
           nullable: False
@@ -3702,17 +3729,21 @@
       {
         type: {
           data_type: "tuple"
+          is_timezone_type: False
           item_types: [
             {
               data_type: "int"
+              is_timezone_type: False
               nullable: False
             },
             {
               data_type: "int"
+              is_timezone_type: False
               nullable: False
             },
             {
               data_type: "int"
+              is_timezone_type: False
               nullable: False
             }
           ]
@@ -3855,12 +3886,14 @@
       right: {
         type: {
           data_type: "str"
+          is_timezone_type: False
           nullable: False
         }
         value: "test"
       }
       type: {
         data_type: "bool"
+        is_timezone_type: False
         nullable: False
       }
     }
@@ -3994,12 +4027,14 @@
       right: {
         type: {
           data_type: "str"
+          is_timezone_type: False
           nullable: False
         }
         value: "test"
       }
       type: {
         data_type: "bool"
+        is_timezone_type: False
         nullable: False
       }
     }
@@ -4165,12 +4200,14 @@
       right: {
         type: {
           data_type: "str"
+          is_timezone_type: False
           nullable: False
         }
         value: "test"
       }
       type: {
         data_type: "bool"
+        is_timezone_type: False
         nullable: False
       }
     }
@@ -4357,12 +4394,14 @@
       right: {
         type: {
           data_type: "str"
+          is_timezone_type: False
           nullable: False
         }
         value: "test"
       }
       type: {
         data_type: "bool"
+        is_timezone_type: False
         nullable: False
       }
     }
