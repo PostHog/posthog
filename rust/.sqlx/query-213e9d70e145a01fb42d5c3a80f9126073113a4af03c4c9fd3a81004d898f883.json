@@ -1,0 +1,18 @@
+{
+    "db_name": "PostgreSQL",
+    "query": "SELECT COUNT(*) FROM cyclotron_jobs WHERE state = 'available' AND scheduled <= NOW()",
+    "describe": {
+        "columns": [
+            {
+                "ordinal": 0,
+                "name": "count",
+                "type_info": "Int8"
+            }
+        ],
+        "parameters": {
+            "Left": []
+        },
+        "nullable": [null]
+    },
+    "hash": "213e9d70e145a01fb42d5c3a80f9126073113a4af03c4c9fd3a81004d898f883"
+}

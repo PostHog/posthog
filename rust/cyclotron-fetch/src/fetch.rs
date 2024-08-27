@@ -1,23 +1,19 @@
-use std::{cmp::min, collections::HashMap, sync::Arc};
+use std::{cmp::min, collections::HashMap, fmt::Display, sync::Arc};
 
 use chrono::{DateTime, Duration, Utc};
-use cyclotron_core::{
-    base_ops::{Job, JobState},
-    error::QueueError,
-    worker::Worker,
-};
+use cyclotron_core::{Job, JobState, QueueError, Worker};
 use futures::StreamExt;
 use http::StatusCode;
 use reqwest::Response;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::sync::OwnedSemaphorePermit;
-use tracing::error;
+use tracing::{error, instrument, warn};
+use uuid::Uuid;
 
-use crate::context::AppContext;
+use crate::{context::AppContext, metrics_constants::*};
 
 // TODO - a lot of these should maybe be configurable
-pub const DEAD_LETTER_QUEUE: &str = "fetch-dead-letter";
 pub const DEFAULT_RETRIES: u32 = 3;
 pub const DEFAULT_ON_FINISH: OnFinish = OnFinish::Return;
 pub const HEARTBEAT_INTERVAL_MS: i64 = 5000;
@@ -211,26 +207,34 @@ pub struct FetchResponse {
     pub body: String,
 }
 
-pub fn report_worker_saturation(context: &AppContext) {
-    metrics::gauge!("fetch_worker_available_permits")
-        .set(context.concurrency_limit.available_permits() as f64);
-}
-
+#[instrument(skip_all)]
 pub async fn tick(context: Arc<AppContext>) -> Result<usize, FetchError> {
-    report_worker_saturation(&context);
+    let labels = Arc::new(context.metric_labels());
+
+    common_metrics::gauge(
+        WORKER_SAT,
+        &labels,
+        context.concurrency_limit.available_permits() as f64,
+    );
 
     let max_jobs = min(
         context.concurrency_limit.available_permits(),
         context.config.batch_size,
     );
 
-    let jobs = context
-        .worker
-        .dequeue_jobs(&context.config.queue_served, max_jobs)
-        .await?;
+    let jobs = {
+        let _time = common_metrics::timing_guard(DEQUEUE_TIME, &labels);
+        context
+            .worker
+            .dequeue_jobs(&context.config.queue_served, max_jobs)
+            .await?
+    };
 
     let num_jobs = jobs.len();
 
+    common_metrics::inc(WORKER_DEQUEUED, &labels, num_jobs as u64);
+
+    let _time = common_metrics::timing_guard(SPAWN_TIME, &labels);
     for job in jobs {
         let context = context.clone();
         // We grab job permits individually, so that as soon as a job is finished, the
@@ -243,12 +247,16 @@ pub async fn tick(context: Arc<AppContext>) -> Result<usize, FetchError> {
             .acquire_owned()
             .await
             .unwrap();
+        let labels = labels.clone();
         tokio::spawn(async move {
             // TODO - since worker errors are never an indication of a fetch failure,
             // only of some internal worker issue, we should report unhealthy or fall
             // over or something here.
             if let Err(e) = run_job(context.clone(), job, permit).await {
                 error!("Error running job: {:?}", e);
+                common_metrics::inc(FETCH_JOB_ERRORS, &labels, 1)
+            } else {
+                common_metrics::inc(FETCH_JOBS_COMPLETED, &labels, 1);
             }
         });
     }
@@ -256,114 +264,139 @@ pub async fn tick(context: Arc<AppContext>) -> Result<usize, FetchError> {
     Ok(num_jobs)
 }
 
-// Mostly a thin wrapper to make ser/de a bit easier
-struct FetchJob<'a> {
-    _job: &'a Job,
-    metadata: FetchMetadata,
-    parameters: FetchParameters,
+impl From<&Job> for FetchMetadata {
+    fn from(job: &Job) -> Self {
+        let Some(m) = &job.metadata else {
+            return FetchMetadata {
+                tries: 0,
+                trace: vec![],
+            };
+        };
+
+        let Ok(m) = serde_json::from_str(m) else {
+            return FetchMetadata {
+                tries: 0,
+                trace: vec![],
+            };
+        };
+
+        m
+    }
 }
 
-impl<'a> TryFrom<&'a Job> for FetchJob<'a> {
+impl TryFrom<&Job> for FetchParameters {
     type Error = FetchFailure;
 
-    fn try_from(job: &'a Job) -> Result<Self, Self::Error> {
+    fn try_from(job: &Job) -> Result<Self, Self::Error> {
         let Some(parameters) = &job.parameters else {
             return Err(FetchFailure::new(
                 FetchFailureKind::MissingParameters,
                 "Job is missing parameters",
             ));
         };
-        let parameters: FetchParameters = match serde_json::from_str(parameters) {
-            Ok(p) => p,
-            Err(e) => {
-                return Err(FetchFailure::new(
-                    FetchFailureKind::InvalidParameters,
-                    format!("Failed to parse parameters: {}", e),
-                ))
-            }
+
+        let Ok(p) = serde_json::from_str(parameters) else {
+            return Err(FetchFailure::new(
+                FetchFailureKind::InvalidParameters,
+                "Failed to parse parameters",
+            ));
         };
-        let metadata = match &job.metadata {
-            Some(m) => match serde_json::from_str(m) {
-                Ok(m) => m,
-                Err(_) => {
-                    // If we can't decode the metadata, assume this is the first time we've seen the job
-                    // TODO - this is maybe too lenient, I'm not sure.
-                    FetchMetadata {
-                        tries: 0,
-                        trace: vec![],
-                    }
-                }
-            },
-            None => FetchMetadata {
-                tries: 0,
-                trace: vec![],
-            },
-        };
-        Ok(Self {
-            _job: job,
-            metadata,
-            parameters,
-        })
+
+        Ok(p)
     }
 }
 
+#[instrument(skip_all)]
 pub async fn run_job(
     context: Arc<AppContext>,
     job: Job,
     _permit: OwnedSemaphorePermit,
 ) -> Result<(), FetchError> {
-    let parsed: FetchJob = match (&job).try_into() {
+    let labels = context.metric_labels();
+    let job_total = common_metrics::timing_guard(JOB_TOTAL_TIME, &labels);
+
+    let metadata = FetchMetadata::from(&job);
+    let params = match FetchParameters::try_from(&job) {
         Ok(p) => p,
-        Err(e) => return dead_letter_job(&context.worker, job, vec![e]).await,
-    };
-
-    let method: http::Method = (&parsed.parameters.method).into();
-
-    // Parsing errors are always dead letters - it /will/ fail every time, so dump it
-    // TODO - We should probably decide whether to dead letter or return Failed on the basis of OnFinish,
-    // in case the caller wants to do any cleanup on broken jobs
-    let url: reqwest::Url = match (parsed.parameters.url).parse() {
-        Ok(u) => u,
-        Err(e) => {
-            return dead_letter_job(
-                &context.worker,
-                job,
-                vec![FetchFailure::new(
-                    FetchFailureKind::InvalidParameters,
-                    format!("Invalid url: {}", e),
-                )],
-            )
-            .await;
+        Err(_) => {
+            // Failure to parse parameters is a programming error in whatever is handing us jobs, and we
+            // should dead letter the job and then return.
+            common_metrics::inc(FETCH_DEAD_LETTER, &labels, 1);
+            let res = context
+                .worker
+                .dead_letter(job.id, "Could not parse job parameters")
+                .await;
+            job_total
+                .label(OUTCOME_LABEL, "missing_parameters_dead_letter")
+                .fin();
+            return Ok(res?);
         }
     };
-    let headers: reqwest::header::HeaderMap =
-        match (&parsed.parameters.headers.unwrap_or_default()).try_into() {
-            Ok(h) => h,
-            Err(e) => {
-                return dead_letter_job(
-                    &context.worker,
-                    job,
-                    vec![FetchFailure::new(
-                        FetchFailureKind::InvalidParameters,
-                        format!("Invalid headers: {}", e),
-                    )],
-                )
-                .await;
-            }
-        };
 
-    let body = reqwest::Body::from(parsed.parameters.body.unwrap_or_default());
+    let method = (&params.method).into();
 
-    let send_fut = context
+    // Parsing errors are always dead letters - it /will/ fail every time, so dump it
+    let url: reqwest::Url = match (params.url).parse() {
+        Ok(u) => u,
+        Err(e) => {
+            warn!("Failed to parse URL: {}", e);
+
+            let failure = FetchFailure::new(
+                FetchFailureKind::InvalidParameters,
+                format!("Invalid url: {} - {}", &params.url, e),
+            );
+
+            let res = quick_fail_job(
+                &context.worker,
+                job,
+                params.return_queue,
+                params.on_finish.unwrap_or(DEFAULT_ON_FINISH),
+                failure,
+            )
+            .await;
+
+            job_total
+                .label(OUTCOME_LABEL, "url_parse_dead_letter")
+                .fin();
+            return res;
+        }
+    };
+
+    let headers = match (&params.headers.unwrap_or_default()).try_into() {
+        Ok(h) => h,
+        Err(e) => {
+            warn!("Failed to parse headers: {}", e);
+            let failure = FetchFailure::new(
+                FetchFailureKind::InvalidParameters,
+                format!("Invalid headers: {}", e),
+            );
+
+            let res = quick_fail_job(
+                &context.worker,
+                job,
+                params.return_queue,
+                params.on_finish.unwrap_or(DEFAULT_ON_FINISH),
+                failure,
+            )
+            .await;
+
+            job_total
+                .label(OUTCOME_LABEL, "headers_parse_dead_letter")
+                .fin();
+            return res;
+        }
+    };
+
+    let body = reqwest::Body::from(params.body.unwrap_or_default());
+
+    let mut send_fut = context
         .client
         .request(method, url)
         .headers(headers)
         .body(body)
         .send();
 
-    let mut send_fut = Box::pin(send_fut);
-
-    let start = Utc::now();
+    let request_time = common_metrics::timing_guard(JOB_INITIAL_REQUEST_TIME, &labels);
     let res = loop {
         tokio::select! {
             res = &mut send_fut => {
@@ -375,27 +408,32 @@ pub async fn run_job(
         }
     };
 
-    // If we took, say, 25% of the heartbeat interval to send the request, we may as well heartbeat now
-    if Utc::now() - start > Duration::milliseconds(HEARTBEAT_INTERVAL_MS / 4) {
-        context.worker.heartbeat(job.id).await?;
-    }
-
     let res = match res {
         Ok(r) => r,
         Err(e) => {
-            return handle_fetch_failure(
+            // Record the request time before any queue operations
+            request_time.label(OUTCOME_LABEL, "request_error").fin();
+            // For the counter, we push a response status of "error"
+            let mut labels = labels.clone();
+            labels.push((
+                RESPONSE_STATUS_LABEL.to_string(),
+                "request_error".to_string(),
+            ));
+            common_metrics::inc(RESPONSE_RECEIVED, &labels, 1);
+            let res = handle_fetch_failure(
                 &context,
                 &job,
-                &parsed.metadata,
-                parsed.parameters.max_tries.unwrap_or(DEFAULT_RETRIES),
-                parsed.parameters.return_queue,
-                parsed.parameters.on_finish.unwrap_or(DEFAULT_ON_FINISH),
+                &metadata,
+                params.max_tries.unwrap_or(DEFAULT_RETRIES),
+                params.return_queue,
+                params.on_finish.unwrap_or(DEFAULT_ON_FINISH),
                 e,
             )
-            .await
+            .await;
+            job_total.label(OUTCOME_LABEL, "request_error").fin();
+            return res;
         }
     };
-
     // Grab the response metadata, since getting the body moves it
     let status = res.status();
     let headers: HashMap<String, String> = res
@@ -409,6 +447,17 @@ pub async fn run_job(
         })
         .collect();
 
+    request_time.label(OUTCOME_LABEL, &status.to_string()).fin();
+    // Label the job with the request status, re-binding to avoid dropping the guard
+    let job_total = job_total.label(RESPONSE_STATUS_LABEL, &status.to_string());
+
+    let mut labels = labels.clone(); // We can't move out of labels because it's borrowed by the timing guards
+    labels.push((RESPONSE_STATUS_LABEL.to_string(), status.to_string()));
+    let labels = labels;
+
+    common_metrics::inc(RESPONSE_RECEIVED, &labels, 1);
+
+    let body_time = common_metrics::timing_guard(BODY_FETCH_TIME, &labels);
     // We pre-emptively get the response body, because we incldued it in the failure trace, even if we got a failure status
     let body = first_n_bytes_of_response(
         &context.worker,
@@ -420,20 +469,26 @@ pub async fn run_job(
     let body = match body {
         Ok(b) => b,
         Err(e) => {
+            body_time.label(OUTCOME_LABEL, "body_fetch_error").fin();
+            common_metrics::inc(BODY_FETCH_FAILED, &labels, 1);
             // Tag the status and headers onto the failure
             let e = e.with_status(status.as_u16()).with_headers(headers);
-            return handle_fetch_failure(
+            let res = handle_fetch_failure(
                 &context,
                 &job,
-                &parsed.metadata,
-                parsed.parameters.max_tries.unwrap_or(DEFAULT_RETRIES),
-                parsed.parameters.return_queue,
-                parsed.parameters.on_finish.unwrap_or(DEFAULT_ON_FINISH),
+                &metadata,
+                params.max_tries.unwrap_or(DEFAULT_RETRIES),
+                params.return_queue,
+                params.on_finish.unwrap_or(DEFAULT_ON_FINISH),
                 e,
             )
             .await;
+            job_total.label(OUTCOME_LABEL, "body_fetch_error").fin();
+            return res;
         }
     };
+    body_time.label(OUTCOME_LABEL, "success").fin();
+    common_metrics::inc(BODY_FETCH_SUCCEEDED, &labels, 1);
 
     // TODO - we should handle "retryable" and "permanent" failures differently, mostly
     // to be polite - retrying a permanent failure isn't a correctness problem, but it's
@@ -442,16 +497,18 @@ pub async fn run_job(
         let failure = FetchFailure::failure_status(status)
             .with_body(body)
             .with_headers(headers);
-        return handle_fetch_failure(
+        let res = handle_fetch_failure(
             &context,
             &job,
-            &parsed.metadata,
-            parsed.parameters.max_tries.unwrap_or(DEFAULT_RETRIES),
-            parsed.parameters.return_queue,
-            parsed.parameters.on_finish.unwrap_or(DEFAULT_ON_FINISH),
+            &metadata,
+            params.max_tries.unwrap_or(DEFAULT_RETRIES),
+            params.return_queue,
+            params.on_finish.unwrap_or(DEFAULT_ON_FINISH),
             failure,
         )
         .await;
+        job_total.label(OUTCOME_LABEL, "failure_status").fin();
+        return res;
     }
 
     let result = FetchResult::Success {
@@ -462,14 +519,31 @@ pub async fn run_job(
         },
     };
 
-    complete_job(
+    let res = complete_job(
         &context.worker,
         &job,
-        parsed.parameters.return_queue,
-        parsed.parameters.on_finish.unwrap_or(DEFAULT_ON_FINISH),
+        params.return_queue,
+        params.on_finish.unwrap_or(DEFAULT_ON_FINISH),
         result,
     )
-    .await
+    .await;
+    job_total.label(OUTCOME_LABEL, "success").fin();
+    res
+}
+
+// This immediately returns a job to the return_queue, with a single failure. It's used in cases like, e.g,
+// parsing errors, where we know the job will never succeed.
+pub async fn quick_fail_job(
+    worker: &Worker,
+    job: Job,
+    return_queue: String,
+    on_finish: OnFinish,
+    failure: FetchFailure,
+) -> Result<(), FetchError> {
+    let result = FetchResult::Failure {
+        trace: vec![failure],
+    };
+    complete_job(worker, &job, return_queue, on_finish, result).await
 }
 
 // Checks if the retry limit has been reached, and does one of:
@@ -528,8 +602,7 @@ where
     Ok(())
 }
 
-// Complete the job, either because we got a good response, or because the jobs retries
-// have been exceeded.
+// Complete the job with some result.
 pub async fn complete_job(
     worker: &Worker,
     job: &Job,
@@ -537,70 +610,28 @@ pub async fn complete_job(
     on_finish: OnFinish,
     result: FetchResult,
 ) -> Result<(), FetchError> {
-    // If we fail any serde, we just want to flush to the DLQ and bail
     worker.set_state(job.id, JobState::Available)?;
-    worker.set_queue(job.id, DEAD_LETTER_QUEUE)?;
+    worker.set_queue(job.id, &return_queue)?;
 
     let is_success = result.is_success();
 
-    let result = match serde_json::to_string(&result) {
-        Ok(r) => r,
-        Err(e) => {
-            // Leave behind a hint for debugging
-            worker.set_metadata(job.id, Some(format!("Failed to serialise result: {}", e)))?;
-            worker.flush_job(job.id).await?;
-            return Err(FetchError::SerdeError(e));
-        }
-    };
+    let result = do_or_dead_letter(worker, job.id, || serde_json::to_string(&result)).await??;
 
-    worker.set_queue(job.id, &return_queue)?;
-
-    match (is_success, on_finish) {
-        (true, _) | (false, OnFinish::Return) => {
-            worker.set_state(job.id, JobState::Available)?;
+    match (on_finish, is_success) {
+        (OnFinish::Complete, true) => {
+            worker.set_state(job.id, JobState::Completed)?;
         }
-        (false, OnFinish::Complete) => {
+        (OnFinish::Complete, false) => {
             worker.set_state(job.id, JobState::Failed)?;
+        }
+        (OnFinish::Return, _) => {
+            // If we're retuning the job, we don't care whether it succeeded or not, the caller wants it back
+            worker.set_state(job.id, JobState::Available)?;
         }
     }
 
     worker.set_parameters(job.id, Some(result))?;
     worker.set_metadata(job.id, None)?; // We're finished with the job, so clear our internal state
-    worker.flush_job(job.id).await?;
-
-    Ok(())
-}
-
-// This moves the job to a dead letter queue, and sets the state to Available (to prevent it
-// from being deleted by the janitor). This is for debugging purposes, and only really jobs
-// that have some parsing failure on dequeue end up here (as they indicate a programming error
-// in the caller, or the worker)
-pub async fn dead_letter_job(
-    worker: &Worker,
-    job: Job,
-    errors: Vec<FetchFailure>,
-) -> Result<(), FetchError> {
-    worker.set_state(job.id, JobState::Available)?;
-    worker.set_queue(job.id, DEAD_LETTER_QUEUE)?;
-
-    let result = FetchResult::Failure { trace: errors };
-    let result = match serde_json::to_string(&result) {
-        Ok(r) => r,
-        Err(e) => {
-            worker.set_metadata(
-                job.id,
-                Some(format!(
-                    "Failed to serialise result during DLQ write: {}",
-                    e
-                )),
-            )?;
-            worker.flush_job(job.id).await?;
-            return Err(FetchError::SerdeError(e));
-        }
-    };
-
-    worker.set_parameters(job.id, Some(result))?;
-
     worker.flush_job(job.id).await?;
 
     Ok(())
@@ -650,4 +681,23 @@ pub async fn first_n_bytes_of_response(
     };
 
     Ok(Ok(body))
+}
+
+pub async fn do_or_dead_letter<T, E>(
+    worker: &Worker,
+    job_id: Uuid,
+    f: impl FnOnce() -> Result<T, E>,
+) -> Result<Result<T, E>, FetchError>
+where
+    E: Display,
+{
+    let res = f();
+    match &res {
+        Ok(_) => {}
+        Err(e) => {
+            let reason = e.to_string();
+            worker.dead_letter(job_id, &reason).await?;
+        }
+    }
+    Ok(res)
 }

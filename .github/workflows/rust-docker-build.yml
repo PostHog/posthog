@@ -19,6 +19,9 @@ jobs:
                     - hook-api
                     - hook-janitor
                     - hook-worker
+                    - cyclotron-janitor
+                    - cyclotron-fetch
+                    - property-defs-rs
         runs-on: depot-ubuntu-22.04-4
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run

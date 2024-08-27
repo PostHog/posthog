@@ -21,11 +21,6 @@ class Prompt(models.Model):
 
 # DEPRECATED - DO NOT USE
 class PromptSequence(models.Model):
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(fields=["key"], name="unique_prompt_sequence"),
-        ]
-
     key = models.CharField(max_length=200)
     type = models.CharField(max_length=200)  # we use this to toggle different behaviors in the frontend
     path_match: ArrayField = ArrayField(models.CharField(max_length=200))  # wildcard path to match the current URL
@@ -36,12 +31,14 @@ class PromptSequence(models.Model):
     prompts = models.ManyToManyField(Prompt)
     autorun = models.BooleanField(default=True)  # whether to run this sequence automatically for all users
 
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["key"], name="unique_prompt_sequence"),
+        ]
+
 
 # DEPRECATED - DO NOT USE
 class UserPromptState(models.Model):
-    class Meta:
-        constraints = [models.UniqueConstraint(fields=["user", "sequence"], name="unique_user_prompt_state")]
-
     user = models.ForeignKey("User", on_delete=models.CASCADE)
     sequence = models.ForeignKey(PromptSequence, on_delete=models.CASCADE)
 
@@ -49,3 +46,6 @@ class UserPromptState(models.Model):
     step = models.IntegerField(default=None, null=True)
     completed = models.BooleanField(default=False)
     dismissed = models.BooleanField(default=False)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["user", "sequence"], name="unique_user_prompt_state")]

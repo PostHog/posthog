@@ -80,3 +80,90 @@ pub fn get_current_timestamp_seconds() -> f64 {
         .unwrap_or_default()
         .as_secs() as f64
 }
+
+// Shorthand for common metric types
+pub fn inc(name: &'static str, labels: &[(String, String)], value: u64) {
+    metrics::counter!(name, labels).increment(value);
+}
+
+pub fn gauge(name: &'static str, lables: &[(String, String)], value: f64) {
+    metrics::gauge!(name, lables).set(value);
+}
+
+// A guard to record the time between creation and drop as a histogram entry
+pub struct TimingGuard<'a> {
+    name: &'static str,
+    labels: TimingGuardLabels<'a>,
+    start: Instant,
+}
+
+// Shorthand constructor for that guard
+pub fn timing_guard<'a>(name: &'static str, labels: &'a [(String, String)]) -> TimingGuard<'a> {
+    TimingGuard {
+        name,
+        labels: TimingGuardLabels::new(labels),
+        start: Instant::now(),
+    }
+}
+
+// Timing guards start out cheap to construct, but if you want to push extra
+// labels onto them, they'll need to allocate. This enum tracks that state.
+enum TimingGuardLabels<'a> {
+    None,
+    Borrowed(&'a [(String, String)]),
+    Owned(Vec<(String, String)>),
+}
+
+impl<'a> TimingGuard<'a> {
+    // This consumes the guard, making "label this span and then immediately report the timing"
+    // a one-liner (simple don't re-bind the return value), but also it's a bit of a footgun.
+    pub fn label(mut self, key: &str, value: &str) -> Self {
+        self.labels.push_label(key, value);
+        self
+    }
+
+    // This is meant to be used with the above to make what's happening more obvious. I don't know
+    // if it's good enough, but it's an improvement.
+    pub fn fin(self) {}
+}
+
+impl<'a> Drop for TimingGuard<'a> {
+    fn drop(&mut self) {
+        let labels = self.labels.as_slice();
+        metrics::histogram!(self.name, labels).record(self.start.elapsed().as_millis() as f64);
+    }
+}
+
+impl<'a> TimingGuardLabels<'a> {
+    fn new(labels: &'a [(String, String)]) -> Self {
+        if labels.is_empty() {
+            TimingGuardLabels::None
+        } else {
+            TimingGuardLabels::Borrowed(labels)
+        }
+    }
+
+    fn as_slice(&self) -> &[(String, String)] {
+        match self {
+            TimingGuardLabels::None => &[],
+            TimingGuardLabels::Borrowed(labels) => labels,
+            TimingGuardLabels::Owned(labels) => labels,
+        }
+    }
+
+    fn push_label(&mut self, key: &str, value: &str) {
+        match self {
+            TimingGuardLabels::None => {
+                *self = TimingGuardLabels::Owned(vec![(key.to_string(), value.to_string())]);
+            }
+            TimingGuardLabels::Borrowed(labels) => {
+                let mut existing = labels.to_vec();
+                existing.push((key.to_string(), value.to_string()));
+                *self = TimingGuardLabels::Owned(existing);
+            }
+            TimingGuardLabels::Owned(labels) => {
+                labels.push((key.to_string(), value.to_string()));
+            }
+        };
+    }
+}

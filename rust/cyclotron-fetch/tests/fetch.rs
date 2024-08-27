@@ -1,7 +1,7 @@
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 
 use chrono::Duration;
-use cyclotron_core::{manager::QueueManager, worker::Worker};
+use cyclotron_core::{QueueManager, Worker};
 use cyclotron_fetch::fetch::{tick, FetchResult, HttpMethod};
 use httpmock::{Method, MockServer};
 use serde_json::json;
@@ -12,6 +12,14 @@ use utils::{
 };
 
 mod utils;
+
+#[sqlx::test(migrations = "../cyclotron-core/migrations")]
+pub async fn test_run_migrations(db: PgPool) {
+    // This is a no-op, since the db sqlx::test gives use already has the migrations run, but it asserts that the migrations
+    // being run repeatedly doesn't cause any issues, and that the migrations being run are the same as the ones in the core
+    let context = get_app_test_context(db).await;
+    context.worker.run_migrations().await;
+}
 
 #[sqlx::test(migrations = "../cyclotron-core/migrations")]
 pub async fn test_completes_fetch(db: PgPool) {

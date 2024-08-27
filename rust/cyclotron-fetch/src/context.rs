@@ -1,6 +1,6 @@
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
-use cyclotron_core::{worker::Worker, PoolConfig};
+use cyclotron_core::{PoolConfig, Worker, SHARD_ID_KEY};
 use health::HealthHandle;
 use tokio::sync::Semaphore;
 
@@ -12,6 +12,7 @@ pub struct AppContext {
     pub concurrency_limit: Arc<Semaphore>,
     pub liveness: HealthHandle,
     pub config: AppConfig,
+    pub metric_labels: RwLock<Vec<(String, String)>>,
 }
 
 impl AppContext {
@@ -44,12 +45,26 @@ impl AppContext {
 
         let worker = Worker::new(pool_config).await?;
 
+        let labels = vec![
+            (SHARD_ID_KEY.to_string(), config.shard_id.clone()),
+            ("worker_id".to_string(), config.worker_id.clone()),
+            ("queue_served".to_string(), config.queue_served.clone()),
+        ];
+
         Ok(Self {
             worker,
             client,
             concurrency_limit,
             liveness,
             config,
+            metric_labels: RwLock::new(labels),
         })
+    }
+
+    // *Relatively* cheap, compared to the update above, but
+    // still, better to grab at the top of your fn and then
+    // reuse
+    pub fn metric_labels(&self) -> Vec<(String, String)> {
+        self.metric_labels.read().unwrap().clone()
     }
 }

@@ -7,7 +7,9 @@ use serde_json::{json, Value};
 use crate::common::*;
 
 use feature_flags::config::DEFAULT_TEST_CONFIG;
-use feature_flags::test_utils::{insert_new_team_in_redis, setup_redis_client};
+use feature_flags::test_utils::{
+    insert_flags_for_team_in_redis, insert_new_team_in_redis, setup_redis_client,
+};
 
 pub mod common;
 
@@ -21,6 +23,25 @@ async fn it_sends_flag_request() -> Result<()> {
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
 
+    // Insert a specific flag for the team
+    let flag_json = json!([{
+        "id": 1,
+        "key": "test-flag",
+        "name": "Test Flag",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [
+                {
+                    "properties": [],
+                    "rollout_percentage": 100
+                }
+            ],
+        },
+    }]);
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
+
     let server = ServerHandle::for_config(config).await;
 
     let payload = json!({
@@ -28,20 +49,17 @@ async fn it_sends_flag_request() -> Result<()> {
         "distinct_id": distinct_id,
         "groups": {"group1": "group1"}
     });
+
     let res = server.send_flags_request(payload.to_string()).await;
     assert_eq!(StatusCode::OK, res.status());
 
-    // We don't want to deserialize the data into a flagResponse struct here,
-    // because we want to assert the shape of the raw json data.
     let json_data = res.json::<Value>().await?;
-
     assert_json_include!(
         actual: json_data,
         expected: json!({
             "errorWhileComputingFlags": false,
             "featureFlags": {
-                "beta-feature": "variant-1",
-                "rollout-flag": true,
+                "test-flag": true
             }
         })
     );
@@ -139,7 +157,7 @@ async fn it_rejects_missing_token() -> Result<()> {
     assert_eq!(StatusCode::UNAUTHORIZED, res.status());
     assert_eq!(
         res.text().await?,
-        "No API key provided. Please include a valid API key in your request."
+        "No API token provided. Please include a valid API token in your request."
     );
     Ok(())
 }

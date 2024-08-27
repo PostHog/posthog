@@ -1,38 +1,46 @@
-use std::time::Duration;
+mod ops;
 
-use serde::{Deserialize, Serialize};
-use sqlx::{pool::PoolOptions, PgPool};
+// We do this pattern (privately use a module, then re-export parts of it) so we can refactor/rename or generally futz around with the internals without breaking the public API
 
-pub mod base_ops;
-pub mod error;
-pub mod janitor_ops;
-pub mod manager;
-pub mod worker;
+// Types
+mod types;
+pub use types::BulkInsertResult;
+pub use types::Job;
+pub use types::JobInit;
+pub use types::JobState;
+pub use types::JobUpdate;
 
-// A pool config object, designed to be passable across API boundaries
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct PoolConfig {
-    pub db_url: String,
-    pub max_connections: Option<u32>,         // Default to 10
-    pub min_connections: Option<u32>,         // Default to 1
-    pub acquire_timeout_seconds: Option<u64>, // Default to 30
-    pub max_lifetime_seconds: Option<u64>,    // Default to 300
-    pub idle_timeout_seconds: Option<u64>,    // Default to 60
-}
+// Errors
+mod error;
+pub use error::QueueError;
 
-impl PoolConfig {
-    pub async fn connect(&self) -> Result<PgPool, sqlx::Error> {
-        let builder = PoolOptions::new()
-            .max_connections(self.max_connections.unwrap_or(10))
-            .min_connections(self.min_connections.unwrap_or(1))
-            .max_lifetime(Duration::from_secs(
-                self.max_lifetime_seconds.unwrap_or(300),
-            ))
-            .idle_timeout(Duration::from_secs(self.idle_timeout_seconds.unwrap_or(60)))
-            .acquire_timeout(Duration::from_secs(
-                self.acquire_timeout_seconds.unwrap_or(30),
-            ));
+// Manager
+mod manager;
+pub use manager::QueueManager;
 
-        builder.connect(&self.db_url).await
-    }
+// Worker
+mod worker;
+pub use worker::Worker;
+
+// Janitor
+mod janitor;
+pub use janitor::Janitor;
+
+// Config
+mod config;
+pub use config::ManagerConfig;
+pub use config::PoolConfig;
+
+// The shard id is a fixed value that is set by the janitor when it starts up.
+// Workers may use this value when reporting metrics. The `Worker` struct provides
+// a method for fetching this value, that caches it appropriately such that it's safe
+// to call frequently, while still being up-to-date (even though it should "never" change)
+pub const SHARD_ID_KEY: &str = "shard_id";
+
+// This isn't pub because, ideally, nothing using the core will ever need to know it.
+const DEAD_LETTER_QUEUE: &str = "_cyclotron_dead_letter";
+
+#[doc(hidden)]
+pub mod test_support {
+    pub use crate::manager::Shard;
 }

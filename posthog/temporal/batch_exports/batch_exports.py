@@ -478,7 +478,7 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
     }
     batch_export_run = await database_sync_to_async(update_batch_export_run)(
         run_id=uuid.UUID(inputs.id),
-        finished_at=dt.datetime.now(),
+        finished_at=dt.datetime.now(dt.UTC),
         **update_params,
     )
 

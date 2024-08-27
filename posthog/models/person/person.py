@@ -118,9 +118,6 @@ class Person(models.Model):
 
 
 class PersonDistinctId(models.Model):
-    class Meta:
-        constraints = [models.UniqueConstraint(fields=["team", "distinct_id"], name="unique distinct_id for team")]
-
     team = models.ForeignKey("Team", on_delete=models.CASCADE, db_index=False)
     person = models.ForeignKey(Person, on_delete=models.CASCADE)
     distinct_id = models.CharField(max_length=400)
@@ -128,18 +125,21 @@ class PersonDistinctId(models.Model):
     # current version of the id, used to sync with ClickHouse and collapse rows correctly for new clickhouse table
     version = models.BigIntegerField(null=True, blank=True)
 
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["team", "distinct_id"], name="unique distinct_id for team")]
+
 
 class PersonlessDistinctId(models.Model):
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(fields=["team", "distinct_id"], name="unique personless distinct_id for team")
-        ]
-
     id = models.BigAutoField(primary_key=True)
     team = models.ForeignKey("Team", on_delete=models.CASCADE, db_index=False)
     distinct_id = models.CharField(max_length=400)
     is_merged = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["team", "distinct_id"], name="unique personless distinct_id for team")
+        ]
 
 
 class PersonOverrideMapping(models.Model):

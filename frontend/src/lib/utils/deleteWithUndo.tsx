@@ -1,6 +1,5 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
-import { getInsightModel, InsightsApiOptions } from 'scenes/insights/utils/api'
 
 import { QueryBasedInsightModel } from '~/types'
 
@@ -40,7 +39,6 @@ export async function deleteWithUndo<T extends Record<string, any>>({
  * when given a query based insight */
 export async function deleteInsightWithUndo({
     undo = false,
-    options,
     ...props
 }: {
     undo?: boolean
@@ -48,10 +46,9 @@ export async function deleteInsightWithUndo({
     object: QueryBasedInsightModel
     idField?: keyof QueryBasedInsightModel
     callback?: (undo: boolean, object: QueryBasedInsightModel) => void
-    options: InsightsApiOptions
 }): Promise<void> {
     await api.update(`api/${props.endpoint}/${props.object[props.idField || 'id']}`, {
-        ...getInsightModel(props.object, options.writeAsQuery),
+        ...props.object,
         deleted: !undo,
     })
     props.callback?.(undo, props.object)
@@ -66,7 +63,7 @@ export async function deleteInsightWithUndo({
                 ? undefined
                 : {
                       label: 'Undo',
-                      action: () => deleteInsightWithUndo({ undo: true, options, ...props }),
+                      action: () => deleteInsightWithUndo({ undo: true, ...props }),
                   },
         }
     )
