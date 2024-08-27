@@ -131,6 +131,40 @@ if (res.status != 200 or not res.body.ok) {
                     },
                 ],
             },
-        )
+        ),
+        HogFunctionSubTemplate(
+            id="survey_response",
+            name="Post to Slack on survey response",
+            description="Posts a message to Slack when a user responds to a survey",
+            filters={"events": [{"id": "survey sent", "type": "events"}]},
+            inputs={
+                "text": "*{person.name}* responded to survey *{event.properties.$survey_name}*",
+                "blocks": [
+                    {
+                        "text": {
+                            # TODO: Add the actual responses as well...
+                            "text": "*{person.name}* responded to survey *{event.properties.$survey_name}*",
+                            "type": "mrkdwn",
+                        },
+                        "type": "section",
+                    },
+                    {
+                        "type": "actions",
+                        "elements": [
+                            {
+                                "url": "{project.url}/surveys/{event.properties.$survey_id}",
+                                "text": {"text": "View Survey", "type": "plain_text"},
+                                "type": "button",
+                            },
+                            {
+                                "url": "{person.url}",
+                                "text": {"text": "View Person", "type": "plain_text"},
+                                "type": "button",
+                            },
+                        ],
+                    },
+                ],
+            },
+        ),
     ],
 )
