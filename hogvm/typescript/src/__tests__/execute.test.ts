@@ -1879,7 +1879,7 @@ describe('hogvm execute', () => {
                 ip: 12,
                 maxMemUsed: 64,
                 ops: 5,
-                stack: [{ key: 'value' }], // not a Map
+                stack: [{ key: 'value' }], // is not a Map
                 syncDuration: 0,
                 throwStack: [],
             },
