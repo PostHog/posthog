@@ -136,7 +136,22 @@ if (res.status != 200 or not res.body.ok) {
             id="survey_response",
             name="Post to Slack on survey response",
             description="Posts a message to Slack when a user responds to a survey",
-            filters={"events": [{"id": "survey sent", "type": "events"}]},
+            filters={
+                "events": [
+                    {
+                        "id": "survey sent",
+                        "type": "events",
+                        "properties": [
+                            {
+                                "key": "$survey_response",
+                                "type": "event",
+                                "value": "is_set",
+                                "operator": "is_set",
+                            },
+                        ],
+                    }
+                ]
+            },
             inputs={
                 "text": "*{person.name}* responded to survey *{event.properties.$survey_name}*",
                 "blocks": [
