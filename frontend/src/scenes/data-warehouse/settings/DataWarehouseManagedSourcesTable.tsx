@@ -8,17 +8,18 @@ import Iconazure from 'public/services/azure.png'
 import IconCloudflare from 'public/services/cloudflare.png'
 import IconGoogleCloudStorage from 'public/services/google-cloud-storage.png'
 import IconHubspot from 'public/services/hubspot.png'
+import IconMSSQL from 'public/services/mssql.png'
 import IconMySQL from 'public/services/mysql.png'
 import IconPostgres from 'public/services/postgres.png'
 import IconSalesforce from 'public/services/salesforce.png'
 import IconSnowflake from 'public/services/snowflake.png'
 import IconStripe from 'public/services/stripe.png'
 import IconZendesk from 'public/services/zendesk.png'
-import IconMSSQL from 'public/services/mssql.png'
 import { urls } from 'scenes/urls'
 
 import { manualLinkSources, PipelineNodeTab, PipelineStage } from '~/types'
 
+import { SOURCE_DETAILS } from '../new/sourceWizardLogic'
 import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
 
 const StatusTagSetting = {
@@ -57,7 +58,7 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
                                     `managed-${source.id}`,
                                     PipelineNodeTab.Schemas
                                 )}
-                                title={source.source_type}
+                                title={SOURCE_DETAILS[source.source_type]?.label ?? source.source_type}
                                 description={source.prefix}
                             />
                         )
