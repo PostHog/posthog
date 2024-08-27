@@ -110,6 +110,10 @@ export interface WebExperimentVariant {
 
 export interface WebExperimentTransform {
     selector?: string
+    attributes: {
+        attribute_name: string,
+        attribute_value: string,
+    }[]
     text?: string
     html?: string
     imgUrl?: string

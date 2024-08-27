@@ -34,6 +34,7 @@ import {SupportTicketKind} from "lib/components/Support/supportLogic";
 import {IconFeedback} from "lib/lemon-ui/icons";
 import {LemonField} from "lib/lemon-ui/LemonField";
 import {useState} from "react";
+import {WebExperimentTransformField} from "~/toolbar/experiments/WebExperimentTransformField";
 
 type elementTransformKind = 'html' | 'text' | 'css'
 const ELEMENT_TRANSFORM_OPTIONS: LemonSegmentedButtonOption<elementTransformKind>[] = [
@@ -188,6 +189,8 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                                                     stopPropagation={true}
                                                                 />
                                                             )}
+
+                                                            <WebExperimentTransformField transform={transform} />
 
                                                             {inspectingElement === tIndex ? (
                                                                 <>
