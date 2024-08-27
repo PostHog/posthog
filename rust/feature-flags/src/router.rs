@@ -3,7 +3,7 @@ use std::sync::Arc;
 use axum::{routing::post, Router};
 
 use crate::{
-    database::Client as DatabaseClient, geoip::GeoIpService, redis::Client as RedisClient,
+    database::Client as DatabaseClient, geoip::GeoIpClient, redis::Client as RedisClient,
     v0_endpoint,
 };
 
@@ -12,10 +12,10 @@ pub struct State {
     pub redis: Arc<dyn RedisClient + Send + Sync>,
     // TODO: Add pgClient when ready
     pub postgres: Arc<dyn DatabaseClient + Send + Sync>,
-    pub geoip: Arc<GeoIpService>,
+    pub geoip: Arc<GeoIpClient>,
 }
 
-pub fn router<R, D>(redis: Arc<R>, postgres: Arc<D>, geoip: Arc<GeoIpService>) -> Router
+pub fn router<R, D>(redis: Arc<R>, postgres: Arc<D>, geoip: Arc<GeoIpClient>) -> Router
 where
     R: RedisClient + Send + Sync + 'static,
     D: DatabaseClient + Send + Sync + 'static,

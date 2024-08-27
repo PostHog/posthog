@@ -4,7 +4,7 @@ use crate::{
     flag_definitions::FeatureFlagList,
     flag_matching::FeatureFlagMatcher,
     flag_request::FlagRequest,
-    geoip::GeoIpService,
+    geoip::GeoIpClient,
     router,
 };
 use axum::{extract::State, http::HeaderMap};
@@ -103,7 +103,7 @@ pub fn get_person_property_overrides(
     geoip_enabled: bool,
     person_properties: Option<HashMap<String, Value>>,
     ip: &IpAddr,
-    geoip_service: &GeoIpService,
+    geoip_service: &GeoIpClient,
 ) -> Option<HashMap<String, Value>> {
     match (geoip_enabled, person_properties) {
         (true, Some(mut props)) => {
@@ -213,9 +213,9 @@ mod tests {
     use serde_json::json;
     use std::net::Ipv4Addr;
 
-    fn create_test_geoip_service() -> GeoIpService {
+    fn create_test_geoip_service() -> GeoIpClient {
         let config = Config::default_test_config();
-        GeoIpService::new(&config).expect("Failed to create GeoIpService for testing")
+        GeoIpClient::new(&config).expect("Failed to create GeoIpService for testing")
     }
 
     #[test]
