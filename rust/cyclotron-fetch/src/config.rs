@@ -35,6 +35,9 @@ pub struct Config {
     #[envconfig(default = "default_worker_id")]
     pub worker_id: String,
 
+    #[envconfig(default = "default")]
+    pub shard_id: String,
+
     #[envconfig(default = "1")]
     pub job_poll_interval_seconds: i64,
 
@@ -70,6 +73,7 @@ pub struct AppConfig {
     pub host: String,
     pub port: u16,
     pub worker_id: String,
+    pub shard_id: String,
     pub job_poll_interval: Duration, // How long we wait to poll for new jobs, when we're at capacity or find no new jobs
     pub concurrent_requests_limit: u32,
     pub fetch_timeout: Duration,
@@ -87,6 +91,7 @@ impl Config {
             host: self.host,
             port: self.port,
             worker_id: self.worker_id,
+            shard_id: self.shard_id,
             job_poll_interval: Duration::seconds(self.job_poll_interval_seconds),
             concurrent_requests_limit: self.concurrent_requests_limit,
             fetch_timeout: Duration::seconds(self.fetch_timeout_seconds),

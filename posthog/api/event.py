@@ -7,7 +7,7 @@ from django.db.models.query import Prefetch
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
 from rest_framework import mixins, request, response, serializers, viewsets
-from rest_framework.decorators import action
+from posthog.api.utils import action
 from rest_framework.exceptions import NotFound
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.settings import api_settings

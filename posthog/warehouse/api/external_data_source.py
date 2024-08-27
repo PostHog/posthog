@@ -6,7 +6,7 @@ from psycopg2 import OperationalError
 from sentry_sdk import capture_exception
 import structlog
 from rest_framework import filters, serializers, status, viewsets
-from rest_framework.decorators import action
+from posthog.api.utils import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
