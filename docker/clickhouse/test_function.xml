@@ -3,6 +3,7 @@
         <type>executable</type>
         <name>aggregate_funnel</name>
         <return_type>Array(Tuple(Int8, Nullable(String), Array(Float64)))</return_type>
+        <return_name>result</return_name>
         <argument>
             <type>UInt8</type>
             <name>num_steps</name>
@@ -27,7 +28,7 @@
             <type>Array(Tuple(Nullable(Float64), Nullable(String), Array(Int8)))</type>
             <name>value</name>
         </argument>
-        <format>TabSeparated</format>
+        <format>JSONEachRow</format>
         <command>aggregate_funnel.py</command>
     </function>
 
@@ -35,6 +36,7 @@
         <type>executable</type>
         <name>aggregate_funnel_cohort</name>
         <return_type>Array(Tuple(Int8, UInt64, Array(Float64)))</return_type>
+        <return_name>result</return_name>
         <argument>
             <type>UInt8</type>
             <name>num_steps</name>
@@ -59,7 +61,7 @@
             <type>Array(Tuple(Nullable(Float64), UInt64, Array(Int8)))</type>
             <name>value</name>
         </argument>
-        <format>TabSeparated</format>
+        <format>JSONEachRow</format>
         <command>aggregate_funnel_cohort.py</command>
     </function>
 
@@ -67,6 +69,7 @@
         <type>executable</type>
         <name>aggregate_funnel_array</name>
         <return_type>Array(Tuple(Int8, Array(String), Array(Float64)))</return_type>
+        <return_name>result</return_name>
         <argument>
             <type>UInt8</type>
             <name>num_steps</name>
@@ -91,7 +94,7 @@
             <type>Array(Tuple(Nullable(Float64), Array(String), Array(Int8)))</type>
             <name>value</name>
         </argument>
-        <format>TabSeparated</format>
+        <format>JSONEachRow</format>
         <command>aggregate_funnel_array.py</command>
     </function>
 
@@ -99,6 +102,7 @@
         <type>executable</type>
         <name>aggregate_funnel_test</name>
         <return_type>String</return_type>
+        <return_name>result</return_name>
         <argument>
             <type>UInt8</type>
             <name>num_steps</name>
@@ -123,7 +127,7 @@
             <type>Array(Tuple(Nullable(Float64), Nullable(String), Array(Int8)))</type>
             <name>value</name>
         </argument>
-        <format>TabSeparated</format>
+        <format>JSONEachRow</format>
         <command>test_function.py</command>
     </function>
 
@@ -131,6 +135,7 @@
         <type>executable</type>
         <name>aggregate_funnel_trends</name>
         <return_type>Array(Tuple(DateTime, Int8, Nullable(String)))</return_type>
+        <return_name>result</return_name>
         <argument>
             <type>UInt8</type>
             <name>from_step</name>
@@ -163,7 +168,7 @@
             <type>Array(Tuple(Nullable(Float64), Nullable(DateTime), Nullable(String), Array(Int8)))</type>
             <name>value</name>
         </argument>
-        <format>TabSeparated</format>
+        <format>JSONEachRow</format>
         <command>aggregate_funnel_trends.py</command>
     </function>
 
@@ -172,6 +177,7 @@
         <name>aggregate_funnel_array_trends</name>
         <!-- Return type for trends is just a list of timestamps where the funnel was completed -->
         <return_type>Array(Tuple(DateTime, Int8, Array(String)))</return_type>
+        <return_name>result</return_name>
         <argument>
             <type>UInt8</type>
             <name>from_step</name>
@@ -200,7 +206,7 @@
             <type>Array(Tuple(Nullable(Float64), Nullable(DateTime), Array(String), Array(Int8)))</type>
             <name>value</name>
         </argument>
-        <format>TabSeparated</format>
+        <format>JSONEachRow</format>
         <command>aggregate_funnel_array_trends.py</command>
     </function>
 
@@ -209,6 +215,7 @@
         <name>aggregate_funnel_array_trends_test</name>
         <!-- Return type for trends is just a list of timestamps where the funnel was completed -->
         <return_type>String</return_type>
+        <return_name>result</return_name>
         <argument>
             <type>UInt8</type>
             <name>from_step</name>
@@ -237,7 +244,7 @@
             <type>Array(Tuple(Nullable(Float64), Nullable(DateTime), Array(String), Array(Int8)))</type>
             <name>value</name>
         </argument>
-        <format>TabSeparated</format>
+        <format>JSONEachRow</format>
         <command>aggregate_funnel_array_trends_test.py</command>
     </function>
 </functions>

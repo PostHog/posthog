@@ -1,22 +1,22 @@
 #!/usr/bin/python3
-import ast
 import sys
 from dataclasses import dataclass, replace
 from typing import Any
-from collections.abc import Callable
 from collections.abc import Sequence
+import json
 
 
 def parse_args(line):
-    arg_functions: list[Callable] = [int, int, int, str, str, ast.literal_eval, ast.literal_eval]
-    args = []
-    start = 0
-    for i in range(len(arg_functions) - 1):
-        end = line.find("\t", start)
-        args.append(arg_functions[i](line[start:end]))
-        start = end + 1
-    args.append(arg_functions[-1](line[start:]))
-    return args
+    args = json.loads(line)
+    return [
+        int(args["from_step"]),
+        int(args["num_steps"]),
+        int(args["conversion_window_limit"]),
+        str(args["breakdown_attribution_type"]),
+        str(args["funnel_order_type"]),
+        args["prop_vals"],  # Array(Array(String))
+        args["value"],  # Array(Tuple(Nullable(Float64), Nullable(DateTime), Array(String), Array(Int8)))
+    ]
 
 
 @dataclass(frozen=True)
@@ -124,13 +124,9 @@ def parse_user_aggregation_with_conversion_window_and_breakdown(
             if entered_timestamp[0].timestamp not in results and entered_timestamp[from_step + 1].timestamp > 0:
                 results[entered_timestamp[0].timestamp] = (-1, prop_val)
 
-    # We don't support breakdowns atm - make this support breakdowns
     [loop_prop_val(prop_val) for prop_val in prop_vals]
-    result_strings = [
-        f"('{interval_start}', {success_bool}, {prop_val})"
-        for interval_start, (success_bool, prop_val) in results.items()
-    ]
-    print(f"[{','.join(result_strings)}]")  # noqa: T201
+    result = [(interval_start, success_bool, prop_val) for interval_start, (success_bool, prop_val) in results.items()]
+    print(json.dumps({"result": result}), end="\n")  # noqa: T201
 
 
 if __name__ == "__main__":

@@ -1,25 +1,22 @@
 #!/usr/bin/python3
-import ast
+import json
 import sys
 from dataclasses import dataclass, replace
 from itertools import groupby, permutations
 from typing import Any, cast
-from collections.abc import Callable
 from collections.abc import Sequence
-
-N_ARGS = 6
 
 
 def parse_args(line):
-    arg_functions: list[Callable] = [int, int, str, str, ast.literal_eval, ast.literal_eval]
-    args = []
-    start = 0
-    for i in range(N_ARGS - 1):
-        end = line.find("\t", start)
-        args.append(arg_functions[i](line[start:end]))
-        start = end + 1
-    args.append(arg_functions[-1](line[start:]))
-    return args
+    args = json.loads(line)
+    return [
+        int(args["num_steps"]),
+        int(args["conversion_window_limit"]),
+        str(args["breakdown_attribution_type"]),
+        str(args["funnel_order_type"]),
+        args["prop_vals"],  # Array(Array(String))
+        args["value"],  # Array(Tuple(Nullable(Float64), Nullable(DateTime), Array(String), Array(Int8)))
+    ]
 
 
 @dataclass(frozen=True)
@@ -83,7 +80,7 @@ def parse_user_aggregation_with_conversion_window_and_breakdown(
 
             if in_match_window and not already_reached_this_step_with_same_entered_timestamp:
                 if exclusion:
-                    results.append(f"(-1, {breakdown_to_single_quoted_string(prop_val)}, [])")
+                    results.append((-1, prop_val, []))
                     return False
                 is_unmatched_step_attribution = (
                     breakdown_step is not None and step == breakdown_step - 1 and prop_val != breakdown
@@ -112,9 +109,7 @@ def parse_user_aggregation_with_conversion_window_and_breakdown(
         def add_max_step():
             i = cast(int, max_step[0])
             final = cast(EnteredTimestamp, max_step[1])
-            results.append(
-                f"({i - 1}, {breakdown_to_single_quoted_string(prop_val)}, {str([final.timings[i] - final.timings[i - 1] for i in range(1, i)])})"
-            )
+            results.append((i - 1, prop_val, [final.timings[i] - final.timings[i - 1] for i in range(1, i)]))
 
         filtered_events = (
             ((timestamp, breakdown, steps) for (timestamp, breakdown, steps) in events if breakdown == prop_val)
@@ -155,7 +150,7 @@ def parse_user_aggregation_with_conversion_window_and_breakdown(
         return
 
     [loop_prop_val(prop_val) for prop_val in prop_vals]
-    print(f"[{','.join(results)}]")  # noqa: T201
+    print(json.dumps({"result": results}), end="\n")  # noqa: T201
 
 
 if __name__ == "__main__":
