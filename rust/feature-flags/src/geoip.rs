@@ -69,7 +69,7 @@ impl GeoIpService {
                 Ok(addr) => self
                     .lookup_city(ip, addr)
                     .map(|city| extract_properties(&city))
-                    .unwrap_or_else(HashMap::new),
+                    .unwrap_or_default(),
                 Err(_) => {
                     error!("Invalid IP address: {}", ip);
                     HashMap::new()
