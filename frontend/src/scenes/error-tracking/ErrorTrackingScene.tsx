@@ -14,8 +14,7 @@ import { FeedbackNotice } from 'lib/components/FeedbackNotice'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { DestinationsTable } from 'scenes/pipeline/destinations/Destinations'
-import { PipelineBackend } from 'scenes/pipeline/types'
+import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -224,11 +223,15 @@ const AlertConfigrationModal = (): JSX.Element => {
             onClose={() => setAlertConfigurationModalVisible(false)}
         >
             <div className="space-y-2">
-                <DestinationsTable
-                    forceFilters={{
-                        kind: PipelineBackend.HogFunction,
-                        filters: { actions: [{ id: 123456 }] },
-                        onlyActive: true,
+                <LinkedHogFunctions
+                    subTemplateId="exception"
+                    filters={{
+                        events: [
+                            {
+                                id: `$exception`,
+                                type: 'events',
+                            },
+                        ],
                     }}
                 />
                 <LemonButton
