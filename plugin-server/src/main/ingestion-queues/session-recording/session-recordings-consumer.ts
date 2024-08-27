@@ -566,6 +566,10 @@ export class SessionRecordingIngester {
 
         // NOTE: We have to get the partitions before we stop the consumer as it throws if disconnected
         const assignedPartitions = this.assignedTopicPartitions
+
+        // flush everything we can
+        await this.flushAllReadySessions(() => {})
+
         // Mark as stopping so that we don't actually process any more incoming messages, but still keep the process alive
         await this.batchConsumer?.stop()
 
@@ -713,14 +717,13 @@ export class SessionRecordingIngester {
             sessions,
             async ([key, sessionManager], ctx) => {
                 heartbeat()
-
-                if (this.isStopping) {
-                    // We can end up with a large number of flushes. We want to stop early if we hit shutdown
-                    return ctx.break()
-                }
-
                 if (!this.assignedPartitions.includes(sessionManager.partition)) {
                     // We are no longer in charge of this partition, so we should not flush it
+                    return
+                }
+
+                if (this.isStopping) {
+                    await sessionManager.flush('partition_shutdown')
                     return
                 }
 
