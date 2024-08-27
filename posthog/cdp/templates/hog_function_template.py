@@ -44,3 +44,32 @@ class HogFunctionTemplateMigrator:
     def migrate(cls, obj: PluginConfig) -> dict:
         # Return a dict for the template of a new HogFunction
         raise NotImplementedError()
+
+
+SUB_TEMPLATE_COMMON: dict[SubTemplateId, HogFunctionSubTemplate] = {
+    "survey_response": HogFunctionSubTemplate(
+        id="survey_response",
+        name="Survey Response",
+        filters={
+            "events": [
+                {
+                    "id": "survey sent",
+                    "type": "events",
+                    "properties": [
+                        {
+                            "key": "$survey_response",
+                            "type": "event",
+                            "value": "is_set",
+                            "operator": "is_set",
+                        },
+                    ],
+                }
+            ]
+        },
+    ),
+    "early_access_feature_enrollment": HogFunctionSubTemplate(
+        id="early_access_feature_enrollment",
+        name="Early Access Feature Enrollment",
+        filters={"events": [{"id": "$feature_enrollment_update", "type": "events"}]},
+    ),
+}
