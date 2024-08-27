@@ -7,6 +7,8 @@ use uuid::Uuid;
 
 use crate::QueueError;
 
+pub type Bytes = Vec<u8>;
+
 #[derive(Debug, Deserialize, Serialize, sqlx::Type)]
 #[serde(rename_all = "lowercase")]
 #[sqlx(type_name = "JobState", rename_all = "lowercase")]
@@ -47,9 +49,10 @@ pub struct JobInit {
     pub priority: i16,
     pub scheduled: DateTime<Utc>,
     pub function_id: Option<Uuid>,
-    pub vm_state: Option<String>,
-    pub parameters: Option<String>,
-    pub metadata: Option<String>,
+    pub vm_state: Option<Bytes>,
+    pub parameters: Option<Bytes>,
+    pub blob: Option<Bytes>,
+    pub metadata: Option<Bytes>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -78,9 +81,10 @@ pub struct Job {
     pub scheduled: DateTime<Utc>,
 
     // Job data
-    pub vm_state: Option<String>, // The state of the VM this job is running on (if it exists)
-    pub metadata: Option<String>, // Additional fields a worker can tack onto a job, for e.g. tracking some state across retries (or number of retries in general by a given class of worker)
-    pub parameters: Option<String>, // The actual parameters of the job (function args for a hog function, http request for a fetch function)
+    pub vm_state: Option<Bytes>, // The state of the VM this job is running on (if it exists)
+    pub metadata: Option<Bytes>, // Additional fields a worker can tack onto a job, for e.g. tracking some state across retries (or number of retries in general by a given class of worker)
+    pub parameters: Option<Bytes>, // The actual parameters of the job (function args for a hog function, http request for a fetch function)
+    pub blob: Option<Bytes>, // An additional, binary, parameter field (for things like fetch request body)
 }
 
 // A struct representing a set of updates for a job. Outer none values mean "don't update this field",
@@ -92,9 +96,10 @@ pub struct JobUpdate {
     pub queue_name: Option<String>,
     pub priority: Option<i16>,
     pub scheduled: Option<DateTime<Utc>>,
-    pub vm_state: Option<Option<String>>,
-    pub metadata: Option<Option<String>>,
-    pub parameters: Option<Option<String>>,
+    pub vm_state: Option<Option<Bytes>>,
+    pub metadata: Option<Option<Bytes>>,
+    pub parameters: Option<Option<Bytes>>,
+    pub blob: Option<Option<Bytes>>,
 }
 
 impl JobUpdate {
@@ -108,6 +113,7 @@ impl JobUpdate {
             vm_state: None,
             metadata: None,
             parameters: None,
+            blob: None,
         }
     }
 }

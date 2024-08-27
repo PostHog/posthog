@@ -10,6 +10,7 @@ use crate::{
         meta::{dead_letter, run_migrations},
         worker::{dequeue_jobs, dequeue_with_vm_state, flush_job, get_vm_state, set_heartbeat},
     },
+    types::Bytes,
     Job, JobState, JobUpdate, PoolConfig, QueueError,
 };
 
@@ -99,7 +100,7 @@ impl Worker {
 
     /// Retrieve the VM state for a job, if, for example, you dequeued it and then realised you
     /// need the VM state as well.
-    pub async fn get_vm_state(&self, job_id: Uuid) -> Result<Option<String>, QueueError> {
+    pub async fn get_vm_state(&self, job_id: Uuid) -> Result<Option<Bytes>, QueueError> {
         let lock_id = {
             let pending = self.pending.lock().unwrap();
             pending
@@ -212,7 +213,7 @@ impl Worker {
     pub fn set_vm_state(
         &self,
         job_id: Uuid,
-        vm_state: Option<String>, // This (and the following) are Options, because the user can null them (by calling with None)
+        vm_state: Option<Bytes>, // This (and the following) are Options, because the user can null them (by calling with None)
     ) -> Result<(), QueueError> {
         let mut pending = self.pending.lock().unwrap();
         pending
@@ -223,7 +224,7 @@ impl Worker {
     }
 
     /// Passing None here will clear the metadata
-    pub fn set_metadata(&self, job_id: Uuid, metadata: Option<String>) -> Result<(), QueueError> {
+    pub fn set_metadata(&self, job_id: Uuid, metadata: Option<Bytes>) -> Result<(), QueueError> {
         let mut pending = self.pending.lock().unwrap();
         pending
             .get_mut(&job_id)
@@ -236,7 +237,7 @@ impl Worker {
     pub fn set_parameters(
         &self,
         job_id: Uuid,
-        parameters: Option<String>,
+        parameters: Option<Bytes>,
     ) -> Result<(), QueueError> {
         let mut pending = self.pending.lock().unwrap();
         pending
@@ -259,5 +260,15 @@ impl Worker {
         }
 
         dead_letter(&self.pool, job_id, reason).await
+    }
+
+    /// Passing None here will clear the blob
+    pub fn set_blob(&self, job_id: Uuid, blob: Option<Bytes>) -> Result<(), QueueError> {
+        let mut pending = self.pending.lock().unwrap();
+        pending
+            .get_mut(&job_id)
+            .ok_or(QueueError::UnknownJobId(job_id))?
+            .blob = Some(blob);
+        Ok(())
     }
 }
