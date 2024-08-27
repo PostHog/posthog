@@ -118,6 +118,11 @@ export function initKea({ routerHistory, routerLocation, beforePlugins }: InitKe
         plugins.push(loggerPlugin)
     }
 
+    if ((window as any).__REDUX_DEVTOOLS_EXTENSION__) {
+        // eslint-disable-next-line no-console
+        console.log('NB Redux Dev Tools are disabled on PostHog. See: https://github.com/PostHog/posthog/issues/17482')
+    }
+    
     resetContext({
         plugins: plugins,
         createStore: {
