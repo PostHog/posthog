@@ -4,10 +4,17 @@ use crate::{
     flag_definitions::{FeatureFlag, FlagGroupType, PropertyFilter},
     property_matching::match_property,
 };
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use serde_json::Value;
 use sha1::{Digest, Sha1};
-use std::{collections::HashMap, fmt::Write, sync::Arc};
+use std::{
+    collections::HashMap,
+    fmt::Write,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+};
 use tokio::sync::RwLock;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -28,28 +35,38 @@ type GroupTypeName = String;
 type GroupTypeIndex = i8;
 type TeamId = i32;
 
+#[derive(Debug, sqlx::FromRow)]
+struct GroupTypeMapping {
+    group_type: GroupTypeName,
+    group_type_index: GroupTypeIndex,
+}
+
 pub struct FlagsMatcherCache {
-    team_id: TeamId, // TODO this isn't even used; in Django we use it to
-    failed_to_fetch_flags: bool,
+    team_id: TeamId,
+    failed_to_fetch_flags: AtomicBool,
     group_types_to_indexes: Arc<RwLock<Option<HashMap<GroupTypeName, GroupTypeIndex>>>>,
     group_type_index_to_name: Arc<RwLock<Option<HashMap<GroupTypeIndex, GroupTypeName>>>>,
+    database_client: Option<Arc<dyn DatabaseClient + Send + Sync>>,
 }
 
 impl FlagsMatcherCache {
-    pub fn new(team_id: TeamId) -> Self {
+    pub fn new(
+        team_id: TeamId,
+        database_client: Option<Arc<dyn DatabaseClient + Send + Sync>>,
+    ) -> Self {
         FlagsMatcherCache {
             team_id,
-            failed_to_fetch_flags: false,
+            failed_to_fetch_flags: AtomicBool::new(false),
             group_types_to_indexes: Arc::new(RwLock::new(None)),
             group_type_index_to_name: Arc::new(RwLock::new(None)),
+            database_client,
         }
     }
 
     pub async fn group_types_to_indexes(
         &self,
     ) -> Result<HashMap<GroupTypeName, GroupTypeIndex>, FlagError> {
-        if self.failed_to_fetch_flags {
-            // TODO database errors should support custom error strings
+        if self.database_client.is_none() || self.failed_to_fetch_flags.load(Ordering::Relaxed) {
             return Err(FlagError::DatabaseUnavailable);
         }
 
@@ -61,18 +78,16 @@ impl FlagsMatcherCache {
 
         let mut cache = self.group_types_to_indexes.write().await;
         if cache.is_none() {
-            todo!()
-            // match self.fetch_group_type_mapping().await {
-            //     Ok(mapping) => {
-            //         let result = mapping.into_iter().collect();
-            //         *cache = Some(result.clone());
-            //         Ok(result)
-            //     }
-            //     Err(e) => {
-            //         self.failed_to_fetch_flags = true;
-            //         Err(e)
-            //     }
-            // }
+            match self.fetch_group_type_mapping().await {
+                Ok(mapping) => {
+                    *cache = Some(mapping.clone());
+                    Ok(mapping)
+                }
+                Err(e) => {
+                    self.failed_to_fetch_flags.store(true, Ordering::Relaxed);
+                    Err(e)
+                }
+            }
         } else {
             Ok(cache.as_ref().unwrap().clone())
         }
@@ -81,29 +96,48 @@ impl FlagsMatcherCache {
     pub async fn group_type_index_to_name(
         &self,
     ) -> Result<HashMap<GroupTypeIndex, GroupTypeName>, FlagError> {
-        let cache = self.group_type_index_to_name.read().await;
-        if let Some(ref cached) = *cache {
-            return Ok(cached.clone());
+        {
+            let cache = self.group_type_index_to_name.read().await;
+            if let Some(ref cached) = *cache {
+                return Ok(cached.clone());
+            }
         }
-        drop(cache);
+
+        let types_to_indexes = self.group_types_to_indexes().await?;
+        let result: HashMap<GroupTypeIndex, GroupTypeName> =
+            types_to_indexes.into_iter().map(|(k, v)| (v, k)).collect();
 
         let mut cache = self.group_type_index_to_name.write().await;
-        if cache.is_none() {
-            let types_to_indexes = self.group_types_to_indexes().await?;
-            let result: HashMap<GroupTypeIndex, GroupTypeName> =
-                types_to_indexes.into_iter().map(|(k, v)| (v, k)).collect();
-            *cache = Some(result.clone());
-            Ok(result)
-        } else {
-            Ok(cache.as_ref().unwrap().clone())
-        }
+        *cache = Some(result);
+
+        Ok(cache.as_ref().unwrap().clone())
     }
 
-    async fn fetch_group_type_mapping(&self) -> Result<Vec<(GroupTypeName, GroupTypeIndex)>> {
-        todo!()
-        // This would be replaced with actual database fetching logic
-        // For demonstration, we'll just return some dummy data
-        // Ok(vec![("Type1".to_string(), 1), ("Type2".to_string(), 2)])
+    async fn fetch_group_type_mapping(
+        &self,
+    ) -> Result<HashMap<GroupTypeName, GroupTypeIndex>, FlagError> {
+        let mut conn = self
+            .database_client
+            .as_ref()
+            .ok_or(FlagError::DatabaseUnavailable)?
+            .get_connection()
+            .await?;
+
+        let query = r#"
+            SELECT group_type, group_type_index 
+            FROM group_type_mapping 
+            WHERE team_id = $1
+        "#;
+
+        let rows = sqlx::query_as::<_, GroupTypeMapping>(query)
+            .bind(self.team_id)
+            .fetch_all(&mut *conn)
+            .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|row| (row.group_type, row.group_type_index))
+            .collect())
     }
 }
 
@@ -148,7 +182,7 @@ impl FeatureFlagMatcher {
             cached_properties: None,
             person_property_overrides,
             group_property_overrides,
-            cache: Arc::new(FlagsMatcherCache::new(1)),
+            cache: Arc::new(FlagsMatcherCache::new(1, None)), // TODO needs a team_id and a non-copied DB client?
         }
     }
 
@@ -224,8 +258,9 @@ impl FeatureFlagMatcher {
                 return Ok(self.check_rollout(feature_flag, rollout_percentage));
             }
 
-            let target_properties = if feature_flag.get_group_type_index().is_some() {
-                self.get_group_properties(feature_flag).await?
+            let target_properties = if let Some(group_index) = feature_flag.get_group_type_index() {
+                self.get_person_properties_from_group(feature_flag, group_index)
+                    .await?
             } else {
                 self.get_person_properties(feature_flag.team_id, properties)
                     .await?
@@ -239,27 +274,37 @@ impl FeatureFlagMatcher {
         Ok(self.check_rollout(feature_flag, rollout_percentage))
     }
 
-    async fn get_group_properties(
-        &self,
+    async fn get_person_properties_from_group(
+        &mut self,
         feature_flag: &FeatureFlag,
+        group_index: i8,
     ) -> Result<HashMap<String, Value>, FlagError> {
-        let group_index = match feature_flag.get_group_type_index() {
-            Some(index) => index,
-            None => return Ok(HashMap::new()), // No group index, return empty HashMap
-        };
-
         let index_to_name = self.cache.group_type_index_to_name().await?;
 
         let group_name = match index_to_name.get(&group_index) {
             Some(name) => name,
-            None => return Ok(HashMap::new()), // No group name found, return empty HashMap
+            None => {
+                // If no group name can be found in the in-memory cache, fall back to redis cache/DB
+                return self
+                    .get_person_properties_from_cache_or_db(
+                        feature_flag.team_id,
+                        self.distinct_id.clone(),
+                    )
+                    .await;
+            }
         };
 
-        Ok(self
-            .group_property_overrides
-            .as_ref()
-            .and_then(|overrides| overrides.get(group_name).cloned())
-            .unwrap_or_else(HashMap::new))
+        // If there are matching property overrides, use them instead of cache/DB
+        if let Some(overrides) = self.group_property_overrides.as_ref() {
+            if let Some(override_properties) = overrides.get(group_name) {
+                return Ok(override_properties.clone());
+            }
+        }
+
+        // If we didn't return overrides, fall back to cache/DB
+        return self
+            .get_person_properties_from_cache_or_db(feature_flag.team_id, self.distinct_id.clone())
+            .await;
     }
 
     async fn get_person_properties(
@@ -398,15 +443,6 @@ impl FeatureFlagMatcher {
 
         Ok(props)
     }
-
-    // async fn get_group_properties_from_cache_or_db(
-    //     &self,
-    //     team_id: i32,
-    //     group_index: usize,
-    //     properties: &Vec<PropertyFilter>,
-    // ) -> HashMap<String, Value> {
-    //     todo!()
-    // }
 }
 
 #[cfg(test)]
