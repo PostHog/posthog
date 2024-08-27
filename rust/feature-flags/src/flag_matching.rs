@@ -302,9 +302,8 @@ impl FeatureFlagMatcher {
         }
 
         // If we didn't return overrides, fall back to cache/DB
-        return self
-            .get_person_properties_from_cache_or_db(feature_flag.team_id, self.distinct_id.clone())
-            .await;
+        self.get_person_properties_from_cache_or_db(feature_flag.team_id, self.distinct_id.clone())
+            .await
     }
 
     async fn get_person_properties(
