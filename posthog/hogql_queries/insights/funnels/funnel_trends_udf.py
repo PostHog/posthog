@@ -57,7 +57,7 @@ class FunnelTrendsUDF(FunnelTrends):
 
         # Todo: Make this work for breakdowns
         if self.context.breakdownType == BreakdownType.COHORT:
-            fn = "aggregate_funnel_cohort"
+            fn = "aggregate_funnel_cohort_trends"
             breakdown_prop = ", prop"
         elif self._query_has_array_breakdown():
             fn = "aggregate_funnel_array_trends"
