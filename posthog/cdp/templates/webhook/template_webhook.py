@@ -93,5 +93,11 @@ if (inputs.debug) {
             name="HTTP Webhook on survey response",
             filters=SUB_TEMPLATE_COMMON["survey_response"].filters,
         ),
+        HogFunctionSubTemplate(
+            id="exception",
+            name="HTTP Webhook on Exception",
+            filters=SUB_TEMPLATE_COMMON["exception"].filters,
+            masking=SUB_TEMPLATE_COMMON["exception"].masking,
+        ),
     ],
 )

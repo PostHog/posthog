@@ -176,7 +176,14 @@ if (res.status != 200 or not res.body.ok) {
                 "blocks": [
                     {
                         "text": {
-                            "text": "*{person.name}* responded to survey *{event.properties.$survey_name}*",
+                            "text": "*:exclamation: <{project.url}/error_tracking/{event.properties.$exception_fingerprint}|{event.properties.$exception_type}>*",
+                            "type": "mrkdwn",
+                        },
+                        "type": "section",
+                    },
+                    {
+                        "text": {
+                            "text": "```{event.properties.$exception_type}: {event.properties.$exception_message}```",
                             "type": "mrkdwn",
                         },
                         "type": "section",
@@ -185,8 +192,8 @@ if (res.status != 200 or not res.body.ok) {
                         "type": "actions",
                         "elements": [
                             {
-                                "url": "{project.url}/surveys/{event.properties.$survey_id}",
-                                "text": {"text": "View Survey", "type": "plain_text"},
+                                "url": "{project.url}/error_tracking/{event.properties.$exception_fingerprint}",
+                                "text": {"text": "View Error", "type": "plain_text"},
                                 "type": "button",
                             },
                             {
