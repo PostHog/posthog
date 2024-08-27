@@ -2,8 +2,11 @@ import { useValues } from 'kea'
 import { getSeriesColor } from 'lib/colors'
 import { useEffect, useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
 
+import { cohortsModel } from '~/models/cohortsModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { ChartParams, GraphType } from '~/types'
 
 import { InsightEmptyState } from '../../insights/EmptyStates'
@@ -17,6 +20,9 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
     const [data, setData] = useState<DataSet[] | null>(null)
     const [total, setTotal] = useState(0)
 
+    const { cohorts } = useValues(cohortsModel)
+    const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
+
     const { insightProps } = useValues(insightLogic)
     const {
         indexedResults,
@@ -26,6 +32,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
         showValuesOnSeries,
         isDataWarehouseSeries,
         querySource,
+        breakdownFilter,
         hiddenLegendIndexes,
     } = useValues(trendsDataLogic(insightProps))
 
@@ -40,7 +47,21 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
                 actions: _data.map((item) => item.action),
                 personsValues: _data.map((item) => item.persons),
                 breakdownValues: _data.map((item) => item.breakdown_value),
-                breakdownLabels: _data.map((item) => item.label),
+                breakdownLabels: _data.map((item) => {
+                    const itemLabel = item.action.custom_name ?? item.action.name ?? item.action.id
+                    if (!item.breakdown_value) {
+                        return itemLabel
+                    }
+
+                    const breakdownLabel = formatBreakdownLabel(
+                        item.breakdown_value,
+                        breakdownFilter,
+                        cohorts,
+                        formatPropertyValueForDisplay
+                    )
+
+                    return `${itemLabel} - ${breakdownLabel}`
+                }),
                 compareLabels: _data.map((item) => item.compare_label),
                 backgroundColor: colorList,
                 hoverBackgroundColor: colorList,
