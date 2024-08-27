@@ -528,12 +528,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
 
-        forcedSubTemplateId: [
-            () => [router.selectors.searchParams],
-            ({ sub_template }) => {
-                return !!sub_template
-            },
-        ],
+        forcedSubTemplateId: [() => [router.selectors.searchParams], ({ sub_template }) => !!sub_template],
     })),
 
     listeners(({ actions, values, cache }) => ({
@@ -573,6 +568,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
 
             const config: HogFunctionConfigurationType = {
                 ...baseConfig,
+                ...(cache.configFromUrl ?? {}),
             }
 
             const paramsFromUrl = cache.paramsFromUrl ?? {}
@@ -623,6 +619,13 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             if (template) {
                 const config = templateToConfiguration(template, values.subTemplate)
 
+                const inputs = config.inputs ?? {}
+
+                // Keep any non-default values
+                Object.entries(values.configuration.inputs ?? {}).forEach(([key, value]) => {
+                    inputs[key] = inputs[key] ?? value
+                })
+
                 actions.setConfigurationValues({
                     ...config,
                     filters: config.filters ?? values.configuration.filters,
@@ -672,13 +675,13 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         cache.paramsFromUrl = {
             integration_id: router.values.searchParams.integration_id,
             integration_target: router.values.searchParams.integration_target,
-            sub_template: router.values.searchParams.sub_template,
         }
-
-        actions.setSubTemplateId(router.values.searchParams.sub_template)
 
         if (props.templateId) {
             cache.configFromUrl = router.values.hashParams.configuration
+            if (router.values.searchParams.sub_template) {
+                actions.setSubTemplateId(router.values.searchParams.sub_template)
+            }
             actions.loadTemplate() // comes with plugin info
         } else if (props.id) {
             actions.loadHogFunction()
