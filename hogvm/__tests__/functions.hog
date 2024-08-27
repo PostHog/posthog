@@ -3,18 +3,26 @@ print('-- test functions --')
 fn add(a, b) {
     return a + b
 }
+print(add)
+
 fn add2(a, b) {
     let c := a + b
     return c
 }
+print(add2)
+
 fn mult(a, b) {
     return a * b
 }
+print(mult)
+
 fn noArgs() {
     let url := 'basdfasdf'
     let second := 2 + 3
     return second
 }
+print(noArgs)
+
 fn empty() {}
 fn empty2() {}
 fn empty3() {}

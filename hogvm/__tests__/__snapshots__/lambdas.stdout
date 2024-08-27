@@ -1,4 +1,4 @@
-{'__hogClosure__': true, 'callable': {'__hogCallable__': 'local', 'name': 'lambda', 'argCount': 1, 'upvalueCount': 0, 'ip': 7}, 'upvalues': []}
+fn<lambda(1)>
 4
 16
 --------

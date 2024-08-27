@@ -39,7 +39,13 @@ def new_hog_error(type: str, message: Any, payload: Any = None) -> dict:
 
 
 def is_hog_callable(obj: Any) -> bool:
-    return isinstance(obj, dict) and "__hogCallable__" in obj and "args" in obj and "body" in obj
+    return (
+        isinstance(obj, dict)
+        and "__hogCallable__" in obj
+        and "argCount" in obj
+        and "ip" in obj
+        and "upvalueCount" in obj
+    )
 
 
 def is_hog_closure(obj: Any) -> bool:

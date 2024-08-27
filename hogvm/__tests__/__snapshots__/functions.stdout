@@ -1,4 +1,8 @@
 -- test functions --
+fn<add(2)>
+fn<add2(2)>
+fn<mult(2)>
+fn<noArgs(0)>
 7
 109
 5
