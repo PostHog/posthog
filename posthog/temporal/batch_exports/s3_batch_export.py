@@ -725,6 +725,8 @@ class S3BatchExportWorkflow(PostHogWorkflow):
                 "ClientError",
                 # An S3 bucket doesn't exist.
                 "NoSuchBucket",
+                # Couldn't connect to custom S3 endpoint
+                "EndpointConnectionError",
             ],
             finish_inputs=finish_inputs,
         )
