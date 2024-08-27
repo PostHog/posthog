@@ -46,7 +46,6 @@ class TestHogFunction(TestCase):
 
         # Some json serialization is needed to compare the bytecode more easily in tests
         json_filters = to_dict(item.filters)
-
         assert json_filters == {
             "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
             "actions": [{"id": "9", "name": "Test Action", "type": "actions", "order": 1}],
@@ -54,13 +53,6 @@ class TestHogFunction(TestCase):
             "bytecode": [
                 "_H",
                 HOGQL_BYTECODE_VERSION,
-                33,
-                2,
-                33,
-                1,
-                11,
-                32,
-                "^(localhost|127\\.0\\.0\\.1)($|:)",
                 32,
                 "$host",
                 32,
@@ -70,6 +62,8 @@ class TestHogFunction(TestCase):
                 2,
                 "toString",
                 1,
+                32,
+                "^(localhost|127\\.0\\.0\\.1)($|:)",
                 2,
                 "match",
                 2,
@@ -79,8 +73,6 @@ class TestHogFunction(TestCase):
                 35,
                 33,
                 1,
-                3,
-                2,
                 32,
                 "$pageview",
                 32,
@@ -88,8 +80,8 @@ class TestHogFunction(TestCase):
                 1,
                 1,
                 11,
-                32,
-                "^(localhost|127\\.0\\.0\\.1)($|:)",
+                3,
+                2,
                 32,
                 "$host",
                 32,
@@ -99,6 +91,8 @@ class TestHogFunction(TestCase):
                 2,
                 "toString",
                 1,
+                32,
+                "^(localhost|127\\.0\\.0\\.1)($|:)",
                 2,
                 "match",
                 2,
@@ -108,6 +102,11 @@ class TestHogFunction(TestCase):
                 35,
                 33,
                 1,
+                33,
+                2,
+                33,
+                1,
+                11,
                 3,
                 2,
                 4,
@@ -128,7 +127,7 @@ class TestHogFunction(TestCase):
         json_filters = to_dict(item.filters)
 
         assert json.dumps(json_filters["bytecode"]) == snapshot(
-            f'["_H", {HOGQL_BYTECODE_VERSION}, 32, "^(localhost|127\\\\.0\\\\.0\\\\.1)($|:)", 32, "$host", 32, "properties", 1, 2, 2, "toString", 1, 2, "match", 2, 5, 47, 3, 35, 33, 1, 3, 1]'
+            f'["_H", {HOGQL_BYTECODE_VERSION}, 32, "$host", 32, "properties", 1, 2, 2, "toString", 1, 32, "^(localhost|127\\\\.0\\\\.0\\\\.1)($|:)", 2, "match", 2, 5, 47, 3, 35, 33, 1, 3, 1]'
         )
 
 
@@ -199,11 +198,11 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
 
         # Check that the bytecode is correct
         assert json.dumps(hog_function_1.filters["bytecode"]) == snapshot(
-            f'["_H", {HOGQL_BYTECODE_VERSION}, 32, "old-value-2", 32, "prop-2", 32, "properties", 1, 2, 11, 3, 1, 32, "old-value-1", 32, "prop-1", 32, "properties", 1, 2, 11, 32, "test-event", 32, "event", 1, 1, 11, 3, 2, 3, 1, 4, 2]'
+            f'["_H", {HOGQL_BYTECODE_VERSION}, 32, "test-event", 32, "event", 1, 1, 11, 32, "old-value-1", 32, "prop-1", 32, "properties", 1, 2, 11, 3, 2, 3, 1, 32, "old-value-2", 32, "prop-2", 32, "properties", 1, 2, 11, 3, 1, 4, 2]'
         )
 
         assert json.dumps(hog_function_2.filters["bytecode"]) == snapshot(
-            f'["_H", {HOGQL_BYTECODE_VERSION}, 32, "old-value-1", 32, "prop-1", 32, "properties", 1, 2, 11, 32, "test-event", 32, "event", 1, 1, 11, 3, 2, 3, 1, 4, 1]'
+            f'["_H", {HOGQL_BYTECODE_VERSION}, 32, "test-event", 32, "event", 1, 1, 11, 32, "old-value-1", 32, "prop-1", 32, "properties", 1, 2, 11, 3, 2, 3, 1, 4, 1]'
         )
 
         # Modify the action and check that the bytecode is updated
@@ -227,10 +226,10 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
         hog_function_2.refresh_from_db()
 
         assert json.dumps(hog_function_1.filters["bytecode"]) == snapshot(
-            f'["_H", {HOGQL_BYTECODE_VERSION}, 32, "old-value-2", 32, "prop-2", 32, "properties", 1, 2, 11, 3, 1, 32, "change-value", 32, "prop-1", 32, "properties", 1, 2, 11, 32, "test-event", 32, "event", 1, 1, 11, 3, 2, 3, 1, 4, 2]'
+            f'["_H", {HOGQL_BYTECODE_VERSION}, 32, "test-event", 32, "event", 1, 1, 11, 32, "change-value", 32, "prop-1", 32, "properties", 1, 2, 11, 3, 2, 3, 1, 32, "old-value-2", 32, "prop-2", 32, "properties", 1, 2, 11, 3, 1, 4, 2]'
         )
         assert json.dumps(hog_function_2.filters["bytecode"]) == snapshot(
-            f'["_H", {HOGQL_BYTECODE_VERSION}, 32, "change-value", 32, "prop-1", 32, "properties", 1, 2, 11, 32, "test-event", 32, "event", 1, 1, 11, 3, 2, 3, 1, 4, 1]'
+            f'["_H", {HOGQL_BYTECODE_VERSION}, 32, "test-event", 32, "event", 1, 1, 11, 32, "change-value", 32, "prop-1", 32, "properties", 1, 2, 11, 3, 2, 3, 1, 4, 1]'
         )
 
     def test_hog_functions_reload_on_team_saved(self):
@@ -260,11 +259,11 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
         )
 
         # Check that the bytecode is correct
-        assert json.dumps(hog_function_1.filters["bytecode"]) == snapshot('["_h", 29]')
+        assert json.dumps(hog_function_1.filters["bytecode"]) == snapshot(f'["_H", {HOGQL_BYTECODE_VERSION}, 29]')
         assert json.dumps(hog_function_2.filters["bytecode"]) == snapshot(
             f'["_H", {HOGQL_BYTECODE_VERSION}, 32, "$pageview", 32, "event", 1, 1, 11, 3, 1, 4, 1]'
         )
-        assert json.dumps(hog_function_3.filters["bytecode"]) == snapshot('["_h", 29]')
+        assert json.dumps(hog_function_3.filters["bytecode"]) == snapshot(f'["_H", {HOGQL_BYTECODE_VERSION}, 29]')
 
         # Modify the action and check that the bytecode is updated
         self.team.test_account_filters = [
@@ -279,9 +278,9 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
         hog_function_3.refresh_from_db()
 
         assert json.dumps(hog_function_1.filters["bytecode"]) == snapshot(
-            f'["_H", {HOGQL_BYTECODE_VERSION}, 32, "test", 32, "$pageview", 32, "properties", 1, 2, 2, "toString", 1, 2, "match", 2, 47, 3, 35, 33, 0, 32, "^(localhost|127\\\\.0\\\\.0\\\\.1)($|:)", 32, "$host", 32, "properties", 1, 2, 2, "toString", 1, 2, "match", 2, 47, 3, 35, 33, 0, 3, 2]'
+            f'["_H", {HOGQL_BYTECODE_VERSION}, 32, "$host", 32, "properties", 1, 2, 2, "toString", 1, 32, "^(localhost|127\\\\.0\\\\.0\\\\.1)($|:)", 2, "match", 2, 47, 3, 35, 33, 0, 32, "$pageview", 32, "properties", 1, 2, 2, "toString", 1, 32, "test", 2, "match", 2, 47, 3, 35, 33, 0, 3, 2]'
         )
         assert json.dumps(hog_function_2.filters["bytecode"]) == snapshot(
-            f'["_H", {HOGQL_BYTECODE_VERSION}, 32, "$pageview", 32, "event", 1, 1, 11, 32, "test", 32, "$pageview", 32, "properties", 1, 2, 2, "toString", 1, 2, "match", 2, 47, 3, 35, 33, 0, 32, "^(localhost|127\\\\.0\\\\.0\\\\.1)($|:)", 32, "$host", 32, "properties", 1, 2, 2, "toString", 1, 2, "match", 2, 47, 3, 35, 33, 0, 3, 3, 4, 1]'
+            f'["_H", {HOGQL_BYTECODE_VERSION}, 32, "$host", 32, "properties", 1, 2, 2, "toString", 1, 32, "^(localhost|127\\\\.0\\\\.0\\\\.1)($|:)", 2, "match", 2, 47, 3, 35, 33, 0, 32, "$pageview", 32, "properties", 1, 2, 2, "toString", 1, 32, "test", 2, "match", 2, 47, 3, 35, 33, 0, 32, "$pageview", 32, "event", 1, 1, 11, 3, 3, 4, 1]'
         )
-        assert json.dumps(hog_function_3.filters["bytecode"]) == snapshot('["_h", 29]')
+        assert json.dumps(hog_function_3.filters["bytecode"]) == snapshot(f'["_H", {HOGQL_BYTECODE_VERSION}, 29]')
