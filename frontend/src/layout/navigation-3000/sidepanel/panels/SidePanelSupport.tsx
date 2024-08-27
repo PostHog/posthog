@@ -118,7 +118,7 @@ const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element =
                 onClick={onCancel}
                 fullWidth
                 center
-                className="mt-2"
+                className="mt-2 mb-4"
             >
                 Cancel
             </LemonButton>
