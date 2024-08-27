@@ -56,6 +56,8 @@ class LabelTreeField(models.Field):
 
 
 class LabelQuery(models.Lookup):
+    """Implement a lookup for ltree label queries using the ~ operator."""
+
     lookup_name = "lquery"
 
     def __init__(self, *args, **kwargs):
@@ -236,15 +238,12 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
         Raises:
             ValueError: If no paths exists for the provided `DataWarehouseSavedQuery`.
         """
-        if self.filter(team=saved_query.team, saved_query=saved_query).exists():
-            raise ModelPathAlreadyExistsError(saved_query.name)
-
         return self.create_leaf_paths_from_query(
             query=saved_query.query["query"],
             team=saved_query.team,
+            saved_query_id=saved_query.id,
             created_by=saved_query.created_by,
             label=saved_query.id.hex,
-            saved_query_id=saved_query.id,
         )
 
     def create_leaf_paths_from_query(
@@ -252,8 +251,8 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
         query: str,
         team: Team,
         label: str,
+        saved_query_id: uuid.UUID,
         created_by: User | None = None,
-        saved_query_id: uuid.UUID | None = None,
         table_id: uuid.UUID | None = None,
     ) -> "list[DataWarehouseModelPath]":
         """Create all paths to a new leaf model.
@@ -268,6 +267,9 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
         }
 
         with transaction.atomic():
+            if self.filter(team=team, saved_query_id=saved_query_id).exists():
+                raise ModelPathAlreadyExistsError(saved_query_id.hex)
+
             parent_paths = self.get_or_create_query_parent_paths(query, team=team)
 
             results = self.bulk_create(
@@ -346,9 +348,11 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
             except ObjectDoesNotExist:
                 pass
             else:
-                parent_paths.extend(
-                    parent_path for parent_path in self.filter_all_leaf_paths(parent_query.id.hex, team=team).all()
-                )
+                parent_query_paths = list(self.filter_all_leaf_paths(parent_query.id.hex, team=team).all())
+                if not parent_query_paths:
+                    raise UnknownParentError(parent, query)
+
+                parent_paths.extend(parent_query_paths)
                 continue
 
             try:

@@ -2,7 +2,12 @@ import pytest
 
 from posthog.test.base import BaseTest
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from posthog.warehouse.models.modeling import DataWarehouseModelPath, NodeType, get_parents_from_model_query
+from posthog.warehouse.models.modeling import (
+    DataWarehouseModelPath,
+    NodeType,
+    UnknownParentError,
+    get_parents_from_model_query,
+)
 
 
 @pytest.mark.parametrize(
@@ -196,3 +201,21 @@ class TestModelPath(BaseTest):
         self.assertIn(("events", NodeType.POSTHOG), dag.nodes)
         self.assertIn(("persons", NodeType.POSTHOG), dag.nodes)
         self.assertEqual(len(dag.nodes), 4)
+
+    def test_creating_cycles_raises_exception(self):
+        """Test cycles cannot be created just by creating queries that select from each other."""
+        cycling_child_saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="my_other_model_child",
+            query={"query": "select * from my_model_grand_child"},
+        )
+
+        grand_child_saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="my_model_grand_child",
+            query={"query": "select * from my_other_model_child"},
+        )
+
+        with pytest.raises(UnknownParentError):
+            DataWarehouseModelPath.objects.create_from_saved_query(grand_child_saved_query)
+            DataWarehouseModelPath.objects.create_from_saved_query(cycling_child_saved_query)
