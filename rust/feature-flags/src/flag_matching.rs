@@ -238,9 +238,9 @@ impl FeatureFlagMatcher {
         if rollout_percentage == 100.0
             || self.get_hash(feature_flag, "") <= (rollout_percentage / 100.0)
         {
-            (true, "CONDITION_MATCH".to_string())
+            (true, "CONDITION_MATCH".to_string()) // TODO enum
         } else {
-            (false, "OUT_OF_ROLLOUT_BOUND".to_string())
+            (false, "OUT_OF_ROLLOUT_BOUND".to_string()) // TODO enum
         }
     }
 
