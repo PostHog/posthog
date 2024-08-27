@@ -531,7 +531,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                     throw new HogVMException(`Invalid callable: ${JSON.stringify(callable)}`)
                 }
                 const upvalueCount = next()
-                const closureUpValues: HogUpValue[] = []
+                const closureUpValues: number[] = []
                 if (upvalueCount !== callable.upvalueCount) {
                     throw new HogVMException(
                         `Invalid upvalue count. Expected ${callable.upvalueCount}, got ${upvalueCount}`
@@ -541,7 +541,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 for (let i = 0; i < callable.upvalueCount; i++) {
                     const [isLocal, index] = [next(), next()]
                     if (isLocal) {
-                        closureUpValues.push(captureUpValue(stackStart + index))
+                        closureUpValues.push(captureUpValue(stackStart + index).id)
                     } else {
                         closureUpValues.push(frame.closure.upvalues[index])
                     }
@@ -554,14 +554,9 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 if (index >= frame.closure.upvalues.length) {
                     throw new HogVMException(`Invalid upvalue index: ${index}`)
                 }
-                let upvalue = frame.closure.upvalues[index]
+                const upvalue = upvaluesById[frame.closure.upvalues[index]]
                 if (!isHogUpValue(upvalue)) {
                     throw new HogVMException(`Invalid upvalue: ${upvalue}`)
-                }
-                // denormalize to the same object after vm stack deserialization
-                if (upvalue !== upvaluesById[upvalue.id]) {
-                    upvalue = upvaluesById[upvalue.id]
-                    frame.closure.upvalues[index] = upvalue
                 }
                 if (upvalue.closed) {
                     pushStack(upvalue.value)
@@ -575,14 +570,9 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 if (index >= frame.closure.upvalues.length) {
                     throw new HogVMException(`Invalid upvalue index: ${index}`)
                 }
-                let upvalue = frame.closure.upvalues[index]
+                const upvalue = upvaluesById[frame.closure.upvalues[index]]
                 if (!isHogUpValue(upvalue)) {
                     throw new HogVMException(`Invalid upvalue: ${upvalue}`)
-                }
-                // denormalize to the same object after vm stack deserialization
-                if (upvalue !== upvaluesById[upvalue.id]) {
-                    upvalue = upvaluesById[upvalue.id]
-                    frame.closure.upvalues[index] = upvalue
                 }
                 if (upvalue.closed) {
                     upvalue.value = popStack()

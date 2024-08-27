@@ -123,7 +123,7 @@ def execute_bytecode(
         if time.time() - start_time > timeout.total_seconds() and not debug:
             raise HogVMException(f"Execution timed out after {timeout.total_seconds()} seconds. Performed {ops} ops.")
 
-    def capture_upvalue(index):
+    def capture_upvalue(index) -> dict:
         nonlocal upvalues
         for upvalue in reversed(upvalues):
             if upvalue["location"] < index:
@@ -361,7 +361,7 @@ def execute_bytecode(
                 for _ in range(closure_callable["upvalueCount"]):
                     is_local, index = next_token(), next_token()
                     if is_local:
-                        closure["upvalues"].append(capture_upvalue(stack_start + index))
+                        closure["upvalues"].append(capture_upvalue(stack_start + index)["id"])
                     else:
                         closure["upvalues"].append(frame.closure["upvalues"][index])
                 push_stack(closure)
@@ -370,7 +370,7 @@ def execute_bytecode(
                 closure = frame.closure
                 if index >= len(closure["upvalues"]):
                     raise HogVMException(f"Invalid upvalue index: {index}")
-                upvalue = closure["upvalues"][index]
+                upvalue = upvalues_by_id[closure["upvalues"][index]]
                 if not is_hog_upvalue(upvalue):
                     raise HogVMException(f"Invalid upvalue: {upvalue}")
                 if upvalue["closed"]:
@@ -382,7 +382,7 @@ def execute_bytecode(
                 closure = frame.closure
                 if index >= len(closure["upvalues"]):
                     raise HogVMException(f"Invalid upvalue index: {index}")
-                upvalue = closure["upvalues"][index]
+                upvalue = upvalues_by_id[closure["upvalues"][index]]
                 if not is_hog_upvalue(upvalue):
                     raise HogVMException(f"Invalid upvalue: {upvalue}")
                 if upvalue["closed"]:

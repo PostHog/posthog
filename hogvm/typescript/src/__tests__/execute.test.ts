@@ -2065,7 +2065,7 @@ describe('hogvm execute', () => {
                 ops: 5,
                 asyncSteps: 1,
                 syncDuration: expect.any(Number),
-                maxMemUsed: 357,
+                maxMemUsed: 242,
             },
         })
         result.state!.stack.push(null)
@@ -2218,7 +2218,7 @@ describe('hogvm execute', () => {
                 ops: 11,
                 asyncSteps: 1,
                 syncDuration: expect.any(Number),
-                maxMemUsed: 912,
+                maxMemUsed: 682,
             },
         })
         result.state!.stack.push(null)
@@ -2393,7 +2393,7 @@ describe('hogvm execute', () => {
                 ops: 16,
                 asyncSteps: 1,
                 syncDuration: expect.any(Number),
-                maxMemUsed: 912,
+                maxMemUsed: 682,
             },
         })
         result.state!.stack.push(null)

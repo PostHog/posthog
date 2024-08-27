@@ -51,7 +51,7 @@ export interface HogUpValue {
 export interface HogClosure {
     __hogClosure__: true
     callable: HogCallable
-    upvalues: HogUpValue[]
+    upvalues: number[]
 }
 
 export function isHogDate(obj: any): obj is HogDate {
@@ -90,7 +90,7 @@ export function isHogClosure(obj: any): obj is HogClosure {
     return obj && typeof obj === 'object' && '__hogClosure__' in obj && 'callable' in obj && 'upvalues' in obj
 }
 
-export function newHogClosure(callable: HogCallable, upvalues?: any[]): HogClosure {
+export function newHogClosure(callable: HogCallable, upvalues?: number[]): HogClosure {
     return {
         __hogClosure__: true,
         callable,
