@@ -38,6 +38,7 @@ async fn janitor_test(db: PgPool) {
         function_id: Some(Uuid::now_v7()),
         vm_state: None,
         parameters: None,
+        blob: None,
         metadata: None,
     };
 
