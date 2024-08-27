@@ -2817,6 +2817,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "property-defs-rs"
+version = "0.1.0"
+dependencies = [
+ "axum 0.7.5",
+ "chrono",
+ "envconfig",
+ "futures",
+ "health",
+ "metrics",
+ "rdkafka",
+ "serde",
+ "serde_json",
+ "serve-metrics",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "prost"
 version = "0.12.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3407,6 +3429,16 @@ dependencies = [
  "itoa",
  "ryu",
  "serde",
+]
+
+[[package]]
+name = "serve-metrics"
+version = "0.1.0"
+dependencies = [
+ "axum 0.7.5",
+ "metrics",
+ "metrics-exporter-prometheus",
+ "tokio",
 ]
 
 [[package]]

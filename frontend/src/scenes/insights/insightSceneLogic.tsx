@@ -71,10 +71,16 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             },
         ],
         itemId: [
-            null as null | number | 'new',
+            null as null | string | number,
             {
                 setSceneState: (_, { itemId }) =>
-                    itemId !== undefined ? (itemId === 'new' ? 'new' : parseInt(itemId, 10)) : null,
+                    itemId !== undefined
+                        ? itemId === 'new'
+                            ? 'new'
+                            : Number.isInteger(+itemId)
+                            ? parseInt(itemId, 10)
+                            : itemId
+                        : null,
             },
         ],
         insightLogicRef: [
