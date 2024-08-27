@@ -1,4 +1,5 @@
 import pytest
+from django.db.utils import ProgrammingError
 
 from posthog.test.base import BaseTest
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -219,3 +220,39 @@ class TestModelPath(BaseTest):
         with pytest.raises(UnknownParentError):
             DataWarehouseModelPath.objects.create_from_saved_query(grand_child_saved_query)
             DataWarehouseModelPath.objects.create_from_saved_query(cycling_child_saved_query)
+
+    def test_creating_cycles_via_updates_raises_exception(self):
+        """Test cycles cannot be created just by updating queries that select from each other."""
+        parent_query = """\
+          select
+            events.event,
+            persons.properties
+          from events
+          left join persons on events.person_id = persons.id
+          where events.event = 'login' and person.pdi != 'some_distinct_id'
+        """
+        parent_saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="my_model",
+            query={"query": parent_query},
+        )
+        child_saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="my_model_child",
+            query={"query": "select * from my_model"},
+        )
+        grand_child_saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="my_model_grand_child",
+            query={"query": "select * from my_model_child"},
+        )
+
+        DataWarehouseModelPath.objects.create_from_saved_query(parent_saved_query)
+        DataWarehouseModelPath.objects.create_from_saved_query(child_saved_query)
+        DataWarehouseModelPath.objects.create_from_saved_query(grand_child_saved_query)
+
+        child_saved_query.query = {"query": "select * from my_model union all select * from my_model_grand_child"}
+        child_saved_query.save()
+
+        with pytest.raises(ProgrammingError):
+            DataWarehouseModelPath.objects.update_from_saved_query(child_saved_query)
