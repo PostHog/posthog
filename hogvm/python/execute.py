@@ -7,7 +7,7 @@ from collections.abc import Callable
 
 from hogvm.python.debugger import debugger, color_bytecode
 from hogvm.python.objects import is_hog_error
-from hogvm.python.operation import Operation, HOGQL_BYTECODE_IDENTIFIER, HOGQL_BYTECODE_IDENTIFIER_V0
+from hogvm.python.operation import Operation, HOGQL_BYTECODE_IDENTIFIER
 from hogvm.python.stl import STL
 from dataclasses import dataclass
 
@@ -41,9 +41,6 @@ def execute_bytecode(
     team: Optional["Team"] = None,
     debug=False,
 ) -> BytecodeResult:
-    if len(bytecode) == 0 or (bytecode[0] not in (HOGQL_BYTECODE_IDENTIFIER, HOGQL_BYTECODE_IDENTIFIER_V0)):
-        raise HogVMException(f"Invalid bytecode. Must start with '{HOGQL_BYTECODE_IDENTIFIER}'")
-    version = bytecode[1] if len(bytecode) >= 2 and bytecode[0] == HOGQL_BYTECODE_IDENTIFIER else 0
     result = None
     start_time = time.time()
     last_op = len(bytecode) - 1
@@ -54,18 +51,12 @@ def execute_bytecode(
     declared_functions: dict[str, tuple[int, int]] = {}
     mem_used = 0
     max_mem_used = 0
-    ip = 1 if version > 0 else 0
+    ip = -1
     ops = 0
     stdout: list[str] = []
     colored_bytecode = color_bytecode(bytecode) if debug else []
     if isinstance(timeout, int):
         timeout = timedelta(seconds=timeout)
-
-    def stack_keep_first_elements(count: int):
-        nonlocal stack, mem_stack, mem_used
-        stack = stack[0:count]
-        mem_used -= sum(mem_stack[count:])
-        mem_stack = mem_stack[0:count]
 
     def next_token():
         nonlocal ip
@@ -91,7 +82,10 @@ def execute_bytecode(
         if mem_used > MAX_MEMORY:
             raise HogVMException(f"Memory limit of {MAX_MEMORY} bytes exceeded. Tried to allocate {mem_used} bytes.")
 
-    if len(bytecode) <= 2:
+    if next_token() != HOGQL_BYTECODE_IDENTIFIER:
+        raise HogVMException(f"Invalid bytecode. Must start with '{HOGQL_BYTECODE_IDENTIFIER}'")
+
+    if len(bytecode) == 1:
         return BytecodeResult(result=None, stdout=stdout, bytecode=bytecode)
 
     def check_timeout():
@@ -176,17 +170,16 @@ def execute_bytecode(
                 push_stack(not bool(re.search(re.compile(args[1], re.RegexFlag.IGNORECASE), args[0])))
             case Operation.GET_GLOBAL:
                 chain = [pop_stack() for _ in range(next_token())]
-                if globals and chain[0] in globals:
-                    push_stack(deepcopy(get_nested_value(globals, chain)))
-                else:
-                    raise HogVMException(f"Global variable not found: {chain[0]}")
+                push_stack(deepcopy(get_nested_value(globals, chain)))
             case Operation.POP:
                 pop_stack()
             case Operation.RETURN:
                 if call_stack:
                     ip, stack_start, arg_len = call_stack.pop()
                     response = pop_stack()
-                    stack_keep_first_elements(stack_start)
+                    stack = stack[0:stack_start]
+                    mem_used -= sum(mem_stack[stack_start:])
+                    mem_stack = mem_stack[0:stack_start]
                     push_stack(response)
                 else:
                     return BytecodeResult(result=pop_stack(), stdout=stdout, bytecode=bytecode)
@@ -259,7 +252,7 @@ def execute_bytecode(
                 body_len = next_token()
                 declared_functions[name] = (ip, arg_len)
                 ip += body_len
-            case Operation.CALL_GLOBAL:
+            case Operation.CALL:
                 check_timeout()
                 name = next_token()
                 if name in declared_functions:
@@ -267,17 +260,16 @@ def execute_bytecode(
                     call_stack.append((ip + 1, len(stack) - arg_len, arg_len))
                     ip = func_ip
                 else:
-                    arg_count = next_token()
-                    args = [pop_stack() for _ in range(arg_count)]
-                    if version > 0:
-                        args = list(reversed(args))
+                    args = [pop_stack() for _ in range(next_token())]
 
                     if functions is not None and name in functions:
                         push_stack(functions[name](*args))
-                    elif name in STL:
-                        push_stack(STL[name](args, team, stdout, timeout.total_seconds()))
-                    else:
+                        continue
+
+                    if name not in STL:
                         raise HogVMException(f"Unsupported function call: {name}")
+
+                    push_stack(STL[name](args, team, stdout, timeout.total_seconds()))
             case Operation.TRY:
                 throw_stack.append((len(call_stack), len(stack), ip + next_token()))
             case Operation.POP_TRY:
@@ -291,7 +283,9 @@ def execute_bytecode(
                     raise HogVMException("Can not throw: value is not of type Error")
                 if throw_stack:
                     call_stack_len, stack_len, catch_ip = throw_stack.pop()
-                    stack_keep_first_elements(stack_len)
+                    stack = stack[0:stack_len]
+                    mem_used -= sum(mem_stack[stack_len:])
+                    mem_stack = mem_stack[0:stack_len]
                     call_stack = call_stack[0:call_stack_len]
                     push_stack(exception)
                     ip = catch_ip

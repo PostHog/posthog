@@ -163,8 +163,8 @@ def print_symbol(symbol: Operation, ip: int, bytecode: list, stack: list, call_s
                 )
             case Operation.DECLARE_FN:
                 return f"DECLARE_FN({bytecode[ip+1]}, args={bytecode[ip+2]}, ops={bytecode[ip+3]})"
-            case Operation.CALL_GLOBAL:
-                return f"CALL_GLOBAL({bytecode[ip+1]} {', '.join(str(stack[-(bytecode[ip+2] - i)]) for i in range(bytecode[ip+2]))})"
+            case Operation.CALL:
+                return f"CALL({bytecode[ip+1]} {', '.join(str(stack[-i]) for i in range(bytecode[ip+2]))})"
             case Operation.TRY:
                 return f"TRY(+{bytecode[ip+1]})"
             case Operation.POP_TRY:
@@ -177,8 +177,8 @@ def print_symbol(symbol: Operation, ip: int, bytecode: list, stack: list, call_s
 
 
 def color_bytecode(bytecode: list) -> list:
-    colored = ["op.START", f"version: {bytecode[1]}"] if bytecode[0] == "_H" else ["op.START"]
-    ip = len(colored)
+    colored = ["op.START"]
+    ip = 1
     while ip < len(bytecode):
         symbol = bytecode[ip]
         match symbol:
@@ -274,8 +274,8 @@ def color_bytecode(bytecode: list) -> list:
                 add = ["op.JUMP_IF_STACK_NOT_NULL", f"offset: {'+' if bytecode[ip+1] >= 0 else ''}{bytecode[ip+1]}"]
             case Operation.DECLARE_FN:
                 add = ["op.DECLARE_FN", f"name: {bytecode[ip+1]}", f"args: {bytecode[ip+2]}", f"ops: {bytecode[ip+3]}"]
-            case Operation.CALL_GLOBAL:
-                add = ["op.CALL_GLOBAL", f"name: {bytecode[ip+1]}", f"args: {bytecode[ip+2]}"]
+            case Operation.CALL:
+                add = ["op.CALL", f"name: {bytecode[ip+1]}", f"args: {bytecode[ip+2]}"]
             case Operation.TRY:
                 add = ["op.TRY", f"catch: +{bytecode[ip+1]}"]
             case Operation.POP_TRY:

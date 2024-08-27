@@ -1,18 +1,12 @@
 from enum import Enum
 
-HOGQL_BYTECODE_IDENTIFIER_V0 = "_h"
-HOGQL_BYTECODE_IDENTIFIER = "_H"
+HOGQL_BYTECODE_IDENTIFIER = "_h"
 HOGQL_BYTECODE_FUNCTION = "_f"
-
-# Version history:
-#  0 - initial version
-#  1 - added version numbers; reversed order of function args in stack
-HOGQL_BYTECODE_VERSION = 1
 
 
 class Operation(int, Enum):
     GET_GLOBAL = 1
-    CALL_GLOBAL = 2
+    CALL = 2
     AND = 3
     OR = 4
     NOT = 5

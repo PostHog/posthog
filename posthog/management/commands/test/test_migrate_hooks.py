@@ -1,5 +1,4 @@
 from ee.models.hook import Hook
-from hogvm.python.operation import HOGQL_BYTECODE_VERSION
 from posthog.cdp.templates.zapier.template_zapier import template as template_zapier
 from posthog.management.commands.migrate_hooks import migrate_hooks
 from posthog.models.action.action import Action
@@ -55,7 +54,7 @@ class TestMigrateHooks(BaseTest):
         assert hog_function.name == f"Zapier webhook for action {self.action.id}"
         assert hog_function.filters == {
             "actions": [{"id": f"{self.action.id}", "name": "", "type": "actions", "order": 0}],
-            "bytecode": ["_H", HOGQL_BYTECODE_VERSION, 29, 3, 1, 4, 1],
+            "bytecode": ["_h", 29, 3, 1, 4, 1],
         }
         assert hog_function.hog == template_zapier.hog
         assert hog_function.inputs_schema == template_zapier.inputs_schema

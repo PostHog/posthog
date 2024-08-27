@@ -63,24 +63,24 @@ describe('hogvm execute', () => {
         expect(execSync(['_h', op.STRING, 'AL', op.STRING, 'kala', op.NOT_IREGEX], options)).toBe(false)
         expect(execSync(['_h', op.STRING, 'bla', op.STRING, 'properties', op.GET_GLOBAL, 2], options)).toBe(null)
         expect(execSync(['_h', op.STRING, 'foo', op.STRING, 'properties', op.GET_GLOBAL, 2], options)).toBe('bar')
-        expect(execSync(['_h', op.STRING, 'another', op.STRING, 'arg', op.CALL_GLOBAL, 'concat', 2], options)).toBe(
+        expect(execSync(['_h', op.STRING, 'another', op.STRING, 'arg', op.CALL, 'concat', 2], options)).toBe(
             'arganother'
         )
-        expect(execSync(['_h', op.NULL, op.INTEGER, 1, op.CALL_GLOBAL, 'concat', 2], options)).toBe('1')
-        expect(execSync(['_h', op.FALSE, op.TRUE, op.CALL_GLOBAL, 'concat', 2], options)).toBe('truefalse')
-        expect(execSync(['_h', op.STRING, 'e.*', op.STRING, 'test', op.CALL_GLOBAL, 'match', 2], options)).toBe(true)
-        expect(execSync(['_h', op.STRING, '^e.*', op.STRING, 'test', op.CALL_GLOBAL, 'match', 2], options)).toBe(false)
-        expect(execSync(['_h', op.STRING, 'x.*', op.STRING, 'test', op.CALL_GLOBAL, 'match', 2], options)).toBe(false)
-        expect(execSync(['_h', op.INTEGER, 1, op.CALL_GLOBAL, 'toString', 1], options)).toBe('1')
-        expect(execSync(['_h', op.FLOAT, 1.5, op.CALL_GLOBAL, 'toString', 1], options)).toBe('1.5')
-        expect(execSync(['_h', op.TRUE, op.CALL_GLOBAL, 'toString', 1], options)).toBe('true')
-        expect(execSync(['_h', op.NULL, op.CALL_GLOBAL, 'toString', 1], options)).toBe('null')
-        expect(execSync(['_h', op.STRING, 'string', op.CALL_GLOBAL, 'toString', 1], options)).toBe('string')
-        expect(execSync(['_h', op.STRING, '1', op.CALL_GLOBAL, 'toInt', 1], options)).toBe(1)
-        expect(execSync(['_h', op.STRING, 'bla', op.CALL_GLOBAL, 'toInt', 1], options)).toBe(null)
-        expect(execSync(['_h', op.STRING, '1.2', op.CALL_GLOBAL, 'toFloat', 1], options)).toBe(1.2)
-        expect(execSync(['_h', op.STRING, 'bla', op.CALL_GLOBAL, 'toFloat', 1], options)).toBe(null)
-        expect(execSync(['_h', op.STRING, 'asd', op.CALL_GLOBAL, 'toUUID', 1], options)).toBe('asd')
+        expect(execSync(['_h', op.NULL, op.INTEGER, 1, op.CALL, 'concat', 2], options)).toBe('1')
+        expect(execSync(['_h', op.FALSE, op.TRUE, op.CALL, 'concat', 2], options)).toBe('truefalse')
+        expect(execSync(['_h', op.STRING, 'e.*', op.STRING, 'test', op.CALL, 'match', 2], options)).toBe(true)
+        expect(execSync(['_h', op.STRING, '^e.*', op.STRING, 'test', op.CALL, 'match', 2], options)).toBe(false)
+        expect(execSync(['_h', op.STRING, 'x.*', op.STRING, 'test', op.CALL, 'match', 2], options)).toBe(false)
+        expect(execSync(['_h', op.INTEGER, 1, op.CALL, 'toString', 1], options)).toBe('1')
+        expect(execSync(['_h', op.FLOAT, 1.5, op.CALL, 'toString', 1], options)).toBe('1.5')
+        expect(execSync(['_h', op.TRUE, op.CALL, 'toString', 1], options)).toBe('true')
+        expect(execSync(['_h', op.NULL, op.CALL, 'toString', 1], options)).toBe('null')
+        expect(execSync(['_h', op.STRING, 'string', op.CALL, 'toString', 1], options)).toBe('string')
+        expect(execSync(['_h', op.STRING, '1', op.CALL, 'toInt', 1], options)).toBe(1)
+        expect(execSync(['_h', op.STRING, 'bla', op.CALL, 'toInt', 1], options)).toBe(null)
+        expect(execSync(['_h', op.STRING, '1.2', op.CALL, 'toFloat', 1], options)).toBe(1.2)
+        expect(execSync(['_h', op.STRING, 'bla', op.CALL, 'toFloat', 1], options)).toBe(null)
+        expect(execSync(['_h', op.STRING, 'asd', op.CALL, 'toUUID', 1], options)).toBe('asd')
 
         expect(execSync(['_h', op.NULL, op.INTEGER, 1, op.EQ], options)).toBe(false)
         expect(execSync(['_h', op.NULL, op.INTEGER, 1, op.NOT_EQ], options)).toBe(true)
@@ -89,32 +89,17 @@ describe('hogvm execute', () => {
     test('error handling', async () => {
         const globals = { properties: { foo: 'bar' } }
         const options = { globals }
-        expect(() => execSync([], options)).toThrow("Invalid HogQL bytecode, must start with '_H'")
-        await expect(execAsync([], options)).rejects.toThrow("Invalid HogQL bytecode, must start with '_H'")
-
+        expect(() => execSync([], options)).toThrow("Invalid HogQL bytecode, must start with '_h'")
+        await expect(execAsync([], options)).rejects.toThrow("Invalid HogQL bytecode, must start with '_h'")
         expect(() => execSync(['_h', op.INTEGER, 2, op.INTEGER, 1, 'InvalidOp'], options)).toThrow(
             'Unexpected node while running bytecode: InvalidOp'
         )
         expect(() =>
-            execSync(['_h', op.STRING, 'another', op.STRING, 'arg', op.CALL_GLOBAL, 'invalidFunc', 2], options)
+            execSync(['_h', op.STRING, 'another', op.STRING, 'arg', op.CALL, 'invalidFunc', 2], options)
         ).toThrow('Unsupported function call: invalidFunc')
         expect(() => execSync(['_h', op.INTEGER], options)).toThrow('Unexpected end of bytecode')
-        expect(() => execSync(['_h', op.CALL_GLOBAL, 'match', 1], options)).toThrow('Not enough arguments on the stack')
+        expect(() => execSync(['_h', op.CALL, 'match', 1], options)).toThrow('Not enough arguments on the stack')
         expect(() => execSync(['_h', op.TRUE, op.TRUE, op.NOT], options)).toThrow(
-            'Invalid bytecode. More than one value left on stack'
-        )
-
-        expect(() => execSync(['_H', 1, op.INTEGER, 2, op.INTEGER, 1, 'InvalidOp'], options)).toThrow(
-            'Unexpected node while running bytecode: InvalidOp'
-        )
-        expect(() =>
-            execSync(['_H', 1, op.STRING, 'another', op.STRING, 'arg', op.CALL_GLOBAL, 'invalidFunc', 2], options)
-        ).toThrow('Unsupported function call: invalidFunc')
-        expect(() => execSync(['_H', 1, op.INTEGER], options)).toThrow('Unexpected end of bytecode')
-        expect(() => execSync(['_H', 1, op.CALL_GLOBAL, 'match', 1], options)).toThrow(
-            'Not enough arguments on the stack'
-        )
-        expect(() => execSync(['_H', 1, op.TRUE, op.TRUE, op.NOT], options)).toThrow(
             'Invalid bytecode. More than one value left on stack'
         )
     })
@@ -303,14 +288,9 @@ describe('hogvm execute', () => {
                 return 'zero'
             },
         }
-        expect(execSync(['_h', op.INTEGER, 1, op.CALL_GLOBAL, 'stringify', 1], { functions })).toBe('one')
-        expect(execSync(['_h', op.INTEGER, 2, op.CALL_GLOBAL, 'stringify', 1], { functions })).toBe('two')
-        expect(execSync(['_h', op.STRING, '2', op.CALL_GLOBAL, 'stringify', 1], { functions })).toBe('zero')
-    })
-
-    test('version 0 and 1', async () => {
-        expect(execSync(['_h', op.STRING, '1', op.STRING, '2', op.CALL_GLOBAL, 'concat', 2, op.RETURN])).toBe('21')
-        expect(execSync(['_H', 1, op.STRING, '1', op.STRING, '2', op.CALL_GLOBAL, 'concat', 2, op.RETURN])).toBe('12')
+        expect(execSync(['_h', op.INTEGER, 1, op.CALL, 'stringify', 1], { functions })).toBe('one')
+        expect(execSync(['_h', op.INTEGER, 2, op.CALL, 'stringify', 1], { functions })).toBe('two')
+        expect(execSync(['_h', op.STRING, '2', op.CALL, 'stringify', 1], { functions })).toBe('zero')
     })
 
     test('should execute user-defined stringify async function correctly', async () => {
@@ -324,9 +304,9 @@ describe('hogvm execute', () => {
                 return Promise.resolve('zero')
             },
         }
-        expect(await execAsync(['_h', op.INTEGER, 1, op.CALL_GLOBAL, 'stringify', 1], { asyncFunctions })).toBe('one')
-        expect(await execAsync(['_h', op.INTEGER, 2, op.CALL_GLOBAL, 'stringify', 1], { asyncFunctions })).toBe('two')
-        expect(await execAsync(['_h', op.STRING, '2', op.CALL_GLOBAL, 'stringify', 1], { asyncFunctions })).toBe('zero')
+        expect(await execAsync(['_h', op.INTEGER, 1, op.CALL, 'stringify', 1], { asyncFunctions })).toBe('one')
+        expect(await execAsync(['_h', op.INTEGER, 2, op.CALL, 'stringify', 1], { asyncFunctions })).toBe('two')
+        expect(await execAsync(['_h', op.STRING, '2', op.CALL, 'stringify', 1], { asyncFunctions })).toBe('zero')
     })
 
     test('bytecode variable assignment', async () => {
@@ -413,7 +393,7 @@ describe('hogvm execute', () => {
             1,
             op.INTEGER,
             2,
-            op.CALL_GLOBAL,
+            op.CALL,
             'add',
             2,
             op.INTEGER,
@@ -422,12 +402,12 @@ describe('hogvm execute', () => {
             4,
             op.INTEGER,
             3,
-            op.CALL_GLOBAL,
+            op.CALL,
             'add',
             2,
             op.PLUS,
             op.PLUS,
-            op.CALL_GLOBAL,
+            op.CALL,
             'divide',
             2,
             op.RETURN,
@@ -459,7 +439,7 @@ describe('hogvm execute', () => {
             op.GET_LOCAL,
             0,
             op.MINUS,
-            op.CALL_GLOBAL,
+            op.CALL,
             'fibonacci',
             1,
             op.INTEGER,
@@ -467,14 +447,14 @@ describe('hogvm execute', () => {
             op.GET_LOCAL,
             0,
             op.MINUS,
-            op.CALL_GLOBAL,
+            op.CALL,
             'fibonacci',
             1,
             op.PLUS,
             op.RETURN,
             op.INTEGER,
             6,
-            op.CALL_GLOBAL,
+            op.CALL,
             'fibonacci',
             1,
             op.RETURN,
@@ -643,10 +623,10 @@ describe('hogvm execute', () => {
                 .result
         ).toEqual(map({ key: map({ otherKey: 'value' }) }))
 
-        // // return {key: 'value'};
+        // return {key: 'value'};
         expect(
-            () => exec(['_h', op.STRING, 'key', op.GET_GLOBAL, 1, op.STRING, 'value', op.DICT, 1, op.RETURN]).result
-        ).toThrow('Global variable not found: key')
+            exec(['_h', op.STRING, 'key', op.GET_GLOBAL, 1, op.STRING, 'value', op.DICT, 1, op.RETURN]).result
+        ).toEqual(new Map([[null, 'value']]))
 
         // var key := 3; return {key: 'value'};
         expect(
@@ -1749,11 +1729,11 @@ describe('hogvm execute', () => {
             op.DICT,
             2,
         ]
-        expect(execSync(['_h', op.STRING, '[1,2,3]', op.CALL_GLOBAL, 'jsonParse', 1])).toEqual([1, 2, 3])
-        expect(execSync(['_h', ...dict, op.CALL_GLOBAL, 'jsonStringify', 1])).toEqual(
+        expect(execSync(['_h', op.STRING, '[1,2,3]', op.CALL, 'jsonParse', 1])).toEqual([1, 2, 3])
+        expect(execSync(['_h', ...dict, op.CALL, 'jsonStringify', 1])).toEqual(
             '{"event":"$pageview","properties":{"$browser":"Chrome","$os":"Windows"}}'
         )
-        expect(execSync(['_h', op.INTEGER, 2, ...dict, op.CALL_GLOBAL, 'jsonStringify', 2])).toEqual(
+        expect(execSync(['_h', op.INTEGER, 2, ...dict, op.CALL, 'jsonStringify', 2])).toEqual(
             JSON.stringify({ event: '$pageview', properties: { $browser: 'Chrome', $os: 'Windows' } }, null, 2)
         )
     })
@@ -1803,21 +1783,21 @@ describe('hogvm execute', () => {
             7,
             op.STRING,
             'true1',
-            op.CALL_GLOBAL,
+            op.CALL,
             'noisy_print',
             1,
             op.JUMP,
             5,
             op.STRING,
             'false1',
-            op.CALL_GLOBAL,
+            op.CALL,
             'noisy_print',
             1,
             op.JUMP,
             5,
             op.STRING,
             'false2',
-            op.CALL_GLOBAL,
+            op.CALL,
             'noisy_print',
             1,
             op.RETURN,
@@ -1843,13 +1823,13 @@ describe('hogvm execute', () => {
             op.POP,
             op.STRING,
             'no',
-            op.CALL_GLOBAL,
+            op.CALL,
             'noisy_print',
             1,
             op.RETURN,
             op.STRING,
             'post',
-            op.CALL_GLOBAL,
+            op.CALL,
             'noisy_print',
             1,
             op.POP,
@@ -1860,7 +1840,7 @@ describe('hogvm execute', () => {
 
     test('uncaught exceptions', () => {
         // throw Error('Not a good day')
-        const bytecode1 = ['_h', op.NULL, op.NULL, op.STRING, 'Not a good day', op.CALL_GLOBAL, 'Error', 3, op.THROW]
+        const bytecode1 = ['_h', op.NULL, op.NULL, op.STRING, 'Not a good day', op.CALL, 'Error', 3, op.THROW]
         expect(() => execSync(bytecode1)).toThrow(new UncaughtHogVMException('Error', 'Not a good day', null))
 
         // throw RetryError('Not a good day', {'key': 'value'})
@@ -1874,7 +1854,7 @@ describe('hogvm execute', () => {
             1,
             op.STRING,
             'Not a good day',
-            op.CALL_GLOBAL,
+            op.CALL,
             'RetryError',
             2,
             op.THROW,
@@ -1885,20 +1865,7 @@ describe('hogvm execute', () => {
     })
 
     test('returns serialized state', () => {
-        const bytecode = [
-            '_h',
-            op.STRING,
-            'key',
-            op.STRING,
-            'value',
-            op.DICT,
-            1,
-            op.GET_LOCAL,
-            0,
-            op.CALL_GLOBAL,
-            'fetch',
-            1,
-        ]
+        const bytecode = ['_h', op.STRING, 'key', op.STRING, 'value', op.DICT, 1, op.GET_LOCAL, 0, op.CALL, 'fetch', 1]
         expect(exec(bytecode, { asyncFunctions: { fetch: async () => null } })).toEqual({
             asyncFunctionArgs: [{ key: 'value' }], // not a Map
             asyncFunctionName: 'fetch',

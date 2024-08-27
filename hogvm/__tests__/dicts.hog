@@ -2,6 +2,7 @@ print({})
 print({'key': 'value'})
 print({'key': 'value', 'other': 'thing'})
 print({'key': {'otherKey': 'value'}})
+print({key: 'value'})
 
 let key := 3
 print({key: 'value'})

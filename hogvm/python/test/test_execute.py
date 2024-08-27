@@ -4,7 +4,7 @@ from collections.abc import Callable
 
 
 from hogvm.python.execute import execute_bytecode, get_nested_value
-from hogvm.python.operation import Operation as op, HOGQL_BYTECODE_IDENTIFIER as _H, HOGQL_BYTECODE_VERSION as VERSION
+from hogvm.python.operation import Operation as op, HOGQL_BYTECODE_IDENTIFIER as _H
 from hogvm.python.utils import UncaughtHogVMException
 from posthog.hogql.bytecode import create_bytecode
 from posthog.hogql.parser import parse_expr, parse_program
@@ -115,21 +115,21 @@ class TestBytecodeExecute:
 
     def test_errors(self):
         try:
-            execute_bytecode([_H, VERSION, op.TRUE, op.CALL_GLOBAL, "notAFunction", 1], {})
+            execute_bytecode([_H, op.TRUE, op.CALL, "notAFunction", 1], {})
         except Exception as e:
             assert str(e) == "Unsupported function call: notAFunction"
         else:
             raise AssertionError("Expected Exception not raised")
 
         try:
-            execute_bytecode([_H, VERSION, op.CALL_GLOBAL, "notAFunction", 1], {})
+            execute_bytecode([_H, op.CALL, "notAFunction", 1], {})
         except Exception as e:
             assert str(e) == "Stack underflow"
         else:
             raise AssertionError("Expected Exception not raised")
 
         try:
-            execute_bytecode([_H, VERSION, op.TRUE, op.TRUE, op.NOT], {})
+            execute_bytecode([_H, op.TRUE, op.TRUE, op.NOT], {})
         except Exception as e:
             assert str(e) == "Invalid bytecode. More than one value left on stack"
         else:
@@ -182,6 +182,10 @@ class TestBytecodeExecute:
             raise AssertionError("Expected Exception not raised")
 
     def test_memory_limits_2(self):
+        # let string := 'banana'
+        # for (let i := 0; i < 100; i := i + 1) {
+        #   string := string || string
+        # }
         bytecode = [
             "_h",
             32,
@@ -277,40 +281,27 @@ class TestBytecodeExecute:
             return "zero"
 
         functions = {"stringify": stringify}
+        assert execute_bytecode([_H, op.INTEGER, 1, op.CALL, "stringify", 1, op.RETURN], {}, functions).result == "one"
+        assert execute_bytecode([_H, op.INTEGER, 2, op.CALL, "stringify", 1, op.RETURN], {}, functions).result == "two"
         assert (
-            execute_bytecode(
-                [_H, VERSION, op.INTEGER, 1, op.CALL_GLOBAL, "stringify", 1, op.RETURN], {}, functions
-            ).result
-            == "one"
-        )
-        assert (
-            execute_bytecode(
-                [_H, VERSION, op.INTEGER, 2, op.CALL_GLOBAL, "stringify", 1, op.RETURN], {}, functions
-            ).result
-            == "two"
-        )
-        assert (
-            execute_bytecode(
-                [_H, VERSION, op.STRING, "2", op.CALL_GLOBAL, "stringify", 1, op.RETURN], {}, functions
-            ).result
-            == "zero"
-        )
-
-    def test_version_0_and_1(self):
-        # version 0 of HogQL bytecode had arguments in a different order
-        assert (
-            execute_bytecode(["_h", op.STRING, "1", op.STRING, "2", op.CALL_GLOBAL, "concat", 2, op.RETURN]).result
-            == "21"
-        )
-        assert (
-            execute_bytecode(["_H", 1, op.STRING, "1", op.STRING, "2", op.CALL_GLOBAL, "concat", 2, op.RETURN]).result
-            == "12"
+            execute_bytecode([_H, op.STRING, "2", op.CALL, "stringify", 1, op.RETURN], {}, functions).result == "zero"
         )
 
     def test_bytecode_variable_assignment(self):
         program = parse_program("let a := 1 + 2; return a;")
         bytecode = create_bytecode(program)
-        assert bytecode == ["_H", 1, op.INTEGER, 2, op.INTEGER, 1, op.PLUS, op.GET_LOCAL, 0, op.RETURN, op.POP]
+        assert bytecode == [
+            _H,
+            op.INTEGER,
+            2,
+            op.INTEGER,
+            1,
+            op.PLUS,
+            op.GET_LOCAL,
+            0,
+            op.RETURN,
+            op.POP,
+        ]
 
         assert self._run_program("let a := 1 + 2; return a;") == 3
         assert (
@@ -328,8 +319,7 @@ class TestBytecodeExecute:
         program = parse_program("if (true) return 1; else return 2;")
         bytecode = create_bytecode(program)
         assert bytecode == [
-            "_H",
-            1,
+            _H,
             op.TRUE,
             op.JUMP_IF_FALSE,
             5,
@@ -381,8 +371,7 @@ class TestBytecodeExecute:
         program = parse_program("while (true) 1 + 1;")
         bytecode = create_bytecode(program)
         assert bytecode == [
-            "_H",
-            1,
+            _H,
             op.TRUE,
             op.JUMP_IF_FALSE,
             8,
@@ -399,11 +388,10 @@ class TestBytecodeExecute:
         program = parse_program("while (toString('a')) { 1 + 1; } return 3;")
         bytecode = create_bytecode(program)
         assert bytecode == [
-            "_H",
-            1,
+            _H,
             op.STRING,
             "a",
-            op.CALL_GLOBAL,
+            op.CALL,
             "toString",
             1,
             op.JUMP_IF_FALSE,
@@ -478,7 +466,7 @@ class TestBytecodeExecute:
                     print(i) -- prints 3 times
                     j := j + 2
                 }
-                // print(i) -- global does not print
+                print(i) -- global does not print
                 return j
                 """
             )
@@ -496,23 +484,22 @@ class TestBytecodeExecute:
         )
         bytecode = create_bytecode(program)
         assert bytecode == [
-            "_H",
-            1,
+            _H,
             op.DECLARE_FN,
             "add",
             2,
             6,
             op.GET_LOCAL,
-            1,
-            op.GET_LOCAL,
             0,
+            op.GET_LOCAL,
+            1,
             op.PLUS,
             op.RETURN,
             op.INTEGER,
-            3,
-            op.INTEGER,
             4,
-            op.CALL_GLOBAL,
+            op.INTEGER,
+            3,
+            op.CALL,
             "add",
             2,
             op.RETURN,
@@ -633,12 +620,7 @@ class TestBytecodeExecute:
         assert self._run_program("return {'key': 'value'};") == {"key": "value"}
         assert self._run_program("return {'key': 'value', 'other': 'thing'};") == {"key": "value", "other": "thing"}
         assert self._run_program("return {'key': {'otherKey': 'value'}};") == {"key": {"otherKey": "value"}}
-        try:
-            self._run_program("return {key: 'value'};")
-        except Exception as e:
-            assert str(e) == "Global variable not found: key"
-        else:
-            raise AssertionError("Expected Exception not raised")
+        assert self._run_program("return {key: 'value'};") == {None: "value"}
         assert self._run_program("let key := 3; return {key: 'value'};") == {3: "value"}
 
         assert self._run_program("return {'key': 'value'}.key;") == "value"

@@ -110,10 +110,10 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
     } else {
         bytecode = code
     }
-    if (!bytecode || bytecode.length === 0 || (bytecode[0] !== '_h' && bytecode[0] !== '_H')) {
-        throw new HogVMException("Invalid HogQL bytecode, must start with '_H'")
+
+    if (!bytecode || bytecode.length === 0 || bytecode[0] !== '_h') {
+        throw new HogVMException("Invalid HogQL bytecode, must start with '_h'")
     }
-    const version = bytecode[0] === '_H' ? bytecode[1] ?? 0 : 0
 
     const startTime = Date.now()
     let temp: any
@@ -131,7 +131,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
     let memUsed = memStack.reduce((acc, val) => acc + val, 0)
     let maxMemUsed = Math.max(vmState ? vmState.maxMemUsed : 0, memUsed)
     const memLimit = options?.memoryLimit ?? DEFAULT_MAX_MEMORY
-    let ip = vmState ? vmState.ip : bytecode[0] === '_H' ? 2 : 1
+    let ip = vmState ? vmState.ip : 1
     let ops = vmState ? vmState.ops : 0
     const timeout = options?.timeout ?? DEFAULT_TIMEOUT_MS
     const maxAsyncSteps = options?.maxAsyncSteps ?? DEFAULT_MAX_ASYNC_STEPS
@@ -158,9 +158,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
         memUsed -= memStack.splice(start, deleteCount).reduce((acc, val) => acc + val, 0)
         return stack.splice(start, deleteCount)
     }
-
-    /** Keep start elements, return those removed */
-    function stackKeepFirstElements(start: number): any[] {
+    function spliceStack1(start: number): any[] {
         memUsed -= memStack.splice(start).reduce((acc, val) => acc + val, 0)
         return stack.splice(start)
     }
@@ -312,11 +310,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 for (let i = 0; i < count; i++) {
                     chain.push(popStack())
                 }
-                if (options?.globals && chain[0] in options.globals && Object.hasOwn(options.globals, chain[0])) {
-                    pushStack(convertJSToHog(getNestedValue(options.globals, chain)))
-                } else {
-                    throw new HogVMException(`Global variable not found: ${chain.join('.')}`)
-                }
+                pushStack(options?.globals ? convertJSToHog(getNestedValue(options.globals, chain)) : null)
                 break
             }
             case Operation.POP:
@@ -326,7 +320,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 if (callStack.length > 0) {
                     const [newIp, stackStart, _] = callStack.pop()!
                     const response = popStack()
-                    stackKeepFirstElements(stackStart)
+                    spliceStack1(stackStart)
                     pushStack(response)
                     ip = newIp
                     break
@@ -406,7 +400,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 ip += bodyLength
                 break
             }
-            case Operation.CALL_GLOBAL: {
+            case Operation.CALL: {
                 checkTimeout()
                 const name = next()
                 // excluding "toString" only because of JavaScript --> no, it's not declared, it's omnipresent! o_O
@@ -422,14 +416,9 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                     if (temp > MAX_FUNCTION_ARGS_LENGTH) {
                         throw new HogVMException('Too many arguments')
                     }
-
-                    const args =
-                        version === 0
-                            ? Array(temp)
-                                  .fill(null)
-                                  .map(() => popStack())
-                            : stackKeepFirstElements(stack.length - temp)
-
+                    const args = Array(temp)
+                        .fill(null)
+                        .map(() => popStack())
                     if (options?.functions && Object.hasOwn(options.functions, name) && options.functions[name]) {
                         pushStack(convertJSToHog(options.functions[name](...args.map(convertHogToJS))))
                     } else if (
@@ -486,7 +475,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 }
                 if (throwStack.length > 0) {
                     const [callStackLen, stackLen, catchIp] = throwStack.pop()!
-                    stackKeepFirstElements(stackLen)
+                    spliceStack1(stackLen)
                     memUsed -= memStack.splice(stackLen).reduce((acc, val) => acc + val, 0)
                     callStack.splice(callStackLen)
                     pushStack(exception)

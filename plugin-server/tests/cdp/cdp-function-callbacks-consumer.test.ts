@@ -111,14 +111,6 @@ describe('CDP Processed Events Consuner', () => {
                     $lib_version: '1.0.0',
                 },
             },
-            groups: {},
-            person: {
-                uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0',
-                distinct_ids: ['b3a1fe86-b10c-43cc-acaf-d208977608d0'],
-                properties: {
-                    email: 'test@posthog.com',
-                },
-            },
         }
 
         beforeEach(async () => {
@@ -169,7 +161,7 @@ describe('CDP Processed Events Consuner', () => {
                     },
                     {
                         level: 'debug',
-                        message: "Suspending function due to async function call 'fetch'. Payload: 1331 bytes",
+                        message: "Suspending function due to async function call 'fetch'. Payload: 1140 bytes",
                     },
                     {
                         level: 'info',
@@ -217,7 +209,7 @@ describe('CDP Processed Events Consuner', () => {
                     },
                     {
                         level: 'debug',
-                        message: "Suspending function due to async function call 'fetch'. Payload: 1331 bytes",
+                        message: "Suspending function due to async function call 'fetch'. Payload: 1140 bytes",
                     },
                     {
                         level: 'debug',

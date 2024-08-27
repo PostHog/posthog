@@ -1,6 +1,6 @@
 export const enum Operation {
     GET_GLOBAL = 1,
-    CALL_GLOBAL = 2,
+    CALL = 2,
     AND = 3,
     OR = 4,
     NOT = 5,
