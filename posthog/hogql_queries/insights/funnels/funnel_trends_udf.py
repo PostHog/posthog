@@ -85,7 +85,7 @@ class FunnelTrendsUDF(FunnelTrends):
                     {prop_vals},
                     arraySort(t -> t.1, groupArray(tuple(toFloat(timestamp), {get_start_of_interval_hogql_str(self.context.interval.value, team=self.context.team, source='timestamp')}, {prop_selector}, arrayFilter((x) -> x != 0, [{steps}{exclusions}]))))
                 )) as af_tuple,
-                af_tuple.1 as entrance_period_start,
+                toTimeZone(af_tuple.1, '{self.context.team.timezone}') as entrance_period_start,
                 af_tuple.2 as success_bool,
                 af_tuple.3 as breakdown
             FROM {{inner_event_query}}
