@@ -176,6 +176,7 @@ impl FeatureFlagMatcher {
                 .all(|prop| person_overrides.contains_key(&prop.key) && prop.prop_type != "cohort");
 
             if should_prefer_overrides {
+                // TODO let's count how often this happens
                 return Ok(person_overrides.clone());
             }
         }
