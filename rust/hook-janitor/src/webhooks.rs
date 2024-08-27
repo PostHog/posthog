@@ -17,10 +17,10 @@ use tracing::{debug, error, info};
 
 use crate::cleanup::Cleaner;
 
+use common_kafka::kafka_messages::app_metrics::{AppMetric, AppMetricCategory};
+use common_kafka::kafka_messages::app_metrics2::{self, AppMetric2};
+use common_kafka::kafka_producer::KafkaContext;
 use common_metrics::get_current_timestamp_seconds;
-use hook_common::kafka_messages::app_metrics::{AppMetric, AppMetricCategory};
-use hook_common::kafka_messages::app_metrics2::{self, AppMetric2};
-use hook_common::kafka_producer::KafkaContext;
 
 #[derive(Error, Debug)]
 pub enum WebhookCleanerError {
@@ -658,12 +658,12 @@ impl Cleaner for WebhookCleaner {
 mod tests {
     use super::*;
 
-    use hook_common::kafka_messages::app_metrics::{
+    use common_kafka::kafka_messages::app_metrics::{
         Error as WebhookError, ErrorDetails, ErrorType,
     };
+    use common_kafka::test::create_mock_kafka;
     use hook_common::pgqueue::PgQueueJob;
     use hook_common::pgqueue::{NewJob, PgQueue, PgTransactionBatch};
-    use hook_common::test::create_mock_kafka;
     use hook_common::webhook::{HttpMethod, WebhookJobMetadata, WebhookJobParameters};
     use rdkafka::consumer::{Consumer, StreamConsumer};
     use rdkafka::types::{RDKafkaApiKey, RDKafkaRespErr};

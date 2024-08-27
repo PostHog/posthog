@@ -711,6 +711,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-kafka"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "envconfig",
+ "health",
+ "rdkafka",
+ "serde",
+ "serde_json",
+ "time",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "common-metrics"
 version = "0.1.0"
 dependencies = [
@@ -1584,10 +1599,8 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
- "envconfig",
- "health",
+ "common-kafka",
  "http 1.1.0",
- "rdkafka",
  "reqwest 0.12.3",
  "serde",
  "serde_json",
@@ -1596,7 +1609,6 @@ dependencies = [
  "time",
  "tokio",
  "tracing",
- "uuid",
 ]
 
 [[package]]
@@ -1605,6 +1617,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "axum 0.7.5",
+ "common-kafka",
  "common-metrics",
  "envconfig",
  "eyre",
@@ -1630,6 +1643,7 @@ dependencies = [
  "axum 0.7.5",
  "chrono",
  "common-dns",
+ "common-kafka",
  "common-metrics",
  "envconfig",
  "futures",
