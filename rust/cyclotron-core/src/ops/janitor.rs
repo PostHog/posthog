@@ -1,4 +1,5 @@
 use chrono::{Duration, Utc};
+use uuid::Uuid;
 
 use crate::error::QueueError;
 
@@ -57,29 +58,26 @@ WHERE cyclotron_jobs.id = stalled.id
 }
 
 // Poison pills are stalled jobs that have been reset by the janitor more than `max_janitor_touched` times.
-//
-// TODO - investigating poision pills is important. We should consider moving them into a separate table or queue, rather than
-// deleting them, so we can investigate why they're stalling/killing workers.
-pub async fn delete_poison_pills<'c, E>(
+pub async fn detect_poison_pills<'c, E>(
     executor: E,
     timeout: Duration,
     max_janitor_touched: i16,
-) -> Result<u64, QueueError>
+) -> Result<Vec<Uuid>, QueueError>
 where
     E: sqlx::Executor<'c, Database = sqlx::Postgres>,
 {
     let oldest_valid_heartbeat = Utc::now() - timeout;
     // KLUDGE - the lock_id being set isn't checked here. A job in a running state without a lock id is violating an invariant,
     // and would be useful to report.
-    let result = sqlx::query!(
+    let result = sqlx::query_scalar!(
         r#"
-DELETE FROM cyclotron_jobs WHERE state = 'running' AND COALESCE(last_heartbeat, $1) <= $1 AND janitor_touch_count >= $2
+SELECT id FROM cyclotron_jobs WHERE state = 'running' AND COALESCE(last_heartbeat, $1) <= $1 AND janitor_touch_count >= $2
         "#,
         oldest_valid_heartbeat,
         max_janitor_touched
-    ).execute(executor)
+    ).fetch_all(executor)
         .await
         .map_err(QueueError::from)?;
 
-    Ok(result.rows_affected())
+    Ok(result)
 }

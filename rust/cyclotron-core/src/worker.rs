@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use crate::{
     ops::{
-        meta::run_migrations,
+        meta::{dead_letter, run_migrations},
         worker::{dequeue_jobs, dequeue_with_vm_state, flush_job, get_vm_state, set_heartbeat},
     },
     Job, JobState, JobUpdate, PoolConfig, QueueError,
@@ -244,5 +244,20 @@ impl Worker {
             .ok_or(QueueError::UnknownJobId(job_id))?
             .parameters = Some(parameters);
         Ok(())
+    }
+
+    pub async fn dead_letter(&self, job_id: Uuid, reason: &str) -> Result<(), QueueError> {
+        // KLUDGE: Non-lexical lifetimes are good but they're just not perfect yet -
+        // changing this to not be a scope bump, and instead explicitly drop'ing the
+        // lock after the if check, makes the compiler think the lock is held across
+        // the await point.
+        {
+            let pending = self.pending.lock().unwrap();
+            if !pending.contains_key(&job_id) {
+                return Err(QueueError::UnknownJobId(job_id));
+            }
+        }
+
+        dead_letter(&self.pool, job_id, reason).await
     }
 }
