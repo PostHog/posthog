@@ -1900,4 +1900,144 @@ describe('hogvm execute', () => {
             new UncaughtHogVMException('RetryError', 'Not a good day', { key: 'value' })
         )
     })
+
+    test('can serialize/unserialize lambdas', () => {
+        // let x := 2
+        // let l := (a, b) -> a + b + x
+        // sleep(2)
+        // x := 10
+        // return l(4, 3)
+        const bytecode = [
+            '_H',
+            1,
+            33,
+            2,
+            52,
+            'lambda',
+            2,
+            1,
+            9,
+            55,
+            0,
+            36,
+            1,
+            36,
+            0,
+            6,
+            6,
+            38,
+            53,
+            1,
+            true,
+            0,
+            33,
+            2,
+            2,
+            'sleep',
+            1,
+            35,
+            33,
+            10,
+            37,
+            0,
+            33,
+            4,
+            33,
+            3,
+            36,
+            1,
+            54,
+            2,
+            38,
+            35,
+            57,
+        ]
+        const options = {
+            asyncFunctions: {
+                sleep: async (seconds: number) => new Promise((resolve) => setTimeout(resolve, seconds)),
+            },
+        }
+        const result = exec(bytecode, options)
+
+        expect(result).toEqual({
+            result: undefined,
+            finished: false,
+            asyncFunctionName: 'sleep',
+            asyncFunctionArgs: [2],
+            state: {
+                bytecode,
+                stack: [
+                    2,
+                    {
+                        __hogClosure__: true,
+                        callable: {
+                            __hogCallable__: 'local',
+                            name: 'lambda',
+                            argCount: 2,
+                            upvalueCount: 1,
+                            ip: 9,
+                        },
+                        upvalues: [
+                            {
+                                __hogUpValue__: true,
+                                location: 0,
+                                closed: false,
+                                value: null,
+                            },
+                        ],
+                    },
+                ],
+                upvalues: [
+                    {
+                        __hogUpValue__: true,
+                        location: 0,
+                        closed: false,
+                        value: null,
+                    },
+                ],
+                callStack: [
+                    {
+                        ip: 27,
+                        stackStart: 0,
+                        argCount: 0,
+                        closure: {
+                            __hogClosure__: true,
+                            callable: {
+                                __hogCallable__: 'main',
+                                name: '',
+                                argCount: 0,
+                                upvalueCount: 0,
+                                ip: 1,
+                            },
+                            upvalues: [],
+                        },
+                    },
+                ],
+                throwStack: [],
+                declaredFunctions: {},
+                ops: 5,
+                asyncSteps: 1,
+                syncDuration: expect.any(Number),
+                maxMemUsed: 339,
+            },
+        })
+        result.state!.stack.push(null)
+        const result2 = exec(result.state!, options)
+        expect(result2).toEqual({
+            result: 17,
+            finished: true,
+            state: {
+                bytecode: [],
+                stack: [],
+                upvalues: [],
+                callStack: [],
+                throwStack: [],
+                declaredFunctions: {},
+                ops: 19,
+                asyncSteps: 1,
+                syncDuration: expect.any(Number),
+                maxMemUsed: 670,
+            },
+        })
+    })
 })
