@@ -665,9 +665,9 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
 name = "chrono"
-version = "0.4.33"
+version = "0.4.38"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9f13690e35a5e4ace198e7beea2895d29f3a9cc55015fcebe6336bd2010af9eb"
+checksum = "a21f936df1771bf62b77f047b726c4625ff2e8aa607c01ec06e5a05bd8463401"
 dependencies = [
  "android-tzdata",
  "iana-time-zone",
@@ -2806,6 +2806,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "property-defs-rs"
+version = "0.1.0"
+dependencies = [
+ "axum 0.7.5",
+ "chrono",
+ "envconfig",
+ "futures",
+ "health",
+ "metrics",
+ "rdkafka",
+ "serde",
+ "serde_json",
+ "serve-metrics",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "prost"
 version = "0.12.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3396,6 +3418,16 @@ dependencies = [
  "itoa",
  "ryu",
  "serde",
+]
+
+[[package]]
+name = "serve-metrics"
+version = "0.1.0"
+dependencies = [
+ "axum 0.7.5",
+ "metrics",
+ "metrics-exporter-prometheus",
+ "tokio",
 ]
 
 [[package]]
