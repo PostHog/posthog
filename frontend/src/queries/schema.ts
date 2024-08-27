@@ -9,8 +9,10 @@ import {
     ChartDisplayCategory,
     ChartDisplayType,
     CountPerActorMathType,
+    DurationType,
     EventPropertyFilter,
     EventType,
+    FilterLogicalOperator,
     FilterType,
     FunnelsFilterType,
     GroupMathType,
@@ -20,12 +22,14 @@ import {
     IntervalType,
     LifecycleFilterType,
     LifecycleToggle,
+    LogEntryPropertyFilter,
     PathsFilterType,
     PersonPropertyFilter,
     PropertyGroupFilter,
     PropertyMathType,
     RetentionFilterType,
     SessionPropertyFilter,
+    SessionRecordingType,
     StickinessFilterType,
     TrendsFilterType,
     UserBasicType,
@@ -64,6 +68,7 @@ export enum NodeKind {
     FunnelsActorsQuery = 'FunnelsActorsQuery',
     FunnelCorrelationActorsQuery = 'FunnelCorrelationActorsQuery',
     SessionsTimelineQuery = 'SessionsTimelineQuery',
+    RecordingsQuery = 'RecordingsQuery',
     SessionAttributionExplorerQuery = 'SessionAttributionExplorerQuery',
     ErrorTrackingQuery = 'ErrorTrackingQuery',
 
@@ -263,6 +268,29 @@ export interface HogQueryResponse {
 export interface HogQuery extends DataNode<HogQueryResponse> {
     kind: NodeKind.HogQuery
     code?: string
+}
+
+export interface RecordingsQueryResponse {
+    results: SessionRecordingType[]
+    has_next: boolean
+}
+
+export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
+    kind: NodeKind.RecordingsQuery
+    date_from?: string | null
+    date_to?: string | null
+    events?: FilterType['events']
+    actions?: FilterType['actions']
+    properties?: AnyPropertyFilter[]
+    console_log_filters?: LogEntryPropertyFilter[]
+    having_predicates?: AnyPropertyFilter[] // duration and snapshot_source filters
+    filter_test_accounts?: boolean
+    operand?: FilterLogicalOperator
+    session_ids?: string[]
+    person_uuid?: string
+    order: DurationType | 'start_time' | 'console_error_count'
+    limit?: integer
+    offset?: integer
 }
 
 export interface HogQLNotice {

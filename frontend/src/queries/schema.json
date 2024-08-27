@@ -6093,6 +6093,32 @@
             "required": ["key", "operator", "type"],
             "type": "object"
         },
+        "MatchedRecording": {
+            "additionalProperties": false,
+            "properties": {
+                "events": {
+                    "items": {
+                        "$ref": "#/definitions/MatchedRecordingEvent"
+                    },
+                    "type": "array"
+                },
+                "session_id": {
+                    "type": "string"
+                }
+            },
+            "required": ["events"],
+            "type": "object"
+        },
+        "MatchedRecordingEvent": {
+            "additionalProperties": false,
+            "properties": {
+                "uuid": {
+                    "type": "string"
+                }
+            },
+            "required": ["uuid"],
+            "type": "object"
+        },
         "MathType": {
             "anyOf": [
                 {
@@ -6171,6 +6197,7 @@
                 "FunnelsActorsQuery",
                 "FunnelCorrelationActorsQuery",
                 "SessionsTimelineQuery",
+                "RecordingsQuery",
                 "SessionAttributionExplorerQuery",
                 "ErrorTrackingQuery",
                 "DataTableNode",
@@ -6458,6 +6485,37 @@
                 }
             },
             "required": ["key", "operator", "type"],
+            "type": "object"
+        },
+        "PersonType": {
+            "additionalProperties": false,
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "distinct_ids": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "is_identified": {
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "properties": {
+                    "type": "object"
+                },
+                "uuid": {
+                    "type": "string"
+                }
+            },
+            "required": ["distinct_ids", "properties"],
             "type": "object"
         },
         "PersonsNode": {
@@ -8236,14 +8294,6 @@
                             "$ref": "#/definitions/DurationType"
                         },
                         {
-                            "const": "console_log_level",
-                            "type": "string"
-                        },
-                        {
-                            "const": "console_log_query",
-                            "type": "string"
-                        },
-                        {
                             "const": "snapshot_source",
                             "type": "string"
                         },
@@ -8268,6 +8318,112 @@
                 }
             },
             "required": ["key", "operator", "type"],
+            "type": "object"
+        },
+        "RecordingsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "actions": {
+                    "items": {
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "console_log_filters": {
+                    "items": {
+                        "$ref": "#/definitions/LogEntryPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "date_from": {
+                    "type": ["string", "null"]
+                },
+                "date_to": {
+                    "type": ["string", "null"]
+                },
+                "events": {
+                    "items": {
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "filter_test_accounts": {
+                    "type": "boolean"
+                },
+                "having_predicates": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "kind": {
+                    "const": "RecordingsQuery",
+                    "type": "string"
+                },
+                "limit": {
+                    "type": "integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "type": "integer"
+                },
+                "operand": {
+                    "$ref": "#/definitions/FilterLogicalOperator"
+                },
+                "order": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/DurationType"
+                        },
+                        {
+                            "const": "start_time",
+                            "type": "string"
+                        },
+                        {
+                            "const": "console_error_count",
+                            "type": "string"
+                        }
+                    ]
+                },
+                "person_uuid": {
+                    "type": "string"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "$ref": "#/definitions/RecordingsQueryResponse"
+                },
+                "session_ids": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["kind", "order"],
+            "type": "object"
+        },
+        "RecordingsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "has_next": {
+                    "type": "boolean"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/SessionRecordingType"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results", "has_next"],
             "type": "object"
         },
         "RefreshType": {
@@ -8791,6 +8947,88 @@
                 }
             },
             "required": ["key", "operator", "type"],
+            "type": "object"
+        },
+        "SessionRecordingType": {
+            "additionalProperties": false,
+            "properties": {
+                "active_seconds": {
+                    "type": "number"
+                },
+                "click_count": {
+                    "type": "number"
+                },
+                "console_error_count": {
+                    "type": "number"
+                },
+                "console_log_count": {
+                    "type": "number"
+                },
+                "console_warn_count": {
+                    "type": "number"
+                },
+                "distinct_id": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "end_time": {
+                    "description": "When the recording ends in ISO format.",
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "inactive_seconds": {
+                    "type": "number"
+                },
+                "keypress_count": {
+                    "type": "number"
+                },
+                "matching_events": {
+                    "description": "List of matching events. *",
+                    "items": {
+                        "$ref": "#/definitions/MatchedRecording"
+                    },
+                    "type": "array"
+                },
+                "mouse_activity_count": {
+                    "description": "count of all mouse activity in the recording, not just clicks",
+                    "type": "number"
+                },
+                "person": {
+                    "$ref": "#/definitions/PersonType"
+                },
+                "recording_duration": {
+                    "description": "Length of recording in seconds.",
+                    "type": "number"
+                },
+                "snapshot_source": {
+                    "enum": ["web", "mobile", "unknown"],
+                    "type": "string"
+                },
+                "start_time": {
+                    "description": "When the recording starts in ISO format.",
+                    "type": "string"
+                },
+                "start_url": {
+                    "type": "string"
+                },
+                "storage": {
+                    "description": "Where this recording information was loaded from",
+                    "enum": ["object_storage_lts", "object_storage"],
+                    "type": "string"
+                },
+                "summary": {
+                    "type": "string"
+                },
+                "viewed": {
+                    "description": "Whether this recording has been viewed already.",
+                    "type": "boolean"
+                }
+            },
+            "required": ["id", "viewed", "recording_duration", "start_time", "end_time", "snapshot_source"],
             "type": "object"
         },
         "SessionsTimelineQuery": {

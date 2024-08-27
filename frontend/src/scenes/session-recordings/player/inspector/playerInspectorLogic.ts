@@ -15,7 +15,7 @@ import {
 import { filterInspectorListItems } from 'scenes/session-recordings/player/inspector/inspectorListFiltering'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import {
-    convertUniversalFiltersToLegacyFilters,
+    convertUniversalFiltersToRecordingsQuery,
     MatchingEventsMatchType,
 } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
@@ -229,7 +229,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         throw new Error('Backend matching events type must include its filters')
                     }
                     const params = toParams({
-                        ...convertUniversalFiltersToLegacyFilters(filters),
+                        ...convertUniversalFiltersToRecordingsQuery(filters),
                         session_ids: [props.sessionRecordingId],
                     })
                     const response = await api.recordings.getMatchingEvents(params)
