@@ -17,8 +17,6 @@ const configWithSentry = (config: Partial<PostHogConfig>): Partial<PostHogConfig
 }
 
 export function loadPostHogJS(): void {
-    window.console.warn('SETTING _CYPRESS_POSTHOG_CAPTURES in loadPostHogJS')
-    ;(window as any)._cypress_posthog_captures = []
     if (window.JS_POSTHOG_API_KEY) {
         posthog.init(
             window.JS_POSTHOG_API_KEY,
@@ -48,7 +46,17 @@ export function loadPostHogJS(): void {
                 person_profiles: 'always',
 
                 // Helper to capture events for assertions in Cypress
-                _onCapture: (_, event) => (window as any)._cypress_posthog_captures.push(event),
+                _onCapture: (_, event) => {
+                    ;(window as any).console.warn(
+                        '_CYPRESS_POSTHOG_CAPTURES',
+                        (window as any)._cypress_posthog_captures
+                    )
+                    ;(window as any).console.warn('_CYPRESS_POSTHOG_CAPTURES EVENT', event)
+
+                    // if not exist, initialize as empty array
+                    ;(window as any)._cypress_posthog_captures = (window as any)._cypress_posthog_captures || []
+                    ;(window as any)._cypress_posthog_captures.push(event)
+                },
             })
         )
 
