@@ -2,6 +2,7 @@ import json
 
 from inline_snapshot import snapshot
 
+from hogvm.python.operation import HOGQL_BYTECODE_VERSION
 from posthog.cdp.validation import validate_inputs, validate_inputs_schema
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 
@@ -78,7 +79,12 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             {
                 "url": {
                     "value": "http://localhost:2080/0e02d917-563f-4050-9725-aad881b69937",
-                    "bytecode": ["_h", 32, "http://localhost:2080/0e02d917-563f-4050-9725-aad881b69937"],
+                    "bytecode": [
+                        "_H",
+                        HOGQL_BYTECODE_VERSION,
+                        32,
+                        "http://localhost:2080/0e02d917-563f-4050-9725-aad881b69937",
+                    ],
                 },
                 "payload": {
                     "value": {
@@ -89,11 +95,25 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
                         "event_url": "{f'{event.url}-test'}",
                     },
                     "bytecode": {
-                        "event": ["_h", 32, "event", 1, 1],
-                        "groups": ["_h", 32, "groups", 1, 1],
-                        "nested": {"foo": ["_h", 32, "url", 32, "event", 1, 2]},
-                        "person": ["_h", 32, "person", 1, 1],
-                        "event_url": ["_h", 32, "-test", 32, "url", 32, "event", 1, 2, 2, "concat", 2],
+                        "event": ["_H", HOGQL_BYTECODE_VERSION, 32, "event", 1, 1],
+                        "groups": ["_H", HOGQL_BYTECODE_VERSION, 32, "groups", 1, 1],
+                        "nested": {"foo": ["_H", HOGQL_BYTECODE_VERSION, 32, "url", 32, "event", 1, 2]},
+                        "person": ["_H", HOGQL_BYTECODE_VERSION, 32, "person", 1, 1],
+                        "event_url": [
+                            "_H",
+                            HOGQL_BYTECODE_VERSION,
+                            32,
+                            "-test",
+                            32,
+                            "url",
+                            32,
+                            "event",
+                            1,
+                            2,
+                            2,
+                            "concat",
+                            2,
+                        ],
                     },
                 },
                 "method": {"value": "POST"},
@@ -140,7 +160,8 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             {
                 "html": {
                     "bytecode": [
-                        "_h",
+                        "_H",
+                        HOGQL_BYTECODE_VERSION,
                         32,
                         "</p>\n</body>\n</html>",
                         32,
