@@ -68,6 +68,8 @@ pub struct KafkaConfig {
     pub kafka_producer_queue_mib: u32, // Size of the in-memory producer queue in mebibytes
     #[envconfig(default = "20000")]
     pub kafka_message_timeout_ms: u32, // Time before we stop retrying producing a message: 20 seconds
+    #[envconfig(default = "1000000")]
+    pub kafka_producer_message_max_bytes: u32, // message.max.bytes - max kafka message size we will produce
     #[envconfig(default = "none")]
     pub kafka_compression_codec: String, // none, gzip, snappy, lz4, zstd
     pub kafka_hosts: String,

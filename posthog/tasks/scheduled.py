@@ -8,7 +8,7 @@ from django.conf import settings
 
 from posthog.caching.warming import schedule_warming_for_teams_task
 from posthog.celery import app
-from posthog.tasks.alerts.checks import check_all_alerts_task
+from posthog.tasks.alerts.checks import check_all_alerts_task, checks_cleanup_task
 from posthog.tasks.integrations import refresh_integrations
 from posthog.tasks.tasks import (
     calculate_cohort,
@@ -244,9 +244,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     sender.add_periodic_task(
-        crontab(hour="*", minute="20"),
+        crontab(hour="*", minute="45"),
         check_all_alerts_task.s(),
-        name="detect alerts' anomalies and notify about them",
+        name="check alerts for matches and send notifications",
+    )
+
+    sender.add_periodic_task(
+        crontab(hour="8", minute="0"),
+        checks_cleanup_task.s(),
+        name="clean up old alert checks",
     )
 
     if settings.EE_AVAILABLE:

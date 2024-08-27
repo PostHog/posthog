@@ -383,6 +383,20 @@ project_insights_router.register(
     ["team_id", "insight_id"],
 )
 
+project_insights_router.register(
+    "thresholds",
+    alert.ThresholdViewSet,
+    "project_insight_thresholds",
+    ["team_id", "insight_id"],
+)
+
+project_insights_router.register(
+    "alerts",
+    alert.AlertViewSet,
+    "project_insight_alerts",
+    ["team_id", "insight_id"],
+)
+
 project_session_recordings_router.register(
     r"sharing",
     sharing.SharingConfigurationViewSet,
