@@ -33,7 +33,7 @@ impl GeoIpService {
 
     /// Checks if the given IP address is valid.
     fn is_valid_ip(&self, ip: &str) -> bool {
-        ip != "127.0.0.1"
+        ip != "127.0.0.1" || ip != "::1"
     }
 
     /// Looks up the city data for the given IP address.
