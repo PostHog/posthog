@@ -8,7 +8,6 @@ from hogvm.python.operation import (
     Operation as op,
     HOGQL_BYTECODE_IDENTIFIER as _H,
     HOGQL_BYTECODE_VERSION as VERSION,
-    HOGQL_BYTECODE_VERSION,
 )
 from hogvm.python.utils import UncaughtHogVMException
 from posthog.hogql.bytecode import create_bytecode
@@ -502,7 +501,7 @@ class TestBytecodeExecute:
         bytecode = create_bytecode(program)
         assert bytecode == [
             "_H",
-            HOGQL_BYTECODE_VERSION,
+            VERSION,
             op.CALLABLE,
             "add",
             2,

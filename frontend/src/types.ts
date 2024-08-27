@@ -960,7 +960,7 @@ export type ActionStepProperties =
 
 export interface RecordingPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Recording
-    key: DurationType | 'console_log_level' | 'console_log_query' | 'snapshot_source' | 'visited_page'
+    key: DurationType | 'snapshot_source' | 'visited_page'
     operator: PropertyOperator
 }
 
@@ -969,7 +969,10 @@ export interface RecordingDurationFilter extends RecordingPropertyFilter {
     value: number
 }
 
-export type DurationType = 'duration' | 'active_seconds' | 'inactive_seconds'
+export interface LogEntryPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.LogEntry
+    operator: PropertyOperator
+}
 
 export interface LogEntryPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.LogEntry
@@ -984,9 +987,11 @@ export interface LogEntryMessageFilter extends LogEntryPropertyFilter {
     key: 'message'
     value: string
 }
+
+export type DurationType = 'duration' | 'active_seconds' | 'inactive_seconds'
 export type FilterableLogLevel = 'info' | 'warn' | 'error'
 
-export interface RecordingFilters {
+export interface LegacyRecordingFilters {
     date_from?: string | null
     date_to?: string | null
     events?: FilterType['events']
@@ -1007,11 +1012,6 @@ export interface RecordingUniversalFilters {
     duration: RecordingDurationFilter[]
     filter_test_accounts?: boolean
     filter_group: UniversalFiltersGroup
-}
-
-export interface SessionRecordingsResponse {
-    results: SessionRecordingType[]
-    has_next: boolean
 }
 
 export type ErrorCluster = {
@@ -1323,7 +1323,7 @@ export interface SessionRecordingPlaylistType {
     created_by: UserBasicType | null
     last_modified_at: string
     last_modified_by: UserBasicType | null
-    filters?: RecordingFilters
+    filters?: LegacyRecordingFilters
 }
 
 export interface SessionRecordingSegmentType {

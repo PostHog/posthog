@@ -1901,6 +1901,42 @@ describe('hogvm execute', () => {
         )
     })
 
+
+    test('returns serialized state', () => {
+        const bytecode = [
+            '_h',
+            op.STRING,
+            'key',
+            op.STRING,
+            'value',
+            op.DICT,
+            1,
+            op.GET_LOCAL,
+            0,
+            op.CALL_GLOBAL,
+            'fetch',
+            1,
+        ]
+        expect(exec(bytecode, { asyncFunctions: { fetch: async () => null } })).toEqual({
+            asyncFunctionArgs: [{ key: 'value' }], // not a Map
+            asyncFunctionName: 'fetch',
+            finished: false,
+            result: undefined,
+            state: {
+                asyncSteps: 1,
+                bytecode: bytecode,
+                callStack: [],
+                declaredFunctions: {},
+                ip: 12,
+                maxMemUsed: 64,
+                ops: 5,
+                stack: [{ key: 'value' }], // is not a Map
+                syncDuration: 0,
+                throwStack: [],
+            },
+        })
+    })
+
     test('can serialize/unserialize lambdas', () => {
         // let x := 2
         // let l := (a, b) -> a + b + x

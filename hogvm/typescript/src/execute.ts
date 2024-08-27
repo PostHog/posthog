@@ -607,12 +607,13 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                     if (temp > MAX_FUNCTION_ARGS_LENGTH) {
                         throw new HogVMException('Too many arguments')
                     }
-                    const args = Array(temp)
-                        .fill(null)
-                        .map(() => popStack())
-                    if (version > 0) {
-                        args.reverse()
-                    }
+
+                    const args =
+                        version === 0
+                            ? Array(temp)
+                                  .fill(null)
+                                  .map(() => popStack())
+                            : stackKeepFirstElements(stack.length - temp)
 
                     if (options?.functions && Object.hasOwn(options.functions, name) && options.functions[name]) {
                         pushStack(convertJSToHog(options.functions[name](...args.map(convertHogToJS))))

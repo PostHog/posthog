@@ -174,9 +174,9 @@ def print_symbol(symbol: Operation, ip: int, bytecode: list, stack: list, call_s
             case Operation.CLOSURE:
                 return f"CLOSURE"
             case Operation.CALL_GLOBAL:
-                return f"CALL_GLOBAL({bytecode[ip+1]}, {bytecode[ip+2]} {', '.join(str(stack[-i]) for i in range(bytecode[ip+2]))})"
+                return f"CALL_GLOBAL({bytecode[ip+1]}, {', '.join(str(stack[-(bytecode[ip+2] - i)]) for i in range(bytecode[ip+2]))})"
             case Operation.CALL_LOCAL:
-                return f"CALL_LOCAL({bytecode[ip+1]} {', '.join(str(stack[-i]) for i in range(bytecode[ip+1]))})"
+                return f"CALL_LOCAL({bytecode[ip+1]} {', '.join(str(stack[-(bytecode[ip+1] - i)]) for i in range(bytecode[ip+1]))})"
             case Operation.TRY:
                 return f"TRY(+{bytecode[ip+1]})"
             case Operation.POP_TRY:
