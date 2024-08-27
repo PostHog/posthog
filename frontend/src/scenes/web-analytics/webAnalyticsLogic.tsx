@@ -1095,6 +1095,41 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               ],
                           }
                         : null,
+                    {
+                        kind: 'query',
+                        tileId: TileId.RETENTION,
+                        title: 'Retention',
+                        layout: {
+                            colSpanClassName: 'md:col-span-2',
+                        },
+
+                        query: {
+                            kind: NodeKind.InsightVizNode,
+                            source: {
+                                kind: NodeKind.RetentionQuery,
+                                properties: webAnalyticsFilters,
+                                dateRange,
+                                filterTestAccounts,
+                                retentionFilter: {
+                                    retentionType: RETENTION_FIRST_TIME,
+                                    retentionReference: 'total',
+                                    totalIntervals: isGreaterThanMd ? 8 : 5,
+                                    period: RetentionPeriod.Week,
+                                },
+                            },
+                            vizSpecificOptions: {
+                                [InsightType.RETENTION]: {
+                                    hideLineGraph: true,
+                                    hideSizeColumn: !isGreaterThanMd,
+                                    useSmallLayout: !isGreaterThanMd,
+                                },
+                            },
+                            embedded: true,
+                        },
+                        insightProps: createInsightProps(TileId.RETENTION),
+                        canOpenInsight: false,
+                        canOpenModal: true,
+                    },
                     featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOALS]
                         ? {
                               kind: 'query',
@@ -1147,40 +1182,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               }),
                           }
                         : null,
-                    {
-                        kind: 'query',
-                        tileId: TileId.RETENTION,
-                        title: 'Retention',
-                        layout: {
-                            colSpanClassName: 'md:col-span-1',
-                        },
-                        canOpenInsight: false,
-                        canOpenModal: true,
-                        query: {
-                            kind: NodeKind.InsightVizNode,
-                            source: {
-                                kind: NodeKind.RetentionQuery,
-                                properties: webAnalyticsFilters,
-                                dateRange,
-                                filterTestAccounts,
-                                retentionFilter: {
-                                    retentionType: RETENTION_FIRST_TIME,
-                                    retentionReference: 'total',
-                                    totalIntervals: isGreaterThanMd ? 8 : 5,
-                                    period: RetentionPeriod.Week,
-                                },
-                            },
-                            vizSpecificOptions: {
-                                [InsightType.RETENTION]: {
-                                    hideLineGraph: true,
-                                    hideSizeColumn: !isGreaterThanMd,
-                                    useSmallLayout: !isGreaterThanMd,
-                                },
-                            },
-                            embedded: true,
-                        },
-                        insightProps: createInsightProps(TileId.RETENTION),
-                    },
                 ]
                 return allTiles.filter(isNotNil)
             },
