@@ -296,10 +296,10 @@ impl FeatureFlagMatcher {
 
         // If there are matching property overrides, use them instead of cache/DB
         if let Some(overrides) = self.group_property_overrides.as_ref() {
-            if let Some(override_properties) = overrides.get(group_name) {
+            if let Some(override_propserties) = overrides.get(group_name) {
                 return Ok(override_properties.clone());
             }
-        }
+        };
 
         // If we didn't return overrides, fall back to cache/DB
         self.get_person_properties_from_cache_or_db(feature_flag.team_id, self.distinct_id.clone())
@@ -442,6 +442,15 @@ impl FeatureFlagMatcher {
 
         Ok(props)
     }
+
+    // async fn get_group_properties_from_cache_or_db(
+    //     &self,
+    //     team_id: i32,
+    //     group_index: usize,
+    //     properties: &Vec<PropertyFilter>,
+    // ) -> HashMap<String, Value> {
+    //     todo!()
+    // }
 }
 
 #[cfg(test)]

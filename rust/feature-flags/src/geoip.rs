@@ -13,12 +13,12 @@ pub enum GeoIpError {
     DatabaseOpenError(#[from] maxminddb::MaxMindDBError),
 }
 
-pub struct GeoIpService {
+pub struct GeoIpClient {
     reader: Reader<Vec<u8>>,
 }
 
-impl GeoIpService {
-    /// Creates a new GeoIpService instance.
+impl GeoIpClient {
+    /// Creates a new GeoIpClient instance.
     /// Returns an error if the database can't be loaded.
     pub fn new(config: &Config) -> Result<Self, GeoIpError> {
         let geoip_path = config.get_maxmind_db_path();
@@ -28,12 +28,12 @@ impl GeoIpService {
         let reader = Reader::open_readfile(&geoip_path)?;
         info!("Successfully opened GeoIP database");
 
-        Ok(GeoIpService { reader })
+        Ok(GeoIpClient { reader })
     }
 
     /// Checks if the given IP address is valid.
     fn is_valid_ip(&self, ip: &str) -> bool {
-        ip != "127.0.0.1"
+        ip != "127.0.0.1" || ip != "::1"
     }
 
     /// Looks up the city data for the given IP address.
@@ -122,16 +122,16 @@ mod tests {
         });
     }
 
-    fn create_test_service() -> GeoIpService {
+    fn create_test_service() -> GeoIpClient {
         let config = Config::default_test_config();
-        GeoIpService::new(&config).expect("Failed to create GeoIpService")
+        GeoIpClient::new(&config).expect("Failed to create GeoIpService")
     }
 
     #[test]
     fn test_geoip_service_creation() {
         initialize();
         let config = Config::default_test_config();
-        let service_result = GeoIpService::new(&config);
+        let service_result = GeoIpClient::new(&config);
         assert!(service_result.is_ok());
     }
 
@@ -140,7 +140,7 @@ mod tests {
         initialize();
         let mut config = Config::default_test_config();
         config.maxmind_db_path = "/path/to/nonexistent/file".to_string();
-        let service_result = GeoIpService::new(&config);
+        let service_result = GeoIpClient::new(&config);
         assert!(service_result.is_err());
     }
 

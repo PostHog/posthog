@@ -6,7 +6,7 @@ use tokio::net::TcpListener;
 
 use crate::config::Config;
 use crate::database::PgClient;
-use crate::geoip::GeoIpService;
+use crate::geoip::GeoIpClient;
 use crate::redis::RedisClient;
 use crate::router;
 
@@ -30,7 +30,7 @@ where
         }
     };
 
-    let geoip_service = match GeoIpService::new(&config) {
+    let geoip_service = match GeoIpClient::new(&config) {
         Ok(service) => Arc::new(service),
         Err(e) => {
             tracing::error!("Failed to create GeoIP service: {}", e);
