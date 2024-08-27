@@ -107,7 +107,7 @@ def _convert_response_to_csv_data(data: Any) -> Generator[Any, None, None]:
 
     if isinstance(data.get("results"), list) or isinstance(data.get("results"), dict):
         results = data.get("results")
-    elif isinstance(data.get("results"), list) or isinstance(data.get("results"), dict):
+    elif isinstance(data.get("result"), list) or isinstance(data.get("result"), dict):
         results = data.get("result")
     else:
         return None
