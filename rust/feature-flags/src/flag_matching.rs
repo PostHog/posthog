@@ -215,7 +215,7 @@ impl FeatureFlagMatcher {
                 .await?;
 
             if is_match {
-                // TODO: this is a bit awkward, we should only handle variants when overrides exist
+                // TODO: this is a bit awkward, we should only handle variants when variant overrides exist
                 let variant = match condition.variant.clone() {
                     Some(variant_override) => {
                         if feature_flag
@@ -262,24 +262,24 @@ impl FeatureFlagMatcher {
         _index: usize,
     ) -> Result<(bool, String), FlagError> {
         let rollout_percentage = condition.rollout_percentage.unwrap_or(100.0);
-        if let Some(properties) = &condition.properties {
-            if properties.is_empty() {
+        if let Some(flag_condition_properties) = &condition.properties {
+            if flag_condition_properties.is_empty() {
                 return Ok(self.check_rollout(feature_flag, rollout_percentage));
             }
 
-            // TODO need to handle can_compute_locally
-            // also like I feel a little stuck...
-
             let target_properties =
                 if let Some(group_text_index) = feature_flag.get_group_type_index() {
-                    self.get_group_properties(feature_flag, group_text_index)
+                    self.get_group_properties_from_override_or_db(feature_flag, group_text_index)
                         .await?
                 } else {
-                    self.get_person_properties(feature_flag.team_id, properties)
-                        .await?
+                    self.get_person_properties_from_override_or_db(
+                        feature_flag.team_id,
+                        flag_condition_properties,
+                    )
+                    .await?
                 };
 
-            if !self.all_properties_match(properties, &target_properties) {
+            if !self.all_properties_match(flag_condition_properties, &target_properties) {
                 return Ok((false, "NO_CONDITION_MATCH".to_string()));
             }
         }
@@ -287,7 +287,7 @@ impl FeatureFlagMatcher {
         Ok(self.check_rollout(feature_flag, rollout_percentage))
     }
 
-    async fn get_group_properties(
+    async fn get_group_properties_from_override_or_db(
         &mut self,
         feature_flag: &FeatureFlag,
         group_type_index: i8,
@@ -319,7 +319,7 @@ impl FeatureFlagMatcher {
             .await
     }
 
-    async fn get_person_properties(
+    async fn get_person_properties_from_override_or_db(
         &mut self,
         team_id: i32,
         properties: &[PropertyFilter],
@@ -344,10 +344,10 @@ impl FeatureFlagMatcher {
 
     fn all_properties_match(
         &self,
-        condition_properties: &[PropertyFilter],
+        flag_condition_properties: &[PropertyFilter],
         target_properties: &HashMap<String, Value>,
     ) -> bool {
-        condition_properties
+        flag_condition_properties
             .iter()
             .all(|property| match_property(property, target_properties, false).unwrap_or(false))
     }
