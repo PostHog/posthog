@@ -234,8 +234,6 @@ jobs:
               env:
                   E2E_TESTING: 1
                   OPT_OUT_CAPTURE: 0
-                  ACTIONS_STEP_DEBUG: true
-                  DEBUG: 'cypress:*'
                   GITHUB_ACTION_RUN_URL: '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'
 
             - name: Archive test screenshots
