@@ -110,8 +110,8 @@ export const surveysLogic = kea<surveysLogicType>([
         loadSurveysSuccess: () => {
             actions.loadCurrentTeam()
         },
-        setTab: ({ newTab }) => {
-            actions.setSurveysFilters({ ...values.filters, archived: newTab === SurveysTabs.Archived })
+        setTab: ({ tab }) => {
+            actions.setSurveysFilters({ ...values.filters, archived: tab === SurveysTabs.Archived })
         },
     })),
     selectors({
