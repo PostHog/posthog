@@ -109,7 +109,8 @@ export function filterInspectorListItems({
 
     const inspectorTabFilters: Record<SessionRecordingPlayerTab, (item: InspectorListItem) => boolean> = {
         [SessionRecordingPlayerTab.ALL]: (item: InspectorListItem) => {
-            const isAllEverything = miniFiltersByKey['all-everything']?.enabled === true
+            // even in everything mode we don't show doctor events
+            const isAllEverything = miniFiltersByKey['all-everything']?.enabled === true && !isDoctorEvent(item)
             const isAllAutomatic =
                 !!miniFiltersByKey['all-automatic']?.enabled &&
                 (isOfflineStatusChange(item) ||
