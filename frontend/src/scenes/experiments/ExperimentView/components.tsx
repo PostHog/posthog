@@ -1,10 +1,9 @@
 import '../Experiment.scss'
 
-import { IconArchive, IconCheck, IconInfo, IconMagicWand, IconX } from '@posthog/icons'
+import { IconArchive, IconCheck, IconFlask, IconX } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
-    LemonCheckbox,
     LemonDialog,
     LemonDivider,
     LemonModal,
@@ -159,7 +158,7 @@ export function ExploreButton({ icon = <IconAreaChart /> }: { icon?: JSX.Element
     return (
         <LemonButton
             className="ml-auto -translate-y-2"
-            size="small"
+            size="xsmall"
             type="primary"
             icon={icon}
             to={urls.insightNew(undefined, undefined, query)}
@@ -345,7 +344,7 @@ export function PageHeaderCustom(): JSX.Element {
         loadExperimentResults,
         loadSecondaryMetricResults,
         createExposureCohort,
-        openMakeDecisionModal,
+        openShipVariantModal,
     } = useActions(experimentLogic)
     const exposureCohortId = experiment?.exposure_cohort
 
@@ -475,15 +474,16 @@ export function PageHeaderCustom(): JSX.Element {
                         areResultsSignificant &&
                         !isSingleVariantShipped && (
                             <>
-                                <LemonButton
-                                    type="primary"
-                                    status="alt"
-                                    icon={<IconMagicWand />}
-                                    onClick={() => openMakeDecisionModal()}
-                                >
-                                    <b>Make decision</b>
-                                </LemonButton>
-                                <MakeDecisionModal experimentId={experimentId} />
+                                <Tooltip title="Choose a variant and roll it out to all users">
+                                    <LemonButton
+                                        type="primary"
+                                        icon={<IconFlask />}
+                                        onClick={() => openShipVariantModal()}
+                                    >
+                                        <b>Ship a variant</b>
+                                    </LemonButton>
+                                </Tooltip>
+                                <ShipVariantModal experimentId={experimentId} />
                             </>
                         )}
                 </>
@@ -492,15 +492,12 @@ export function PageHeaderCustom(): JSX.Element {
     )
 }
 
-export function MakeDecisionModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
-    const { experiment, sortedWinProbabilities, isMakeDecisionModalOpen, isExperimentStopped } = useValues(
-        experimentLogic({ experimentId })
-    )
-    const { closeMakeDecisionModal, shipVariant } = useActions(experimentLogic({ experimentId }))
+export function ShipVariantModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
+    const { experiment, sortedWinProbabilities, isShipVariantModalOpen } = useValues(experimentLogic({ experimentId }))
+    const { closeShipVariantModal, shipVariant } = useActions(experimentLogic({ experimentId }))
     const { aggregationLabel } = useValues(groupsModel)
 
     const [selectedVariantKey, setSelectedVariantKey] = useState<string | null>()
-    const [shouldStopExperiment, setShouldStopExperiment] = useState(true)
     useEffect(() => setSelectedVariantKey(sortedWinProbabilities[0]?.key), [sortedWinProbabilities])
 
     const aggregationTargetName =
@@ -510,17 +507,19 @@ export function MakeDecisionModal({ experimentId }: { experimentId: Experiment['
 
     return (
         <LemonModal
-            isOpen={isMakeDecisionModalOpen}
-            onClose={closeMakeDecisionModal}
+            isOpen={isShipVariantModalOpen}
+            onClose={closeShipVariantModal}
             width={600}
-            title="Make decision"
+            title="Ship a variant"
             footer={
                 <div className="flex items-center gap-2">
-                    <LemonButton type="secondary" onClick={closeMakeDecisionModal}>
+                    <LemonButton type="secondary" onClick={closeShipVariantModal}>
                         Cancel
                     </LemonButton>
                     <LemonButton
-                        onClick={() => shipVariant({ selectedVariantKey, shouldStopExperiment })}
+                        // TODO: revisit if it always makes sense to stop the experiment when shipping a variant
+                        // does it make sense to still *monitor* the experiment after shipping the variant?
+                        onClick={() => shipVariant({ selectedVariantKey, shouldStopExperiment: true })}
                         type="primary"
                     >
                         Ship variant
@@ -530,7 +529,8 @@ export function MakeDecisionModal({ experimentId }: { experimentId: Experiment['
         >
             <div className="space-y-6">
                 <div className="text-sm">
-                    This action will roll out the selected variant to <b>100% of {aggregationTargetName}.</b>
+                    This will roll out the selected variant to <b>100% of {aggregationTargetName}</b> and stop the
+                    experiment.
                 </div>
                 <div className="flex items-center">
                     <div className="w-1/2 pr-4">
@@ -554,29 +554,6 @@ export function MakeDecisionModal({ experimentId }: { experimentId: Experiment['
                             }))}
                         />
                     </div>
-                    {!isExperimentStopped && (
-                        <>
-                            <LemonDivider className="my-0" vertical />
-                            <div className="w-2/5 pl-4">
-                                <LemonCheckbox
-                                    id="flag-enabled-checkbox"
-                                    label={
-                                        <div className="inline-flex items-center space-x-1">
-                                            <div className="">Stop experiment</div>
-                                            <Tooltip
-                                                title="This will end data collection. The experiment can be
-                                                    restarted later if needed."
-                                            >
-                                                <IconInfo className="text-muted-alt text-base" />
-                                            </Tooltip>
-                                        </div>
-                                    }
-                                    onChange={() => setShouldStopExperiment(!shouldStopExperiment)}
-                                    checked={shouldStopExperiment}
-                                />
-                            </div>
-                        </>
-                    )}
                 </div>
                 <LemonBanner type="info" className="mb-4">
                     For more precise control over your release, adjust the rollout percentage and release conditions in
