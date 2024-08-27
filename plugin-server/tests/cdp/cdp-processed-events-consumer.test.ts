@@ -211,7 +211,7 @@ describe('CDP Processed Events Consuner', () => {
                 topic: 'log_entries_test',
                 value: {
                     log_source: 'hog_function',
-                    message: "Suspending function due to async function call 'fetch'. Payload: 1805 bytes",
+                    message: "Suspending function due to async function call 'fetch'. Payload: 1497 bytes",
                     team_id: 2,
                 },
             })
