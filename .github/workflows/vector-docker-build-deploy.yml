@@ -101,5 +101,6 @@ jobs:
                         "release": "replay-capture-vector",
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": ${{ toJson(github.repository) }},
-                        "labels": []
+                        "labels": [],
+                        "timestamp": "${{ github.event.workflow_run.created_at }}"
                       }
