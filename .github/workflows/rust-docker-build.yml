@@ -95,7 +95,6 @@ jobs:
             - name: Container image digest
               run: echo ${{ steps.docker_build.outputs.digest }}
 
-
     deploy:
         name: Deploy capture-replay
         runs-on: ubuntu-latest
