@@ -102,6 +102,11 @@ class TraversingVisitor(Visitor[None]):
             for expr in node.params:
                 self.visit(expr)
 
+    def visit_expr_call(self, node: ast.ExprCall):
+        self.visit(node.expr)
+        for expr in node.args:
+            self.visit(expr)
+
     def visit_sample_expr(self, node: ast.SampleExpr):
         self.visit(node.sample_value)
         self.visit(node.offset_value)
@@ -310,6 +315,16 @@ class TraversingVisitor(Visitor[None]):
         if node.expr:
             self.visit(node.expr)
 
+    def visit_throw_statement(self, node: ast.ThrowStatement):
+        if node.expr:
+            self.visit(node.expr)
+
+    def visit_try_catch_statement(self, node: ast.TryCatchStatement):
+        self.visit(node.try_stmt)
+        for catch in node.catches:
+            self.visit(catch[2])
+        self.visit(node.finally_stmt)
+
     def visit_function(self, node: ast.Function):
         self.visit(node.body)
 
@@ -483,7 +498,7 @@ class CloningVisitor(Visitor[Any]):
             start=None if self.clear_locations else node.start,
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
-            field=node.field,
+            chain=node.chain,
         )
 
     def visit_call(self, node: ast.Call):
@@ -495,6 +510,15 @@ class CloningVisitor(Visitor[Any]):
             args=[self.visit(arg) for arg in node.args],
             params=[self.visit(param) for param in node.params] if node.params is not None else None,
             distinct=node.distinct,
+        )
+
+    def visit_expr_call(self, node: ast.ExprCall):
+        return ast.ExprCall(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            expr=self.visit(node.expr),
+            args=[self.visit(arg) for arg in node.args],
         )
 
     def visit_ratio_expr(self, node: ast.RatioExpr):
@@ -675,6 +699,22 @@ class CloningVisitor(Visitor[Any]):
             start=None if self.clear_locations else node.start,
             end=None if self.clear_locations else node.end,
             expr=self.visit(node.expr) if node.expr else None,
+        )
+
+    def visit_throw_statement(self, node: ast.ThrowStatement):
+        return ast.ThrowStatement(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            expr=self.visit(node.expr) if node.expr else None,
+        )
+
+    def visit_try_catch_statement(self, node: ast.TryCatchStatement):
+        return ast.TryCatchStatement(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            try_stmt=self.visit(node.try_stmt),
+            catches=[(c[0], c[1], self.visit(c[2])) for c in node.catches],
+            finally_stmt=self.visit(node.finally_stmt),
         )
 
     def visit_function(self, node: ast.Function):

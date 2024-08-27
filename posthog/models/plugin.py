@@ -38,15 +38,11 @@ except ImportError:
     pass
 
 
-def raise_if_plugin_installed(url: str, organization_id: str):
+def raise_if_plugin_installed(url: str):
     url_without_private_key = url.split("?")[0]
-    if (
-        Plugin.objects.filter(
-            models.Q(url=url_without_private_key) | models.Q(url__startswith=f"{url_without_private_key}?")
-        )
-        .filter(organization_id=organization_id)
-        .exists()
-    ):
+    if Plugin.objects.filter(
+        models.Q(url=url_without_private_key) | models.Q(url__startswith=f"{url_without_private_key}?")
+    ).exists():
         raise ValidationError(f'Plugin from URL "{url_without_private_key}" already installed!')
 
 
@@ -125,7 +121,7 @@ class PluginManager(models.Manager):
         plugin_json: Optional[dict[str, Any]] = None
         if kwargs.get("plugin_type", None) != Plugin.PluginType.SOURCE:
             plugin_json = update_validated_data_from_url(kwargs, kwargs["url"])
-            raise_if_plugin_installed(kwargs["url"], kwargs["organization_id"])
+            raise_if_plugin_installed(kwargs["url"])
         plugin = Plugin.objects.create(**kwargs)
         if plugin_json:
             PluginSourceFile.objects.sync_from_plugin_archive(plugin, plugin_json)
@@ -149,49 +145,53 @@ class Plugin(models.Model):
             "source",
             "source",
         )  # coded inside the browser (versioned via plugin_source_version)
+        INLINE = (
+            "inline",
+            "inline",
+        )  # Code checked into plugin_server, url starts with "inline:"
 
-    organization: models.ForeignKey = models.ForeignKey(
+    # DEPRECATED: plugin-server will own all plugin code, org relations don't make sense
+    organization = models.ForeignKey(
         "posthog.Organization",
         on_delete=models.CASCADE,
         related_name="plugins",
         related_query_name="plugin",
+        null=True,
     )
-    plugin_type: models.CharField = models.CharField(
-        max_length=200, null=True, blank=True, choices=PluginType.choices, default=None
-    )
-    is_global: models.BooleanField = models.BooleanField(default=False)  # Whether plugin is installed for all orgs
-    is_preinstalled: models.BooleanField = models.BooleanField(default=False)
-    is_stateless: models.BooleanField = models.BooleanField(
+    plugin_type = models.CharField(max_length=200, null=True, blank=True, choices=PluginType.choices, default=None)
+    is_global = models.BooleanField(default=False)  # Whether plugin is installed for all orgs
+    is_preinstalled = models.BooleanField(default=False)
+    is_stateless = models.BooleanField(
         default=False, null=True, blank=True
     )  # Whether plugin can run one VM across teams
 
-    name: models.CharField = models.CharField(max_length=200, null=True, blank=True)
-    description: models.TextField = models.TextField(null=True, blank=True)
-    url: models.CharField = models.CharField(max_length=800, null=True, blank=True)
-    icon: models.CharField = models.CharField(max_length=800, null=True, blank=True)
+    name = models.CharField(max_length=200, null=True, blank=True)
+    description = models.TextField(null=True, blank=True)
+    url = models.CharField(max_length=800, null=True, blank=True, unique=True)
+    icon = models.CharField(max_length=800, null=True, blank=True)
     # Describe the fields to ask in the interface; store answers in PluginConfig->config
     # - config_schema = { [fieldKey]: { name: 'api key', type: 'string', default: '', required: true }  }
-    config_schema: models.JSONField = models.JSONField(default=dict, blank=True)
-    tag: models.CharField = models.CharField(max_length=200, null=True, blank=True)
-    archive: models.BinaryField = models.BinaryField(blank=True, null=True)
-    latest_tag: models.CharField = models.CharField(max_length=800, null=True, blank=True)
-    latest_tag_checked_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
-    capabilities: models.JSONField = models.JSONField(default=dict)
-    metrics: models.JSONField = models.JSONField(default=dict, null=True, blank=True)
-    public_jobs: models.JSONField = models.JSONField(default=dict, null=True, blank=True)
+    config_schema = models.JSONField(default=dict, blank=True)
+    tag = models.CharField(max_length=200, null=True, blank=True)
+    archive = models.BinaryField(blank=True, null=True)
+    latest_tag = models.CharField(max_length=800, null=True, blank=True)
+    latest_tag_checked_at = models.DateTimeField(null=True, blank=True)
+    capabilities = models.JSONField(default=dict)
+    metrics = models.JSONField(default=dict, null=True, blank=True)
+    public_jobs = models.JSONField(default=dict, null=True, blank=True)
 
     # DEPRECATED: not used for anything, all install and config errors are in PluginConfig.error
-    error: models.JSONField = models.JSONField(default=None, null=True, blank=True)
+    error = models.JSONField(default=None, null=True, blank=True)
     # DEPRECATED: this was used when syncing posthog.json with the db on app start
-    from_json: models.BooleanField = models.BooleanField(default=False)
+    from_json = models.BooleanField(default=False)
     # DEPRECATED: this was used when syncing posthog.json with the db on app start
-    from_web: models.BooleanField = models.BooleanField(default=False)
+    from_web = models.BooleanField(default=False)
     # DEPRECATED: using PluginSourceFile model instead
-    source: models.TextField = models.TextField(blank=True, null=True)
+    source = models.TextField(blank=True, null=True)
 
-    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
-    updated_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
-    log_level: models.IntegerField = models.IntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(null=True, blank=True)
+    log_level = models.IntegerField(null=True, blank=True)
 
     # Some plugins are private, only certain organizations should be able to access them
     # Sometimes we want to deprecate plugins, where the first step is limiting access to organizations using them
@@ -224,29 +224,29 @@ class Plugin(models.Model):
 
 
 class PluginConfig(models.Model):
-    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, null=True)
-    plugin: models.ForeignKey = models.ForeignKey("Plugin", on_delete=models.CASCADE)
-    enabled: models.BooleanField = models.BooleanField(default=False)
-    order: models.IntegerField = models.IntegerField()
-    config: models.JSONField = models.JSONField(default=dict)
+    team = models.ForeignKey("Team", on_delete=models.CASCADE, null=True)
+    plugin = models.ForeignKey("Plugin", on_delete=models.CASCADE)
+    enabled = models.BooleanField(default=False)
+    order = models.IntegerField()
+    config = models.JSONField(default=dict)
     # DEPRECATED: use `plugin_log_entries` or `app_metrics` in ClickHouse instead
     # Error when running this plugin on an event (frontend: PluginErrorType)
     # - e.g: "undefined is not a function on index.js line 23"
     # - error = { message: "Exception in processEvent()", time: "iso-string", ...meta }
-    error: models.JSONField = models.JSONField(default=None, null=True, blank=True)
+    error = models.JSONField(default=None, null=True, blank=True)
     # Used to access site.ts from a public URL
-    web_token: models.CharField = models.CharField(max_length=64, default=None, null=True)
+    web_token = models.CharField(max_length=64, default=None, null=True)
 
-    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
-    updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
     # Used in the frontend
-    name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
-    description: models.CharField = models.CharField(max_length=1000, null=True, blank=True)
+    name = models.CharField(max_length=400, null=True, blank=True)
+    description = models.CharField(max_length=1000, null=True, blank=True)
     # Used in the frontend to hide pluginConfigs that user deleted
-    deleted: models.BooleanField = models.BooleanField(default=False, null=True)
+    deleted = models.BooleanField(default=False, null=True)
 
     # If set we will filter the plugin triggers for this event
-    filters: models.JSONField = models.JSONField(null=True, blank=True)
+    filters = models.JSONField(null=True, blank=True)
 
     # DEPRECATED - this never actually got used - filters is the way to go
     match_action = models.ForeignKey(
@@ -265,16 +265,20 @@ class PluginConfig(models.Model):
 
 
 class PluginAttachment(models.Model):
-    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, null=True)
-    plugin_config: models.ForeignKey = models.ForeignKey("PluginConfig", on_delete=models.CASCADE, null=True)
-    key: models.CharField = models.CharField(max_length=200)
-    content_type: models.CharField = models.CharField(max_length=200)
-    file_name: models.CharField = models.CharField(max_length=200)
-    file_size: models.IntegerField = models.IntegerField()
-    contents: models.BinaryField = models.BinaryField()
+    team = models.ForeignKey("Team", on_delete=models.CASCADE, null=True)
+    plugin_config = models.ForeignKey("PluginConfig", on_delete=models.CASCADE, null=True)
+    key = models.CharField(max_length=200)
+    content_type = models.CharField(max_length=200)
+    file_name = models.CharField(max_length=200)
+    file_size = models.IntegerField()
+    contents = models.BinaryField()
 
 
 class PluginStorage(models.Model):
+    plugin_config = models.ForeignKey("PluginConfig", on_delete=models.CASCADE)
+    key = models.CharField(max_length=200)
+    value = models.TextField(blank=True, null=True)
+
     class Meta:
         constraints = [
             models.UniqueConstraint(
@@ -282,10 +286,6 @@ class PluginStorage(models.Model):
                 name="posthog_unique_plugin_storage_key",
             )
         ]
-
-    plugin_config: models.ForeignKey = models.ForeignKey("PluginConfig", on_delete=models.CASCADE)
-    key: models.CharField = models.CharField(max_length=200)
-    value: models.TextField = models.TextField(blank=True, null=True)
 
 
 class PluginLogEntrySource(StrEnum):
@@ -399,14 +399,14 @@ class PluginSourceFile(UUIDModel):
         TRANSPILED = "TRANSPILED", "transpiled"
         ERROR = "ERROR", "error"
 
-    plugin: models.ForeignKey = models.ForeignKey("Plugin", on_delete=models.CASCADE)
-    filename: models.CharField = models.CharField(max_length=200, blank=False)
+    plugin = models.ForeignKey("Plugin", on_delete=models.CASCADE)
+    filename = models.CharField(max_length=200, blank=False)
     # "source" can be null if we're only using this model to cache transpiled code from a ".zip"
-    source: models.TextField = models.TextField(blank=True, null=True)
-    status: models.CharField = models.CharField(max_length=20, choices=Status.choices, null=True)
-    transpiled: models.TextField = models.TextField(blank=True, null=True)
-    error: models.TextField = models.TextField(blank=True, null=True)
-    updated_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
+    source = models.TextField(blank=True, null=True)
+    status = models.CharField(max_length=20, choices=Status.choices, null=True)
+    transpiled = models.TextField(blank=True, null=True)
+    error = models.TextField(blank=True, null=True)
+    updated_at = models.DateTimeField(null=True, blank=True)
 
     objects: PluginSourceFileManager = PluginSourceFileManager()
 

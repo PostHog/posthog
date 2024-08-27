@@ -100,6 +100,15 @@ export const createHogExecutionGlobals = (
 ): HogFunctionInvocationGlobals => {
     return {
         ...data,
+        person: {
+            uuid: 'uuid',
+            name: 'test',
+            url: 'http://localhost:8000/persons/1',
+            properties: {
+                $lib_version: '1.2.3',
+            },
+            ...(data.person ?? {}),
+        },
         project: {
             id: 1,
             name: 'test',

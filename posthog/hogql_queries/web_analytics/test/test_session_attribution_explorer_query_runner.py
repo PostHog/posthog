@@ -112,7 +112,7 @@ class TestSessionAttributionQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert results == [
             (
                 7,
-                ["Paid Unknown", "Unknown"],
+                ["Paid Unknown", "Referral"],
                 ["referring_domain1a", "referring_domain1b", "referring_domain2"],
                 ["source1", "source2"],
                 ["medium1", "medium2"],
@@ -154,7 +154,7 @@ class TestSessionAttributionQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ),
             (
                 1,
-                ["Unknown"],
+                ["Referral"],
                 ["referring_domain2"],
                 ["source2"],
                 ["medium2"],
@@ -188,7 +188,7 @@ class TestSessionAttributionQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ["glcid,gad_source"],
                 ["http://example.com/1a", "http://example.com/1b"],
             ),
-            (1, "Unknown", ["referring_domain2"], "source2", "medium2", ["campaign2"], [], ["http://example.com/2"]),
+            (1, "Referral", ["referring_domain2"], "source2", "medium2", ["campaign2"], [], ["http://example.com/2"]),
         ]
 
     @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])

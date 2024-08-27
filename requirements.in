@@ -33,12 +33,12 @@ djangorestframework==3.15.1
 djangorestframework-csv==2.1.1
 djangorestframework-dataclasses==1.2.0
 django-fernet-encrypted-fields==0.1.3
-dlt==0.5.1
-dlt[deltalake]==0.5.1
+dlt==0.5.3
+dlt[deltalake]==0.5.3
 dnspython==2.2.1
 drf-exceptions-hog==0.4.0
 drf-extensions==0.7.0
-drf-spectacular==0.27.1
+drf-spectacular==0.27.2
 geoip2==4.6.0
 google-cloud-bigquery==3.11.4
 gunicorn==20.1.0
@@ -54,10 +54,12 @@ orjson==3.9.10
 pandas==2.2.0
 paramiko==3.4.0
 Pillow==10.2.0
+pdpyras==5.2.0
 posthoganalytics==3.5.0
 psycopg2-binary==2.9.7
-psycopg[binary]==3.1.18
-pyarrow==15.0.0
+PyMySQL==1.1.1
+psycopg[binary]==3.1.20
+pyarrow==17.0.0
 pydantic==2.5.3
 pyjwt==2.4.0
 python-dateutil>=2.8.2
@@ -71,6 +73,7 @@ stripe==10.3.0
 selenium==4.1.5
 sentry-sdk[clickhouse-driver,celery,openai,django]~=1.44.1
 semantic_version==2.8.5
+simple-salesforce>=1.12.6
 scikit-learn==1.5.0
 slack_sdk==3.17.1
 snowflake-connector-python==3.6.0
@@ -82,7 +85,7 @@ sshtunnel==0.4.0
 statshog==1.0.6
 structlog==23.2.0
 sqlparse==0.4.4
-temporalio==1.4.0
+temporalio==1.6.0
 token-bucket==0.3.0
 toronado==0.1.0
 webdriver_manager==4.0.1
@@ -94,7 +97,7 @@ phonenumberslite==8.13.6
 openai==1.10.0
 tiktoken==0.6.0
 nh3==0.2.14
-hogql-parser==1.0.29
+hogql-parser==1.0.38
 zxcvbn==4.4.28
 zstd==1.5.5.1
 xmlsec==1.3.13 # Do not change this version - it will break SAML

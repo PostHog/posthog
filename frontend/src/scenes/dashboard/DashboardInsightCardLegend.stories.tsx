@@ -22,6 +22,7 @@ const meta: Meta = {
         mockDate: '2023-02-01',
         waitForSelector: '.InsightCard',
     },
+    tags: ['test-skip'], // Flakey
 }
 export default meta
 

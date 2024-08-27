@@ -2,7 +2,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 
 
 template: HogFunctionTemplate = HogFunctionTemplate(
-    status="alpha",
+    status="beta",
     id="template-hubspot",
     name="Create Hubspot contact",
     description="Creates a new contact in Hubspot whenever an event is triggered.",
@@ -16,10 +16,6 @@ if (empty(properties.email)) {
     return
 }
 
-let body := {
-    'properties': properties
-}
-
 let headers := {
     'Authorization': f'Bearer {inputs.oauth.access_token}',
     'Content-Type': 'application/json'
@@ -28,7 +24,9 @@ let headers := {
 let res := fetch('https://api.hubapi.com/crm/v3/objects/contacts', {
   'method': 'POST',
   'headers': headers,
-  'body': body
+  'body': {
+    'properties': properties
+  }
 })
 
 if (res.status == 409) {
@@ -36,7 +34,9 @@ if (res.status == 409) {
     let updateRes := fetch(f'https://api.hubapi.com/crm/v3/objects/contacts/{existingId}', {
         'method': 'PATCH',
         'headers': headers,
-        'body': body
+        'body': {
+            'properties': properties
+        }
     })
 
     if (updateRes.status != 200 or updateRes.body.status == 'error') {

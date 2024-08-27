@@ -40,6 +40,7 @@ from posthog.temporal.batch_exports.utils import (
     JsonType,
     apeek_first_and_rewind,
     cast_record_batch_json_columns,
+    make_retryable_with_exponential_backoff,
     set_status_to_running_task,
 )
 from posthog.temporal.common.clickhouse import get_client
@@ -110,7 +111,9 @@ class PostgreSQLClient:
         return self._connection
 
     @contextlib.asynccontextmanager
-    async def connect(self) -> typing.AsyncIterator[typing.Self]:
+    async def connect(
+        self,
+    ) -> typing.AsyncIterator[typing.Self]:
         """Manage a PostgreSQL connection.
 
         By using a context manager Pyscopg will take care of closing the connection.
@@ -120,7 +123,12 @@ class PostgreSQLClient:
             # Disable certificate verification for self-signed certificates.
             kwargs["sslrootcert"] = None
 
-        connection = await psycopg.AsyncConnection.connect(
+        connect = make_retryable_with_exponential_backoff(
+            psycopg.AsyncConnection.connect,
+            retryable_exceptions=(psycopg.OperationalError,),
+        )
+
+        connection: psycopg.AsyncConnection = await connect(
             user=self.user,
             password=self.password,
             dbname=self.database,
@@ -129,6 +137,7 @@ class PostgreSQLClient:
             sslmode="prefer" if settings.TEST else "require",
             **kwargs,
         )
+
         async with connection as connection:
             self._connection = connection
             yield self
@@ -288,13 +297,15 @@ class PostgreSQLClient:
         field_names = comma.join(sql.Identifier(field[0]) for field in update_when_matched)
         conflict_fields = comma.join(sql.Identifier(field[0]) for field in merge_key)
 
-        merge_query = sql.SQL("""\
+        merge_query = sql.SQL(
+            """\
         INSERT INTO {final_table} AS final ({field_names})
         SELECT {field_names} FROM {stage_table}
         ON CONFLICT ({conflict_fields}) DO UPDATE SET
             {update_clause}
         WHERE (EXCLUDED.{person_version_key} > final.{person_version_key} OR EXCLUDED.{person_distinct_id_version_key} > final.{person_distinct_id_version_key})
-        """).format(
+        """
+        ).format(
             final_table=final_table_identifier,
             conflict_fields=conflict_fields,
             stage_table=stage_table_identifier,
@@ -493,7 +504,10 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
         requires_merge = (
             isinstance(inputs.batch_export_model, BatchExportModel) and inputs.batch_export_model.name == "persons"
         )
-        stagle_table_name = f"stage_{inputs.table_name}" if requires_merge else inputs.table_name
+        data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
+        stagle_table_name = (
+            f"stage_{inputs.table_name}_{data_interval_end_str}" if requires_merge else inputs.table_name
+        )
 
         if requires_merge:
             primary_key: Fields | None = (("team_id", "INTEGER"), ("distinct_id", "VARCHAR(200)"))
@@ -522,6 +536,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
                     flush_counter: int,
                     last_inserted_at,
                     last: bool,
+                    error: Exception | None,
                 ):
                     logger.debug(
                         "Copying %s records of size %s bytes",
@@ -570,7 +585,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
                 return writer.records_total
 
 
-@workflow.defn(name="postgres-export")
+@workflow.defn(name="postgres-export", failure_exception_types=[workflow.NondeterminismError])
 class PostgresBatchExportWorkflow(PostHogWorkflow):
     """A Temporal Workflow to export ClickHouse data into Postgres.
 
@@ -652,6 +667,9 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
                 "InsufficientPrivilege",
                 # Issue with exported data compared to schema, retrying won't help.
                 "NotNullViolation",
+                # A user added a unique constraint on their table, but batch exports (particularly events)
+                # can cause duplicates.
+                "UniqueViolation",
             ],
             finish_inputs=finish_inputs,
         )

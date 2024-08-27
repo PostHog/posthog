@@ -2,7 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { initKeaTests } from '~/test/init'
-import { InsightLogicProps } from '~/types'
+import { ChartDisplayType, InsightLogicProps } from '~/types'
 
 import * as breakdownLogic from './taxonomicBreakdownFilterLogic'
 
@@ -135,6 +135,32 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 breakdown_type: 'group',
                 breakdown: '$lib_version',
                 breakdown_group_type_index: 0,
+            })
+        })
+
+        it('resets the map view when adding a next breakdown', async () => {
+            logic = taxonomicBreakdownFilterLogic({
+                insightProps,
+                breakdownFilter: {
+                    breakdown: '$geoip_country_code',
+                    breakdown_type: 'person',
+                },
+                isTrends: true,
+                display: ChartDisplayType.WorldMap,
+                updateBreakdownFilter,
+                updateDisplay,
+            })
+            logic.mount()
+            const changedBreakdown = 'c'
+            const group: TaxonomicFilterGroup = taxonomicGroupFor(TaxonomicFilterGroupType.EventProperties, undefined)
+
+            await expectLogic(logic, () => {
+                logic.actions.addBreakdown(changedBreakdown, group)
+            }).toFinishListeners()
+
+            expect(updateBreakdownFilter).toHaveBeenCalledWith({
+                breakdown_type: 'event',
+                breakdown: 'c',
             })
         })
 
@@ -699,6 +725,35 @@ describe('taxonomicBreakdownFilterLogic', () => {
             })
 
             expect(updateBreakdownFilter.mock.calls[0][0]).toHaveProperty('breakdowns', undefined)
+        })
+
+        it('resets the map view when adding a next breakdown', async () => {
+            const logic = taxonomicBreakdownFilterLogic({
+                insightProps,
+                breakdownFilter: {
+                    breakdowns: [{ property: '$geoip_country_code', type: 'person' }],
+                },
+                isTrends: true,
+                display: ChartDisplayType.WorldMap,
+                updateBreakdownFilter,
+                updateDisplay,
+            })
+            mockFeatureFlag(logic)
+            logic.mount()
+            const changedBreakdown = 'c'
+            const group: TaxonomicFilterGroup = taxonomicGroupFor(TaxonomicFilterGroupType.EventProperties, undefined)
+
+            await expectLogic(logic, () => {
+                logic.actions.addBreakdown(changedBreakdown, group)
+            }).toFinishListeners()
+
+            expect(updateBreakdownFilter).toHaveBeenCalledWith({
+                breakdowns: [
+                    { property: '$geoip_country_code', type: 'person' },
+                    { property: 'c', type: 'event' },
+                ],
+            })
+            expect(updateDisplay).toHaveBeenCalledWith(undefined)
         })
     })
 

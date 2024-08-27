@@ -9,8 +9,8 @@ use std::{str::FromStr, time::Duration};
 use tokio::sync::Semaphore;
 use webhooks::WebhookCleaner;
 
+use common_metrics::setup_metrics_routes;
 use hook_common::kafka_producer::create_kafka_producer;
-use hook_common::metrics::setup_metrics_routes;
 
 mod cleanup;
 mod config;
@@ -63,6 +63,7 @@ async fn main() {
                     &config.database_url,
                     kafka_producer,
                     config.app_metrics_topic.to_owned(),
+                    config.app_metrics2_topic.to_owned(),
                     config.hog_mode,
                 )
                 .expect("unable to create webhook cleaner"),

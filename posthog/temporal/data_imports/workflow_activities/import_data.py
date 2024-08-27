@@ -77,7 +77,7 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
             reset_pipeline=reset_pipeline,
         )
     elif model.pipeline.source_type == ExternalDataSource.Type.HUBSPOT:
-        from posthog.temporal.data_imports.pipelines.hubspot.auth import refresh_access_token
+        from posthog.temporal.data_imports.pipelines.hubspot.auth import hubspot_refresh_access_token
         from posthog.temporal.data_imports.pipelines.hubspot import hubspot
 
         hubspot_access_code = model.pipeline.job_inputs.get("hubspot_secret_key", None)
@@ -86,7 +86,7 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
             raise ValueError(f"Hubspot refresh token not found for job {model.id}")
 
         if not hubspot_access_code:
-            hubspot_access_code = refresh_access_token(refresh_token)
+            hubspot_access_code = hubspot_refresh_access_token(refresh_token)
 
         source = hubspot(
             api_key=hubspot_access_code,
@@ -102,8 +102,8 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
             schema=schema,
             reset_pipeline=reset_pipeline,
         )
-    elif model.pipeline.source_type == ExternalDataSource.Type.POSTGRES:
-        from posthog.temporal.data_imports.pipelines.sql_database import postgres_source
+    elif model.pipeline.source_type in [ExternalDataSource.Type.POSTGRES, ExternalDataSource.Type.MYSQL]:
+        from posthog.temporal.data_imports.pipelines.sql_database import sql_source_for_type
 
         host = model.pipeline.job_inputs.get("host")
         port = model.pipeline.job_inputs.get("port")
@@ -137,7 +137,8 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
                 if tunnel is None:
                     raise Exception("Can't open tunnel to SSH server")
 
-                source = postgres_source(
+                source = sql_source_for_type(
+                    source_type=model.pipeline.source_type,
                     host=tunnel.local_bind_host,
                     port=tunnel.local_bind_port,
                     user=user,
@@ -152,6 +153,7 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
                     incremental_field_type=schema.sync_type_config.get("incremental_field_type")
                     if schema.is_incremental
                     else None,
+                    team_id=inputs.team_id,
                 )
 
                 return await _run(
@@ -163,7 +165,8 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
                     reset_pipeline=reset_pipeline,
                 )
 
-        source = postgres_source(
+        source = sql_source_for_type(
+            source_type=model.pipeline.source_type,
             host=host,
             port=port,
             user=user,
@@ -176,6 +179,7 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
             incremental_field_type=schema.sync_type_config.get("incremental_field_type")
             if schema.is_incremental
             else None,
+            team_id=inputs.team_id,
         )
 
         return await _run(
@@ -206,6 +210,51 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
             warehouse=warehouse,
             role=role,
             table_names=endpoints,
+            incremental_field=schema.sync_type_config.get("incremental_field") if schema.is_incremental else None,
+            incremental_field_type=schema.sync_type_config.get("incremental_field_type")
+            if schema.is_incremental
+            else None,
+        )
+
+        return await _run(
+            job_inputs=job_inputs,
+            source=source,
+            logger=logger,
+            inputs=inputs,
+            schema=schema,
+            reset_pipeline=reset_pipeline,
+        )
+    elif model.pipeline.source_type == ExternalDataSource.Type.SALESFORCE:
+        from posthog.temporal.data_imports.pipelines.salesforce.auth import salesforce_refresh_access_token
+        from posthog.temporal.data_imports.pipelines.salesforce import salesforce_source
+        from posthog.models.integration import aget_integration_by_id
+
+        salesforce_integration_id = model.pipeline.job_inputs.get("salesforce_integration_id", None)
+
+        if not salesforce_integration_id:
+            raise ValueError(f"Salesforce integration not found for job {model.id}")
+
+        integration = await aget_integration_by_id(integration_id=salesforce_integration_id, team_id=inputs.team_id)
+        salesforce_refresh_token = integration.refresh_token
+
+        if not salesforce_refresh_token:
+            raise ValueError(f"Salesforce refresh token not found for job {model.id}")
+
+        salesforce_access_token = integration.access_token
+
+        if not salesforce_access_token:
+            salesforce_access_token = salesforce_refresh_access_token(salesforce_refresh_token)
+
+        salesforce_instance_url = integration.config.get("instance_url")
+
+        source = salesforce_source(
+            instance_url=salesforce_instance_url,
+            access_token=salesforce_access_token,
+            refresh_token=salesforce_refresh_token,
+            endpoint=schema.name,
+            team_id=inputs.team_id,
+            job_id=inputs.run_id,
+            is_incremental=schema.is_incremental,
         )
 
         return await _run(

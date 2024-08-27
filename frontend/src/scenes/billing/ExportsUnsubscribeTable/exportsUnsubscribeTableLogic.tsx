@@ -6,7 +6,7 @@ import { pipelineAccessLogic } from 'scenes/pipeline/pipelineAccessLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { BatchExportConfiguration, PluginConfigWithPluginInfoNew } from '~/types'
+import { BatchExportConfiguration, PipelineStage, PluginConfigWithPluginInfoNew } from '~/types'
 
 import { RenderApp } from '../../pipeline/utils'
 import type { exportsUnsubscribeTableLogicType } from './exportsUnsubscribeTableLogicType'
@@ -100,7 +100,7 @@ export const exportsUnsubscribeTableLogic = kea<exportsUnsubscribeTableLogicType
                         description: pluginConfig.description,
                         icon: <RenderApp plugin={pluginConfig.plugin_info} imageSize="small" />,
                         disabled: !pluginConfig.enabled,
-                        url: urls.projectApp(pluginConfig.plugin),
+                        url: urls.pipelineNode(PipelineStage.Destination, pluginConfig.id),
                     } as ItemToDisable
                 })
                 const batchExports = Object.values(batchExportConfigs).map((batchExportConfig) => {
@@ -117,7 +117,7 @@ export const exportsUnsubscribeTableLogic = kea<exportsUnsubscribeTableLogicType
                             />
                         ),
                         disabled: batchExportConfig.paused,
-                        url: urls.batchExport(batchExportConfig.id),
+                        url: urls.pipelineNode(PipelineStage.Destination, batchExportConfig.id),
                     } as ItemToDisable
                 })
                 return [...pluginConfigs, ...batchExports]

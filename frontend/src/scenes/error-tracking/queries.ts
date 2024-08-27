@@ -38,16 +38,21 @@ export const errorTrackingQuery = ({
     filterTestAccounts,
     filterGroup,
     sparklineSelectedPeriod,
+    columns,
+    limit = 50,
 }: {
     order: ErrorTrackingQuery['order']
     dateRange: DateRange
     filterTestAccounts: boolean
     filterGroup: UniversalFiltersGroup
     sparklineSelectedPeriod: string | null
+    columns?: ('error' | 'volume' | 'occurrences' | 'sessions' | 'users' | 'assignee')[]
+    limit?: number
 }): DataTableNode => {
     const select: string[] = []
-
-    const columns = ['error', 'occurrences', 'sessions', 'users']
+    if (!columns) {
+        columns = ['error', 'occurrences', 'sessions', 'users', 'assignee']
+    }
 
     if (sparklineSelectedPeriod) {
         const { value, displayAs, offsetHours } = parseSparklineSelection(sparklineSelectedPeriod)
@@ -66,6 +71,7 @@ export const errorTrackingQuery = ({
             dateRange: dateRange,
             filterGroup: filterGroup as PropertyGroupFilter,
             filterTestAccounts: filterTestAccounts,
+            limit: limit,
         },
         showActions: false,
         showTimings: false,
@@ -113,7 +119,7 @@ export const errorTrackingGroupQuery = ({
     filterTestAccounts,
     filterGroup,
 }: {
-    fingerprint: string
+    fingerprint: string[]
     dateRange: DateRange
     filterTestAccounts: boolean
     filterGroup: UniversalFiltersGroup

@@ -1,6 +1,12 @@
-use crate::flag_definitions::{FeatureFlag, FlagGroupType};
+use crate::{
+    api::FlagError,
+    database::Client as DatabaseClient,
+    flag_definitions::{FeatureFlag, FlagGroupType},
+    property_matching::match_property,
+};
+use serde_json::Value;
 use sha1::{Digest, Sha1};
-use std::fmt::Write;
+use std::{collections::HashMap, fmt::Write, sync::Arc};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct FeatureFlagMatch {
@@ -9,6 +15,11 @@ pub struct FeatureFlagMatch {
     //reason
     //condition_index
     //payload
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct Person {
+    pub properties: sqlx::types::Json<HashMap<String, Value>>,
 }
 
 // TODO: Rework FeatureFlagMatcher - python has a pretty awkward interface, where we pass in all flags, and then again
@@ -21,23 +32,30 @@ pub struct FeatureFlagMatch {
 // for all teams. If not, we can have a LRU cache, or a cache that stores only the most recent N keys.
 // But, this can be a future refactor, for now just focusing on getting the basic matcher working, write lots and lots of tests
 // and then we can easily refactor stuff around.
-#[derive(Debug)]
+// #[derive(Debug)]
 pub struct FeatureFlagMatcher {
     // pub flags: Vec<FeatureFlag>,
     pub distinct_id: String,
+    pub database_client: Option<Arc<dyn DatabaseClient + Send + Sync>>,
+    cached_properties: Option<HashMap<String, Value>>,
 }
 
 const LONG_SCALE: u64 = 0xfffffffffffffff;
 
 impl FeatureFlagMatcher {
-    pub fn new(distinct_id: String) -> Self {
+    pub fn new(
+        distinct_id: String,
+        database_client: Option<Arc<dyn DatabaseClient + Send + Sync>>,
+    ) -> Self {
         FeatureFlagMatcher {
             // flags,
             distinct_id,
+            database_client,
+            cached_properties: None,
         }
     }
 
-    pub fn get_match(&self, feature_flag: &FeatureFlag) -> FeatureFlagMatch {
+    pub async fn get_match(&mut self, feature_flag: &FeatureFlag) -> FeatureFlagMatch {
         if self.hashed_identifier(feature_flag).is_none() {
             return FeatureFlagMatch {
                 matches: false,
@@ -49,8 +67,9 @@ impl FeatureFlagMatcher {
         // TODO: Variant overrides condition sort
 
         for (index, condition) in feature_flag.get_conditions().iter().enumerate() {
-            let (is_match, _evaluation_reason) =
-                self.is_condition_match(feature_flag, condition, index);
+            let (is_match, _evaluation_reason) = self
+                .is_condition_match(feature_flag, condition, index)
+                .await;
 
             if is_match {
                 // TODO: This is a bit awkward, we should handle overrides only when variants exist.
@@ -82,20 +101,33 @@ impl FeatureFlagMatcher {
         }
     }
 
-    pub fn is_condition_match(
-        &self,
+    // TODO: Making all this mutable just to store a cached value is annoying. Can I refactor this to be non-mutable?
+    // Leaning a bit more towards a separate cache store for this.
+    pub async fn is_condition_match(
+        &mut self,
         feature_flag: &FeatureFlag,
         condition: &FlagGroupType,
         _index: usize,
     ) -> (bool, String) {
         let rollout_percentage = condition.rollout_percentage.unwrap_or(100.0);
         let mut condition_match = true;
-        if condition.properties.is_some() {
-            // TODO: Handle matching conditions
-            if !condition.properties.as_ref().unwrap().is_empty() {
-                condition_match = false;
+
+        if let Some(ref properties) = condition.properties {
+            if properties.is_empty() {
+                condition_match = true;
+            } else {
+                // TODO: First handle given override properties before going to db
+                let target_properties = self
+                    .get_person_properties(feature_flag.team_id, self.distinct_id.clone())
+                    .await
+                    .unwrap_or_default();
+                // TODO: Handle db issues / person not found
+
+                condition_match = properties.iter().all(|property| {
+                    match_property(property, &target_properties, false).unwrap_or(false)
+                });
             }
-        }
+        };
 
         if !condition_match {
             return (false, "NO_CONDITION_MATCH".to_string());
@@ -156,5 +188,134 @@ impl FeatureFlagMatcher {
             }
         }
         None
+    }
+
+    pub async fn get_person_properties(
+        &mut self,
+        team_id: i32,
+        distinct_id: String,
+    ) -> Result<HashMap<String, Value>, FlagError> {
+        // TODO: Do we even need to cache here anymore?
+        // Depends on how often we're calling this function
+        // to match all flags for a single person
+
+        if let Some(cached_props) = self.cached_properties.clone() {
+            // TODO: Maybe we don't want to copy around all user properties, this will by far be the largest chunk
+            // of data we're copying around. Can we work with references here?
+            // Worst case, just use a Rc.
+            return Ok(cached_props);
+        }
+
+        if self.database_client.is_none() {
+            return Err(FlagError::DatabaseUnavailable);
+        }
+
+        let mut conn = self
+            .database_client
+            .as_ref()
+            .expect("client should exist here")
+            .get_connection()
+            .await?;
+
+        let query = r#"
+            SELECT "posthog_person"."properties" 
+            FROM "posthog_person"
+            INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
+            WHERE ("posthog_persondistinctid"."distinct_id" = $1
+                    AND "posthog_persondistinctid"."team_id" = $2
+                    AND "posthog_person"."team_id" = $3)
+            LIMIT 1;
+        "#;
+
+        let row = sqlx::query_as::<_, Person>(query)
+            .bind(&distinct_id)
+            .bind(team_id)
+            .bind(team_id)
+            .fetch_optional(&mut *conn)
+            .await?;
+
+        let props = match row {
+            Some(row) => row.properties.0,
+            None => HashMap::new(),
+        };
+
+        self.cached_properties = Some(props.clone());
+
+        Ok(props)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use serde_json::json;
+
+    use super::*;
+    use crate::test_utils::{insert_new_team_in_pg, insert_person_for_team_in_pg, setup_pg_client};
+
+    #[tokio::test]
+    async fn test_fetch_properties_from_pg_to_match() {
+        let client = setup_pg_client(None).await;
+
+        let team = insert_new_team_in_pg(client.clone())
+            .await
+            .expect("Failed to insert team in pg");
+
+        let distinct_id = "user_distinct_id".to_string();
+        insert_person_for_team_in_pg(client.clone(), team.id, distinct_id.clone(), None)
+            .await
+            .expect("Failed to insert person");
+
+        let not_matching_distinct_id = "not_matching_distinct_id".to_string();
+        insert_person_for_team_in_pg(
+            client.clone(),
+            team.id,
+            not_matching_distinct_id.clone(),
+            Some(json!({ "email": "a@x.com"})),
+        )
+        .await
+        .expect("Failed to insert person");
+
+        let flag = serde_json::from_value(json!(
+            {
+                "id": 1,
+                "team_id": team.id,
+                "name": "flag1",
+                "key": "flag1",
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [
+                                {
+                                    "key": "email",
+                                    "value": "a@b.com",
+                                    "type": "person"
+                                }
+                            ],
+                            "rollout_percentage": 100
+                        }
+                    ]
+                }
+            }
+        ))
+        .unwrap();
+
+        let mut matcher = FeatureFlagMatcher::new(distinct_id, Some(client.clone()));
+        let match_result = matcher.get_match(&flag).await;
+        assert_eq!(match_result.matches, true);
+        assert_eq!(match_result.variant, None);
+
+        // property value is different
+        let mut matcher = FeatureFlagMatcher::new(not_matching_distinct_id, Some(client.clone()));
+        let match_result = matcher.get_match(&flag).await;
+        assert_eq!(match_result.matches, false);
+        assert_eq!(match_result.variant, None);
+
+        // person does not exist
+        let mut matcher =
+            FeatureFlagMatcher::new("other_distinct_id".to_string(), Some(client.clone()));
+        let match_result = matcher.get_match(&flag).await;
+        assert_eq!(match_result.matches, false);
+        assert_eq!(match_result.variant, None);
     }
 }

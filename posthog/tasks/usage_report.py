@@ -11,7 +11,7 @@ from celery import shared_task
 from dateutil import parser
 from django.conf import settings
 from django.db import connection
-from django.db.models import Count, Q
+from django.db.models import Count, Q, Sum
 from posthoganalytics.client import Client
 from psycopg import sql
 from retry import retry
@@ -39,6 +39,7 @@ from posthog.utils import (
     get_machine_id,
     get_previous_day,
 )
+from posthog.warehouse.models import ExternalDataJob
 
 logger = structlog.get_logger(__name__)
 
@@ -602,30 +603,12 @@ def get_teams_with_survey_responses_count_in_period(
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_teams_with_rows_synced_in_period(begin: datetime, end: datetime) -> list[tuple[int, int]]:
-    team_to_query = 1 if get_instance_region() == "EU" else 2
-
-    # dedup by job id incase there were duplicates sent
-    results = sync_execute(
-        """
-        SELECT team, sum(rows_synced) FROM (
-            SELECT JSONExtractString(properties, 'job_id') AS job_id, distinct_id AS team, any(JSONExtractInt(properties, 'count')) AS rows_synced
-            FROM events
-            WHERE team_id = %(team_to_query)s AND event = '$data_sync_job_completed' AND JSONExtractString(properties, 'start_time') != '' AND parseDateTimeBestEffort(JSONExtractString(properties, 'start_time')) BETWEEN %(begin)s AND %(end)s
-            GROUP BY job_id, team
-        )
-        GROUP BY team
-        """,
-        {
-            "begin": begin,
-            "end": end,
-            "team_to_query": team_to_query,
-        },
-        workload=Workload.OFFLINE,
-        settings=CH_BILLING_SETTINGS,
+def get_teams_with_rows_synced_in_period(begin: datetime, end: datetime) -> list:
+    return list(
+        ExternalDataJob.objects.filter(created_at__gte=begin, created_at__lte=end)
+        .values("team_id")
+        .annotate(total=Sum("rows_synced"))
     )
-
-    return results
 
 
 @shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=0)
@@ -657,6 +640,7 @@ def has_non_zero_usage(report: FullUsageReport) -> bool:
         or report.decide_requests_count_in_period > 0
         or report.local_evaluation_requests_count_in_period > 0
         or report.survey_responses_count_in_period > 0
+        or report.rows_synced_in_period > 0
     )
 
 

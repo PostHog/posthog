@@ -38,7 +38,7 @@ export function SignupPanel1(): JSX.Element | null {
                         data-attr="signup-email"
                         placeholder="email@yourcompany.com"
                         type="email"
-                        ref={emailInputRef}
+                        inputRef={emailInputRef}
                         disabled={isSignupPanel1Submitting}
                     />
                 </LemonField>

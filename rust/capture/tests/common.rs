@@ -25,7 +25,7 @@ use tokio::sync::Notify;
 use tokio::time::timeout;
 use tracing::{debug, warn};
 
-use capture::config::{Config, KafkaConfig};
+use capture::config::{CaptureMode, Config, KafkaConfig};
 use capture::limiters::billing::QuotaResource;
 use capture::server::serve;
 
@@ -41,6 +41,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
         kafka_producer_linger_ms: 0, // Send messages as soon as possible
         kafka_producer_queue_mib: 10,
         kafka_message_timeout_ms: 10000, // 10s, ACKs can be slow on low volumes, should be tuned
+        kafka_producer_message_max_bytes: 1000000, // 1MB, rdkafka default
         kafka_compression_codec: "none".to_string(),
         kafka_hosts: "kafka:9092".to_string(),
         kafka_topic: "events_plugin_ingestion".to_string(),
@@ -55,6 +56,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     otel_service_name: "capture-testing".to_string(),
     export_prometheus: false,
     redis_key_prefix: None,
+    capture_mode: CaptureMode::Events,
 });
 
 static TRACING_INIT: Once = Once::new();
@@ -77,6 +79,12 @@ impl ServerHandle {
         config.kafka.kafka_historical_topic = historical.topic_name().to_string();
         Self::for_config(config).await
     }
+    pub async fn for_recordings(main: &EphemeralTopic) -> Self {
+        let mut config = DEFAULT_CONFIG.clone();
+        config.kafka.kafka_topic = main.topic_name().to_string();
+        config.capture_mode = CaptureMode::Recordings;
+        Self::for_config(config).await
+    }
     pub async fn for_config(config: Config) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -93,6 +101,26 @@ impl ServerHandle {
         let client = reqwest::Client::new();
         client
             .post(format!("http://{:?}/i/v0/e", self.addr))
+            .body(body)
+            .send()
+            .await
+            .expect("failed to send request")
+    }
+
+    pub async fn capture_to_batch<T: Into<reqwest::Body>>(&self, body: T) -> reqwest::Response {
+        let client = reqwest::Client::new();
+        client
+            .post(format!("http://{:?}/batch", self.addr))
+            .body(body)
+            .send()
+            .await
+            .expect("failed to send request")
+    }
+
+    pub async fn capture_recording<T: Into<reqwest::Body>>(&self, body: T) -> reqwest::Response {
+        let client = reqwest::Client::new();
+        client
+            .post(format!("http://{:?}/s/", self.addr))
             .body(body)
             .send()
             .await

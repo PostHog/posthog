@@ -9,6 +9,7 @@ import {
     FunnelsQuery,
     HogQLQuery,
     HogQuery,
+    InsightVizNode,
     LifecycleQuery,
     Node,
     NodeKind,
@@ -154,7 +155,6 @@ const series: (EventsNode | ActionsNode)[] = [
                 value: 2,
             },
         ],
-        limit: 100, // TODO - can't find a use for `limits` in insights/trends
     },
     // {
     //     kind: NodeKind.ActionsNode,
@@ -289,8 +289,9 @@ limit 100`,
 
 const HogQLForDataWarehouse: HogQLQuery = {
     kind: NodeKind.HogQLQuery,
-    query: `select toDate(timestamp) as timestamp, event as event
-    from events
+    query: `select toDate(timestamp) as timestamp, count()
+from events
+group by timestamp
 limit 100`,
     explain: true,
 }
@@ -309,6 +310,29 @@ const HogQLTable: DataTableNode = {
 const DataVisualization: DataVisualizationNode = {
     kind: NodeKind.DataVisualizationNode,
     source: HogQLForDataVisualization,
+    tableSettings: {
+        columns: [
+            {
+                column: 'timestamp',
+                settings: {
+                    formatting: {
+                        prefix: '',
+                        suffix: '',
+                    },
+                },
+            },
+            {
+                column: 'count()',
+                settings: {
+                    formatting: {
+                        prefix: '',
+                        suffix: '',
+                    },
+                },
+            },
+        ],
+    },
+    chartSettings: { goalLines: undefined },
 }
 
 const Hog: HogQuery = {
@@ -339,11 +363,26 @@ export const queryExamples: Record<string, Node> = {
     PersonsTable,
     PersonsTableFull,
     InsightTrendsQuery,
+    InsightTrends: { kind: NodeKind.InsightVizNode, source: InsightTrendsQuery } as InsightVizNode<TrendsQuery>,
     InsightFunnelsQuery,
+    InsightFunnels: { kind: NodeKind.InsightVizNode, source: InsightFunnelsQuery } as InsightVizNode<FunnelsQuery>,
     InsightRetentionQuery,
+    InsightRetention: {
+        kind: NodeKind.InsightVizNode,
+        source: InsightRetentionQuery,
+    } as InsightVizNode<RetentionQuery>,
     InsightPathsQuery,
+    InsightPaths: { kind: NodeKind.InsightVizNode, source: InsightPathsQuery } as InsightVizNode<PathsQuery>,
     InsightStickinessQuery,
+    InsightStickiness: {
+        kind: NodeKind.InsightVizNode,
+        source: InsightStickinessQuery,
+    } as InsightVizNode<StickinessQuery>,
     InsightLifecycleQuery,
+    InsightLifecycle: {
+        kind: NodeKind.InsightVizNode,
+        source: InsightLifecycleQuery,
+    } as InsightVizNode<LifecycleQuery>,
 }
 
 export const stringifiedQueryExamples: Record<string, string> = Object.fromEntries(

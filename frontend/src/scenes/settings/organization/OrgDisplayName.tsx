@@ -11,7 +11,7 @@ export function OrganizationDisplayName(): JSX.Element {
 
     const [name, setName] = useState(currentOrganization?.name || '')
 
-    const isRestricted = !!useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
+    const restrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
 
     return (
         <div className="max-w-160">
@@ -19,7 +19,7 @@ export function OrganizationDisplayName(): JSX.Element {
                 className="mb-4"
                 value={name}
                 onChange={setName}
-                disabled={isRestricted}
+                disabled={!!restrictionReason}
                 data-attr="organization-name-input-settings"
             />
             <LemonButton
@@ -28,10 +28,18 @@ export function OrganizationDisplayName(): JSX.Element {
                     e.preventDefault()
                     updateOrganization({ name })
                 }}
-                disabled={isRestricted || !name || !currentOrganization || name === currentOrganization.name}
+                disabledReason={
+                    !name
+                        ? 'You must provide a name'
+                        : !currentOrganization
+                        ? 'Organization not loaded'
+                        : currentOrganization.name === name
+                        ? 'Name unchanged'
+                        : restrictionReason
+                }
                 loading={currentOrganizationLoading}
             >
-                Rename Organization
+                Rename organization
             </LemonButton>
         </div>
     )

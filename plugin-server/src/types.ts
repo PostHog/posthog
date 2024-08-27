@@ -33,7 +33,7 @@ import { TeamManager } from './worker/ingestion/team-manager'
 import { RustyHook } from './worker/rusty-hook'
 import { PluginsApiKeyManager } from './worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './worker/vm/extensions/helpers/root-acess-manager'
-import { LazyPluginVM } from './worker/vm/lazy'
+import { PluginInstance } from './worker/vm/lazy'
 
 export { Element } from '@posthog/plugin-scaffold' // Re-export Element from scaffolding, for backwards compat.
 
@@ -85,6 +85,7 @@ export enum PluginServerMode {
     cdp_processed_events = 'cdp-processed-events',
     cdp_function_callbacks = 'cdp-function-callbacks',
     cdp_function_overflow = 'cdp-function-overflow',
+    cdp_cyclotron_worker = 'cdp-cyclotron-worker',
     functional_tests = 'functional-tests',
 }
 
@@ -96,15 +97,21 @@ export const stringToPluginServerMode = Object.fromEntries(
 ) as Record<string, PluginServerMode>
 
 export type CdpConfig = {
-    CDP_WATCHER_OBSERVATION_PERIOD: number
-    CDP_WATCHER_DISABLED_PERIOD: number
-    CDP_WATCHER_MAX_RECORDED_STATES: number
-    CDP_WATCHER_MAX_RECORDED_RATINGS: number
-    CDP_WATCHER_MAX_ALLOWED_TEMPORARY_DISABLED: number
-    CDP_WATCHER_MIN_OBSERVATIONS: number
-    CDP_WATCHER_OVERFLOW_RATING_THRESHOLD: number
-    CDP_WATCHER_DISABLED_RATING_THRESHOLD: number
+    CDP_WATCHER_COST_ERROR: number // The max cost of an erroring function
+    CDP_WATCHER_COST_TIMING: number // The max cost of a slow function
+    CDP_WATCHER_COST_TIMING_LOWER_MS: number // The lower bound in ms where the timing cost is not incurred
+    CDP_WATCHER_COST_TIMING_UPPER_MS: number // The upper bound in ms where the timing cost is fully incurred
+    CDP_WATCHER_THRESHOLD_DEGRADED: number // Percentage of the bucket where we count it as degraded
+    CDP_WATCHER_BUCKET_SIZE: number // The total bucket size
+    CDP_WATCHER_TTL: number // The expiry for the rate limit key
+    CDP_WATCHER_REFILL_RATE: number // The number of tokens to be refilled per second
+    CDP_WATCHER_DISABLED_TEMPORARY_TTL: number // How long a function should be temporarily disabled for
+    CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT: number // How many times a function can be disabled before it is disabled permanently
     CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS: string
+    CDP_ASYNC_FUNCTIONS_CYCLOTRON_TEAMS: string
+    CDP_REDIS_HOST: string
+    CDP_REDIS_PORT: number
+    CDP_REDIS_PASSWORD: string
 }
 
 export interface PluginsServerConfig extends CdpConfig {
@@ -274,6 +281,8 @@ export interface PluginsServerConfig extends CdpConfig {
 
     // kafka debug stats interval
     SESSION_RECORDING_KAFKA_CONSUMPTION_STATISTICS_EVENT_INTERVAL_MS: number
+
+    CYCLOTRON_DATABASE_URL: string
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -314,7 +323,7 @@ export interface Hub extends PluginsServerConfig {
     // diagnostics
     lastActivity: number
     lastActivityType: string
-    statelessVms: StatelessVmMap
+    statelessVms: StatelessInstanceMap
     conversionBufferEnabledTeams: Set<number>
     // functions
     enqueuePluginJob: (job: EnqueuedPluginJob) => Promise<void>
@@ -340,10 +349,12 @@ export interface PluginServerCapabilities {
     cdpProcessedEvents?: boolean
     cdpFunctionCallbacks?: boolean
     cdpFunctionOverflow?: boolean
+    cdpCyclotronWorker?: boolean
     appManagementSingleton?: boolean
     preflightSchedules?: boolean // Used for instance health checks on hobby deploy, not useful on cloud
     http?: boolean
     mmdb?: boolean
+    syncInlinePlugins?: boolean
 }
 
 export type EnqueuedJob = EnqueuedPluginJob | GraphileWorkerCronScheduleJob
@@ -394,9 +405,9 @@ export interface JobSpec {
 
 export interface Plugin {
     id: number
-    organization_id: string
+    organization_id?: string
     name: string
-    plugin_type: 'local' | 'respository' | 'custom' | 'source'
+    plugin_type: 'local' | 'respository' | 'custom' | 'source' | 'inline'
     description?: string
     is_global: boolean
     is_preinstalled?: boolean
@@ -443,14 +454,13 @@ export interface PluginConfig {
     order: number
     config: Record<string, unknown>
     attachments?: Record<string, PluginAttachment>
-    vm?: LazyPluginVM | null
+    instance?: PluginInstance | null
     created_at: string
     updated_at?: string
     // We're migrating to a new functions that take PostHogEvent instead of PluginEvent
     // we'll need to know which method this plugin is using to call it the right way
     // undefined for old plugins with multiple or deprecated methods
     method?: PluginMethod
-    filters?: PluginConfigFilters
 }
 
 export interface PluginJsonConfig {
@@ -528,7 +538,7 @@ export interface PluginTask {
     __ignoreForAppMetrics?: boolean
 }
 
-export type VMMethods = {
+export type PluginMethods = {
     setupPlugin?: () => Promise<void>
     teardownPlugin?: () => Promise<void>
     getSettings?: () => PluginSettings
@@ -538,7 +548,7 @@ export type VMMethods = {
 }
 
 // Helper when ensuring that a required method is implemented
-export type VMMethodsConcrete = Required<VMMethods>
+export type PluginMethodsConcrete = Required<PluginMethods>
 
 export enum AlertLevel {
     P0 = 0,
@@ -565,7 +575,7 @@ export interface Alert {
 }
 export interface PluginConfigVMResponse {
     vm: VM
-    methods: VMMethods
+    methods: PluginMethods
     tasks: Record<PluginTaskType, Record<string, PluginTask>>
     vmResponseVariable: string
     usedImports: Set<string>
@@ -989,30 +999,6 @@ export interface ActionStep {
     properties: PropertyFilter[] | null
 }
 
-// subset of EntityFilter
-export interface PluginConfigFilterBase {
-    id: string
-    name: string | null
-    order: number
-    properties: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter)[]
-}
-
-export interface PluginConfigFilterEvents extends PluginConfigFilterBase {
-    type: 'events'
-}
-
-export interface PluginConfigFilterActions extends PluginConfigFilterBase {
-    type: 'actions'
-}
-
-export type PluginConfigFilter = PluginConfigFilterEvents | PluginConfigFilterActions
-
-export interface PluginConfigFilters {
-    events?: PluginConfigFilterEvents[]
-    actions?: PluginConfigFilterActions[]
-    filter_test_accounts?: boolean
-}
-
 /** Raw Action row from database. */
 export interface RawAction {
     id: number
@@ -1150,7 +1136,7 @@ export enum PropertyUpdateOperation {
     SetOnce = 'set_once',
 }
 
-export type StatelessVmMap = Record<PluginId, LazyPluginVM>
+export type StatelessInstanceMap = Record<PluginId, PluginInstance>
 
 export enum OrganizationPluginsAccessLevel {
     NONE = 0,
@@ -1232,6 +1218,6 @@ export type AppMetric2Type = {
     app_source_id: string
     instance_id?: string
     metric_kind: 'failure' | 'success' | 'other'
-    metric_name: 'succeeded' | 'failed' | 'filtered' | 'disabled_temporarily' | 'disabled_permanently'
+    metric_name: 'succeeded' | 'failed' | 'filtered' | 'disabled_temporarily' | 'disabled_permanently' | 'masked'
     count: number
 }

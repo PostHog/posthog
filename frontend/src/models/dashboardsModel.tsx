@@ -11,7 +11,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { tagsModel } from '~/models/tagsModel'
-import { DashboardBasicType, DashboardTile, DashboardType, InsightModel, InsightShortId } from '~/types'
+import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
+import { DashboardBasicType, DashboardTile, DashboardType, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import type { dashboardsModelType } from './dashboardsModelType'
 
@@ -25,32 +26,16 @@ export const dashboardsModel = kea<dashboardsModelType>([
         dashboardsFullyLoaded: true,
         delayedDeleteDashboard: (id: number) => ({ id }),
         setDiveSourceId: (id: InsightShortId | null) => ({ id }),
-        addDashboardSuccess: (dashboard: DashboardType) => ({ dashboard }),
+        addDashboardSuccess: (dashboard: DashboardType<QueryBasedInsightModel>) => ({ dashboard }),
         // this is moved out of dashboardLogic, so that you can click "undo" on an item move when already
         // on another dashboard - both dashboards can listen to and share this event, even if one is not yet mounted
         // can provide extra dashboard ids if not all listeners will choose to respond to this action
         // not providing a dashboard id is a signal that only listeners in the item.dashboards array should respond
         // specifying `number` not `Pick<DashboardType, 'id'> because kea typegen couldn't figure out the import in `savedInsightsLogic`
-        // if an update is made against an insight it will hold last_refresh, color, and filters_hash in dashboard context
-        updateDashboardInsight: (
-            insight: InsightModel,
-            extraDashboardIds?: number[],
-            updateTileOnDashboards?: [number]
-        ) => ({
+        // if an update is made against an insight it will hold color in dashboard context
+        updateDashboardInsight: (insight: QueryBasedInsightModel, extraDashboardIds?: number[]) => ({
             insight,
             extraDashboardIds,
-            updateTileOnDashboards,
-        }),
-        // a side effect on this action exists in dashboardLogic so that individual refresh statuses can be bubbled up
-        // to dashboard items in dashboards
-        updateDashboardRefreshStatus: (
-            shortId: string | undefined | null,
-            refreshing: boolean | null,
-            last_refresh: string | null
-        ) => ({
-            shortId,
-            refreshing,
-            last_refresh,
         }),
         pinDashboard: (id: number, source: DashboardEventSource) => ({ id, source }),
         unpinDashboard: (id: number, source: DashboardEventSource) => ({ id, source }),
@@ -70,8 +55,17 @@ export const dashboardsModel = kea<dashboardsModelType>([
             show: show || false,
             duplicateTiles: duplicateTiles || false,
         }),
-        tileMovedToDashboard: (tile: DashboardTile, dashboardId: number) => ({ tile, dashboardId }),
-        tileRemovedFromDashboard: ({ tile, dashboardId }: { tile?: DashboardTile; dashboardId?: number }) => ({
+        tileMovedToDashboard: (tile: DashboardTile<QueryBasedInsightModel>, dashboardId: number) => ({
+            tile,
+            dashboardId,
+        }),
+        tileRemovedFromDashboard: ({
+            tile,
+            dashboardId,
+        }: {
+            tile?: DashboardTile<QueryBasedInsightModel>
+            dashboardId?: number
+        }) => ({
             tile,
             dashboardId,
         }),
@@ -85,14 +79,26 @@ export const dashboardsModel = kea<dashboardsModelType>([
                     // looking at a fully exported dashboard, return its contents
                     const exportedDashboard = window.POSTHOG_EXPORTED_DATA?.dashboard
                     if (exportedDashboard?.id && exportedDashboard?.tiles) {
-                        return { count: 1, next: null, previous: null, results: [exportedDashboard] }
+                        return {
+                            count: 1,
+                            next: null,
+                            previous: null,
+                            results: [getQueryBasedDashboard(exportedDashboard) as DashboardBasicType],
+                        }
                     }
 
                     if (!isUserLoggedIn()) {
                         // If user is anonymous (i.e. viewing a shared dashboard logged out), don't load authenticated stuff
                         return { count: 0, next: null, previous: null, results: [] }
                     }
-                    return await api.get(url || `api/projects/${teamLogic.values.currentTeamId}/dashboards/?limit=100`)
+                    const dashboards: PaginatedResponse<DashboardType> = await api.get(
+                        url || `api/projects/${teamLogic.values.currentTeamId}/dashboards/?limit=100`
+                    )
+
+                    return {
+                        ...dashboards,
+                        results: dashboards.results?.map((dashboard) => getQueryBasedDashboard(dashboard)!),
+                    }
                 },
             },
         ],
@@ -132,36 +138,40 @@ export const dashboardsModel = kea<dashboardsModelType>([
                                     `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`,
                                     beforeChange
                                 )) as DashboardType
-                                actions.updateDashboardSuccess(reverted)
+                                actions.updateDashboardSuccess(getQueryBasedDashboard(reverted))
                                 lemonToast.success('Dashboard change reverted')
                             },
                         },
                     })
                 }
-                return response
+                return getQueryBasedDashboard(response)
             },
             deleteDashboard: async ({ id, deleteInsights }) =>
-                (await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
-                    deleted: true,
-                    delete_insights: deleteInsights,
-                })) as DashboardType,
+                getQueryBasedDashboard(
+                    await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
+                        deleted: true,
+                        delete_insights: deleteInsights,
+                    })
+                ) as DashboardType<QueryBasedInsightModel>,
             restoreDashboard: async ({ id }) =>
-                (await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
-                    deleted: false,
-                })) as DashboardType,
+                getQueryBasedDashboard(
+                    await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
+                        deleted: false,
+                    })
+                ) as DashboardType<QueryBasedInsightModel>,
             pinDashboard: async ({ id, source }) => {
                 const response = (await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
                     pinned: true,
                 })) as DashboardType
                 eventUsageLogic.actions.reportDashboardPinToggled(true, source)
-                return response
+                return getQueryBasedDashboard(response)!
             },
             unpinDashboard: async ({ id, source }) => {
                 const response = (await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
                     pinned: false,
                 })) as DashboardType
                 eventUsageLogic.actions.reportDashboardPinToggled(false, source)
-                return response
+                return getQueryBasedDashboard(response)!
             },
             duplicateDashboard: async ({ id, name, show, duplicateTiles }) => {
                 const result = (await api.create(`api/projects/${teamLogic.values.currentTeamId}/dashboards/`, {
@@ -172,7 +182,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
                 if (show) {
                     router.actions.push(urls.dashboard(result.id))
                 }
-                return result
+                return getQueryBasedDashboard(result)!
             },
         },
     })),
@@ -191,7 +201,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
             },
         ],
         rawDashboards: [
-            {} as Record<string, DashboardBasicType | DashboardType>,
+            {} as Record<string, DashboardBasicType | DashboardType<QueryBasedInsightModel>>,
             {
                 loadDashboardsSuccess: (state, { pagedDashboards }) => {
                     if (!pagedDashboards) {

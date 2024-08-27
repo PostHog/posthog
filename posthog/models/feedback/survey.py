@@ -22,15 +22,15 @@ class Survey(UUIDModel):
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "name"], name="unique survey name for team")]
 
-    team: models.ForeignKey = models.ForeignKey(
+    team = models.ForeignKey(
         "posthog.Team",
         on_delete=models.CASCADE,
         related_name="surveys",
         related_query_name="survey",
     )
-    name: models.CharField = models.CharField(max_length=400)
-    description: models.TextField = models.TextField(blank=True)
-    linked_flag: models.ForeignKey = models.ForeignKey(
+    name = models.CharField(max_length=400)
+    description = models.TextField(blank=True)
+    linked_flag = models.ForeignKey(
         "posthog.FeatureFlag",
         null=True,
         blank=True,
@@ -38,7 +38,7 @@ class Survey(UUIDModel):
         related_name="surveys_linked_flag",
         related_query_name="survey_linked_flag",
     )
-    targeting_flag: models.ForeignKey = models.ForeignKey(
+    targeting_flag = models.ForeignKey(
         "posthog.FeatureFlag",
         null=True,
         blank=True,
@@ -46,7 +46,7 @@ class Survey(UUIDModel):
         related_name="surveys_targeting_flag",
         related_query_name="survey_targeting_flag",
     )
-    internal_targeting_flag: models.ForeignKey = models.ForeignKey(
+    internal_targeting_flag = models.ForeignKey(
         "posthog.FeatureFlag",
         null=True,
         blank=True,
@@ -54,9 +54,9 @@ class Survey(UUIDModel):
         related_name="surveys_internal_targeting_flag",
         related_query_name="survey_internal_targeting_flag",
     )
-    type: models.CharField = models.CharField(max_length=40, choices=SurveyType.choices)
-    conditions: models.JSONField = models.JSONField(blank=True, null=True)
-    questions: models.JSONField = models.JSONField(
+    type = models.CharField(max_length=40, choices=SurveyType.choices)
+    conditions = models.JSONField(blank=True, null=True)
+    questions = models.JSONField(
         blank=True,
         null=True,
         help_text="""
@@ -141,19 +141,19 @@ class Survey(UUIDModel):
         ```
         """,
     )
-    appearance: models.JSONField = models.JSONField(blank=True, null=True)
-    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
-    created_by: models.ForeignKey = models.ForeignKey(
+    appearance = models.JSONField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(
         "posthog.User",
         on_delete=models.SET_NULL,
         related_name="surveys",
         related_query_name="survey",
         null=True,
     )
-    start_date: models.DateTimeField = models.DateTimeField(null=True)
-    end_date: models.DateTimeField = models.DateTimeField(null=True)
-    updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
-    archived: models.BooleanField = models.BooleanField(default=False)
+    start_date = models.DateTimeField(null=True)
+    end_date = models.DateTimeField(null=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    archived = models.BooleanField(default=False)
     # It's not a strict limit as it's enforced in a periodic task
     responses_limit = models.PositiveIntegerField(null=True)
 
@@ -176,7 +176,12 @@ def update_survey_iterations(sender, instance, *args, **kwargs):
     iteration_count = 0 if instance.iteration_count is None else instance.iteration_count
     iteration_frequency_dates = 0 if instance.iteration_frequency_days is None else instance.iteration_frequency_days
 
-    if instance.iteration_count == 0 or instance.iteration_frequency_days == 0:
+    if (
+        instance.iteration_count is None
+        or instance.iteration_frequency_days is None
+        or instance.iteration_count == 0
+        or instance.iteration_frequency_days == 0
+    ):
         instance.iteration_start_dates = []
         instance.current_iteration = None
         instance.current_iteration_start_date = None

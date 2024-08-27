@@ -21,7 +21,7 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>([
     key(keyForInsightLogicProps('new')),
     path((key) => ['lib', 'components', 'AddToDashboard', 'saveToDashboardModalLogic', key]),
     connect((props: InsightLogicProps) => ({
-        values: [insightLogic(props), ['queryBasedInsight', 'legacyInsight']],
+        values: [insightLogic(props), ['insight']],
         actions: [
             insightLogic(props),
             ['updateInsight', 'updateInsightSuccess', 'updateInsightFailure'],
@@ -69,7 +69,7 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>([
                     : nameSortedDashboards,
         ],
         currentDashboards: [
-            (s) => [s.filteredDashboards, s.queryBasedInsight],
+            (s) => [s.filteredDashboards, s.insight],
             (filteredDashboards, insight): DashboardBasicType[] =>
                 filteredDashboards.filter((d) => insight.dashboard_tiles?.map((dt) => dt.dashboard_id)?.includes(d.id)),
         ],
@@ -101,7 +101,9 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>([
             // TODO be able to update not by patching `dashboards` against insight
             // either patch dashboard_tiles on the insight or add a dashboard_tiles API
             actions.updateInsight(
-                { ...values.legacyInsight, dashboards: [...(values.legacyInsight.dashboards || []), dashboardId] },
+                {
+                    dashboards: [...(values.insight.dashboards || []), dashboardId],
+                },
                 () => {
                     actions.reportSavedInsightToDashboard()
                     dashboardsModel.actions.tileAddedToDashboard(dashboardId)
@@ -117,9 +119,8 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>([
         removeFromDashboard: async ({ dashboardId }): Promise<void> => {
             actions.updateInsight(
                 {
-                    ...values.legacyInsight,
-                    dashboards: (values.legacyInsight.dashboards || []).filter((d) => d !== dashboardId),
-                    dashboard_tiles: (values.legacyInsight.dashboard_tiles || []).filter(
+                    dashboards: (values.insight.dashboards || []).filter((d) => d !== dashboardId),
+                    dashboard_tiles: (values.insight.dashboard_tiles || []).filter(
                         (dt) => dt.dashboard_id !== dashboardId
                     ),
                 },

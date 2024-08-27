@@ -267,7 +267,13 @@ export function IngestionWarningsView(): JSX.Element {
                             {
                                 title: 'Graph',
                                 render: function Render(_, summary: IngestionWarningSummary) {
-                                    return <Sparkline labels={dates} data={summaryDatasets[summary.type]} />
+                                    return (
+                                        <Sparkline
+                                            className="h-8"
+                                            labels={dates}
+                                            data={summaryDatasets[summary.type]}
+                                        />
+                                    )
                                 },
                             },
                             {

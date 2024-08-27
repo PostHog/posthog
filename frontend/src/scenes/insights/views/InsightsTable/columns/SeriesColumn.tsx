@@ -25,14 +25,12 @@ export function SeriesColumnItem({
 }: SeriesColumnItemProps): JSX.Element {
     const showCountedByTag = !!indexedResults.find(({ action }) => action?.math && action.math !== 'total')
 
-    const totalItems = indexedResults.length
     const isPrevious = !!item.compare && item.compare_label === 'previous'
-    const adjustedIndex = isPrevious ? item.seriesIndex - totalItems / 2 : item.seriesIndex
 
     return (
         <div className="series-name-wrapper-col space-x-1">
             <InsightLabel
-                seriesColor={getTrendLikeSeriesColor(adjustedIndex, isPrevious)}
+                seriesColor={getTrendLikeSeriesColor(item.colorIndex, isPrevious)}
                 action={item.action}
                 fallbackName={item.breakdown_value === '' ? 'None' : item.label}
                 hasMultipleSeries={hasMultipleSeries}

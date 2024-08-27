@@ -4,7 +4,7 @@ from typing import Any, Optional, cast
 from rest_framework import serializers, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework.decorators import action
+from posthog.api.utils import action
 from rest_framework.exceptions import ValidationError
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
@@ -73,7 +73,7 @@ def fetch_app_metrics_trends(
         SELECT
             toStartOfInterval(timestamp, INTERVAL 1 {interval}) as timestamp,
             metric_{breakdown_by} as breakdown,
-            count(breakdown) as count
+            sum(count) as count
         FROM app_metrics2
         WHERE team_id = %(team_id)s
         AND app_source = %(app_source)s
@@ -179,7 +179,7 @@ def fetch_app_metric_totals(
     clickhouse_query = f"""
         SELECT
             metric_{breakdown_by} as breakdown,
-            count(breakdown) as count
+            sum(count) as count
         FROM app_metrics2
         WHERE team_id = %(team_id)s
         AND app_source = %(app_source)s

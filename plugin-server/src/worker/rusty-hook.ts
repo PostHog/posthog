@@ -2,7 +2,6 @@ import { Webhook } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import fetch from 'node-fetch'
 
-import { HogFunctionInvocationResult } from '../cdp/types'
 import { buildIntegerMatcher } from '../config/config'
 import { PluginsServerConfig, ValueMatcher } from '../types'
 import { isProdEnv } from '../utils/env-utils'
@@ -128,11 +127,9 @@ export class RustyHook {
         return true
     }
 
-    public async enqueueForHog(payload: HogFunctionInvocationResult): Promise<boolean> {
+    public async enqueueForHog(payload: string): Promise<boolean> {
         // This is a temporary copy of `enqueueIfEnabledForTeam` above for Hog fetches because the
         // API differs. It will likely be replaced with a Kafka topic soon.
-
-        const body = JSON.stringify(payload)
 
         // We attempt to enqueue into the rusty-hook service until we succeed. This is deliberatly
         // designed to block up the consumer if rusty-hook is down or if we deploy code that
@@ -145,7 +142,7 @@ export class RustyHook {
                 const response = await fetch(this.serverConfig.HOG_HOOK_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body,
+                    body: payload,
 
                     // Sure, it's not an external request, but we should have a timeout and this is as
                     // good as any.

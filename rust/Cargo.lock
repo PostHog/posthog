@@ -665,14 +665,15 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
 name = "chrono"
-version = "0.4.33"
+version = "0.4.38"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9f13690e35a5e4ace198e7beea2895d29f3a9cc55015fcebe6336bd2010af9eb"
+checksum = "a21f936df1771bf62b77f047b726c4625ff2e8aa607c01ec06e5a05bd8463401"
 dependencies = [
  "android-tzdata",
  "iana-time-zone",
  "js-sys",
  "num-traits",
+ "serde",
  "wasm-bindgen",
  "windows-targets 0.52.0",
 ]
@@ -698,6 +699,25 @@ dependencies = [
  "pin-project-lite",
  "tokio",
  "tokio-util",
+]
+
+[[package]]
+name = "common-dns"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "reqwest 0.12.3",
+ "tokio",
+]
+
+[[package]]
+name = "common-metrics"
+version = "0.1.0"
+dependencies = [
+ "axum 0.7.5",
+ "metrics",
+ "metrics-exporter-prometheus",
+ "tokio",
 ]
 
 [[package]]
@@ -817,6 +837,78 @@ checksum = "1bfb12502f3fc46cca1bb51ac28df9d618d813cdc3d2f25b9fe775a34af26bb3"
 dependencies = [
  "generic-array",
  "typenum",
+]
+
+[[package]]
+name = "cyclotron-core"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "futures",
+ "rand",
+ "serde",
+ "sqlx",
+ "thiserror",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "cyclotron-fetch"
+version = "0.1.0"
+dependencies = [
+ "axum 0.7.5",
+ "chrono",
+ "common-dns",
+ "common-metrics",
+ "cyclotron-core",
+ "envconfig",
+ "futures",
+ "health",
+ "http 1.1.0",
+ "httpmock",
+ "rand",
+ "reqwest 0.12.3",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "cyclotron-janitor"
+version = "0.1.0"
+dependencies = [
+ "axum 0.7.5",
+ "chrono",
+ "common-metrics",
+ "cyclotron-core",
+ "envconfig",
+ "eyre",
+ "health",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "cyclotron-node"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "cyclotron-core",
+ "neon",
+ "once_cell",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]
@@ -1049,10 +1141,12 @@ dependencies = [
  "serde-pickle",
  "serde_json",
  "sha1",
+ "sqlx",
  "thiserror",
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
@@ -1466,6 +1560,7 @@ name = "hook-api"
 version = "0.1.0"
 dependencies = [
  "axum 0.7.5",
+ "common-metrics",
  "envconfig",
  "eyre",
  "hook-common",
@@ -1477,7 +1572,6 @@ dependencies = [
  "sqlx",
  "tokio",
  "tower",
- "tower-http",
  "tracing",
  "tracing-subscriber",
  "url",
@@ -1488,13 +1582,10 @@ name = "hook-common"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "axum 0.7.5",
  "chrono",
  "envconfig",
  "health",
  "http 1.1.0",
- "metrics",
- "metrics-exporter-prometheus",
  "rdkafka",
  "reqwest 0.12.3",
  "serde",
@@ -1513,6 +1604,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "axum 0.7.5",
+ "common-metrics",
  "envconfig",
  "eyre",
  "futures",
@@ -1520,6 +1612,7 @@ dependencies = [
  "hook-common",
  "metrics",
  "rdkafka",
+ "serde",
  "serde_json",
  "sqlx",
  "thiserror",
@@ -1535,6 +1628,8 @@ version = "0.1.0"
 dependencies = [
  "axum 0.7.5",
  "chrono",
+ "common-dns",
+ "common-metrics",
  "envconfig",
  "futures",
  "health",
@@ -1943,6 +2038,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9c198f91728a82281a64e1f4f9eeb25d82cb32a5de251c6bd1b5154d63a8e7bd"
 
 [[package]]
+name = "libloading"
+version = "0.8.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4979f22fdb869068da03c9f7528f8297c6fd2606bc3a4affe42e6a823fdb8da4"
+dependencies = [
+ "cfg-if",
+ "windows-targets 0.52.0",
+]
+
+[[package]]
 name = "libm"
 version = "0.2.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2156,6 +2261,32 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "tempfile",
+]
+
+[[package]]
+name = "neon"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d75440242411c87dc39847b0e33e961ec1f10326a9d8ecf9c1ea64a3b3c13dc"
+dependencies = [
+ "getrandom",
+ "libloading",
+ "neon-macros",
+ "once_cell",
+ "semver",
+ "send_wrapper",
+ "smallvec",
+]
+
+[[package]]
+name = "neon-macros"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c6813fde79b646e47e7ad75f480aa80ef76a5d9599e2717407961531169ee38b"
+dependencies = [
+ "quote",
+ "syn 2.0.48",
+ "syn-mid",
 ]
 
 [[package]]
@@ -2675,6 +2806,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "property-defs-rs"
+version = "0.1.0"
+dependencies = [
+ "axum 0.7.5",
+ "chrono",
+ "envconfig",
+ "futures",
+ "health",
+ "metrics",
+ "rdkafka",
+ "serde",
+ "serde_json",
+ "serve-metrics",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "prost"
 version = "0.12.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3180,6 +3333,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "semver"
+version = "1.0.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "61697e0a1c7e512e84a621326239844a24d8207b4669b41bc18b32ea5cbf988b"
+
+[[package]]
+name = "send_wrapper"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cd0b0ec5f1c1ca621c432a25813d8d60c88abe6d3e08a3eb9cf37d97a0fe3d73"
+
+[[package]]
 name = "serde"
 version = "1.0.196"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3253,6 +3418,16 @@ dependencies = [
  "itoa",
  "ryu",
  "serde",
+]
+
+[[package]]
+name = "serve-metrics"
+version = "0.1.0"
+dependencies = [
+ "axum 0.7.5",
+ "metrics",
+ "metrics-exporter-prometheus",
+ "tokio",
 ]
 
 [[package]]
@@ -3659,6 +3834,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "syn-mid"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b5dc35bb08dd1ca3dfb09dce91fd2d13294d6711c88897d9a9d60acf39bce049"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.48",
+]
+
+[[package]]
 name = "sync_wrapper"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3746,9 +3932,9 @@ dependencies = [
 
 [[package]]
 name = "time"
-version = "0.3.34"
+version = "0.3.36"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c8248b6521bb14bc45b4067159b9b6ad792e2d6d754d6c41fb50e29fefe38749"
+checksum = "5dfd88e563464686c916c7e46e623e520ddc6d79fa6641390f2e3fa86e83e885"
 dependencies = [
  "deranged",
  "itoa",
@@ -3767,9 +3953,9 @@ checksum = "ef927ca75afb808a4d64dd374f00a2adf8d0fcff8e7b184af886c3c87ec4a3f3"
 
 [[package]]
 name = "time-macros"
-version = "0.2.17"
+version = "0.2.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ba3a3ef41e6672a2f0f001392bb5dcd3ff0a9992d618ca761a11c3121547774"
+checksum = "3f252a68540fde3a3877aeea552b832b40ab9a69e318efd078774a01ddee1ccf"
 dependencies = [
  "num-conv",
  "time-core",

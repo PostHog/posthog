@@ -6,6 +6,7 @@ import { ChartDisplayCategory, ChartDisplayType, Region, SSOProvider } from '../
 export const DISPLAY_TYPES_TO_CATEGORIES: Record<ChartDisplayType, ChartDisplayCategory> = {
     [ChartDisplayType.ActionsLineGraph]: ChartDisplayCategory.TimeSeries,
     [ChartDisplayType.ActionsBar]: ChartDisplayCategory.TimeSeries,
+    [ChartDisplayType.ActionsStackedBar]: ChartDisplayCategory.TimeSeries,
     [ChartDisplayType.ActionsAreaGraph]: ChartDisplayCategory.TimeSeries,
     [ChartDisplayType.ActionsLineGraphCumulative]: ChartDisplayCategory.CumulativeTimeSeries,
     [ChartDisplayType.BoldNumber]: ChartDisplayCategory.TotalValue,
@@ -137,7 +138,6 @@ export const WEBHOOK_SERVICES: Record<string, string> = {
 export const FEATURE_FLAGS = {
     // Experiments / beta features
     FUNNELS_CUE_OPT_OUT: 'funnels-cue-opt-out-7301', // owner: @neilkakkar
-    BILLING_LIMIT: 'billing-limit', // owner: @timgl
     KAFKA_INSPECTOR: 'kafka-inspector', // owner: @yakkomajuri
     HISTORICAL_EXPORTS_V2: 'historical-exports-v2', // owner @macobo
     PERSON_ON_EVENTS_ENABLED: 'person-on-events-enabled', //owner: @EDsCODE
@@ -156,15 +156,12 @@ export const FEATURE_FLAGS = {
     PERSON_BATCH_EXPORTS: 'person-batch-exports', // owner: @tomasfarias
     // owner: #team-replay, only to be enabled for PostHog team testing
     EXCEPTION_AUTOCAPTURE: 'exception-autocapture',
-    WEB_VITALS_AUTOCAPTURE: 'web-vitals-autocapture', // owner: @team-replay
     FF_DASHBOARD_TEMPLATES: 'ff-dashboard-templates', // owner: @EDsCODE
     ARTIFICIAL_HOG: 'artificial-hog', // owner: @Twixes
     CS_DASHBOARDS: 'cs-dashboards', // owner: @pauldambra
     PRODUCT_SPECIFIC_ONBOARDING: 'product-specific-onboarding', // owner: @raquelmsmith
     REDIRECT_SIGNUPS_TO_INSTANCE: 'redirect-signups-to-instance', // owner: @raquelmsmith
     APPS_AND_EXPORTS_UI: 'apps-and-exports-ui', // owner: @benjackwhite
-    QUERY_BASED_DASHBOARD_CARDS: 'query-based-dashboard-cards', // owner: @thmsobrmlr
-    QUERY_BASED_INSIGHTS_SAVING: 'query-based-insights-saving', // owner: @thmsobrmlr
     HOGQL_DASHBOARD_ASYNC: 'hogql-dashboard-async', // owner: @webjunkie
     WEBHOOKS_DENYLIST: 'webhooks-denylist', // owner: #team-pipeline
     PIPELINE_UI: 'pipeline-ui', // owner: #team-pipeline
@@ -192,7 +189,6 @@ export const FEATURE_FLAGS = {
     SESSION_REPLAY_MOBILE_ONBOARDING: 'session-replay-mobile-onboarding', // owner: #team-replay
     HEATMAPS_UI: 'heatmaps-ui', // owner: @benjackwhite
     THEME: 'theme', // owner: @aprilfools
-    PLUGINS_FILTERING: 'plugins-filtering', // owner: @benjackwhite
     INSIGHT_LOADING_BAR: 'insight-loading-bar', // owner: @aspicer
     PROXY_AS_A_SERVICE: 'proxy-as-a-service', // owner: #team-infrastructure
     LIVE_EVENTS: 'live-events', // owner: @zach or @jams
@@ -207,6 +203,11 @@ export const FEATURE_FLAGS = {
     MULTIPLE_BREAKDOWNS: 'multiple-breakdowns', // owner: @skoob13 #team-product-analytics
     WEB_ANALYTICS_LIVE_USER_COUNT: 'web-analytics-live-user-count', // owner: @robbie-c
     SETTINGS_SESSION_TABLE_VERSION: 'settings-session-table-version', // owner: @robbie-c
+    FIRST_TIME_FOR_USER_MATH: 'first-time-for-user-math', // owner: @skoob13 #team-product-analytics
+    MULTITAB_EDITOR: 'multitab-editor', // owner: @EDsCODE #team-data-warehouse
+    WEB_ANALYTICS_REPLAY: 'web-analytics-replay', // owner: @robbie-c
+    BATCH_EXPORTS_POSTHOG_HTTP: 'posthog-http-batch-exports',
+    EXPERIMENT_MAKE_DECISION: 'experiment-make-decision', // owner: @jurajmajerik #team-feature-success
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

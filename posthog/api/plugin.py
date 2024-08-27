@@ -15,14 +15,15 @@ from django.utils.encoding import smart_str
 from django.utils.timezone import now
 from loginas.utils import is_impersonated_session
 from rest_framework import renderers, request, serializers, status, viewsets
-from rest_framework.decorators import action, renderer_classes
+from rest_framework.decorators import renderer_classes
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.response import Response
 
+from posthog.api.hog_function import HogFunctionSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.shared import FiltersSerializer
-from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer
+from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
+from posthog.cdp.templates import HOG_FUNCTION_MIGRATORS
 from posthog.models import Plugin, PluginAttachment, PluginConfig, User
 from posthog.models.activity_logging.activity_log import (
     ActivityPage,
@@ -30,6 +31,7 @@ from posthog.models.activity_logging.activity_log import (
     Detail,
     Trigger,
     dict_changes_between,
+    load_activity,
     load_all_activity,
     log_activity,
 )
@@ -254,6 +256,7 @@ class PluginsAccessLevelPermission(BasePermission):
 class PluginSerializer(serializers.ModelSerializer):
     url = serializers.SerializerMethodField()
     organization_name = serializers.SerializerMethodField()
+    hog_function_migration_available = serializers.SerializerMethodField()
 
     class Meta:
         model = Plugin
@@ -273,8 +276,12 @@ class PluginSerializer(serializers.ModelSerializer):
             "capabilities",
             "metrics",
             "public_jobs",
+            "hog_function_migration_available",
         ]
-        read_only_fields = ["id", "latest_tag"]
+        read_only_fields = ["id", "latest_tag", "hog_function_migration_available"]
+
+    def get_hog_function_migration_available(self, plugin: Plugin):
+        return HOG_FUNCTION_MIGRATORS.get(plugin.url) is not None if plugin.url else False
 
     def get_url(self, plugin: Plugin) -> Optional[str]:
         # remove ?private_token=... from url
@@ -290,7 +297,10 @@ class PluginSerializer(serializers.ModelSerializer):
         return None
 
     def get_organization_name(self, plugin: Plugin) -> str:
-        return plugin.organization.name
+        if plugin.organization:
+            return plugin.organization.name
+        else:
+            return "posthog-inline"
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Plugin:
         validated_data["url"] = self.initial_data.get("url", None)
@@ -606,7 +616,6 @@ class PluginConfigSerializer(serializers.ModelSerializer):
             "name",
             "description",
             "deleted",
-            "filters",
         ]
         read_only_fields = [
             "id",
@@ -674,11 +683,6 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         # metrics (for fatal errors) or plugin log entries (for all errors) for
         # error details instead.
         return None
-
-    def validate_filters(self, value: dict) -> dict:
-        serializer = FiltersSerializer(data=value)
-        serializer.is_valid(raise_exception=True)
-        return serializer.validated_data
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> PluginConfig:
         if not can_configure_plugins(self.context["get_organization"]()):
@@ -890,6 +894,40 @@ class PluginConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         content = f"export function getFrontendApp () {'{'} return {json.dumps(obj)} {'}'}"
         return HttpResponse(content, content_type="application/javascript; charset=UTF-8")
 
+    @action(methods=["GET"], url_path="activity", detail=True)
+    def activity(self, request: request.Request, **kwargs):
+        limit = int(request.query_params.get("limit", "10"))
+        page = int(request.query_params.get("page", "1"))
+
+        activity_page = load_activity(
+            "PluginConfig", team_id=self.team_id, item_ids=[self.get_object().id], limit=limit, page=page
+        )
+
+        return activity_page_response(activity_page, limit, page, request)
+
+    @action(methods=["POST"], url_path="migrate", detail=True)
+    def migrate(self, request: request.Request, **kwargs):
+        obj = self.get_object()
+        migrater = HOG_FUNCTION_MIGRATORS.get(obj.plugin.url)
+
+        if not migrater:
+            raise ValidationError("No migration available for this plugin")
+
+        hog_function_data = migrater.migrate(obj)
+
+        if obj.enabled:
+            hog_function_data["enabled"] = True
+
+        hog_function_serializer = HogFunctionSerializer(data=hog_function_data, context=self.get_serializer_context())
+        hog_function_serializer.is_valid(raise_exception=True)
+        hog_function_serializer.save()
+
+        if obj.enabled:
+            obj.enabled = False
+            obj.save()
+
+        return Response(hog_function_serializer.data)
+
 
 def _get_secret_fields_for_plugin(plugin: Plugin) -> set[str]:
     # A set of keys for config fields that have secret = true
@@ -898,7 +936,7 @@ def _get_secret_fields_for_plugin(plugin: Plugin) -> set[str]:
 
 
 class LegacyPluginConfigViewSet(PluginConfigViewSet):
-    derive_current_team_from_user_only = True
+    param_derived_from_user_current_team = "team_id"
 
 
 class PipelineTransformationsViewSet(PluginViewSet):

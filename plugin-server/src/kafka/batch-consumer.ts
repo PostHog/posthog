@@ -281,6 +281,8 @@ export const startBatchConsumer = async ({
                     continue
                 }
 
+                gaugeBatchUtilization.labels({ groupId }).set(messages.length / fetchBatchSize)
+
                 status.debug('🔁', 'main_loop_consumed', { messagesLength: messages.length })
                 if (!messages.length && !callEachBatchWhenEmpty) {
                     status.debug('🔁', 'main_loop_empty_batch', { cause: 'empty' })
@@ -411,4 +413,10 @@ const kafkaAbsolutePartitionCount = new Gauge({
     name: 'kafka_absolute_partition_count',
     help: 'Number of partitions assigned to this consumer. (Absolute value from the consumer state.)',
     labelNames: ['topic'],
+})
+
+const gaugeBatchUtilization = new Gauge({
+    name: 'consumer_batch_utilization',
+    help: 'Indicates how big batches are we are processing compared to the max batch size. Useful as a scaling metric',
+    labelNames: ['groupId'],
 })

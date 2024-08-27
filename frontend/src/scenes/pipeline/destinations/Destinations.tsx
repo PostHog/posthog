@@ -54,7 +54,7 @@ export function Destinations(): JSX.Element {
     )
 }
 
-export function DestinationsTable(props: PipelineDestinationsLogicProps): JSX.Element {
+export function DestinationsTable({ ...props }: PipelineDestinationsLogicProps): JSX.Element {
     const { loading, filteredDestinations, filters, destinations } = useValues(pipelineDestinationsLogic(props))
     const { setFilters, resetFilters } = useActions(pipelineDestinationsLogic(props))
 
@@ -63,36 +63,42 @@ export function DestinationsTable(props: PipelineDestinationsLogicProps): JSX.El
     return (
         <>
             <div className="flex items-center mb-2 gap-2">
-                <LemonInput
-                    type="search"
-                    placeholder="Search..."
-                    value={filters.search ?? ''}
-                    onChange={(e) => setFilters({ search: e })}
-                />
+                {!props.forceFilters?.search && (
+                    <LemonInput
+                        type="search"
+                        placeholder="Search..."
+                        value={filters.search ?? ''}
+                        onChange={(e) => setFilters({ search: e })}
+                    />
+                )}
                 <div className="flex-1" />
-                <LemonCheckbox
-                    label="Only active"
-                    bordered
-                    size="small"
-                    checked={filters.onlyActive}
-                    onChange={(e) => setFilters({ onlyActive: e ?? undefined })}
-                />
-                <LemonSelect
-                    type="secondary"
-                    size="small"
-                    options={
-                        [
-                            { label: 'All kinds', value: null },
-                            hasHogFunctions
-                                ? { label: 'Realtime (new)', value: PipelineBackend.HogFunction }
-                                : undefined,
-                            { label: 'Realtime', value: PipelineBackend.Plugin },
-                            { label: 'Batch exports', value: PipelineBackend.BatchExport },
-                        ].filter(Boolean) as { label: string; value: PipelineBackend | null }[]
-                    }
-                    value={filters.kind}
-                    onChange={(e) => setFilters({ kind: e ?? undefined })}
-                />
+                {typeof props.forceFilters?.onlyActive !== 'boolean' && (
+                    <LemonCheckbox
+                        label="Only active"
+                        bordered
+                        size="small"
+                        checked={filters.onlyActive}
+                        onChange={(e) => setFilters({ onlyActive: e ?? undefined })}
+                    />
+                )}
+                {!props.forceFilters?.kind && (
+                    <LemonSelect
+                        type="secondary"
+                        size="small"
+                        options={
+                            [
+                                { label: 'All kinds', value: null },
+                                hasHogFunctions
+                                    ? { label: 'Realtime (new)', value: PipelineBackend.HogFunction }
+                                    : undefined,
+                                { label: 'Realtime', value: PipelineBackend.Plugin },
+                                { label: 'Batch exports', value: PipelineBackend.BatchExport },
+                            ].filter(Boolean) as { label: string; value: PipelineBackend | null }[]
+                        }
+                        value={filters.kind}
+                        onChange={(e) => setFilters({ kind: e ?? undefined })}
+                    />
+                )}
             </div>
 
             <BindLogic logic={pipelineDestinationsLogic} props={props}>
@@ -216,7 +222,7 @@ export function DestinationsTable(props: PipelineDestinationsLogicProps): JSX.El
 }
 
 const DestinationMoreOverlay = ({ destination }: { destination: Destination }): JSX.Element => {
-    const { canConfigurePlugins, canEnableNewDestinations } = useValues(pipelineAccessLogic)
+    const { canConfigurePlugins, canEnableDestination } = useValues(pipelineAccessLogic)
     const { toggleNode, deleteNode } = useActions(pipelineDestinationsLogic)
 
     return (
@@ -227,7 +233,7 @@ const DestinationMoreOverlay = ({ destination }: { destination: Destination }): 
                     onClick: () => toggleNode(destination, !destination.enabled),
                     disabledReason: !canConfigurePlugins
                         ? 'You do not have permission to toggle destinations.'
-                        : !canEnableNewDestinations && !destination.enabled
+                        : !canEnableDestination(destination) && !destination.enabled
                         ? 'Data pipelines add-on is required for enabling new destinations'
                         : undefined,
                 },

@@ -405,7 +405,8 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
         requires_merge = (
             isinstance(inputs.batch_export_model, BatchExportModel) and inputs.batch_export_model.name == "persons"
         )
-        stage_table_name = f"stage_{inputs.table_id}" if requires_merge else inputs.table_id
+        data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
+        stage_table_name = f"stage_{inputs.table_id}_{data_interval_end_str}" if requires_merge else inputs.table_id
 
         with bigquery_client(inputs) as bq_client:
             async with (
@@ -428,11 +429,12 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
 
                 async def flush_to_bigquery(
                     local_results_file,
-                    records_since_last_flush,
-                    bytes_since_last_flush,
+                    records_since_last_flush: int,
+                    bytes_since_last_flush: int,
                     flush_counter: int,
                     last_inserted_at,
-                    last,
+                    last: bool,
+                    error: Exception | None,
                 ):
                     logger.debug(
                         "Loading %s records of size %s bytes",
@@ -506,7 +508,7 @@ def get_batch_export_writer(
     return writer
 
 
-@workflow.defn(name="bigquery-export")
+@workflow.defn(name="bigquery-export", failure_exception_types=[workflow.NondeterminismError])
 class BigQueryBatchExportWorkflow(PostHogWorkflow):
     """A Temporal Workflow to export ClickHouse data into BigQuery.
 

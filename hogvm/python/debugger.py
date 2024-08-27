@@ -7,7 +7,9 @@ from hogvm.python.operation import Operation
 debug_speed = -1
 
 
-def debugger(symbol: Any, bytecode: list, colored_bytecode: list, ip: int, stack: list, call_stack: list):
+def debugger(
+    symbol: Any, bytecode: list, colored_bytecode: list, ip: int, stack: list, call_stack: list, throw_stack: list
+):
     print("\033[H\033[J", end="")  # noqa: T201
 
     next_symbol = symbol
@@ -17,6 +19,7 @@ def debugger(symbol: Any, bytecode: list, colored_bytecode: list, ip: int, stack
         pass
 
     top: list = []
+    top.append(f"throw_stack: {throw_stack}")  # noqa: T201
     top.append(f"call_stack: {call_stack}")  # noqa: T201
     top.append(f"stack: {stack}")  # noqa: T201
     top.append(f"next: {next_symbol}")  # noqa: T201
@@ -140,6 +143,8 @@ def print_symbol(symbol: Operation, ip: int, bytecode: list, stack: list, call_s
                 return f"GET_LOCAL({bytecode[ip + 1]}, {stack[-1]})"
             case Operation.GET_PROPERTY:
                 return f"GET_PROPERTY({stack[-2]}, {stack[-1]})"
+            case Operation.GET_PROPERTY_NULLISH:
+                return f"GET_PROPERTY_NULLISH({stack[-2]}, {stack[-1]})"
             case Operation.SET_PROPERTY:
                 return f"SET_PROPERTY({stack[-3]}, {stack[-2]}, {stack[-1]})"
             case Operation.DICT:
@@ -152,18 +157,28 @@ def print_symbol(symbol: Operation, ip: int, bytecode: list, stack: list, call_s
                 return f"JUMP({'+' if bytecode[ip+1] >= 0 else ''}{bytecode[ip+1]})"
             case Operation.JUMP_IF_FALSE:
                 return f"JUMP_IF_FALSE({'+' if bytecode[ip+1] >= 0 else ''}{bytecode[ip+1]}, {bool(stack[-1])})"
+            case Operation.JUMP_IF_STACK_NOT_NULL:
+                return (
+                    f"JUMP_IF_STACK_NOT_NULL({'+' if bytecode[ip+1] >= 0 else ''}{bytecode[ip+1]}, {bool(stack[-1])})"
+                )
             case Operation.DECLARE_FN:
                 return f"DECLARE_FN({bytecode[ip+1]}, args={bytecode[ip+2]}, ops={bytecode[ip+3]})"
-            case Operation.CALL:
-                return f"CALL({bytecode[ip+1]} {', '.join(str(stack[-i]) for i in range(bytecode[ip+2]))})"
+            case Operation.CALL_GLOBAL:
+                return f"CALL_GLOBAL({bytecode[ip+1]} {', '.join(str(stack[-(bytecode[ip+2] - i)]) for i in range(bytecode[ip+2]))})"
+            case Operation.TRY:
+                return f"TRY(+{bytecode[ip+1]})"
+            case Operation.POP_TRY:
+                return "POP_TRY"
+            case Operation.THROW:
+                return f"THROW({stack[-1]})"
         return symbol.name
     except Exception as e:
         return f"{symbol.name}(ERROR: {e})"
 
 
 def color_bytecode(bytecode: list) -> list:
-    colored = ["op.START"]
-    ip = 1
+    colored = ["op.START", f"version: {bytecode[1]}"] if bytecode[0] == "_H" else ["op.START"]
+    ip = len(colored)
     while ip < len(bytecode):
         symbol = bytecode[ip]
         match symbol:
@@ -241,6 +256,8 @@ def color_bytecode(bytecode: list) -> list:
                 add = ["op.SET_LOCAL", f"index: {bytecode[ip+1]}"]
             case Operation.GET_PROPERTY:
                 add = ["op.GET_PROPERTY"]
+            case Operation.GET_PROPERTY_NULLISH:
+                add = ["op.GET_PROPERTY_NULLISH"]
             case Operation.SET_PROPERTY:
                 add = ["op.SET_PROPERTY"]
             case Operation.DICT:
@@ -250,15 +267,23 @@ def color_bytecode(bytecode: list) -> list:
             case Operation.TUPLE:
                 add = ["op.TUPLE", f"element count: {bytecode[ip+1]}"]
             case Operation.JUMP:
-                add = ["op.JUMP", f"offset: {bytecode[ip+1]}"]
+                add = ["op.JUMP", f"offset: {'+' if bytecode[ip+1] >= 0 else ''}{bytecode[ip+1]}"]
             case Operation.JUMP_IF_FALSE:
-                add = ["op.JUMP_IF_FALSE", f"offset: {bytecode[ip+1]}"]
+                add = ["op.JUMP_IF_FALSE", f"offset: {'+' if bytecode[ip+1] >= 0 else ''}{bytecode[ip+1]}"]
+            case Operation.JUMP_IF_STACK_NOT_NULL:
+                add = ["op.JUMP_IF_STACK_NOT_NULL", f"offset: {'+' if bytecode[ip+1] >= 0 else ''}{bytecode[ip+1]}"]
             case Operation.DECLARE_FN:
                 add = ["op.DECLARE_FN", f"name: {bytecode[ip+1]}", f"args: {bytecode[ip+2]}", f"ops: {bytecode[ip+3]}"]
-            case Operation.CALL:
-                add = ["op.CALL", f"name: {bytecode[ip+1]}", f"args: {bytecode[ip+2]}"]
+            case Operation.CALL_GLOBAL:
+                add = ["op.CALL_GLOBAL", f"name: {bytecode[ip+1]}", f"args: {bytecode[ip+2]}"]
+            case Operation.TRY:
+                add = ["op.TRY", f"catch: +{bytecode[ip+1]}"]
+            case Operation.POP_TRY:
+                add = ["op.POP_TRY"]
+            case Operation.THROW:
+                add = ["op.THROW"]
             case _:
-                add = ["ERROR"]
+                add = [f"ERROR: Unknown bytecode {symbol}"]
         colored.extend(add)
         ip += len(add)
     return colored

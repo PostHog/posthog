@@ -1,12 +1,14 @@
 import json
-from typing import Optional
+from typing import Any, Optional
 from unittest.mock import ANY, patch
 
+from inline_snapshot import snapshot
 from rest_framework import status
 
+from hogvm.python.operation import HOGQL_BYTECODE_VERSION
 from posthog.constants import AvailableFeature
 from posthog.models.action.action import Action
-from posthog.models.hog_functions.hog_function import HogFunction
+from posthog.models.hog_functions.hog_function import DEFAULT_STATE, HogFunction
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from posthog.cdp.templates.webhook.template_webhook import template as template_webhook
 from posthog.cdp.templates.slack.template_slack import template as template_slack
@@ -76,8 +78,7 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
             data=payload,
         )
 
-    @patch("posthog.permissions.posthoganalytics.feature_enabled")
-    def test_create_hog_function_works_for_free_template(self, mock_feature_enabled):
+    def test_create_hog_function_works_for_free_template(self):
         response = self.create_slack_function()
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
@@ -85,8 +86,7 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         assert response.json()["hog"] == template_slack.hog
         assert response.json()["inputs_schema"] == template_slack.inputs_schema
 
-    @patch("posthog.permissions.posthoganalytics.feature_enabled")
-    def test_free_users_cannot_override_hog_or_schema(self, mock_feature_enabled):
+    def test_free_users_cannot_override_hog_or_schema(self):
         response = self.create_slack_function(
             {
                 "hog": "fetch(inputs.url);",
@@ -99,15 +99,13 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["detail"] == "The Data Pipelines addon is required to create custom functions."
 
-    @patch("posthog.permissions.posthoganalytics.feature_enabled")
-    def test_free_users_cannot_use_without_template(self, mock_feature_enabled):
+    def test_free_users_cannot_use_without_template(self):
         response = self.create_slack_function({"template_id": None})
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["detail"] == "The Data Pipelines addon is required to create custom functions."
 
-    @patch("posthog.permissions.posthoganalytics.feature_enabled")
-    def test_free_users_cannot_use_non_free_templates(self, mock_feature_enabled):
+    def test_free_users_cannot_use_non_free_templates(self):
         response = self.create_slack_function(
             {
                 "template_id": template_webhook.id,
@@ -127,24 +125,6 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         ]
         self.organization.save()
 
-    @patch("posthog.permissions.posthoganalytics.feature_enabled")
-    def test_create_hog_function_forbidden_if_not_in_flag(self, mock_feature_enabled):
-        mock_feature_enabled.return_value = False
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/hog_functions/",
-            data={
-                "name": "Fetch URL",
-                "description": "Test description",
-                "hog": "fetch(inputs.url);",
-            },
-        )
-        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
-
-        assert mock_feature_enabled.call_count == 1
-        assert mock_feature_enabled.call_args[0][0] == ("hog-functions")
-
-    @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
     def test_create_hog_function(self, *args):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
@@ -161,16 +141,16 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "updated_at": ANY,
             "enabled": False,
             "hog": "fetch(inputs.url);",
-            "bytecode": ["_h", 32, "url", 32, "inputs", 1, 2, 2, "fetch", 1, 35],
+            "bytecode": ["_H", HOGQL_BYTECODE_VERSION, 32, "url", 32, "inputs", 1, 2, 2, "fetch", 1, 35],
             "inputs_schema": [],
             "inputs": {},
-            "filters": {"bytecode": ["_h", 29]},
+            "filters": {"bytecode": ["_H", HOGQL_BYTECODE_VERSION, 29]},
             "icon_url": None,
             "template": None,
-            "status": {"ratings": [], "state": 0, "states": []},
+            "masking": None,
+            "status": {"rating": 0, "state": 0, "tokens": 0},
         }
 
-    @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
     def test_creates_with_template_id(self, *args):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
@@ -193,7 +173,6 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "filters": None,
         }
 
-    @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
     def test_deletes_via_update(self, *args):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
@@ -218,7 +197,6 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert list_res.status_code == status.HTTP_200_OK, list_res.json()
         assert next((item for item in list_res.json()["results"] if item["id"] == response.json()["id"]), None) is None
 
-    @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
     def test_inputs_required(self, *args):
         payload = {
             "name": "Fetch URL",
@@ -237,7 +215,6 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "attr": "inputs__url",
         }
 
-    @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
     def test_inputs_mismatch_type(self, *args):
         payload = {
             "name": "Fetch URL",
@@ -267,7 +244,6 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             }, f"Did not get error for {key}, got {res.json()}"
             assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
 
-    @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
     def test_secret_inputs_not_returned(self, *args):
         payload = {
             "name": "Fetch URL",
@@ -297,7 +273,6 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         obj = HogFunction.objects.get(id=res.json()["id"])
         assert obj.inputs["url"]["value"] == "I AM SECRET"
 
-    @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
     def test_secret_inputs_not_updated_if_not_changed(self, *args):
         payload = {
             "name": "Fetch URL",
@@ -341,7 +316,6 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         obj = HogFunction.objects.get(id=res.json()["id"])
         assert obj.inputs["url"]["value"] == "I AM A NEW SECRET"
 
-    @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
     def test_generates_hog_bytecode(self, *args):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
@@ -352,17 +326,21 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         # JSON loads for one line comparison
         assert response.json()["bytecode"] == json.loads(
-            '["_h", 33, 0, 33, 3, 36, 0, 15, 40, 45, 33, 1, 36, 0, 6, 37, 0, 32, "headers", 32, "x-count", 36, 0, 42, 1, 32, "body", 32, "payload", 32, "inputs", 1, 2, 32, "method", 32, "method", 32, "inputs", 1, 2, 42, 3, 32, "url", 32, "inputs", 1, 2, 2, "fetch", 2, 35, 39, -52, 35]'
+            f'["_H", {HOGQL_BYTECODE_VERSION}, 33, 0, 33, 3, 36, 0, 15, 40, 45, 33, 1, 36, 0, 6, 37, 0, 32, "url", 32, "inputs", 1, 2, 32, "headers", 32, "x-count", 36, 0, 42, 1, 32, "body", 32, "payload", 32, "inputs", 1, 2, 32, "method", 32, "method", 32, "inputs", 1, 2, 42, 3, 2, "fetch", 2, 35, 39, -52, 35]'
         ), response.json()
 
-    @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
     def test_generates_inputs_bytecode(self, *args):
         response = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=EXAMPLE_FULL)
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["inputs"] == {
             "url": {
                 "value": "http://localhost:2080/0e02d917-563f-4050-9725-aad881b69937",
-                "bytecode": ["_h", 32, "http://localhost:2080/0e02d917-563f-4050-9725-aad881b69937"],
+                "bytecode": [
+                    "_H",
+                    HOGQL_BYTECODE_VERSION,
+                    32,
+                    "http://localhost:2080/0e02d917-563f-4050-9725-aad881b69937",
+                ],
             },
             "payload": {
                 "value": {
@@ -373,23 +351,52 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "event_url": "{f'{event.url}-test'}",
                 },
                 "bytecode": {
-                    "event": ["_h", 32, "event", 1, 1],
-                    "groups": ["_h", 32, "groups", 1, 1],
-                    "nested": {"foo": ["_h", 32, "url", 32, "event", 1, 2]},
-                    "person": ["_h", 32, "person", 1, 1],
-                    "event_url": ["_h", 32, "-test", 32, "url", 32, "event", 1, 2, 2, "concat", 2],
+                    "event": ["_H", HOGQL_BYTECODE_VERSION, 32, "event", 1, 1],
+                    "groups": ["_H", HOGQL_BYTECODE_VERSION, 32, "groups", 1, 1],
+                    "nested": {"foo": ["_H", HOGQL_BYTECODE_VERSION, 32, "url", 32, "event", 1, 2]},
+                    "person": ["_H", HOGQL_BYTECODE_VERSION, 32, "person", 1, 1],
+                    "event_url": [
+                        "_H",
+                        HOGQL_BYTECODE_VERSION,
+                        32,
+                        "url",
+                        32,
+                        "event",
+                        1,
+                        2,
+                        32,
+                        "-test",
+                        2,
+                        "concat",
+                        2,
+                    ],
                 },
             },
             "method": {"value": "POST"},
             "headers": {
                 "value": {"version": "v={event.properties.$lib_version}"},
                 "bytecode": {
-                    "version": ["_h", 32, "$lib_version", 32, "properties", 32, "event", 1, 3, 32, "v=", 2, "concat", 2]
+                    "version": [
+                        "_H",
+                        HOGQL_BYTECODE_VERSION,
+                        32,
+                        "v=",
+                        32,
+                        "$lib_version",
+                        32,
+                        "properties",
+                        32,
+                        "event",
+                        1,
+                        3,
+                        2,
+                        "concat",
+                        2,
+                    ]
                 },
             },
         }
 
-    @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
     def test_generates_filters_bytecode(self, *args):
         action = Action.objects.create(
             team=self.team,
@@ -423,7 +430,46 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "actions": [{"id": f"{action.id}", "name": "Test Action", "type": "actions", "order": 1}],
             "filter_test_accounts": True,
             "bytecode": [
-                "_h",
+                "_H",
+                HOGQL_BYTECODE_VERSION,
+                32,
+                "%@posthog.com%",
+                32,
+                "email",
+                32,
+                "properties",
+                32,
+                "person",
+                1,
+                3,
+                20,
+                32,
+                "$pageview",
+                32,
+                "event",
+                1,
+                1,
+                11,
+                3,
+                2,
+                32,
+                "%@posthog.com%",
+                32,
+                "email",
+                32,
+                "properties",
+                32,
+                "person",
+                1,
+                3,
+                20,
+                32,
+                "$pageview",
+                32,
+                "event",
+                1,
+                1,
+                11,
                 32,
                 "%docs%",
                 32,
@@ -433,46 +479,8 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 1,
                 2,
                 17,
-                32,
-                "$pageview",
-                32,
-                "event",
-                1,
-                1,
-                11,
                 3,
                 2,
-                32,
-                "%@posthog.com%",
-                32,
-                "email",
-                32,
-                "properties",
-                32,
-                "person",
-                1,
-                3,
-                20,
-                3,
-                2,
-                32,
-                "$pageview",
-                32,
-                "event",
-                1,
-                1,
-                11,
-                32,
-                "%@posthog.com%",
-                32,
-                "email",
-                32,
-                "properties",
-                32,
-                "person",
-                1,
-                3,
-                20,
                 3,
                 2,
                 4,
@@ -480,11 +488,29 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ],
         }
 
+    def test_saves_masking_config(self, *args):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                **EXAMPLE_FULL,
+                "masking": {"ttl": 60, "threshold": 20, "hash": "{person.properties.email}"},
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["masking"] == snapshot(
+            {
+                "ttl": 60,
+                "threshold": 20,
+                "hash": "{person.properties.email}",
+                "bytecode": ["_H", HOGQL_BYTECODE_VERSION, 32, "email", 32, "properties", 32, "person", 1, 3],
+            }
+        )
+
     @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
     def test_loads_status_when_enabled_and_available(self, *args):
         with patch("posthog.plugins.plugin_server_api.requests.get") as mock_get:
             mock_get.return_value.status_code = status.HTTP_200_OK
-            mock_get.return_value.json.return_value = {"state": 1, "states": [], "ratings": []}
+            mock_get.return_value.json.return_value = {"state": 1, "tokens": 0, "rating": 0}
 
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_functions/",
@@ -499,9 +525,8 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             assert response.status_code == status.HTTP_201_CREATED, response.json()
 
             response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{response.json()['id']}")
-            assert response.json()["status"] == {"state": 1, "states": [], "ratings": []}
+            assert response.json()["status"] == {"state": 1, "tokens": 0, "rating": 0}
 
-    @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
     def test_does_not_crash_when_status_not_available(self, *args):
         with patch("posthog.plugins.plugin_server_api.requests.get") as mock_get:
             # Mock the api actually throwing fully
@@ -519,14 +544,13 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             )
             assert response.status_code == status.HTTP_201_CREATED, response.json()
             response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{response.json()['id']}")
-            assert response.json()["status"] == {"ratings": [], "state": 0, "states": []}
+            assert response.json()["status"] == DEFAULT_STATE
 
-    @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
     def test_patches_status_on_enabled_update(self, *args):
         with patch("posthog.plugins.plugin_server_api.requests.get") as mock_get:
             with patch("posthog.plugins.plugin_server_api.requests.patch") as mock_patch:
                 mock_get.return_value.status_code = status.HTTP_200_OK
-                mock_get.return_value.json.return_value = {"state": 4, "states": [], "ratings": []}
+                mock_get.return_value.json.return_value = {"state": 4, "tokens": 0, "rating": 0}
 
                 response = self.client.post(
                     f"/api/projects/{self.team.id}/hog_functions/",
@@ -552,3 +576,61 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     f"http://localhost:6738/api/projects/{self.team.id}/hog_functions/{response.json()['id']}/status",
                     json={"state": 2},
                 )
+
+    def test_list_with_filters_filter(self, *args):
+        action1 = Action.objects.create(
+            team=self.team,
+            name="test action",
+            steps_json=[{"event": "$pageview", "url": "docs", "url_matching": "contains"}],
+        )
+
+        action2 = Action.objects.create(
+            team=self.team,
+            name="test action",
+            steps_json=[{"event": "$pageview", "url": "docs", "url_matching": "contains"}],
+        )
+
+        self.team.test_account_filters = [
+            {
+                "key": "email",
+                "value": "@posthog.com",
+                "operator": "not_icontains",
+                "type": "person",
+            }
+        ]
+        self.team.save()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                **EXAMPLE_FULL,
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                    "actions": [
+                        {"id": f"{action1.id}", "name": "Test Action", "type": "actions", "order": 1},
+                        {"id": f"{action2.id}", "name": "Test Action 2", "type": "actions", "order": 1},
+                    ],
+                    "filter_test_accounts": True,
+                },
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        filters: Any = {"filter_test_accounts": True}
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?filters={json.dumps(filters)}")
+        assert len(response.json()["results"]) == 1
+
+        filters = {"filter_test_accounts": False}
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?filters={json.dumps(filters)}")
+        assert len(response.json()["results"]) == 0
+
+        filters = {"actions": [{"id": f"other"}]}
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?filters={json.dumps(filters)}")
+        assert len(response.json()["results"]) == 0
+
+        filters = {"actions": [{"id": f"{action1.id}"}]}
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?filters={json.dumps(filters)}")
+        assert len(response.json()["results"]) == 1
+
+        filters = {"actions": [{"id": f"{action2.id}"}]}
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?filters={json.dumps(filters)}")
+        assert len(response.json()["results"]) == 1

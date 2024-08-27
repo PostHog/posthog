@@ -11,25 +11,29 @@ import {
     Spinner,
     Tooltip,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { useEffect } from 'react'
 import { defaultQuery } from 'scenes/data-warehouse/utils'
 import { urls } from 'scenes/urls'
 
-import { DataWarehouseSyncInterval, DataWarehouseTab, ExternalDataSourceSchema } from '~/types'
+import { DataWarehouseSyncInterval, ExternalDataSourceSchema } from '~/types'
 
 import { SyncMethodForm } from '../../external/forms/SyncMethodForm'
 import { dataWarehouseSettingsLogic } from '../dataWarehouseSettingsLogic'
 import { dataWarehouseSourcesTableSyncMethodModalLogic } from '../dataWarehouseSourcesTableSyncMethodModalLogic'
 import { dataWarehouseSourceSettingsLogic } from './dataWarehouseSourceSettingsLogic'
 
-export const Schemas = (): JSX.Element => {
-    const { source, sourceLoading } = useValues(dataWarehouseSourceSettingsLogic)
+interface SchemasProps {
+    id: string
+}
+
+export const Schemas = ({ id }: SchemasProps): JSX.Element => {
+    const { source, sourceLoading } = useValues(dataWarehouseSourceSettingsLogic({ id }))
     return (
-        <>
+        <BindLogic logic={dataWarehouseSourceSettingsLogic} props={{ id }}>
             <SchemaTable schemas={source?.schemas ?? []} isLoading={sourceLoading} />
-        </>
+        </BindLogic>
     )
 }
 
@@ -70,14 +74,19 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                             return (
                                 <LemonSelect
                                     className="my-1"
-                                    value={schema.sync_frequency || 'day'}
+                                    value={schema.sync_frequency || '6hour'}
                                     onChange={(value) =>
                                         updateSchema({ ...schema, sync_frequency: value as DataWarehouseSyncInterval })
                                     }
                                     options={[
-                                        { value: 'day' as DataWarehouseSyncInterval, label: 'Daily' },
-                                        { value: 'week' as DataWarehouseSyncInterval, label: 'Weekly' },
-                                        { value: 'month' as DataWarehouseSyncInterval, label: 'Monthly' },
+                                        { value: '5min' as DataWarehouseSyncInterval, label: '5 mins' },
+                                        { value: '30min' as DataWarehouseSyncInterval, label: '30 mins' },
+                                        { value: '1hour' as DataWarehouseSyncInterval, label: '1 hour' },
+                                        { value: '6hour' as DataWarehouseSyncInterval, label: '6 hours' },
+                                        { value: '12hour' as DataWarehouseSyncInterval, label: '12 hours' },
+                                        { value: '24hour' as DataWarehouseSyncInterval, label: 'Daily' },
+                                        { value: '7day' as DataWarehouseSyncInterval, label: 'Weekly' },
+                                        { value: '30day' as DataWarehouseSyncInterval, label: 'Monthly' },
                                     ]}
                                 />
                             )
@@ -145,7 +154,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                             if (schema.table) {
                                 const query = defaultQuery(schema.table.name, schema.table.columns)
                                 return (
-                                    <Link to={urls.dataWarehouse(DataWarehouseTab.Explore, JSON.stringify(query))}>
+                                    <Link to={urls.dataWarehouse(JSON.stringify(query))}>
                                         <code>{schema.table.name}</code>
                                     </Link>
                                 )

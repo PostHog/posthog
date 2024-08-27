@@ -31,9 +31,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -69,9 +68,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -107,9 +105,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -145,9 +142,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -184,16 +180,15 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  HAVING hasAll(groupUniqArray(events.event), ['$pageview', 'custom-event']))))
   GROUP BY s.session_id
-  HAVING ifNull(greaterOrEquals(duration, 60), 0)
+  HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -229,9 +224,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -267,9 +261,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -305,9 +298,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -343,9 +335,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -381,9 +372,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -419,9 +409,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -452,9 +441,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -478,16 +466,15 @@
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
-  HAVING ifNull(greaterOrEquals(duration, 60), 0)
+  HAVING ifNull(greater(duration, 60), 0)
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -511,16 +498,15 @@
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
-  HAVING ifNull(greaterOrEquals(active_seconds, 60), 0)
+  HAVING ifNull(greater(active_seconds, '60'), 0)
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -544,16 +530,15 @@
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
-  HAVING ifNull(greaterOrEquals(inactive_seconds, 60), 0)
+  HAVING ifNull(greater(inactive_seconds, '60'), 0)
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -584,9 +569,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -617,9 +601,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -650,9 +633,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -683,9 +665,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -716,9 +697,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -749,9 +729,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -782,9 +761,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -815,9 +793,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -848,9 +825,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -881,9 +857,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -914,9 +889,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -947,9 +921,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -980,9 +953,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -1006,16 +978,15 @@
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
-  HAVING ifNull(greaterOrEquals(duration, 60), 0)
+  HAVING ifNull(greater(duration, 60), 0)
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -1039,16 +1010,15 @@
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
-  HAVING ifNull(lessOrEquals(duration, 60), 0)
+  HAVING ifNull(less(duration, 60), 0)
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -1084,9 +1054,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -1122,9 +1091,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -1160,9 +1128,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -1193,9 +1160,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -1224,16 +1190,15 @@
                                                                                                                                                                                                                                                                                                                                                                                                                          GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                                                                                                                                                          HAVING hasAll(groupUniqArray(events.event), ['$pageview']))))
   GROUP BY s.session_id
-  HAVING ifNull(greaterOrEquals(duration, 60), 0)
+  HAVING ifNull(greater(duration, 60), 0)
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -1262,16 +1227,15 @@
                                                                                                                                                                                                                                                                                                                                                                                                                          GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                                                                                                                                                          HAVING hasAll(groupUniqArray(events.event), ['$pageview']))))
   GROUP BY s.session_id
-  HAVING ifNull(greaterOrEquals(active_seconds, 60), 0)
+  HAVING ifNull(greater(active_seconds, 60), 0)
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -1312,9 +1276,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -1350,9 +1313,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -1420,9 +1382,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -1490,9 +1451,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -1528,9 +1488,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -1598,9 +1557,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -1668,9 +1626,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -1721,9 +1678,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -1774,9 +1730,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -1812,9 +1767,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -1850,9 +1804,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -1888,9 +1841,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -1926,9 +1878,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -1964,9 +1915,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2002,9 +1952,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2040,9 +1989,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2078,9 +2026,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2116,9 +2063,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2154,9 +2100,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2192,9 +2137,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2230,9 +2174,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2268,9 +2211,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2306,9 +2248,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2376,9 +2317,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2414,9 +2354,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2484,9 +2423,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2522,9 +2460,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2560,9 +2497,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2590,7 +2526,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                            (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level, log_entries.message AS message
                                                                                                                                                                                                                                                                                                                                                                                                                             FROM log_entries
                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE and(equals(log_entries.team_id, 2), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                                                                                                                                                                                                                         WHERE and(ifNull(in(console_logs_log_entries.level, ['warn', 'error']), 0), ifNull(greater(positionCaseInsensitive(console_logs_log_entries.message, 'message 4'), 0), 0)))))
+                                                                                                                                                                                                                                                                                                                                                                                                                         WHERE or(or(ifNull(equals(console_logs_log_entries.level, 'warn'), 0), ifNull(equals(console_logs_log_entries.level, 'error'), 0)), ifNull(equals(console_logs_log_entries.message, 'message 4'), 0)))))
   GROUP BY s.session_id
   HAVING 1
   ORDER BY start_time DESC
@@ -2599,9 +2535,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2629,7 +2564,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                            (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level, log_entries.message AS message
                                                                                                                                                                                                                                                                                                                                                                                                                             FROM log_entries
                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE and(equals(log_entries.team_id, 2), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                                                                                                                                                                                                                         WHERE and(ifNull(in(console_logs_log_entries.level, ['warn', 'error']), 0), ifNull(greater(positionCaseInsensitive(console_logs_log_entries.message, 'message 5'), 0), 0)))))
+                                                                                                                                                                                                                                                                                                                                                                                                                         WHERE and(or(ifNull(equals(console_logs_log_entries.level, 'warn'), 0), ifNull(equals(console_logs_log_entries.level, 'error'), 0)), ifNull(ilike(console_logs_log_entries.message, '%message 5%'), 0)))))
   GROUP BY s.session_id
   HAVING 1
   ORDER BY start_time DESC
@@ -2638,9 +2573,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2668,7 +2602,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                            (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level, log_entries.message AS message
                                                                                                                                                                                                                                                                                                                                                                                                                             FROM log_entries
                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE and(equals(log_entries.team_id, 2), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                                                                                                                                                                                                                         WHERE and(ifNull(in(console_logs_log_entries.level, ['warn', 'error']), 0), ifNull(greater(positionCaseInsensitive(console_logs_log_entries.message, 'MESSAGE 5'), 0), 0)))))
+                                                                                                                                                                                                                                                                                                                                                                                                                         WHERE and(ifNull(equals(console_logs_log_entries.level, 'info'), 0), ifNull(ilike(console_logs_log_entries.message, '%message 5%'), 0)))))
   GROUP BY s.session_id
   HAVING 1
   ORDER BY start_time DESC
@@ -2677,48 +2611,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
-                    max_bytes_before_external_group_by=0
-  '''
-# ---
-# name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_by_console_text.3
-  '''
-  SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
-         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
-         dateDiff('SECOND', start_time, end_time) AS duration,
-         argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
-         minus(duration, active_seconds) AS inactive_seconds,
-         sum(s.console_log_count) AS console_log_count,
-         sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count
-  FROM session_replay_events AS s
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
-                                                                                                                                                                                                                                                                                                                                                                                                                        (SELECT console_logs_log_entries.log_source_id AS log_source_id
-                                                                                                                                                                                                                                                                                                                                                                                                                         FROM
-                                                                                                                                                                                                                                                                                                                                                                                                                           (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level, log_entries.message AS message
-                                                                                                                                                                                                                                                                                                                                                                                                                            FROM log_entries
-                                                                                                                                                                                                                                                                                                                                                                                                                            WHERE and(equals(log_entries.team_id, 2), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                                                                                                                                                                                                                         WHERE and(ifNull(in(console_logs_log_entries.level, ['info']), 0), ifNull(greater(positionCaseInsensitive(console_logs_log_entries.message, 'message 5'), 0), 0)))))
-  GROUP BY s.session_id
-  HAVING 1
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2742,16 +2636,15 @@
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
-  HAVING ifNull(in(argMinMerge(s.snapshot_source), ['web']), 0)
+  HAVING ifNull(equals(argMinMerge(s.snapshot_source), 'web'), 0)
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2775,16 +2668,15 @@
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
-  HAVING ifNull(in(argMinMerge(s.snapshot_source), ['mobile']), 0)
+  HAVING ifNull(equals(argMinMerge(s.snapshot_source), 'mobile'), 0)
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2812,7 +2704,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                            (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level
                                                                                                                                                                                                                                                                                                                                                                                                                             FROM log_entries
                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE and(equals(log_entries.team_id, 2), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                                                                                                                                                                                                                         WHERE ifNull(in(console_logs_log_entries.level, ['error']), 0))))
+                                                                                                                                                                                                                                                                                                                                                                                                                         WHERE ifNull(equals(console_logs_log_entries.level, 'error'), 0))))
   GROUP BY s.session_id
   HAVING 1
   ORDER BY start_time DESC
@@ -2821,9 +2713,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2851,7 +2742,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                            (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level
                                                                                                                                                                                                                                                                                                                                                                                                                             FROM log_entries
                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE and(equals(log_entries.team_id, 2), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                                                                                                                                                                                                                         WHERE ifNull(in(console_logs_log_entries.level, ['info']), 0))))
+                                                                                                                                                                                                                                                                                                                                                                                                                         WHERE ifNull(equals(console_logs_log_entries.level, 'info'), 0))))
   GROUP BY s.session_id
   HAVING 1
   ORDER BY start_time DESC
@@ -2860,9 +2751,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2890,7 +2780,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                            (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level
                                                                                                                                                                                                                                                                                                                                                                                                                             FROM log_entries
                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE and(equals(log_entries.team_id, 2), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                                                                                                                                                                                                                         WHERE ifNull(in(console_logs_log_entries.level, ['info']), 0))))
+                                                                                                                                                                                                                                                                                                                                                                                                                         WHERE ifNull(equals(console_logs_log_entries.level, 'info'), 0))))
   GROUP BY s.session_id
   HAVING 1
   ORDER BY start_time DESC
@@ -2899,9 +2789,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2929,7 +2818,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                            (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level
                                                                                                                                                                                                                                                                                                                                                                                                                             FROM log_entries
                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE and(equals(log_entries.team_id, 2), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                                                                                                                                                                                                                         WHERE ifNull(in(console_logs_log_entries.level, ['warn']), 0))))
+                                                                                                                                                                                                                                                                                                                                                                                                                         WHERE ifNull(equals(console_logs_log_entries.level, 'warn'), 0))))
   GROUP BY s.session_id
   HAVING 1
   ORDER BY start_time DESC
@@ -2938,9 +2827,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2968,7 +2856,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                            (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level
                                                                                                                                                                                                                                                                                                                                                                                                                             FROM log_entries
                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE and(equals(log_entries.team_id, 2), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                                                                                                                                                                                                                         WHERE ifNull(in(console_logs_log_entries.level, ['warn']), 0))))
+                                                                                                                                                                                                                                                                                                                                                                                                                         WHERE ifNull(equals(console_logs_log_entries.level, 'warn'), 0))))
   GROUP BY s.session_id
   HAVING 1
   ORDER BY start_time DESC
@@ -2977,9 +2865,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -3007,7 +2894,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                            (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level
                                                                                                                                                                                                                                                                                                                                                                                                                             FROM log_entries
                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE and(equals(log_entries.team_id, 2), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                                                                                                                                                                                                                         WHERE ifNull(in(console_logs_log_entries.level, ['info']), 0))))
+                                                                                                                                                                                                                                                                                                                                                                                                                         WHERE ifNull(equals(console_logs_log_entries.level, 'info'), 0))))
   GROUP BY s.session_id
   HAVING 1
   ORDER BY start_time DESC
@@ -3016,9 +2903,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -3046,7 +2932,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                            (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level
                                                                                                                                                                                                                                                                                                                                                                                                                             FROM log_entries
                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE and(equals(log_entries.team_id, 2), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                                                                                                                                                                                                                         WHERE ifNull(in(console_logs_log_entries.level, ['warn', 'error']), 0))))
+                                                                                                                                                                                                                                                                                                                                                                                                                         WHERE or(ifNull(equals(console_logs_log_entries.level, 'warn'), 0), ifNull(equals(console_logs_log_entries.level, 'error'), 0)))))
   GROUP BY s.session_id
   HAVING 1
   ORDER BY start_time DESC
@@ -3055,9 +2941,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -3085,7 +2970,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                            (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level
                                                                                                                                                                                                                                                                                                                                                                                                                             FROM log_entries
                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE and(equals(log_entries.team_id, 2), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                                                                                                                                                                                                                         WHERE ifNull(in(console_logs_log_entries.level, ['info']), 0))))
+                                                                                                                                                                                                                                                                                                                                                                                                                         WHERE ifNull(equals(console_logs_log_entries.level, 'info'), 0))))
   GROUP BY s.session_id
   HAVING 1
   ORDER BY start_time DESC
@@ -3094,9 +2979,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -3132,9 +3016,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -3170,9 +3053,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -3233,9 +3115,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -3301,9 +3182,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -3349,9 +3229,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -3399,9 +3278,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -3449,9 +3327,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -3487,9 +3364,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -3525,9 +3401,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -3563,9 +3438,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -3601,9 +3475,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -3631,7 +3504,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                            (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level, log_entries.message AS message
                                                                                                                                                                                                                                                                                                                                                                                                                             FROM log_entries
                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE and(equals(log_entries.team_id, 2), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                                                                                                                                                                                                                         WHERE and(ifNull(in(console_logs_log_entries.level, ['warn']), 0), ifNull(greater(positionCaseInsensitive(console_logs_log_entries.message, 'random'), 0), 0)))))
+                                                                                                                                                                                                                                                                                                                                                                                                                         WHERE and(ifNull(equals(console_logs_log_entries.level, 'warn'), 0), ifNull(equals(console_logs_log_entries.message, 'random'), 0)))))
   GROUP BY s.session_id
   HAVING 1
   ORDER BY start_time DESC
@@ -3640,9 +3513,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -3670,7 +3542,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                            (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level, log_entries.message AS message
                                                                                                                                                                                                                                                                                                                                                                                                                             FROM log_entries
                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE and(equals(log_entries.team_id, 2), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                                                                                                                                                                                                                         WHERE or(ifNull(in(console_logs_log_entries.level, ['warn']), 0), ifNull(greater(positionCaseInsensitive(console_logs_log_entries.message, 'random'), 0), 0)))))
+                                                                                                                                                                                                                                                                                                                                                                                                                         WHERE or(ifNull(equals(console_logs_log_entries.level, 'warn'), 0), ifNull(equals(console_logs_log_entries.message, 'random'), 0)))))
   GROUP BY s.session_id
   HAVING 1
   ORDER BY start_time DESC
@@ -3679,9 +3551,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -3725,9 +3596,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -3771,9 +3641,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -3809,9 +3678,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -3847,9 +3715,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -3897,9 +3764,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -3947,9 +3813,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -3988,9 +3853,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -4026,9 +3890,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -4064,9 +3927,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -4102,9 +3964,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -4140,9 +4001,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -4178,9 +4038,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -4216,9 +4075,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -4254,9 +4112,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -4292,9 +4149,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -4330,9 +4186,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -4368,9 +4223,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -4406,9 +4260,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -4444,9 +4297,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -4482,9 +4334,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -4532,9 +4383,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -4570,9 +4420,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -4620,9 +4469,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -4658,9 +4506,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -4708,9 +4555,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -4746,9 +4592,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -4796,9 +4641,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---

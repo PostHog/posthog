@@ -13,7 +13,7 @@ from posthog.warehouse.external_data_source.jobs import (
 from posthog.warehouse.models import sync_old_schemas_with_new_schemas, ExternalDataSource, aget_schema_by_id
 from posthog.warehouse.models.external_data_schema import (
     ExternalDataSchema,
-    get_postgres_schemas,
+    get_sql_schemas_for_source_type,
     get_snowflake_schemas,
 )
 from posthog.temporal.common.logger import bind_temporal_worker_logger
@@ -46,7 +46,7 @@ async def create_external_data_job_model_activity(inputs: CreateExternalDataJobM
 
         source = await sync_to_async(ExternalDataSource.objects.get)(team_id=inputs.team_id, id=inputs.source_id)
 
-        if source.source_type == ExternalDataSource.Type.POSTGRES:
+        if source.source_type in [ExternalDataSource.Type.POSTGRES, ExternalDataSource.Type.MYSQL]:
             host = source.job_inputs.get("host")
             port = source.job_inputs.get("port")
             user = source.job_inputs.get("user")
@@ -74,8 +74,8 @@ async def create_external_data_job_model_activity(inputs: CreateExternalDataJobM
                 private_key=ssh_tunnel_auth_type_private_key,
             )
 
-            schemas_to_sync = await sync_to_async(get_postgres_schemas)(
-                host, port, database, user, password, db_schema, ssh_tunnel
+            schemas_to_sync = await sync_to_async(get_sql_schemas_for_source_type)(
+                source.source_type, host, port, database, user, password, db_schema, ssh_tunnel
             )
         elif source.source_type == ExternalDataSource.Type.SNOWFLAKE:
             account_id = source.job_inputs.get("account_id")

@@ -26,6 +26,8 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 cdpProcessedEvents: true,
                 cdpFunctionCallbacks: true,
                 cdpFunctionOverflow: true,
+                cdpCyclotronWorker: true,
+                syncInlinePlugins: true,
                 ...sharedCapabilities,
             }
         case PluginServerMode.ingestion:
@@ -89,6 +91,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 pluginScheduledTasks: true,
                 appManagementSingleton: true,
+                syncInlinePlugins: true,
                 ...sharedCapabilities,
             }
         case PluginServerMode.cdp_processed_events:
@@ -106,6 +109,11 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 cdpFunctionOverflow: true,
                 ...sharedCapabilities,
             }
+        case PluginServerMode.cdp_cyclotron_worker:
+            return {
+                cdpCyclotronWorker: true,
+                ...sharedCapabilities,
+            }
         // This is only for functional tests, which time out if all capabilities are used
         // ideally we'd run just the specific capability needed per test, but that's not easy to do atm
         case PluginServerMode.functional_tests:
@@ -121,6 +129,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 sessionRecordingBlobIngestion: true,
                 appManagementSingleton: true,
                 preflightSchedules: true,
+                syncInlinePlugins: true,
                 ...sharedCapabilities,
             }
     }

@@ -128,7 +128,7 @@ export function Surveys(): JSX.Element {
             ) : (
                 <>
                     <div className="space-y-2">
-                        <VersionCheckerBanner minVersionAccepted="1.83.0" />
+                        <VersionCheckerBanner />
 
                         {showSurveysDisabledBanner ? (
                             <LemonBanner
@@ -492,7 +492,7 @@ export function StatusTag({ survey }: { survey: Survey }): JSX.Element {
     } as Record<ProgressStatus, LemonTagType>
     const status = getSurveyStatus(survey)
     return (
-        <LemonTag type={statusColors[status]} style={{ fontWeight: 600 }} data-attr="status">
+        <LemonTag type={statusColors[status]} className="font-semibold" data-attr="status">
             {status.toUpperCase()}
         </LemonTag>
     )

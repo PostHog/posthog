@@ -417,6 +417,38 @@ describe('formatBreakdownLabel()', () => {
         }
         expect(formatBreakdownLabel('661', breakdownFilter2, undefined, formatter, 0)).toEqual('661s')
     })
+
+    it('handles group breakdowns', () => {
+        const formatter = jest.fn((_, v) => v)
+
+        const breakdownFilter1: BreakdownFilter = {
+            breakdown: 'name',
+            breakdown_group_type_index: 0,
+            breakdown_type: 'group',
+        }
+        expect(formatBreakdownLabel('661', breakdownFilter1, undefined, formatter)).toEqual('661')
+        expect(formatter).toHaveBeenCalledWith('name', 661, 'group', 0)
+
+        formatter.mockClear()
+
+        const breakdownFilter2: BreakdownFilter = {
+            breakdowns: [{ property: 'name', type: 'group', group_type_index: 0 }],
+        }
+        expect(formatBreakdownLabel(['661'], breakdownFilter2, undefined, formatter, 0)).toEqual('661')
+        expect(formatter).toHaveBeenCalledWith('name', 661, 'group', 0)
+
+        formatter.mockClear()
+
+        const breakdownFilter3: BreakdownFilter = {
+            breakdowns: [
+                { property: 'name', type: 'group', group_type_index: 0 },
+                { property: 'test', type: 'group', group_type_index: 1 },
+            ],
+        }
+        expect(formatBreakdownLabel(['661', '662'], breakdownFilter3, undefined, formatter, 0)).toEqual('661::662')
+        expect(formatter).toHaveBeenNthCalledWith(1, 'name', 661, 'group', 0)
+        expect(formatter).toHaveBeenNthCalledWith(2, 'test', 662, 'group', 1)
+    })
 })
 
 describe('formatBreakdownType()', () => {

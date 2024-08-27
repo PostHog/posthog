@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.db.models import F
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Optional, cast
@@ -7,6 +8,7 @@ import jwt
 import requests
 import structlog
 from django.utils import timezone
+from sentry_sdk import capture_message
 from requests import JSONDecodeError  # type: ignore[attr-defined]
 from rest_framework.exceptions import NotAuthenticated
 from sentry_sdk import capture_exception
@@ -126,26 +128,50 @@ class BillingManager:
 
         handle_billing_service_error(res)
 
-    def update_billing_distinct_ids(self, organization: Organization) -> None:
-        distinct_ids = list(organization.members.values_list("distinct_id", flat=True))
-        self.update_billing(organization, {"distinct_ids": distinct_ids})
-
-    def update_billing_customer_email(self, organization: Organization) -> None:
+    def update_billing_organization_users(self, organization: Organization) -> None:
         try:
-            owner_membership = OrganizationMembership.objects.get(organization=organization, level=15)
-            user = owner_membership.user
-            self.update_billing(organization, {"org_customer_email": user.email})
-        except Exception as e:
-            capture_exception(e)
+            distinct_ids = list(organization.members.values_list("distinct_id", flat=True))
 
-    def update_billing_admin_emails(self, organization: Organization) -> None:
-        try:
+            first_owner_membership = (
+                OrganizationMembership.objects.filter(organization=organization, level=15)
+                .order_by("-joined_at")
+                .first()
+            )
+            if not first_owner_membership:
+                capture_message(f"No owner membership found for organization {organization.id}")
+                return
+            first_owner = first_owner_membership.user
+
             admin_emails = list(
                 organization.members.filter(
                     organization_membership__level__gte=OrganizationMembership.Level.ADMIN
                 ).values_list("email", flat=True)
             )
-            self.update_billing(organization, {"org_admin_emails": admin_emails})
+
+            org_users = list(
+                organization.members.values(
+                    "email",
+                    "distinct_id",
+                    "organization_membership__level",
+                )
+                .annotate(role=F("organization_membership__level"))
+                .filter(role__gte=OrganizationMembership.Level.ADMIN)
+                .values(
+                    "email",
+                    "distinct_id",
+                    "role",
+                )
+            )
+
+            self.update_billing(
+                organization,
+                {
+                    "distinct_ids": distinct_ids,
+                    "org_customer_email": first_owner.email,
+                    "org_admin_emails": admin_emails,
+                    "org_users": org_users,
+                },
+            )
         except Exception as e:
             capture_exception(e)
 

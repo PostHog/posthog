@@ -10,7 +10,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
-import { ActionType, EventDefinition, PropertyDefinition, ReplayTabs } from '~/types'
+import { ActionType, EventDefinition, FilterLogicalOperator, PropertyDefinition, ReplayTabs } from '~/types'
 
 import { BasicListItem, SidebarCategory } from '../types'
 import type { dataManagementSidebarLogicType } from './dataManagementType'
@@ -118,14 +118,22 @@ export const dataManagementSidebarLogic = kea<dataManagementSidebarLogicType>([
                                     {
                                         label: 'View recordings',
                                         to: urls.replay(ReplayTabs.Recent, {
-                                            events: [
-                                                {
-                                                    id: eventDefinition.name,
-                                                    type: 'events',
-                                                    order: 0,
-                                                    name: eventDefinition.name,
-                                                },
-                                            ],
+                                            filter_group: {
+                                                type: FilterLogicalOperator.And,
+                                                values: [
+                                                    {
+                                                        type: FilterLogicalOperator.And,
+                                                        values: [
+                                                            {
+                                                                id: eventDefinition.name,
+                                                                type: 'events',
+                                                                order: 0,
+                                                                name: eventDefinition.name,
+                                                            },
+                                                        ],
+                                                    },
+                                                ],
+                                            },
                                         }),
                                     },
                                 ],

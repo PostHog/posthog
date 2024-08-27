@@ -1,12 +1,13 @@
 import './ErrorBoundary.scss'
 
-import { IconChevronDown } from '@posthog/icons'
 import { ErrorBoundary as SentryErrorBoundary, getCurrentHub } from '@sentry/react'
-import { HelpButton } from 'lib/components/HelpButton/HelpButton'
+import { useActions } from 'kea'
+import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 export function ErrorBoundary({ children }: { children?: React.ReactNode }): JSX.Element {
     const isSentryInitialized = !!getCurrentHub().getClient()
+    const { openSupportForm } = useActions(supportLogic)
 
     return (
         <SentryErrorBoundary
@@ -28,15 +29,16 @@ export function ErrorBoundary({ children }: { children?: React.ReactNode }): JSX
                         {isSentryInitialized && eventId?.match(/[^0]/)
                             ? `We've registered this event for analysis (ID ${eventId}), but feel free to contact us directly too.`
                             : 'Please help us resolve the issue by sending a screenshot of this message.'}
-                        <HelpButton
-                            customComponent={
-                                <LemonButton type="primary" sideIcon={<IconChevronDown />}>
-                                    Contact PostHog
-                                </LemonButton>
-                            }
-                            customKey="error-boundary"
-                            contactOnly
-                        />
+                        <LemonButton
+                            type="primary"
+                            fullWidth
+                            center
+                            onClick={() => openSupportForm({ kind: 'bug', isEmailFormOpen: true })}
+                            targetBlank
+                            className="mt-2"
+                        >
+                            Email an engineer
+                        </LemonButton>
                     </>
                 </div>
             )}

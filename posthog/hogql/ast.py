@@ -56,6 +56,19 @@ class ReturnStatement(Statement):
 
 
 @dataclass(kw_only=True)
+class ThrowStatement(Statement):
+    expr: Expr
+
+
+@dataclass(kw_only=True)
+class TryCatchStatement(Statement):
+    try_stmt: Statement
+    # var name (e), error type (RetryError), stmt ({})  # (e: RetryError) {}
+    catches: list[tuple[Optional[str], Optional[str], Statement]]
+    finally_stmt: Optional[Statement] = None
+
+
+@dataclass(kw_only=True)
 class IfStatement(Statement):
     expr: Expr
     then: Statement
@@ -670,7 +683,7 @@ class Tuple(Expr):
 @dataclass(kw_only=True)
 class Lambda(Expr):
     args: list[str]
-    expr: Expr
+    expr: Expr | Block
 
 
 @dataclass(kw_only=True)
@@ -685,7 +698,11 @@ class Field(Expr):
 
 @dataclass(kw_only=True)
 class Placeholder(Expr):
-    field: str
+    chain: list[str | int]
+
+    @property
+    def field(self):
+        return ".".join(str(chain) for chain in self.chain)
 
 
 @dataclass(kw_only=True)
@@ -699,6 +716,12 @@ class Call(Expr):
     https://clickhouse.com/docs/en/sql-reference/aggregate-functions/parametric-functions
     """
     distinct: bool = False
+
+
+@dataclass(kw_only=True)
+class ExprCall(Expr):
+    expr: Expr
+    args: list[Expr]
 
 
 @dataclass(kw_only=True)

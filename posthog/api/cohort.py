@@ -26,7 +26,7 @@ from django.db.models import QuerySet, Prefetch, prefetch_related_objects, Outer
 from django.db.models.expressions import F
 from django.utils import timezone
 from rest_framework import serializers, viewsets, request, status
-from rest_framework.decorators import action
+from posthog.api.utils import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -67,7 +67,7 @@ from posthog.models.person.sql import (
 )
 from posthog.queries.actor_base_query import (
     ActorBaseQuery,
-    get_people,
+    get_serialized_people,
 )
 from posthog.queries.paths import PathsActors
 from posthog.queries.person_query import PersonQuery
@@ -357,7 +357,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             workload=Workload.OFFLINE,  # this endpoint is only used by external API requests
         )
         actor_ids = [row[0] for row in raw_result]
-        actors, serialized_actors = get_people(team, actor_ids, distinct_id_limit=10)
+        serialized_actors = get_serialized_people(team, actor_ids, distinct_id_limit=10)
 
         _should_paginate = len(actor_ids) >= filter.limit
 
@@ -471,7 +471,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
 
 class LegacyCohortViewSet(CohortViewSet):
-    derive_current_team_from_user_only = True
+    param_derived_from_user_current_team = "project_id"
 
 
 def will_create_loops(cohort: Cohort) -> bool:

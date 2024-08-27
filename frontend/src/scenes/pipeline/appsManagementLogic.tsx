@@ -3,11 +3,11 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import posthog from 'posthog-js'
-import { canInstallPlugins } from 'scenes/plugins/access'
 import { userLogic } from 'scenes/userLogic'
 
 import { PluginInstallationType, PluginType } from '~/types'
 
+import { canInstallPlugins } from './access'
 import type { appsManagementLogicType } from './appsManagementLogicType'
 import { pipelineAccessLogic } from './pipelineAccessLogic'
 import { getInitialCode, SourcePluginKind } from './sourceAppInitialCode'

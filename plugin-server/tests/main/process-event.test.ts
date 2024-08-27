@@ -1224,6 +1224,19 @@ test('capture first team event', async () => {
         new UUIDT().toString()
     )
 
+    expect(posthog.capture).toHaveBeenCalledWith({
+        distinctId: 'plugin_test_user_distinct_id_1001',
+        event: 'first team event ingested',
+        properties: {
+            team: team.uuid,
+        },
+        groups: {
+            project: team.uuid,
+            organization: team.organization_id,
+            instance: 'unknown',
+        },
+    })
+
     team = await getFirstTeam(hub)
     expect(team.ingested_event).toEqual(true)
 

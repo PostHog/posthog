@@ -226,7 +226,13 @@ async def test_jsonl_writer_writes_record_batches(record_batch):
     inserted_ats_seen: list[LastInsertedAt] = []
 
     async def store_in_memory_on_flush(
-        batch_export_file, records_since_last_flush, bytes_since_last_flush, flush_counter, last_inserted_at, is_last
+        batch_export_file,
+        records_since_last_flush,
+        bytes_since_last_flush,
+        flush_counter,
+        last_inserted_at,
+        is_last,
+        error,
     ):
         assert writer.records_since_last_flush == record_batch.num_rows
         in_memory_file_obj.write(batch_export_file.read())
@@ -264,7 +270,13 @@ async def test_csv_writer_writes_record_batches(record_batch):
     inserted_ats_seen = []
 
     async def store_in_memory_on_flush(
-        batch_export_file, records_since_last_flush, bytes_since_last_flush, flush_counter, last_inserted_at, is_last
+        batch_export_file,
+        records_since_last_flush,
+        bytes_since_last_flush,
+        flush_counter,
+        last_inserted_at,
+        is_last,
+        error,
     ):
         in_memory_file_obj.write(batch_export_file.read().decode("utf-8"))
         inserted_ats_seen.append(last_inserted_at)
@@ -304,7 +316,13 @@ async def test_parquet_writer_writes_record_batches(record_batch):
     inserted_ats_seen = []
 
     async def store_in_memory_on_flush(
-        batch_export_file, records_since_last_flush, bytes_since_last_flush, flush_counter, last_inserted_at, is_last
+        batch_export_file,
+        records_since_last_flush,
+        bytes_since_last_flush,
+        flush_counter,
+        last_inserted_at,
+        is_last,
+        error,
     ):
         in_memory_file_obj.write(batch_export_file.read())
         inserted_ats_seen.append(last_inserted_at)

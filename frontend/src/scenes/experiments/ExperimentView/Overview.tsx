@@ -9,6 +9,7 @@ import { VariantTag } from './components'
 
 export function Overview(): JSX.Element {
     const {
+        experimentId,
         experimentResults,
         getIndexForVariant,
         experimentInsightType,
@@ -28,7 +29,7 @@ export function Overview(): JSX.Element {
                 comparisonVariant = sortedWinProbabilities.find(({ key }) => key === 'control')
             }
 
-            if (!comparisonVariant) {
+            if (!winningVariant?.conversionRate || !comparisonVariant?.conversionRate) {
                 return <></>
             }
 
@@ -43,13 +44,13 @@ export function Overview(): JSX.Element {
 
             return (
                 <div className="items-center inline-flex flex-wrap">
-                    <VariantTag variantKey={winningVariant.key} />
+                    <VariantTag experimentId={experimentId} variantKey={winningVariant.key} />
                     <span>&nbsp;is winning with a conversion rate&nbsp;</span>
                     <span className="font-semibold text-success items-center">
                         increase of {`${difference.toFixed(2)}%`}
                     </span>
                     <span>&nbsp;percentage points (vs&nbsp;</span>
-                    <VariantTag variantKey={comparisonVariant.key} />
+                    <VariantTag experimentId={experimentId} variantKey={comparisonVariant.key} />
                     <span>).&nbsp;</span>
                 </div>
             )
@@ -62,7 +63,7 @@ export function Overview(): JSX.Element {
 
             return (
                 <div className="items-center inline-flex flex-wrap">
-                    <VariantTag variantKey={highestProbabilityVariant} />
+                    <VariantTag experimentId={experimentId} variantKey={highestProbabilityVariant} />
                     <span>&nbsp;is winning with a&nbsp;</span>
                     <span className="font-semibold text-success items-center">
                         {`${(probability[highestProbabilityVariant] * 100).toFixed(2)}% probability`}&nbsp;

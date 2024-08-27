@@ -9,7 +9,7 @@ from rest_framework import (
     status,
     viewsets,
 )
-from rest_framework.decorators import action
+from posthog.api.utils import action
 
 from ee.models.explicit_team_membership import ExplicitTeamMembership
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -25,6 +25,7 @@ from posthog.tasks.email import send_invite
 
 class OrganizationInviteSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
+    send_email = serializers.BooleanField(write_only=True, default=True)
 
     class Meta:
         model = OrganizationInvite
@@ -40,6 +41,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             "updated_at",
             "message",
             "private_project_access",
+            "send_email",
         ]
         read_only_fields = [
             "id",
@@ -96,12 +98,13 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             user__email=validated_data["target_email"],
         ).exists():
             raise exceptions.ValidationError("A user with this email address already belongs to the organization.")
+        send_email = validated_data.pop("send_email", True)
         invite: OrganizationInvite = OrganizationInvite.objects.create(
             organization_id=self.context["organization_id"],
             created_by=self.context["request"].user,
             **validated_data,
         )
-        if is_email_available(with_absolute_urls=True):
+        if is_email_available(with_absolute_urls=True) and send_email:
             invite.emailing_attempt_made = True
             send_invite(invite_id=invite.id)
             invite.save()

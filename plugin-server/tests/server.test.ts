@@ -58,6 +58,7 @@ describe('server', () => {
                 ingestionHistorical: true,
                 appManagementSingleton: true,
                 preflightSchedules: true,
+                syncInlinePlugins: true,
             }
         )
     })
@@ -73,6 +74,7 @@ describe('server', () => {
             {
                 http: true,
                 eventsIngestionPipelines: true,
+                syncInlinePlugins: true,
             }
         )
     })
@@ -95,6 +97,8 @@ describe('server', () => {
                 cdpProcessedEvents: true,
                 cdpFunctionCallbacks: true,
                 cdpFunctionOverflow: true,
+                cdpCyclotronWorker: true,
+                syncInlinePlugins: true,
             }
         )
     })
@@ -112,6 +116,7 @@ describe('server', () => {
                 http: true,
                 sessionRecordingBlobIngestion: true,
                 sessionRecordingBlobOverflowIngestion: true,
+                syncInlinePlugins: true,
             }
         )
     })
@@ -126,6 +131,7 @@ describe('server', () => {
                 pluginScheduledTasks: true,
                 processAsyncWebhooksHandlers: true,
                 preflightSchedules: true,
+                syncInlinePlugins: true,
             }
         )
 
@@ -141,7 +147,7 @@ describe('server', () => {
         test('starts graphile for scheduled tasks capability', async () => {
             pluginsServer = await createPluginServer(
                 {},
-                { ingestion: true, pluginScheduledTasks: true, processPluginJobs: true }
+                { ingestion: true, pluginScheduledTasks: true, processPluginJobs: true, syncInlinePlugins: true }
             )
 
             expect(startGraphileWorker).toHaveBeenCalled()

@@ -9,7 +9,15 @@ import { urls } from 'scenes/urls'
 import { propertyFilterTypeToPropertyDefinitionType } from '~/lib/components/PropertyFilters/utils'
 import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
 import { examples } from '~/queries/examples'
-import { ActionsNode, BreakdownFilter, DataWarehouseNode, EventsNode, PathsFilter } from '~/queries/schema'
+import {
+    ActionsNode,
+    BreakdownFilter,
+    DataWarehouseNode,
+    EventsNode,
+    InsightVizNode,
+    NodeKind,
+    PathsFilter,
+} from '~/queries/schema'
 import { isDataWarehouseNode, isEventsNode } from '~/queries/utils'
 import {
     ActionFilter,
@@ -20,10 +28,12 @@ import {
     EntityFilter,
     EntityTypes,
     EventType,
+    GroupTypeIndex,
     InsightShortId,
     InsightType,
     PathType,
-    TrendsFilterType,
+    PropertyFilterType,
+    PropertyOperator,
 } from '~/types'
 
 import { insightLogic } from './insightLogic'
@@ -123,7 +133,7 @@ export function extractObjectDiffKeys(
 }
 
 export async function getInsightId(shortId: InsightShortId): Promise<number | undefined> {
-    const insightId = insightLogic.findMounted({ dashboardItemId: shortId })?.values?.queryBasedInsight?.id
+    const insightId = insightLogic.findMounted({ dashboardItemId: shortId })?.values?.insight?.id
 
     return insightId
         ? insightId
@@ -240,11 +250,16 @@ function formatNumericBreakdownLabel(
                 ? breakdownFilter?.breakdowns?.[multipleBreakdownIndex]
                 : undefined
 
+        const groupIndex = (nestedBreakdown?.group_type_index ?? breakdownFilter?.breakdown_group_type_index) as
+            | GroupTypeIndex
+            | undefined
+
         return (
             formatPropertyValueForDisplay(
                 nestedBreakdown?.property ?? breakdownFilter?.breakdown,
                 breakdown_value,
-                propertyFilterTypeToPropertyDefinitionType(nestedBreakdown?.type ?? breakdownFilter?.breakdown_type)
+                propertyFilterTypeToPropertyDefinitionType(nestedBreakdown?.type ?? breakdownFilter?.breakdown_type),
+                groupIndex
             )?.toString() ?? 'None'
         )
     }
@@ -349,15 +364,15 @@ export function getResponseBytes(apiResponse: Response): number {
 }
 
 export const insightTypeURL = {
-    TRENDS: urls.insightNew({ insight: InsightType.TRENDS }),
-    STICKINESS: urls.insightNew({ insight: InsightType.STICKINESS }),
-    LIFECYCLE: urls.insightNew({ insight: InsightType.LIFECYCLE }),
-    FUNNELS: urls.insightNew({ insight: InsightType.FUNNELS }),
-    RETENTION: urls.insightNew({ insight: InsightType.RETENTION }),
-    PATHS: urls.insightNew({ insight: InsightType.PATHS }),
-    JSON: urls.insightNew(undefined, undefined, JSON.stringify(examples.EventsTableFull)),
-    HOG: urls.insightNew(undefined, undefined, JSON.stringify(examples.Hoggonacci)),
-    SQL: urls.insightNew(undefined, undefined, JSON.stringify(examples.DataVisualization)),
+    TRENDS: urls.insightNew(InsightType.TRENDS),
+    STICKINESS: urls.insightNew(InsightType.STICKINESS),
+    LIFECYCLE: urls.insightNew(InsightType.LIFECYCLE),
+    FUNNELS: urls.insightNew(InsightType.FUNNELS),
+    RETENTION: urls.insightNew(InsightType.RETENTION),
+    PATHS: urls.insightNew(InsightType.PATHS),
+    JSON: urls.insightNew(undefined, undefined, examples.EventsTableFull),
+    HOG: urls.insightNew(undefined, undefined, examples.Hoggonacci),
+    SQL: urls.insightNew(undefined, undefined, examples.DataVisualization),
 }
 
 /** Combines a list of words, separating with the correct punctuation. For example: [a, b, c, d] -> "a, b, c, and d"  */
@@ -373,46 +388,48 @@ export function concatWithPunctuation(phrases: string[]): string {
 }
 
 export function insightUrlForEvent(event: Pick<EventType, 'event' | 'properties'>): string | undefined {
-    let insightParams: Partial<TrendsFilterType> | undefined
+    let query: InsightVizNode | undefined
     if (event.event === '$pageview') {
-        insightParams = {
-            insight: InsightType.TRENDS,
-            interval: 'day',
-            display: ChartDisplayType.ActionsLineGraph,
-            actions: [],
-            events: [
-                {
-                    id: '$pageview',
-                    name: '$pageview',
-                    type: 'events',
-                    order: 0,
-                    properties: [
-                        {
-                            key: '$current_url',
-                            value: event.properties.$current_url,
-                            type: 'event',
-                        },
-                    ],
-                },
-            ],
+        query = {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                interval: 'day',
+                series: [
+                    {
+                        event: '$pageview',
+                        name: '$pageview',
+                        kind: NodeKind.EventsNode,
+                        properties: [
+                            {
+                                key: '$current_url',
+                                value: event.properties.$current_url,
+                                type: PropertyFilterType.Event,
+                                operator: PropertyOperator.Exact,
+                            },
+                        ],
+                    },
+                ],
+                trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
+            },
         }
     } else if (event.event !== '$autocapture') {
-        insightParams = {
-            insight: InsightType.TRENDS,
-            interval: 'day',
-            display: ChartDisplayType.ActionsLineGraph,
-            actions: [],
-            events: [
-                {
-                    id: event.event,
-                    name: event.event,
-                    type: 'events',
-                    order: 0,
-                    properties: [],
-                },
-            ],
+        query = {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                interval: 'day',
+                series: [
+                    {
+                        event: event.event,
+                        name: event.event,
+                        kind: NodeKind.EventsNode,
+                    },
+                ],
+                trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
+            },
         }
     }
 
-    return insightParams ? urls.insightNew(insightParams) : undefined
+    return query ? urls.insightNew(undefined, undefined, query) : undefined
 }

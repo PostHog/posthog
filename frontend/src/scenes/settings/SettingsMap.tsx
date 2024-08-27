@@ -8,6 +8,7 @@ import { Members } from './organization/Members'
 import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
 import { OrganizationEmailPreferences } from './organization/OrgEmailPreferences'
+import { OrganizationLogo } from './organization/OrgLogo'
 import { PermissionsGrid } from './organization/Permissions/PermissionsGrid'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import {
@@ -111,7 +112,6 @@ export const SettingsMap: SettingSection[] = [
                 id: 'web-vitals-autocapture',
                 title: 'Web vitals autocapture',
                 component: <WebVitalsAutocaptureSettings />,
-                flag: 'WEB_VITALS_AUTOCAPTURE',
             },
             {
                 id: 'autocapture-data-attributes',
@@ -308,6 +308,11 @@ export const SettingsMap: SettingSection[] = [
                 id: 'organization-display-name',
                 title: 'Display name',
                 component: <OrganizationDisplayName />,
+            },
+            {
+                id: 'organization-logo',
+                title: 'Logo',
+                component: <OrganizationLogo />,
             },
         ],
     },

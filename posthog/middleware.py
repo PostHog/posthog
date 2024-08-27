@@ -523,6 +523,7 @@ def per_request_logging_context_middleware(
         # team_id given a host header, and we can't do that with NGINX.
         structlog.contextvars.bind_contextvars(
             host=request.META.get("HTTP_HOST", ""),
+            container_hostname=settings.CONTAINER_HOSTNAME,
             x_forwarded_for=request.META.get("HTTP_X_FORWARDED_FOR", ""),
         )
 

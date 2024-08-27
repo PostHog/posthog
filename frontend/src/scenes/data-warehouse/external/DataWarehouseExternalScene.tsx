@@ -1,78 +1,51 @@
-import { LemonButton, LemonTabs, Link } from '@posthog/lemon-ui'
+import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { DataWarehouseTab } from '~/types'
+import { PipelineTab } from '~/types'
 
 import { DataWarehouseInitialBillingLimitNotice } from '../DataWarehouseInitialBillingLimitNotice'
-import { DataWarehouseManagedSourcesTable } from '../settings/DataWarehouseManagedSourcesTable'
-import { DataWarehouseSelfManagedSourcesTable } from '../settings/DataWarehouseSelfManagedSourcesTable'
-import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
+import { DATAWAREHOUSE_EDITOR_ITEM_ID, dataWarehouseExternalSceneLogic } from './dataWarehouseExternalSceneLogic'
 import { DataWarehouseTables } from './DataWarehouseTables'
 
 export const scene: SceneExport = {
     component: DataWarehouseExternalScene,
-    logic: dataWarehouseSceneLogic,
-}
-
-const tabToContent: Partial<Record<DataWarehouseTab, JSX.Element>> = {
-    [DataWarehouseTab.Explore]: <Explore />,
-    [DataWarehouseTab.ManagedSources]: <DataWarehouseManagedSourcesTable />,
-    [DataWarehouseTab.SelfManagedSources]: <DataWarehouseSelfManagedSourcesTable />,
-}
-
-export const humanFriendlyDataWarehouseTabName = (tab: DataWarehouseTab): string => {
-    switch (tab) {
-        case DataWarehouseTab.Explore:
-            return 'Explore'
-        case DataWarehouseTab.ManagedSources:
-            return 'Managed Sources'
-        case DataWarehouseTab.SelfManagedSources:
-            return 'Self-Managed Sources'
-    }
+    logic: dataWarehouseExternalSceneLogic,
 }
 
 export function DataWarehouseExternalScene(): JSX.Element {
-    const { currentTab } = useValues(dataWarehouseSceneLogic)
+    const { viewLoading } = useValues(dataWarehouseExternalSceneLogic)
 
-    const { insightProps, insightSaving } = useValues(
-        insightLogic({
-            dashboardItemId: 'new',
-            cachedInsight: null,
-        })
-    )
+    const logic = insightLogic({
+        dashboardItemId: DATAWAREHOUSE_EDITOR_ITEM_ID,
+        cachedInsight: null,
+    })
+    const { insightSaving, insightProps } = useValues(logic)
+    const { saveAs } = useActions(logic)
 
-    const { saveAs } = useActions(insightDataLogic(insightProps))
+    const insightDataLogicProps = {
+        ...insightProps,
+    }
 
     return (
         <div>
             <PageHeader
                 buttons={
                     <>
-                        {currentTab === DataWarehouseTab.Explore && (
-                            <LemonButton
-                                type="primary"
-                                data-attr="save-exploration"
-                                onClick={() => saveAs(true)}
-                                loading={insightSaving}
-                            >
-                                Save as insight
-                            </LemonButton>
-                        )}
-
                         <LemonButton
                             type="primary"
-                            data-attr="new-data-warehouse-easy-link"
-                            key="new-data-warehouse-easy-link"
-                            to={urls.dataWarehouseTable()}
+                            data-attr="save-exploration"
+                            onClick={() => saveAs(true, false)}
+                            loading={insightSaving}
                         >
-                            Link source
+                            Save as insight
+                        </LemonButton>
+                        <LemonButton type="secondary" to={urls.pipeline(PipelineTab.Sources)}>
+                            Manage sources
                         </LemonButton>
                     </>
                 }
@@ -88,27 +61,13 @@ export function DataWarehouseExternalScene(): JSX.Element {
                 }
             />
             <DataWarehouseInitialBillingLimitNotice />
-            <LemonTabs
-                activeKey={currentTab}
-                onChange={(tab) => router.actions.push(urls.dataWarehouse(tab as DataWarehouseTab))}
-                tabs={Object.entries(tabToContent).map(([tab, content]) => ({
-                    label: (
-                        <span className="flex justify-center items-center justify-between gap-1">
-                            {humanFriendlyDataWarehouseTabName(tab as DataWarehouseTab)}{' '}
-                        </span>
-                    ),
-                    key: tab,
-                    content: content,
-                }))}
-            />
+            {viewLoading ? (
+                <Spinner />
+            ) : (
+                <BindLogic logic={insightSceneLogic} props={{}}>
+                    <DataWarehouseTables insightProps={insightDataLogicProps} />
+                </BindLogic>
+            )}
         </div>
-    )
-}
-
-function Explore(): JSX.Element {
-    return (
-        <BindLogic logic={insightSceneLogic} props={{}}>
-            <DataWarehouseTables />
-        </BindLogic>
     )
 }

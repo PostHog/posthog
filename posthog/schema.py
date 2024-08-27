@@ -28,6 +28,45 @@ class AggregationAxisFormat(StrEnum):
     PERCENTAGE_SCALED = "percentage_scaled"
 
 
+class AlertCheck(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    calculated_value: float
+    created_at: str
+    id: str
+    state: str
+    targets_notified: bool
+
+
+class AlertCondition(BaseModel):
+    pass
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
+
+class AlertTypeBase(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    condition: AlertCondition
+    enabled: bool
+    insight: float
+    name: str
+
+
+class AlertTypeWrite(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    condition: AlertCondition
+    enabled: bool
+    insight: float
+    name: str
+    subscribed_users: list[int]
+
+
 class Kind(StrEnum):
     METHOD = "Method"
     FUNCTION = "Function"
@@ -93,6 +132,7 @@ class BaseMathType(StrEnum):
     WEEKLY_ACTIVE = "weekly_active"
     MONTHLY_ACTIVE = "monthly_active"
     UNIQUE_SESSION = "unique_session"
+    FIRST_TIME_FOR_USER = "first_time_for_user"
 
 
 class BreakdownAttributionType(StrEnum):
@@ -145,16 +185,10 @@ class StatusItem(BaseModel):
     value: str
 
 
-class ChartAxis(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    column: str
-
-
 class ChartDisplayType(StrEnum):
     ACTIONS_LINE_GRAPH = "ActionsLineGraph"
     ACTIONS_BAR = "ActionsBar"
+    ACTIONS_STACKED_BAR = "ActionsStackedBar"
     ACTIONS_AREA_GRAPH = "ActionsAreaGraph"
     ACTIONS_LINE_GRAPH_CUMULATIVE = "ActionsLineGraphCumulative"
     BOLD_NUMBER = "BoldNumber"
@@ -162,6 +196,43 @@ class ChartDisplayType(StrEnum):
     ACTIONS_BAR_VALUE = "ActionsBarValue"
     ACTIONS_TABLE = "ActionsTable"
     WORLD_MAP = "WorldMap"
+
+
+class DisplayType(StrEnum):
+    AUTO = "auto"
+    LINE = "line"
+    BAR = "bar"
+
+
+class YAxisPosition(StrEnum):
+    LEFT = "left"
+    RIGHT = "right"
+
+
+class ChartSettingsDisplay(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    displayType: Optional[DisplayType] = None
+    label: Optional[str] = None
+    trendLine: Optional[bool] = None
+    yAxisPosition: Optional[YAxisPosition] = None
+
+
+class Style(StrEnum):
+    NONE = "none"
+    NUMBER = "number"
+    PERCENT = "percent"
+
+
+class ChartSettingsFormatting(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    decimalPlaces: Optional[float] = None
+    prefix: Optional[str] = None
+    style: Optional[Style] = None
+    suffix: Optional[str] = None
 
 
 class ClickhouseQueryProgress(BaseModel):
@@ -338,10 +409,11 @@ class ErrorTrackingGroup(BaseModel):
     assignee: Optional[float] = None
     description: Optional[str] = None
     events: Optional[list[dict[str, Any]]] = None
-    fingerprint: str
+    exception_type: Optional[str] = None
+    fingerprint: list[str]
     first_seen: AwareDatetime
     last_seen: AwareDatetime
-    merged_fingerprints: list[str]
+    merged_fingerprints: list[list[str]]
     occurrences: float
     sessions: float
     status: Status
@@ -512,6 +584,19 @@ class GoalLine(BaseModel):
     value: float
 
 
+class HedgehogColorOptions(StrEnum):
+    GREEN = "green"
+    RED = "red"
+    BLUE = "blue"
+    PURPLE = "purple"
+    DARK = "dark"
+    LIGHT = "light"
+    SEPIA = "sepia"
+    INVERT = "invert"
+    INVERT_HUE = "invert-hue"
+    GREYSCALE = "greyscale"
+
+
 class HogLanguage(StrEnum):
     HOG = "hog"
     HOG_JSON = "hogJson"
@@ -533,6 +618,7 @@ class HogQLNotice(BaseModel):
 class BounceRatePageViewMode(StrEnum):
     COUNT_PAGEVIEWS = "count_pageviews"
     UNIQ_URLS = "uniq_urls"
+    UNIQ_PAGE_SCREEN_AUTOCAPTURES = "uniq_page_screen_autocaptures"
 
 
 class InCohortVia(StrEnum):
@@ -567,6 +653,11 @@ class PersonsOnEventsMode(StrEnum):
     PERSON_ID_OVERRIDE_PROPERTIES_JOINED = "person_id_override_properties_joined"
 
 
+class PropertyGroupsMode(StrEnum):
+    ENABLED = "enabled"
+    DISABLED = "disabled"
+
+
 class SessionTableVersion(StrEnum):
     AUTO = "auto"
     V1 = "v1"
@@ -586,6 +677,7 @@ class HogQLQueryModifiers(BaseModel):
     personsArgMaxVersion: Optional[PersonsArgMaxVersion] = None
     personsJoinMode: Optional[PersonsJoinMode] = None
     personsOnEventsMode: Optional[PersonsOnEventsMode] = None
+    propertyGroupsMode: Optional[PropertyGroupsMode] = None
     s3TableUseInvalidColumns: Optional[bool] = None
     sessionTableVersion: Optional[SessionTableVersion] = None
 
@@ -646,6 +738,14 @@ class InsightNodeKind(StrEnum):
     LIFECYCLE_QUERY = "LifecycleQuery"
 
 
+class InsightsThresholdAbsolute(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    lower: Optional[float] = None
+    upper: Optional[float] = None
+
+
 class IntervalType(StrEnum):
     MINUTE = "minute"
     HOUR = "hour"
@@ -659,6 +759,22 @@ class LifecycleToggle(StrEnum):
     RESURRECTING = "resurrecting"
     RETURNING = "returning"
     DORMANT = "dormant"
+
+
+class MatchedRecordingEvent(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    uuid: str
+
+
+class MinimalHedgehogConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    accessories: list[str]
+    color: Optional[HedgehogColorOptions] = None
+    use_as_profile: bool
 
 
 class MultipleBreakdownType(StrEnum):
@@ -683,6 +799,7 @@ class NodeKind(StrEnum):
     FUNNELS_ACTORS_QUERY = "FunnelsActorsQuery"
     FUNNEL_CORRELATION_ACTORS_QUERY = "FunnelCorrelationActorsQuery"
     SESSIONS_TIMELINE_QUERY = "SessionsTimelineQuery"
+    RECORDINGS_QUERY = "RecordingsQuery"
     SESSION_ATTRIBUTION_EXPLORER_QUERY = "SessionAttributionExplorerQuery"
     ERROR_TRACKING_QUERY = "ErrorTrackingQuery"
     DATA_TABLE_NODE = "DataTableNode"
@@ -761,6 +878,19 @@ class PathsFilterLegacy(BaseModel):
     step_limit: Optional[int] = None
 
 
+class PersonType(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    created_at: Optional[str] = None
+    distinct_ids: list[str]
+    id: Optional[str] = None
+    is_identified: Optional[bool] = None
+    name: Optional[str] = None
+    properties: dict[str, Any]
+    uuid: Optional[str] = None
+
+
 class PropertyFilterType(StrEnum):
     META = "meta"
     EVENT = "event"
@@ -770,6 +900,7 @@ class PropertyFilterType(StrEnum):
     SESSION = "session"
     COHORT = "cohort"
     RECORDING = "recording"
+    LOG_ENTRY = "log_entry"
     GROUP = "group"
     HOGQL = "hogql"
     DATA_WAREHOUSE = "data_warehouse"
@@ -843,7 +974,9 @@ class QueryStatus(BaseModel):
         ),
     )
     dashboard_id: Optional[int] = None
-    end_time: Optional[AwareDatetime] = None
+    end_time: Optional[AwareDatetime] = Field(
+        default=None, description="When did the query execution task finish (whether successfully or not)."
+    )
     error: Optional[bool] = Field(
         default=False,
         description=(
@@ -855,10 +988,13 @@ class QueryStatus(BaseModel):
     id: str
     insight_id: Optional[int] = None
     labels: Optional[list[str]] = None
+    pickup_time: Optional[AwareDatetime] = Field(
+        default=None, description="When was the query execution task picked up by a worker."
+    )
     query_async: Literal[True] = Field(default=True, description="ONLY async queries use QueryStatus.")
     query_progress: Optional[ClickhouseQueryProgress] = None
     results: Optional[Any] = None
-    start_time: Optional[AwareDatetime] = None
+    start_time: Optional[AwareDatetime] = Field(default=None, description="When was query execution task enqueued.")
     task_id: Optional[str] = None
     team_id: int
 
@@ -955,6 +1091,9 @@ class SessionAttributionExplorerQueryResponse(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: Any
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -981,6 +1120,17 @@ class SessionPropertyFilter(BaseModel):
     operator: PropertyOperator
     type: Literal["session"] = "session"
     value: Optional[Union[str, float, list[Union[str, float]]]] = None
+
+
+class SnapshotSource(StrEnum):
+    WEB = "web"
+    MOBILE = "mobile"
+    UNKNOWN = "unknown"
+
+
+class Storage(StrEnum):
+    OBJECT_STORAGE_LTS = "object_storage_lts"
+    OBJECT_STORAGE = "object_storage"
 
 
 class StepOrderValue(StrEnum):
@@ -1023,6 +1173,9 @@ class StickinessQueryResponse(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: list[dict[str, Any]]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -1058,6 +1211,7 @@ class TaxonomicFilterGroupType(StrEnum):
     SESSION_PROPERTIES = "session_properties"
     HOGQL_EXPRESSION = "hogql_expression"
     NOTEBOOKS = "notebooks"
+    LOG_ENTRIES = "log_entries"
     REPLAY = "replay"
 
 
@@ -1072,6 +1226,9 @@ class TestBasicQueryResponse(BaseModel):
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
     results: list
     timings: Optional[list[QueryTiming]] = Field(
@@ -1173,14 +1330,32 @@ class TrendsQueryResponse(BaseModel):
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
+    hasMore: Optional[bool] = Field(default=None, description="Wether more breakdown values are available.")
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
     results: list[dict[str, Any]]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class UserBasicType(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    distinct_id: str
+    email: str
+    first_name: str
+    hedgehog_config: Optional[MinimalHedgehogConfig] = None
+    id: float
+    is_email_verified: Optional[Any] = None
+    last_name: Optional[str] = None
+    uuid: str
 
 
 class ActionsPie(BaseModel):
@@ -1248,6 +1423,9 @@ class WebOverviewQueryResponse(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: list[WebOverviewItem]
     samplingRate: Optional[SamplingRate] = None
     timings: Optional[list[QueryTiming]] = Field(
@@ -1291,6 +1469,9 @@ class WebStatsTableQueryResponse(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: list
     samplingRate: Optional[SamplingRate] = None
     timings: Optional[list[QueryTiming]] = Field(
@@ -1312,12 +1493,28 @@ class WebTopClicksQueryResponse(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: list
     samplingRate: Optional[SamplingRate] = None
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: Optional[list] = None
+
+
+class Scale(StrEnum):
+    LINEAR = "linear"
+    LOGARITHMIC = "logarithmic"
+
+
+class YAxisSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scale: Optional[Scale] = None
+    startAtZero: Optional[bool] = Field(default=None, description="Whether the Y axis should start at zero")
 
 
 class ActorsQueryResponse(BaseModel):
@@ -1337,6 +1534,9 @@ class ActorsQueryResponse(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     offset: int
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: list[list]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -1724,6 +1924,7 @@ class CachedTrendsQueryResponse(BaseModel):
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
+    hasMore: Optional[bool] = Field(default=None, description="Wether more breakdown values are available.")
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
@@ -1843,6 +2044,37 @@ class CachedWebTopClicksQueryResponse(BaseModel):
     types: Optional[list] = None
 
 
+class Settings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    display: Optional[ChartSettingsDisplay] = None
+    formatting: Optional[ChartSettingsFormatting] = None
+
+
+class ChartAxis(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    column: str
+    settings: Optional[Settings] = None
+
+
+class ChartSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    goalLines: Optional[list[GoalLine]] = None
+    leftYAxisSettings: Optional[YAxisSettings] = None
+    rightYAxisSettings: Optional[YAxisSettings] = None
+    stackBars100: Optional[bool] = Field(default=None, description="Whether we fill the bars to 100% in stacked mode")
+    xAxis: Optional[ChartAxis] = None
+    yAxis: Optional[list[ChartAxis]] = None
+    yAxisAtZero: Optional[bool] = Field(
+        default=None, description="Deprecated: use `[left|right]YAxisSettings`. Whether the Y axis should start at zero"
+    )
+
+
 class Response(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1859,6 +2091,9 @@ class Response(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: list[list]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -1883,6 +2118,9 @@ class Response1(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     offset: int
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: list[list]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -1903,6 +2141,9 @@ class Response3(BaseModel):
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
     results: list[WebOverviewItem]
     samplingRate: Optional[SamplingRate] = None
@@ -1927,6 +2168,9 @@ class Response4(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: list
     samplingRate: Optional[SamplingRate] = None
     timings: Optional[list[QueryTiming]] = Field(
@@ -1947,6 +2191,9 @@ class Response5(BaseModel):
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
     results: list
     samplingRate: Optional[SamplingRate] = None
@@ -1972,6 +2219,9 @@ class Response6(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: Any
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -1995,19 +2245,13 @@ class Response7(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: list[ErrorTrackingGroup]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-
-
-class ChartSettings(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    goalLines: Optional[list[GoalLine]] = None
-    xAxis: Optional[ChartAxis] = None
-    yAxis: Optional[list[ChartAxis]] = None
 
 
 class DataWarehousePersonPropertyFilter(BaseModel):
@@ -2092,6 +2336,9 @@ class ErrorTrackingQueryResponse(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: list[ErrorTrackingGroup]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -2125,6 +2372,9 @@ class EventsQueryResponse(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: list[list]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -2159,6 +2409,9 @@ class FunnelCorrelationResponse(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: FunnelCorrelationResult
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -2197,6 +2450,9 @@ class FunnelsQueryResponse(BaseModel):
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
     results: Union[FunnelTimeToConvertResults, list[dict[str, Any]], list[list[dict[str, Any]]]]
     timings: Optional[list[QueryTiming]] = Field(
@@ -2284,6 +2540,9 @@ class HogQLQueryResponse(BaseModel):
     )
     offset: Optional[int] = None
     query: Optional[str] = Field(default=None, description="Input query string")
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: list
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -2313,6 +2572,13 @@ class InsightActorsQueryBase(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[ActorsQueryResponse] = None
+
+
+class InsightThreshold(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    absoluteThreshold: Optional[InsightsThresholdAbsolute] = None
 
 
 class LifecycleFilter(BaseModel):
@@ -2345,10 +2611,32 @@ class LifecycleQueryResponse(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: list[dict[str, Any]]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class LogEntryPropertyFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str
+    label: Optional[str] = None
+    operator: PropertyOperator
+    type: Literal["log_entry"] = "log_entry"
+    value: Optional[Union[str, float, list[Union[str, float]]]] = None
+
+
+class MatchedRecording(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    events: list[MatchedRecordingEvent]
+    session_id: Optional[str] = None
 
 
 class MultipleBreakdownOptions(BaseModel):
@@ -2369,6 +2657,9 @@ class PathsQueryResponse(BaseModel):
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
     results: list[dict[str, Any]]
     timings: Optional[list[QueryTiming]] = Field(
@@ -2403,6 +2694,9 @@ class QueryResponseAlternative1(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: list[list]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -2427,6 +2721,9 @@ class QueryResponseAlternative2(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     offset: int
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: list[list]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -2460,6 +2757,9 @@ class QueryResponseAlternative4(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: list[TimelineEntry]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -2486,6 +2786,9 @@ class QueryResponseAlternative6(BaseModel):
     )
     offset: Optional[int] = None
     query: Optional[str] = Field(default=None, description="Input query string")
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: list
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -2518,6 +2821,9 @@ class QueryResponseAlternative9(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: list[WebOverviewItem]
     samplingRate: Optional[SamplingRate] = None
     timings: Optional[list[QueryTiming]] = Field(
@@ -2541,6 +2847,9 @@ class QueryResponseAlternative10(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: list
     samplingRate: Optional[SamplingRate] = None
     timings: Optional[list[QueryTiming]] = Field(
@@ -2561,6 +2870,9 @@ class QueryResponseAlternative11(BaseModel):
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
     results: list
     samplingRate: Optional[SamplingRate] = None
@@ -2586,6 +2898,9 @@ class QueryResponseAlternative12(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: Any
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -2609,6 +2924,9 @@ class QueryResponseAlternative13(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: list[ErrorTrackingGroup]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -2631,6 +2949,9 @@ class QueryResponseAlternative14(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: list[list]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -2655,6 +2976,9 @@ class QueryResponseAlternative15(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     offset: int
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: list[list]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -2682,6 +3006,9 @@ class QueryResponseAlternative16(BaseModel):
     )
     offset: Optional[int] = None
     query: Optional[str] = Field(default=None, description="Input query string")
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: list
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -2702,6 +3029,9 @@ class QueryResponseAlternative17(BaseModel):
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
     results: list[WebOverviewItem]
     samplingRate: Optional[SamplingRate] = None
@@ -2726,6 +3056,9 @@ class QueryResponseAlternative18(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: list
     samplingRate: Optional[SamplingRate] = None
     timings: Optional[list[QueryTiming]] = Field(
@@ -2746,6 +3079,9 @@ class QueryResponseAlternative19(BaseModel):
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
     results: list
     samplingRate: Optional[SamplingRate] = None
@@ -2771,6 +3107,9 @@ class QueryResponseAlternative20(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: Any
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -2794,6 +3133,9 @@ class QueryResponseAlternative21(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: list[ErrorTrackingGroup]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -2808,9 +3150,13 @@ class QueryResponseAlternative22(BaseModel):
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
+    hasMore: Optional[bool] = Field(default=None, description="Wether more breakdown values are available.")
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
     results: list[dict[str, Any]]
     timings: Optional[list[QueryTiming]] = Field(
@@ -2830,6 +3176,9 @@ class QueryResponseAlternative23(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: Union[FunnelTimeToConvertResults, list[dict[str, Any]], list[list[dict[str, Any]]]]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -2847,6 +3196,9 @@ class QueryResponseAlternative25(BaseModel):
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
     results: list[dict[str, Any]]
     timings: Optional[list[QueryTiming]] = Field(
@@ -2870,6 +3222,9 @@ class QueryResponseAlternative28(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: FunnelCorrelationResult
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -2881,6 +3236,7 @@ class RetentionFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    cumulative: Optional[bool] = None
     period: Optional[RetentionPeriod] = RetentionPeriod.DAY
     retentionReference: Optional[RetentionReference] = None
     retentionType: Optional[RetentionType] = None
@@ -2894,6 +3250,7 @@ class RetentionFilterLegacy(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    cumulative: Optional[bool] = None
     period: Optional[RetentionPeriod] = None
     retention_reference: Optional[RetentionReference] = None
     retention_type: Optional[RetentionType] = None
@@ -2990,6 +3347,35 @@ class SessionAttributionExplorerQuery(BaseModel):
     response: Optional[SessionAttributionExplorerQueryResponse] = None
 
 
+class SessionRecordingType(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    active_seconds: Optional[float] = None
+    click_count: Optional[float] = None
+    console_error_count: Optional[float] = None
+    console_log_count: Optional[float] = None
+    console_warn_count: Optional[float] = None
+    distinct_id: Optional[str] = None
+    email: Optional[str] = None
+    end_time: str = Field(..., description="When the recording ends in ISO format.")
+    id: str
+    inactive_seconds: Optional[float] = None
+    keypress_count: Optional[float] = None
+    matching_events: Optional[list[MatchedRecording]] = Field(default=None, description="List of matching events. *")
+    mouse_activity_count: Optional[float] = Field(
+        default=None, description="count of all mouse activity in the recording, not just clicks"
+    )
+    person: Optional[PersonType] = None
+    recording_duration: float = Field(..., description="Length of recording in seconds.")
+    snapshot_source: SnapshotSource
+    start_time: str = Field(..., description="When the recording starts in ISO format.")
+    start_url: Optional[str] = None
+    storage: Optional[Storage] = Field(default=None, description="Where this recording information was loaded from")
+    summary: Optional[str] = None
+    viewed: bool = Field(..., description="Whether this recording has been viewed already.")
+
+
 class SessionsTimelineQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3003,10 +3389,20 @@ class SessionsTimelineQueryResponse(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: list[TimelineEntry]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class TableSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list[ChartAxis]] = None
 
 
 class WebOverviewQuery(BaseModel):
@@ -3061,6 +3457,31 @@ class WebTopClicksQuery(BaseModel):
     response: Optional[WebTopClicksQueryResponse] = None
     sampling: Optional[Sampling] = None
     useSessionsTable: Optional[bool] = None
+
+
+class Threshold(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    configuration: InsightThreshold
+
+
+class AlertType(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    checks: list[AlertCheck]
+    condition: AlertCondition
+    created_at: str
+    created_by: UserBasicType
+    enabled: bool
+    id: str
+    insight: float
+    last_notified_at: str
+    name: str
+    state: str
+    subscribed_users: list[UserBasicType]
+    threshold: Threshold
 
 
 class AnyResponseType(
@@ -3196,6 +3617,7 @@ class DashboardFilter(BaseModel):
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
+                LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -3227,6 +3649,9 @@ class Response2(BaseModel):
     )
     offset: Optional[int] = None
     query: Optional[str] = Field(default=None, description="Input query string")
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: list
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -3249,6 +3674,7 @@ class DataWarehouseNode(BaseModel):
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
+                LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -3280,6 +3706,7 @@ class DataWarehouseNode(BaseModel):
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
+                LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -3332,6 +3759,7 @@ class EntityNode(BaseModel):
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
+                LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -3361,6 +3789,7 @@ class EntityNode(BaseModel):
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
+                LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -3388,6 +3817,7 @@ class EventsNode(BaseModel):
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
+                LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -3419,6 +3849,7 @@ class EventsNode(BaseModel):
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
+                LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -3449,6 +3880,7 @@ class EventsQuery(BaseModel):
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
+                LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -3478,6 +3910,7 @@ class EventsQuery(BaseModel):
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
+                LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -3506,6 +3939,7 @@ class FunnelExclusionActionsNode(BaseModel):
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
+                LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -3538,6 +3972,7 @@ class FunnelExclusionActionsNode(BaseModel):
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
+                LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -3565,6 +4000,7 @@ class FunnelExclusionEventsNode(BaseModel):
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
+                LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -3598,6 +4034,7 @@ class FunnelExclusionEventsNode(BaseModel):
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
+                LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -3625,6 +4062,7 @@ class HogQLFilters(BaseModel):
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
+                LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -3681,6 +4119,7 @@ class PersonsNode(BaseModel):
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
+                LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -3708,6 +4147,7 @@ class PersonsNode(BaseModel):
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
+                LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -3736,6 +4176,7 @@ class PropertyGroupFilterValue(BaseModel):
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
+                LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -3759,10 +4200,21 @@ class QueryResponseAlternative24(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
     results: list[RetentionResult]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class RecordingsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    has_next: bool
+    results: list[SessionRecordingType]
 
 
 class RetentionQueryResponse(BaseModel):
@@ -3776,6 +4228,9 @@ class RetentionQueryResponse(BaseModel):
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
     results: list[RetentionResult]
     timings: Optional[list[QueryTiming]] = Field(
@@ -3815,6 +4270,7 @@ class ActionsNode(BaseModel):
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
+                LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -3845,6 +4301,7 @@ class ActionsNode(BaseModel):
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
+                LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
@@ -3865,6 +4322,7 @@ class DataVisualizationNode(BaseModel):
     display: Optional[ChartDisplayType] = None
     kind: Literal["DataVisualizationNode"] = "DataVisualizationNode"
     source: HogQLQuery
+    tableSettings: Optional[TableSettings] = None
 
 
 class DatabaseSchemaViewTable(BaseModel):
@@ -3916,6 +4374,67 @@ class PropertyGroupFilter(BaseModel):
     values: list[PropertyGroupFilterValue]
 
 
+class RecordingsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    actions: Optional[list[dict[str, Any]]] = None
+    console_log_filters: Optional[list[LogEntryPropertyFilter]] = None
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    events: Optional[list[dict[str, Any]]] = None
+    filter_test_accounts: Optional[bool] = None
+    having_predicates: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+            ]
+        ]
+    ] = None
+    kind: Literal["RecordingsQuery"] = "RecordingsQuery"
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    operand: Optional[FilterLogicalOperator] = None
+    order: Union[DurationType, str]
+    person_uuid: Optional[str] = None
+    properties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+            ]
+        ]
+    ] = None
+    response: Optional[RecordingsQueryResponse] = None
+    session_ids: Optional[list[str]] = None
+
+
 class RetentionQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3939,6 +4458,7 @@ class RetentionQuery(BaseModel):
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
+                    LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
@@ -3982,6 +4502,7 @@ class StickinessQuery(BaseModel):
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
+                    LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
@@ -4032,6 +4553,7 @@ class TrendsQuery(BaseModel):
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
+                    LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
@@ -4059,7 +4581,7 @@ class ErrorTrackingQuery(BaseModel):
     eventColumns: Optional[list[str]] = None
     filterGroup: Optional[PropertyGroupFilter] = None
     filterTestAccounts: Optional[bool] = None
-    fingerprint: Optional[str] = None
+    fingerprint: Optional[list[str]] = None
     kind: Literal["ErrorTrackingQuery"] = "ErrorTrackingQuery"
     limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
@@ -4101,6 +4623,7 @@ class FunnelsQuery(BaseModel):
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
+                    LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
@@ -4142,6 +4665,7 @@ class InsightsQueryBaseFunnelsQueryResponse(BaseModel):
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
+                    LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
@@ -4180,6 +4704,7 @@ class InsightsQueryBaseLifecycleQueryResponse(BaseModel):
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
+                    LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
@@ -4218,6 +4743,7 @@ class InsightsQueryBasePathsQueryResponse(BaseModel):
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
+                    LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
@@ -4256,6 +4782,7 @@ class InsightsQueryBaseRetentionQueryResponse(BaseModel):
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
+                    LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
@@ -4294,6 +4821,7 @@ class InsightsQueryBaseTrendsQueryResponse(BaseModel):
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
+                    LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
@@ -4339,6 +4867,7 @@ class LifecycleQuery(BaseModel):
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
+                    LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
@@ -4529,6 +5058,7 @@ class PathsQuery(BaseModel):
                     SessionPropertyFilter,
                     CohortPropertyFilter,
                     RecordingPropertyFilter,
+                    LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
@@ -4609,6 +5139,7 @@ class FunnelCorrelationActorsQuery(BaseModel):
                 SessionPropertyFilter,
                 CohortPropertyFilter,
                 RecordingPropertyFilter,
+                LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,

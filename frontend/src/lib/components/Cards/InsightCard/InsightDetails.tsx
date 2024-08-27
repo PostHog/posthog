@@ -39,6 +39,7 @@ import {
     isLifecycleQuery,
     isPathsQuery,
     isTrendsQuery,
+    isValidBreakdown,
 } from '~/queries/utils'
 import {
     AnyPropertyFilter,
@@ -155,11 +156,7 @@ function SeriesDisplay({
     const { mathDefinitions } = useValues(mathsLogic)
     const filter = query.series[seriesIndex]
 
-    const hasBreakdown =
-        isInsightQueryWithBreakdown(query) &&
-        query.breakdownFilter != null &&
-        query.breakdownFilter.breakdown_type != null &&
-        query.breakdownFilter.breakdown != null
+    const hasBreakdown = isInsightQueryWithBreakdown(query) && isValidBreakdown(query.breakdownFilter)
 
     const mathDefinition = mathDefinitions[
         isLifecycleQuery(query)
@@ -338,25 +335,26 @@ export function LEGACY_FilterBasedBreakdownSummary({ filters }: { filters: Parti
 }
 
 export function BreakdownSummary({ query }: { query: InsightQueryNode }): JSX.Element | null {
-    if (
-        !isInsightQueryWithBreakdown(query) ||
-        !query.breakdownFilter ||
-        query.breakdownFilter.breakdown_type == null ||
-        query.breakdownFilter.breakdown == null
-    ) {
+    if (!isInsightQueryWithBreakdown(query) || !isValidBreakdown(query.breakdownFilter)) {
         return null
     }
 
-    const { breakdown_type, breakdown } = query.breakdownFilter
-    const breakdownArray = Array.isArray(breakdown) ? breakdown : [breakdown]
+    const { breakdown_type, breakdown, breakdowns } = query.breakdownFilter
 
     return (
         <>
             <h5>Breakdown by</h5>
             <section className="InsightDetails__breakdown">
-                {breakdownArray.map((b) => (
-                    <BreakdownTag key={b} breakdown={b} breakdownType={breakdown_type} />
-                ))}
+                {Array.isArray(breakdowns)
+                    ? breakdowns.map((b) => (
+                          <BreakdownTag key={`${b.type}-${b.property}`} breakdown={b.property} breakdownType={b.type} />
+                      ))
+                    : breakdown &&
+                      (Array.isArray(breakdown)
+                          ? breakdown
+                          : [breakdown].map((b) => (
+                                <BreakdownTag key={b} breakdown={b} breakdownType={breakdown_type} />
+                            )))}
             </section>
         </>
     )

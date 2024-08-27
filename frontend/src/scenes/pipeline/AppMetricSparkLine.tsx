@@ -4,7 +4,7 @@ import { useEffect } from 'react'
 
 import { pipelineNodeMetricsLogic } from './pipelineNodeMetricsLogic'
 import { pipelineNodeMetricsV2Logic } from './pipelineNodeMetricsV2Logic'
-import { PipelineBackend, PipelineNode } from './types'
+import { PipelineNode } from './types'
 
 export function AppMetricSparkLine({ pipelineNode }: { pipelineNode: PipelineNode }): JSX.Element {
     const logic = pipelineNodeMetricsLogic({ id: pipelineNode.id })
@@ -19,22 +19,28 @@ export function AppMetricSparkLine({ pipelineNode }: { pipelineNode: PipelineNod
     const displayData: SparklineTimeSeries[] = [
         {
             color: 'success',
-            name: pipelineNode.backend == 'batch_export' ? 'Runs succeeded' : 'Events sent',
+            name: 'Success',
             values: successes,
         },
     ]
+
     if (appMetricsResponse?.metrics.failures.some((failure) => failure > 0)) {
         displayData.push({
             color: 'danger',
-            name: pipelineNode.backend == 'batch_export' ? 'Runs failed' : 'Events dropped',
+            name: 'Failure',
             values: failures,
         })
     }
 
-    if (pipelineNode.backend == PipelineBackend.HogFunction) {
-        return <span className="italic">Coming soon</span>
-    }
-    return <Sparkline loading={appMetricsResponse === null} labels={dates} data={displayData} className="max-w-24" />
+    return (
+        <Sparkline
+            loading={appMetricsResponse === null}
+            labels={dates}
+            data={displayData}
+            className="max-w-24 h-8"
+            maximumIndicator={false}
+        />
+    )
 }
 
 export function AppMetricSparkLineV2({ pipelineNode }: { pipelineNode: PipelineNode }): JSX.Element {
@@ -59,5 +65,13 @@ export function AppMetricSparkLineV2({ pipelineNode }: { pipelineNode: PipelineN
         },
     ]
 
-    return <Sparkline loading={appMetricsLoading} labels={appMetrics?.labels} data={displayData} className="max-w-24" />
+    return (
+        <Sparkline
+            loading={appMetricsLoading}
+            labels={appMetrics?.labels}
+            data={displayData}
+            className="max-w-24 h-8"
+            maximumIndicator={false}
+        />
+    )
 }

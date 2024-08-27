@@ -79,10 +79,10 @@
                                                              WHERE equals(person.team_id, 2)
                                                              GROUP BY person.id
                                                              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
-        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-07 23:59:59', 6, 'UTC'))), ifNull(equals(e__pdi__person.`properties___$bool_prop`, 'x'), 0), and(equals(e.event, 'sign up'), ifNull(in(e__pdi.person_id,
-                                                                                                                                                                                                                                                                                                                                                                                                                                     (SELECT cohortpeople.person_id AS person_id
-                                                                                                                                                                                                                                                                                                                                                                                                                                      FROM cohortpeople
-                                                                                                                                                                                                                                                                                                                                                                                                                                      WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 2), equals(cohortpeople.version, 2)))), 0)))
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-07 23:59:59', 6, 'UTC'))), and(equals(e.event, 'sign up'), ifNull(in(e__pdi.person_id,
+                                                                                                                                                                                                                                                                                                                                                                   (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                                                                                                                                                                                                                    FROM cohortpeople
+                                                                                                                                                                                                                                                                                                                                                                    WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 2), equals(cohortpeople.version, 2)))), 0)), ifNull(equals(e__pdi__person.`properties___$bool_prop`, 'x'), 0))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -91,9 +91,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -166,10 +165,10 @@
            WHERE equals(person_distinct_id_overrides.team_id, 2)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-07 23:59:59', 6, 'UTC'))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, '$bool_prop'), ''), 'null'), '^"|"$', ''), 'x'), 0), and(equals(e.event, 'sign up'), ifNull(in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT cohortpeople.person_id AS person_id
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          FROM cohortpeople
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 2), equals(cohortpeople.version, 2)))), 0)))
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-07 23:59:59', 6, 'UTC'))), and(equals(e.event, 'sign up'), ifNull(in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
+                                                                                                                                                                                                                                                                                                                                                                   (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                                                                                                                                                                                                                    FROM cohortpeople
+                                                                                                                                                                                                                                                                                                                                                                    WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 2), equals(cohortpeople.version, 2)))), 0)), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, '$bool_prop'), ''), 'null'), '^"|"$', ''), 'x'), 0))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -178,9 +177,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -227,9 +225,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -258,7 +255,7 @@
            WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
            GROUP BY groups.group_type_index,
                     groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-        WHERE and(equals(e.team_id, 2), equals(e.event, 'sign up'), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), less(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-03 00:00:00.000000', 6, 'UTC')), ifNull(equals(ifNull(nullIf(toString(e__group_0.properties___industry), ''), '$$_posthog_breakdown_null_$$'), 'technology'), 0)))
+        WHERE and(equals(e.team_id, 2), ifNull(greaterOrEquals(timestamp, toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), 0), ifNull(less(timestamp, toDateTime64('2020-01-03 00:00:00.000000', 6, 'UTC')), 0), ifNull(equals(ifNull(nullIf(toString(e__group_0.properties___industry), ''), '$$_posthog_breakdown_null_$$'), 'technology'), 0), equals(e.event, 'sign up')))
      GROUP BY actor_id) AS source
   INNER JOIN
     (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
@@ -276,7 +273,7 @@
                                                          FROM groups
                                                          WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
                                                          GROUP BY groups.group_type_index, groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-                                                      WHERE and(equals(e.team_id, 2), equals(e.event, 'sign up'), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), less(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-03 00:00:00.000000', 6, 'UTC')), ifNull(equals(ifNull(nullIf(toString(e__group_0.properties___industry), ''), '$$_posthog_breakdown_null_$$'), 'technology'), 0)))
+                                                      WHERE and(equals(e.team_id, 2), ifNull(greaterOrEquals(timestamp, toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), 0), ifNull(less(timestamp, toDateTime64('2020-01-03 00:00:00.000000', 6, 'UTC')), 0), ifNull(equals(ifNull(nullIf(toString(e__group_0.properties___industry), ''), '$$_posthog_breakdown_null_$$'), 'technology'), 0), equals(e.event, 'sign up')))
                                                    GROUP BY actor_id) AS source)))
      GROUP BY person.id
      HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
@@ -286,9 +283,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -301,9 +297,8 @@
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
-                     max_ast_elements=2000000,
-                     max_expanded_ast_elements=2000000,
-                     max_query_size=1048576,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0
   '''
 # ---
@@ -350,9 +345,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -391,9 +385,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -432,9 +425,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -473,9 +465,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -514,9 +505,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -575,9 +565,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -636,9 +625,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -734,9 +722,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -783,9 +770,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -848,9 +834,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -896,9 +881,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -944,9 +928,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -992,9 +975,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -1040,9 +1022,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -1125,9 +1106,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -1192,9 +1172,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -1235,9 +1214,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -1274,7 +1252,7 @@
            WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
            GROUP BY groups.group_type_index,
                     groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-        WHERE and(equals(e.team_id, 2), equals(e.event, 'sign up'), and(ifNull(equals(e__group_0.properties___industry, 'finance'), 0), ifNull(equals(e__group_2.properties___name, 'six'), 0)), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), less(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-03 00:00:00.000000', 6, 'UTC'))))
+        WHERE and(equals(e.team_id, 2), and(ifNull(equals(e__group_0.properties___industry, 'finance'), 0), ifNull(equals(e__group_2.properties___name, 'six'), 0)), ifNull(greaterOrEquals(timestamp, toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), 0), ifNull(less(timestamp, toDateTime64('2020-01-03 00:00:00.000000', 6, 'UTC')), 0), equals(e.event, 'sign up')))
      GROUP BY actor_id) AS source
   INNER JOIN
     (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
@@ -1297,7 +1275,7 @@
                                                          FROM groups
                                                          WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
                                                          GROUP BY groups.group_type_index, groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-                                                      WHERE and(equals(e.team_id, 2), equals(e.event, 'sign up'), and(ifNull(equals(e__group_0.properties___industry, 'finance'), 0), ifNull(equals(e__group_2.properties___name, 'six'), 0)), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), less(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-03 00:00:00.000000', 6, 'UTC'))))
+                                                      WHERE and(equals(e.team_id, 2), and(ifNull(equals(e__group_0.properties___industry, 'finance'), 0), ifNull(equals(e__group_2.properties___name, 'six'), 0)), ifNull(greaterOrEquals(timestamp, toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), 0), ifNull(less(timestamp, toDateTime64('2020-01-03 00:00:00.000000', 6, 'UTC')), 0), equals(e.event, 'sign up')))
                                                    GROUP BY actor_id) AS source)))
      GROUP BY person.id
      HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
@@ -1307,9 +1285,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=2000000,
-                    max_expanded_ast_elements=2000000,
-                    max_query_size=1048576,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -1322,9 +1299,8 @@
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
-                     max_ast_elements=2000000,
-                     max_expanded_ast_elements=2000000,
-                     max_query_size=1048576,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0
   '''
 # ---
@@ -1357,9 +1333,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -1433,9 +1408,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -1509,9 +1483,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -1573,9 +1546,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -1637,9 +1609,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -1664,9 +1635,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -1735,9 +1705,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -1806,9 +1775,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -1851,9 +1819,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -1896,9 +1863,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -1923,9 +1889,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -1968,9 +1933,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -1995,9 +1959,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2040,9 +2003,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2076,9 +2038,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2110,9 +2071,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2153,9 +2113,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2196,9 +2155,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2239,9 +2197,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2266,9 +2223,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2300,9 +2256,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2347,9 +2302,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2374,9 +2328,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2422,9 +2375,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2449,9 +2401,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2483,9 +2434,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2530,9 +2480,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2557,9 +2506,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2605,9 +2553,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2632,9 +2579,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2666,9 +2612,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2713,9 +2658,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2740,9 +2684,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2788,9 +2731,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2822,9 +2764,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2849,9 +2790,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2883,9 +2823,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2910,9 +2849,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2944,9 +2882,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2971,9 +2908,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -2998,9 +2934,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -3025,9 +2960,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -3052,9 +2986,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -3079,9 +3012,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -3106,9 +3038,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -3133,9 +3064,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -3194,9 +3124,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -3255,9 +3184,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -3282,9 +3210,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -3327,9 +3254,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -3386,9 +3312,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -3445,9 +3370,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -3485,9 +3409,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -3525,9 +3448,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -3566,9 +3488,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -3593,9 +3514,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -3620,9 +3540,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -3674,9 +3593,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -3728,9 +3646,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -3784,9 +3701,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -3831,9 +3747,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -3878,9 +3793,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -3925,9 +3839,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -3972,9 +3885,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -3999,9 +3911,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -4026,9 +3937,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -4053,9 +3963,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -4080,9 +3989,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -4107,9 +4015,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -4157,9 +4064,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -4199,9 +4105,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -4241,9 +4146,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -4268,9 +4172,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -4300,9 +4203,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -4332,9 +4234,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -4371,9 +4272,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -4436,9 +4336,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -4501,9 +4400,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -4528,9 +4426,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -4554,9 +4451,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -4580,9 +4476,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -4620,9 +4515,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -4660,9 +4554,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -4716,9 +4609,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -4772,9 +4664,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -4828,9 +4719,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -4884,9 +4774,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -4921,9 +4810,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -4958,9 +4846,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -4995,9 +4882,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -5042,9 +4928,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -5089,9 +4974,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -5136,9 +5020,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -5194,9 +5077,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -5252,9 +5134,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -5299,9 +5180,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -5346,9 +5226,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -5393,9 +5272,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---
@@ -5440,9 +5318,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=2000000,
-                       max_expanded_ast_elements=2000000,
-                       max_query_size=1048576,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0
   '''
 # ---

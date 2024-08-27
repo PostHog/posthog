@@ -265,15 +265,28 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
+    def test_direct_with_red_herring_utm_tags_is_direct(self):
+        self.assertEqual(
+            "Direct",
+            self._get_person_initial_channel_type(
+                {
+                    "$initial_referring_domain": "$direct",
+                    "$initial_utm_source": "what",
+                    "$initial_utm_medium": "who",
+                    "$initial_utm_campaign": "slim shady",
+                }
+            ),
+        )
+
     def test_no_info_is_unknown(self):
         self.assertEqual(
             "Unknown",
             self._get_person_initial_channel_type({}),
         )
 
-    def test_unknown_domain_is_unknown(self):
+    def test_unknown_domain_is_referral(self):
         self.assertEqual(
-            "Unknown",
+            "Referral",
             self._get_person_initial_channel_type(
                 {
                     "$initial_referring_domain": "some-unknown-domain.example.com",
@@ -283,7 +296,7 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
 
     def test_doesnt_fail_on_numbers(self):
         self.assertEqual(
-            "Unknown",
+            "Referral",
             self._get_person_initial_channel_type(
                 {
                     "$initial_referring_domain": "example.com",

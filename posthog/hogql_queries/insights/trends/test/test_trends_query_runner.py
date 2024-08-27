@@ -4,10 +4,14 @@ import zoneinfo
 from dataclasses import dataclass
 from datetime import datetime
 from itertools import groupby
-from typing import Optional
+from typing import Any, Optional
 from unittest.mock import MagicMock, patch
+
+import pytest
 from django.test import override_settings
 from freezegun import freeze_time
+from pydantic import ValidationError
+
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
@@ -17,15 +21,15 @@ from posthog.hogql_queries.insights.trends.breakdown import (
     BREAKDOWN_NULL_STRING_LABEL,
     BREAKDOWN_OTHER_STRING_LABEL,
 )
-from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner, BREAKDOWN_OTHER_DISPLAY
-from posthog.models.cohort.cohort import Cohort
+from posthog.hogql_queries.insights.trends.trends_query_runner import (
+    BREAKDOWN_OTHER_DISPLAY,
+    TrendsQueryRunner,
+)
 from posthog.models import GroupTypeMapping
-from posthog.models.property_definition import PropertyDefinition
-from pydantic import ValidationError
-import pytest
+from posthog.models.action.action import Action
+from posthog.models.cohort.cohort import Cohort
 from posthog.models.group.util import create_group
-
-
+from posthog.models.property_definition import PropertyDefinition
 from posthog.schema import (
     ActionsNode,
     BaseMathType,
@@ -34,21 +38,23 @@ from posthog.schema import (
     BreakdownItem,
     BreakdownType,
     ChartDisplayType,
+    CompareFilter,
     CompareItem,
     CountPerActorMathType,
-    InsightDateRange,
     DayItem,
+    EventPropertyFilter,
     EventsNode,
     HogQLQueryModifiers,
     InCohortVia,
+    InsightDateRange,
     IntervalType,
     MultipleBreakdownType,
+    PersonPropertyFilter,
     PropertyMathType,
+    PropertyOperator,
     TrendsFilter,
     TrendsQuery,
-    CompareFilter,
 )
-
 from posthog.schema import Series as InsightActorsQuerySeries
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.base import (
@@ -344,6 +350,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         hogql_modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
         explicit_date: Optional[bool] = None,
+        properties: Optional[Any] = None,
     ) -> TrendsQueryRunner:
         query_series: list[EventsNode | ActionsNode] = [EventsNode(event="$pageview")] if series is None else series
         query = TrendsQuery(
@@ -354,6 +361,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             breakdownFilter=breakdown,
             compareFilter=compare_filters,
             filterTestAccounts=filter_test_accounts,
+            properties=properties,
         )
         return TrendsQueryRunner(team=self.team, query=query, modifiers=hogql_modifiers, limit_context=limit_context)
 
@@ -366,6 +374,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         trends_filters: Optional[TrendsFilter] = None,
         breakdown: Optional[BreakdownFilter] = None,
         compare_filters: Optional[CompareFilter] = None,
+        properties: Optional[Any] = None,
         *,
         filter_test_accounts: Optional[bool] = None,
         hogql_modifiers: Optional[HogQLQueryModifiers] = None,
@@ -379,6 +388,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             trends_filters=trends_filters,
             breakdown=breakdown,
             compare_filters=compare_filters,
+            properties=properties,
             filter_test_accounts=filter_test_accounts,
             hogql_modifiers=hogql_modifiers,
             limit_context=limit_context,
@@ -2655,10 +2665,10 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = runner.to_actors_query(
             time_frame="2020-01-09", series_index=0, breakdown_value=None, compare_value=None
         )
-        assert response.select_from.table.where.exprs[1].right.value == datetime(  # type: ignore
+        assert response.select_from.table.where.exprs[0].right.value == datetime(  # type: ignore
             2020, 1, 9, 12, 37, 42, tzinfo=zoneinfo.ZoneInfo(key="UTC")
         )
-        assert response.select_from.table.where.exprs[2].right.value == datetime(  # type: ignore
+        assert response.select_from.table.where.exprs[1].right.value == datetime(  # type: ignore
             2020, 1, 10, 0, 0, tzinfo=zoneinfo.ZoneInfo(key="UTC")
         )
 
@@ -2666,10 +2676,10 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = runner.to_actors_query(
             time_frame="2020-01-20", series_index=0, breakdown_value=None, compare_value=None
         )
-        assert response.select_from.table.where.exprs[1].right.value == datetime(  # type: ignore
+        assert response.select_from.table.where.exprs[0].right.value == datetime(  # type: ignore
             2020, 1, 20, 0, 0, tzinfo=zoneinfo.ZoneInfo(key="UTC")
         )
-        assert response.select_from.table.where.exprs[2].right.value == datetime(  # type: ignore
+        assert response.select_from.table.where.exprs[1].right.value == datetime(  # type: ignore
             2020, 1, 20, 12, 37, 42, tzinfo=zoneinfo.ZoneInfo(key="UTC")
         )
 
@@ -4037,3 +4047,788 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             assert breakdown_labels == [["[10,25]"], ["[25,40.01]"]]
             assert response.results[0]["aggregated_value"] == 8
             assert response.results[1]["aggregated_value"] == 2
+
+    def test_trends_math_first_time_for_user_basic(self):
+        self._create_test_events()
+        flush_persons_and_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_FOR_USER)],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+        )
+
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == 4
+        assert response.results[0]["data"] == [1, 0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0]
+
+        # must not include the person with the id `p2`
+        response = self._run_trends_query(
+            "2020-01-10",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_FOR_USER)],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+        )
+
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == 3
+        assert response.results[0]["data"] == [0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0]
+
+        # must not include the persons with the ids `p1` and `p2`
+        response = self._run_trends_query(
+            "2020-01-12",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_FOR_USER)],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+        )
+
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == 2
+        assert response.results[0]["data"] == [1, 0, 0, 1, 0, 0, 0, 0, 0]
+
+        # no such persons
+        response = self._run_trends_query(
+            "2020-01-16",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_FOR_USER)],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+        )
+
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == 0
+        assert response.results[0]["data"] == [0, 0, 0, 0, 0]
+
+    def test_trends_math_first_time_for_user_breakdowns_basic(self):
+        self._create_test_events()
+        flush_persons_and_events()
+
+        # single breakdown
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_FOR_USER)],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+            BreakdownFilter(breakdown="$browser"),
+        )
+
+        assert len(response.results) == 4
+
+        count = [result["count"] for result in response.results]
+        assert count == [1, 1, 1, 1]
+
+        breakdowns = [result["breakdown_value"] for result in response.results]
+        assert breakdowns == ["Chrome", "Edge", "Firefox", "Safari"]
+
+        data = [result["data"] for result in response.results]
+        matrix = [
+            [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0],
+        ]
+        assert data == matrix
+
+        # multiple breakdowns
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_FOR_USER)],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+            BreakdownFilter(breakdowns=[Breakdown(property="$browser")]),
+        )
+
+        assert len(response.results) == 4
+
+        count = [result["count"] for result in response.results]
+        assert count == [1, 1, 1, 1]
+
+        breakdowns = [result["breakdown_value"] for result in response.results]
+        assert breakdowns == [["Chrome"], ["Edge"], ["Firefox"], ["Safari"]]
+
+        data = [result["data"] for result in response.results]
+        assert data == matrix
+
+    def test_trends_math_first_time_for_user_breakdowns_with_bins(self):
+        self._create_test_events()
+        flush_persons_and_events()
+
+        # single breakdown
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_FOR_USER)],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+            BreakdownFilter(breakdown="prop", breakdown_type=BreakdownType.EVENT, breakdown_histogram_bin_count=2),
+        )
+
+        assert len(response.results) == 2
+
+        count = [result["count"] for result in response.results]
+        assert count == [2, 2]
+
+        breakdowns = [result["breakdown_value"] for result in response.results]
+        assert breakdowns == ["[10,25]", "[25,40.01]"]
+
+        data = [result["data"] for result in response.results]
+        matrix = [
+            [1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0],
+        ]
+        assert data == matrix
+
+        # multiple breakdowns
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_FOR_USER)],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+            BreakdownFilter(breakdowns=[Breakdown(property="prop", type=BreakdownType.EVENT, histogram_bin_count=2)]),
+        )
+
+        assert len(response.results) == 2
+
+        count = [result["count"] for result in response.results]
+        assert count == [2, 2]
+
+        breakdowns = [result["breakdown_value"] for result in response.results]
+        assert breakdowns == [["[10,25]"], ["[25,40.01]"]]
+
+        data = [result["data"] for result in response.results]
+        assert data == matrix
+
+    def test_trends_math_first_time_for_user_with_filters(self):
+        self._create_test_events()
+        flush_persons_and_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [
+                EventsNode(
+                    event="$pageview",
+                    math=BaseMathType.FIRST_TIME_FOR_USER,
+                    properties=[EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Chrome")],
+                )
+            ],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+        )
+
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == 1
+        assert response.results[0]["data"] == [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [
+                EventsNode(
+                    event="$pageview",
+                    math=BaseMathType.FIRST_TIME_FOR_USER,
+                    properties=[PersonPropertyFilter(key="name", operator=PropertyOperator.EXACT, value="p4")],
+                )
+            ],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+        )
+
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == 1
+        assert response.results[0]["data"] == [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0]
+
+    def test_trends_math_first_time_for_user_with_total_values(self):
+        self._create_test_events()
+        flush_persons_and_events()
+
+        for display in [
+            ChartDisplayType.ACTIONS_PIE,
+            ChartDisplayType.ACTIONS_BAR_VALUE,
+            ChartDisplayType.ACTIONS_TABLE,
+            ChartDisplayType.BOLD_NUMBER,
+        ]:
+            response = self._run_trends_query(
+                "2020-01-09",
+                "2020-01-20",
+                IntervalType.DAY,
+                [
+                    EventsNode(
+                        event="$pageview",
+                        math=BaseMathType.FIRST_TIME_FOR_USER,
+                    )
+                ],
+                TrendsFilter(display=display),
+            )
+
+            assert len(response.results) == 1
+            assert response.results[0]["aggregated_value"] == 4
+
+            response = self._run_trends_query(
+                "2020-01-14",
+                "2020-01-20",
+                IntervalType.DAY,
+                [
+                    EventsNode(
+                        event="$pageview",
+                        math=BaseMathType.FIRST_TIME_FOR_USER,
+                    )
+                ],
+                TrendsFilter(display=display),
+            )
+
+            assert len(response.results) == 1
+            assert response.results[0]["aggregated_value"] == 1
+
+    def test_trends_math_first_time_for_user_handles_multiple_ids(self):
+        timestamp = "2020-01-11T12:00:00Z"
+
+        with freeze_time(timestamp):
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=["anon1", "p1"],
+                properties={},
+            )
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=["anon2", "p2"],
+                properties={},
+            )
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=["anon3"],
+                properties={},
+            )
+
+        # p1
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="anon1",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-12T12:00:00Z",
+            properties={},
+        )
+
+        # p2
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="anon2",
+            timestamp="2020-01-12T12:00:00Z",
+            properties={},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp="2020-01-12T12:01:00Z",
+            properties={},
+        )
+
+        # anon3
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="anon3",
+            timestamp="2020-01-12T12:00:00Z",
+            properties={},
+        )
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-12",
+            IntervalType.DAY,
+            [
+                EventsNode(
+                    event="$pageview",
+                    math=BaseMathType.FIRST_TIME_FOR_USER,
+                )
+            ],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+        )
+
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == 3
+        assert response.results[0]["data"] == [0, 0, 1, 2]
+
+    def test_trends_math_first_time_for_user_filters_first_events(self):
+        timestamp = "2020-01-11T12:00:00Z"
+
+        with freeze_time(timestamp):
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=["anon1", "p1"],
+                properties={},
+            )
+
+        # p1
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="anon1",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={"$browser": "Chrome"},
+        )
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-12T12:00:00Z",
+            properties={"$browser": "Safari"},
+        )
+
+        PropertyDefinition.objects.create(team=self.team, name="$browser", property_type="String")
+
+        # has data
+        response = self._run_trends_query(
+            "2020-01-10",
+            "2020-01-12",
+            IntervalType.DAY,
+            [
+                EventsNode(
+                    event="$pageview",
+                    math=BaseMathType.FIRST_TIME_FOR_USER,
+                    properties=[EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Chrome")],
+                )
+            ],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+        )
+
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == 1
+        assert response.results[0]["data"] == [0, 1, 0]
+
+        response = self._run_trends_query(
+            "2020-01-10",
+            "2020-01-12",
+            IntervalType.DAY,
+            [
+                EventsNode(
+                    event="$pageview",
+                    math=BaseMathType.FIRST_TIME_FOR_USER,
+                )
+            ],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+            properties=[EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Chrome")],
+        )
+
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == 1
+        assert response.results[0]["data"] == [0, 1, 0]
+
+        # no data
+        response = self._run_trends_query(
+            "2020-01-10",
+            "2020-01-12",
+            IntervalType.DAY,
+            [
+                EventsNode(
+                    event="$pageview",
+                    math=BaseMathType.FIRST_TIME_FOR_USER,
+                    properties=[EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Safari")],
+                )
+            ],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+        )
+
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == 0
+        assert response.results[0]["data"] == [0, 0, 0]
+
+        response = self._run_trends_query(
+            "2020-01-10",
+            "2020-01-12",
+            IntervalType.DAY,
+            [
+                EventsNode(
+                    event="$pageview",
+                    math=BaseMathType.FIRST_TIME_FOR_USER,
+                )
+            ],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+            properties=[EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Safari")],
+        )
+
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == 0
+        assert response.results[0]["data"] == [0, 0, 0]
+
+    def test_trends_math_first_time_for_user_prioritizes_first_event(self):
+        timestamp = "2020-01-11T12:00:00Z"
+
+        with freeze_time(timestamp):
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=["p1"],
+                properties={},
+            )
+
+        # p1
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={"$browser": "Chrome"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={"$browser": "Safari"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-11T12:00:01Z",
+            properties={"$browser": "Firefox"},
+        )
+
+        PropertyDefinition.objects.create(team=self.team, name="$browser", property_type="String")
+
+        response = self._run_trends_query(
+            "2020-01-10",
+            "2020-01-12",
+            IntervalType.DAY,
+            [
+                EventsNode(
+                    event="$pageview",
+                    math=BaseMathType.FIRST_TIME_FOR_USER,
+                    properties=[EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Chrome")],
+                )
+            ],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+        )
+
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == 1
+        assert response.results[0]["data"] == [0, 1, 0]
+
+        # Tricky: events with the same timestamp but different properties will still be considered as a first-time appearance.
+        response = self._run_trends_query(
+            "2020-01-10",
+            "2020-01-12",
+            IntervalType.DAY,
+            [
+                EventsNode(
+                    event="$pageview",
+                    math=BaseMathType.FIRST_TIME_FOR_USER,
+                    properties=[EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Safari")],
+                )
+            ],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+        )
+
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == 1
+        assert response.results[0]["data"] == [0, 1, 0]
+
+        response = self._run_trends_query(
+            "2020-01-10",
+            "2020-01-12",
+            IntervalType.DAY,
+            [
+                EventsNode(
+                    event="$pageview",
+                    math=BaseMathType.FIRST_TIME_FOR_USER,
+                    properties=[EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Firefox")],
+                )
+            ],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+        )
+
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == 0
+
+    def test_trends_math_first_time_for_user_date_ranges(self):
+        self._create_test_events()
+        flush_persons_and_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [
+                EventsNode(
+                    event="$pageview",
+                    math=BaseMathType.FIRST_TIME_FOR_USER,
+                    properties=[EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Chrome")],
+                )
+            ],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+        )
+
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == 1
+        assert len(response.results[0]["days"]) == 12
+        assert response.results[0]["days"][0] == "2020-01-09"
+        assert response.results[0]["days"][11] == "2020-01-20"
+
+    def test_trends_math_first_time_for_user_interval_types(self):
+        self._create_test_events()
+        flush_persons_and_events()
+
+        with freeze_time("2020-01-20"):
+            response = self._run_trends_query(
+                "-180d",
+                None,
+                IntervalType.MONTH,
+                [
+                    EventsNode(
+                        event="$pageview",
+                        math=BaseMathType.FIRST_TIME_FOR_USER,
+                    )
+                ],
+                TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+            )
+
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == 4
+        assert len(response.results[0]["days"]) == 7
+
+        with freeze_time("2020-01-20"):
+            response = self._run_trends_query(
+                "-180d",
+                None,
+                IntervalType.WEEK,
+                [
+                    EventsNode(
+                        event="$pageview",
+                        math=BaseMathType.FIRST_TIME_FOR_USER,
+                    )
+                ],
+                TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+            )
+
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == 4
+        assert len(response.results[0]["days"]) == 27
+
+        with freeze_time("2020-01-20"):
+            response = self._run_trends_query(
+                "-30d",
+                None,
+                IntervalType.HOUR,
+                [
+                    EventsNode(
+                        event="$pageview",
+                        math=BaseMathType.FIRST_TIME_FOR_USER,
+                    )
+                ],
+                TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+            )
+
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == 4
+        assert len(response.results[0]["days"]) == 721
+
+        with freeze_time("2020-01-11T12:30:00Z"):
+            response = self._run_trends_query(
+                "-1h",
+                None,
+                IntervalType.MINUTE,
+                [
+                    EventsNode(
+                        event="$pageview",
+                        math=BaseMathType.FIRST_TIME_FOR_USER,
+                    )
+                ],
+                TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+            )
+
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == 1
+        assert len(response.results[0]["days"]) == 61
+
+    def test_trends_math_first_time_for_user_all_events(self):
+        self._create_test_events()
+        flush_persons_and_events()
+
+        with freeze_time("2020-01-20"):
+            response = self._run_trends_query(
+                "-180d",
+                None,
+                IntervalType.MONTH,
+                [
+                    EventsNode(
+                        event=None,
+                        math=BaseMathType.FIRST_TIME_FOR_USER,
+                    )
+                ],
+                TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+            )
+
+            assert len(response.results) == 1
+            assert response.results[0]["count"] == 4
+
+    def test_trends_math_first_time_for_user_actions(self):
+        self._create_test_events()
+        flush_persons_and_events()
+
+        action = Action.objects.create(
+            team=self.team,
+            name="viewed from chrome and left",
+            steps_json=[
+                {
+                    "event": "$pageview",
+                    "properties": [{"key": "$browser", "type": "event", "value": "Chrome", "operator": "icontains"}],
+                },
+                {
+                    "event": "$pageleave",
+                    "properties": [{"key": "$browser", "type": "event", "value": "Chrome", "operator": "icontains"}],
+                },
+            ],
+        )
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [ActionsNode(id=action.id, math=BaseMathType.FIRST_TIME_FOR_USER)],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+        )
+
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == 1
+        assert response.results[0]["data"] == [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+
+        action = Action.objects.create(
+            team=self.team,
+            name="viewed from chrome or firefox",
+            steps_json=[
+                {
+                    "event": "$pageview",
+                    "properties": [{"key": "$browser", "type": "event", "value": "Chrome", "operator": "icontains"}],
+                },
+                {
+                    "event": "$pageview",
+                    "properties": [{"key": "$browser", "type": "event", "value": "Firefox", "operator": "icontains"}],
+                },
+            ],
+        )
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [ActionsNode(id=action.id, math=BaseMathType.FIRST_TIME_FOR_USER)],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+        )
+
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == 2
+        assert response.results[0]["data"] == [1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+
+    def test_multiple_breakdowns_work_with_formula(self):
+        self._create_test_events()
+        flush_persons_and_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH, formula="A*10"),
+            BreakdownFilter(breakdowns=[Breakdown(property="$browser", type=MultipleBreakdownType.EVENT)]),
+        )
+
+        breakdown_labels = [result["breakdown_value"] for result in response.results]
+
+        assert len(response.results) == 4
+        assert breakdown_labels == [["Chrome"], ["Firefox"], ["Edge"], ["Safari"]]
+        assert [result["data"] for result in response.results] == [
+            [0, 0, 10, 10, 10, 0, 10, 0, 10, 0, 10, 0],
+            [10, 0, 0, 10, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 10, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 10, 0, 0, 0, 0, 0],
+        ]
+
+    def test_multiple_series_and_multiple_breakdowns_work_with_formula(self):
+        self._create_test_events()
+        flush_persons_and_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview"), EventsNode(event="$pageview")],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH, formula="A/B*100"),
+            BreakdownFilter(
+                breakdowns=[
+                    Breakdown(property="$browser", type=MultipleBreakdownType.EVENT),
+                    Breakdown(property="prop", type=MultipleBreakdownType.EVENT, histogram_bin_count=2),
+                ]
+            ),
+        )
+
+        breakdown_labels = [result["breakdown_value"] for result in response.results]
+        assert len(response.results) == 4
+        assert breakdown_labels == [
+            ["Chrome", "[10,25]"],
+            ["Firefox", "[10,25]"],
+            ["Edge", "[25,40.01]"],
+            ["Safari", "[25,40.01]"],
+        ]
+        assert [result["data"] for result in response.results] == [
+            [0, 0, 100, 100, 100, 0, 100, 0, 100, 0, 100, 0],
+            [100, 0, 0, 100, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 100, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 100, 0, 0, 0, 0, 0],
+        ]
+
+    def test_trends_with_formula_and_multiple_breakdowns_hide_other_breakdowns(self):
+        PropertyDefinition.objects.create(team=self.team, name="breakdown_value", property_type="String")
+
+        for value in list(range(30)):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"person_{value}",
+                timestamp="2020-01-11T12:00:00Z",
+                properties={"breakdown_value": str(value)},
+            )
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview"), EventsNode(event="$pageview")],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH, formula="A+B"),
+            BreakdownFilter(
+                breakdowns=[Breakdown(property="breakdown_value", type=MultipleBreakdownType.EVENT)], breakdown_limit=10
+            ),
+        )
+        breakdowns = [b for result in response.results for b in result["breakdown_value"]]
+        self.assertIn(BREAKDOWN_OTHER_STRING_LABEL, breakdowns)
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview"), EventsNode(event="$pageview")],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH, formula="A+B"),
+            BreakdownFilter(
+                breakdowns=[Breakdown(property="breakdown_value", type=MultipleBreakdownType.EVENT)],
+                breakdown_limit=10,
+                breakdown_hide_other_aggregation=True,
+            ),
+        )
+        breakdowns = [b for result in response.results for b in result["breakdown_value"]]
+        self.assertNotIn(BREAKDOWN_OTHER_STRING_LABEL, breakdowns)

@@ -14,7 +14,12 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "name": "BalanceTransaction",
             "table_name": "balance_transaction",
             "primary_key": "id",
-            "write_disposition": "merge" if is_incremental else "replace",
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if is_incremental
+            else "replace",
             "columns": get_dlt_mapping_for_external_table("stripe_balancetransaction"),  # type: ignore
             "endpoint": {
                 "data_selector": "data",
@@ -44,7 +49,12 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "name": "Charge",
             "table_name": "charge",
             "primary_key": "id",
-            "write_disposition": "merge" if is_incremental else "replace",
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if is_incremental
+            else "replace",
             "columns": get_dlt_mapping_for_external_table("stripe_charge"),  # type: ignore
             "endpoint": {
                 "data_selector": "data",
@@ -73,7 +83,12 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "name": "Customer",
             "table_name": "customer",
             "primary_key": "id",
-            "write_disposition": "merge" if is_incremental else "replace",
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if is_incremental
+            else "replace",
             "columns": get_dlt_mapping_for_external_table("stripe_customer"),  # type: ignore
             "endpoint": {
                 "data_selector": "data",
@@ -101,7 +116,12 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "name": "Invoice",
             "table_name": "invoice",
             "primary_key": "id",
-            "write_disposition": "merge" if is_incremental else "replace",
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if is_incremental
+            else "replace",
             "columns": get_dlt_mapping_for_external_table("stripe_invoice"),  # type: ignore
             "endpoint": {
                 "data_selector": "data",
@@ -132,7 +152,12 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "name": "Price",
             "table_name": "price",
             "primary_key": "id",
-            "write_disposition": "merge" if is_incremental else "replace",
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if is_incremental
+            else "replace",
             "columns": get_dlt_mapping_for_external_table("stripe_price"),  # type: ignore
             "endpoint": {
                 "data_selector": "data",
@@ -149,7 +174,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     else None,
                     # "currency": "OPTIONAL_CONFIG",
                     # "ending_before": "OPTIONAL_CONFIG",
-                    # "expand": "OPTIONAL_CONFIG",
+                    "expand[]": "data.tiers",
                     "limit": 100,
                     # "lookup_keys": "OPTIONAL_CONFIG",
                     # "product": "OPTIONAL_CONFIG",
@@ -164,7 +189,12 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "name": "Product",
             "table_name": "product",
             "primary_key": "id",
-            "write_disposition": "merge" if is_incremental else "replace",
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if is_incremental
+            else "replace",
             "columns": get_dlt_mapping_for_external_table("stripe_product"),  # type: ignore
             "endpoint": {
                 "data_selector": "data",
@@ -194,7 +224,12 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "name": "Subscription",
             "table_name": "subscription",
             "primary_key": "id",
-            "write_disposition": "merge" if is_incremental else "replace",
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if is_incremental
+            else "replace",
             "columns": get_dlt_mapping_for_external_table("stripe_subscription"),  # type: ignore
             "endpoint": {
                 "data_selector": "data",
@@ -274,7 +309,12 @@ def stripe_source(
         },
         "resource_defaults": {
             "primary_key": "id",
-            "write_disposition": "merge" if is_incremental else "replace",
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if is_incremental
+            else "replace",
         },
         "resources": [get_resource(endpoint, is_incremental)],
     }
