@@ -1,0 +1,30 @@
+{'__hogClosure__': true, 'callable': {'__hogCallable__': 'local', 'name': 'lambda', 'argCount': 1, 'upvalueCount': 0, 'ip': 7}, 'upvalues': []}
+4
+16
+--------
+10
+20
+80
+--------
+10
+40
+--------
+3
+3
+3
+4
+4
+4
+--------
+{'key': 3}
+{'key': 3}
+{'key': 3}
+{'key': 4}
+{'key': 4}
+{'key': 4}
+--------
+outside
+--------
+5
+6
+--------
