@@ -2030,15 +2030,7 @@ describe('hogvm execute', () => {
                             upvalueCount: 1,
                             ip: 9,
                         },
-                        upvalues: [
-                            {
-                                __hogUpValue__: true,
-                                location: 0,
-                                id: 1,
-                                closed: false,
-                                value: null,
-                            },
-                        ],
+                        upvalues: [1],
                     },
                 ],
                 upvalues: [
@@ -2191,15 +2183,7 @@ describe('hogvm execute', () => {
                             upvalueCount: 1,
                             ip: 14,
                         },
-                        upvalues: [
-                            {
-                                __hogUpValue__: true,
-                                id: 1,
-                                location: 1,
-                                closed: true,
-                                value: 'outside',
-                            },
-                        ],
+                        upvalues: [1],
                     },
                 ],
                 upvalues: [
@@ -2358,15 +2342,7 @@ describe('hogvm execute', () => {
                             upvalueCount: 1,
                             ip: 14,
                         },
-                        upvalues: [
-                            {
-                                __hogUpValue__: true,
-                                id: 1,
-                                location: 1,
-                                closed: true,
-                                value: 'outside',
-                            },
-                        ],
+                        upvalues: [1],
                     },
                 ],
                 upvalues: [
@@ -2408,15 +2384,7 @@ describe('hogvm execute', () => {
                                 upvalueCount: 1,
                                 ip: 14,
                             },
-                            upvalues: [
-                                {
-                                    __hogUpValue__: true,
-                                    id: 1,
-                                    location: 1,
-                                    closed: true,
-                                    value: 'outside',
-                                },
-                            ],
+                            upvalues: [1],
                         },
                     },
                 ],

@@ -1,4 +1,5 @@
 import { toHogDate, toHogDateTime } from './stl/date'
+import { HogUpValue } from './objects'
 
 export class HogVMException extends Error {
     constructor(message: string) {
@@ -85,42 +86,57 @@ export function setNestedValue(obj: any, chain: any[], value: any): void {
 }
 
 // Recursively convert objects to maps
-export function convertJSToHog(x: any): any {
+export function convertJSToHog(x: any, upvaluesById: Record<number, HogUpValue>): any {
     if (Array.isArray(x)) {
-        return x.map(convertJSToHog)
+        return x.map((v) => convertJSToHog(v, upvaluesById))
     } else if (typeof x === 'object' && x !== null) {
         if (x.__hogDateTime__) {
             return toHogDateTime(x.dt, x.zone)
         } else if (x.__hogDate__) {
             return toHogDate(x.year, x.month, x.day)
-        } else if (x.__hogClosure__ || x.__hogCallable__) {
+        } else if (x.__hogClosure__) {
+            return {
+                ...x,
+                upvalues: x.upvalues.map((upvalue: HogUpValue | number) =>
+                    typeof upvalue === 'number' ? upvaluesById[upvalue] : upvalue
+                ),
+            }
+        } else if (x.__hogCallable__) {
             return x
         }
         const map = new Map()
         for (const key in x) {
-            map.set(key, convertJSToHog(x[key]))
+            map.set(key, convertJSToHog(x[key], upvaluesById))
         }
         return map
     }
     return x
 }
 
-export function convertHogToJS(x: any): any {
+export function convertHogToJS(x: any, upvaluesById: Record<number, HogUpValue>): any {
     if (x instanceof Map) {
         const obj: Record<string, any> = {}
         x.forEach((value, key) => {
-            obj[key] = convertHogToJS(value)
+            obj[key] = convertHogToJS(value, upvaluesById)
         })
         return obj
     } else if (typeof x === 'object' && Array.isArray(x)) {
-        return x.map(convertHogToJS)
+        return x.map((v) => convertHogToJS(v, upvaluesById))
     } else if (typeof x === 'object' && x !== null) {
         if (x.__hogDateTime__ || x.__hogDate__ || x.__hogClosure__ || x.__hogCallable__) {
+            if (x.__hogClosure__) {
+                return {
+                    ...x,
+                    upvalues: x.upvalues.map((upvalue: HogUpValue) =>
+                        upvaluesById[upvalue.id] ? upvalue.id : upvalue
+                    ),
+                }
+            }
             return x
         }
         const obj: Record<string, any> = {}
         for (const key in x) {
-            obj[key] = convertHogToJS(x[key])
+            obj[key] = convertHogToJS(x[key], upvaluesById)
         }
         return obj
     }

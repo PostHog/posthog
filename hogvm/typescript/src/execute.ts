@@ -91,13 +91,11 @@ export async function execAsync(bytecode: any[], options?: ExecOptions): Promise
         if (response.state && response.asyncFunctionName && response.asyncFunctionArgs) {
             vmState = response.state
             if (options?.asyncFunctions && response.asyncFunctionName in options.asyncFunctions) {
-                const result = await options?.asyncFunctions[response.asyncFunctionName](
-                    ...response.asyncFunctionArgs.map(convertHogToJS)
-                )
+                const result = await options?.asyncFunctions[response.asyncFunctionName](...response.asyncFunctionArgs)
                 vmState.stack.push(result)
             } else if (response.asyncFunctionName in ASYNC_STL) {
                 const result = await ASYNC_STL[response.asyncFunctionName].fn(
-                    response.asyncFunctionArgs.map(convertHogToJS),
+                    response.asyncFunctionArgs,
                     response.asyncFunctionName,
                     options?.timeout ?? DEFAULT_TIMEOUT_MS
                 )
@@ -133,14 +131,19 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
 
     const asyncSteps = vmState ? vmState.asyncSteps : 0
     const syncDuration = vmState ? vmState.syncDuration : 0
-    const stack: any[] = vmState ? vmState.stack.map(convertJSToHog) : []
-    const upvalues: HogUpValue[] = vmState ? vmState.upvalues : []
+    const sortedUpValues: HogUpValue[] = vmState ? vmState.upvalues : []
     const upvaluesById: Record<number, HogUpValue> = {}
-    for (const upvalue of upvalues) {
+    for (const upvalue of sortedUpValues) {
         upvaluesById[upvalue.id] = upvalue
+        if (upvalue.value !== null) {
+            upvalue.value === convertJSToHog(upvalue.value, upvaluesById)
+        }
     }
+    const stack: any[] = vmState ? vmState.stack.map((v) => convertJSToHog(v, upvaluesById)) : []
     const memStack: number[] = stack.map((s) => calculateCost(s))
-    const callStack: CallFrame[] = vmState ? vmState.callStack : []
+    const callStack: CallFrame[] = vmState
+        ? vmState.callStack.map((v) => ({ ...v, closure: convertJSToHog(v.closure, upvaluesById) }))
+        : []
     const throwStack: ThrowFrame[] = vmState ? vmState.throwStack : []
     const declaredFunctions: Record<string, [number, number]> = vmState ? vmState.declaredFunctions : {}
     let memUsed = memStack.reduce((acc, val) => acc + val, 0)
@@ -190,11 +193,11 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
         return stack.splice(start, deleteCount)
     }
     function stackKeepFirstElements(count: number): any[] {
-        for (let i = upvalues.length - 1; i >= 0; i--) {
-            if (upvalues[i].location >= count) {
-                if (!upvalues[i].closed) {
-                    upvalues[i].closed = true
-                    upvalues[i].value = stack[upvalues[i].location]
+        for (let i = sortedUpValues.length - 1; i >= 0; i--) {
+            if (sortedUpValues[i].location >= count) {
+                if (!sortedUpValues[i].closed) {
+                    sortedUpValues[i].closed = true
+                    sortedUpValues[i].value = stack[sortedUpValues[i].location]
                 }
             } else {
                 // upvalues are sorted by location, so we can break early
@@ -232,24 +235,24 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
         }
     }
     function captureUpValue(index: number): HogUpValue {
-        for (let i = upvalues.length - 1; i >= 0; i--) {
-            if (upvalues[i].location < index) {
+        for (let i = sortedUpValues.length - 1; i >= 0; i--) {
+            if (sortedUpValues[i].location < index) {
                 break
             }
-            if (upvalues[i].location === index) {
-                return upvalues[i]
+            if (sortedUpValues[i].location === index) {
+                return sortedUpValues[i]
             }
         }
         const createdUpValue = {
             __hogUpValue__: true,
-            id: upvalues.length + 1, // used to deduplicate post deserialization
+            id: sortedUpValues.length + 1, // used to deduplicate post deserialization
             location: index,
             closed: false,
             value: null,
         } satisfies HogUpValue
-        upvalues.push(createdUpValue)
         upvaluesById[createdUpValue.id] = createdUpValue
-        upvalues.sort((a, b) => a.location - b.location)
+        sortedUpValues.push(createdUpValue)
+        sortedUpValues.sort((a, b) => a.location - b.location)
         return createdUpValue
     }
 
@@ -375,7 +378,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 }
 
                 if (options?.globals && chain[0] in options.globals && Object.hasOwn(options.globals, chain[0])) {
-                    pushStack(convertJSToHog(getNestedValue(options.globals, chain)))
+                    pushStack(convertJSToHog(getNestedValue(options.globals, chain), upvaluesById))
                 } else if (
                     options?.asyncFunctions &&
                     chain.length == 1 &&
@@ -632,7 +635,12 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                             : stackKeepFirstElements(stack.length - temp)
 
                     if (options?.functions && Object.hasOwn(options.functions, name) && options.functions[name]) {
-                        pushStack(convertJSToHog(options.functions[name](...args.map(convertHogToJS))))
+                        pushStack(
+                            convertJSToHog(
+                                options.functions[name](...args.map((v) => convertHogToJS(v, upvaluesById))),
+                                upvaluesById
+                            )
+                        )
                     } else if (
                         name !== 'toString' &&
                         ((options?.asyncFunctions &&
@@ -650,12 +658,15 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                             result: undefined,
                             finished: false,
                             asyncFunctionName: name,
-                            asyncFunctionArgs: args.map(convertHogToJS),
+                            asyncFunctionArgs: args.map((v) => convertHogToJS(v, upvaluesById)),
                             state: {
                                 bytecode,
-                                stack: stack.map(convertHogToJS),
-                                upvalues,
-                                callStack,
+                                stack: stack.map((v) => convertHogToJS(v, upvaluesById)),
+                                upvalues: sortedUpValues,
+                                callStack: callStack.map((v) => ({
+                                    ...v,
+                                    closure: convertHogToJS(v.closure, upvaluesById),
+                                })),
                                 throwStack,
                                 declaredFunctions,
                                 ops,
@@ -745,12 +756,15 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                         result: undefined,
                         finished: false,
                         asyncFunctionName: closure.callable.name,
-                        asyncFunctionArgs: args.map(convertHogToJS),
+                        asyncFunctionArgs: args.map((v) => convertHogToJS(v, upvaluesById)),
                         state: {
                             bytecode,
-                            stack: stack.map(convertHogToJS),
-                            upvalues,
-                            callStack,
+                            stack: stack.map((v) => convertHogToJS(v, upvaluesById)),
+                            upvalues: sortedUpValues,
+                            callStack: callStack.map((v) => ({
+                                ...v,
+                                closure: convertHogToJS(v.closure, upvaluesById),
+                            })),
                             throwStack,
                             declaredFunctions,
                             ops,
