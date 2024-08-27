@@ -582,8 +582,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         return false
                     }
 
-                    if (!showSeekbarTicks) {
-                        return !['$pageview', '$screen'].includes(item.data.event)
+                    if (!showSeekbarTicks && ['$pageview', '$screen'].includes(item.data.event)) {
+                        return false
                     }
 
                     return !(showMatchingEventsFilter && showOnlyMatching && item.highlightColor !== 'primary')
