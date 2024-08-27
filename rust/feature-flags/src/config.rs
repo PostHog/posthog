@@ -1,8 +1,10 @@
 use envconfig::Envconfig;
 use once_cell::sync::Lazy;
 use std::net::SocketAddr;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
+// TODO rewrite this to follow the AppConfig pattern in other files
 #[derive(Envconfig, Clone, Debug)]
 pub struct Config {
     #[envconfig(default = "127.0.0.1:3001")]
@@ -25,6 +27,9 @@ pub struct Config {
 
     #[envconfig(default = "1")]
     pub acquire_timeout_secs: u64,
+
+    #[envconfig(from = "MAXMIND_DB_PATH", default = "")]
+    pub maxmind_db_path: String,
 }
 
 impl Config {
@@ -38,6 +43,21 @@ impl Config {
             max_concurrent_jobs: 1024,
             max_pg_connections: 100,
             acquire_timeout_secs: 1,
+            maxmind_db_path: "".to_string(),
+        }
+    }
+
+    pub fn get_maxmind_db_path(&self) -> PathBuf {
+        if self.maxmind_db_path.is_empty() {
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .join("share")
+                .join("GeoLite2-City.mmdb")
+        } else {
+            PathBuf::from(&self.maxmind_db_path)
         }
     }
 }

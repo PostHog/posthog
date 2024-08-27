@@ -195,7 +195,7 @@ impl FeatureFlagList {
         team_id: i32,
         flags: &FeatureFlagList,
     ) -> Result<(), FlagError> {
-        let payload = serde_json::to_string(flags).map_err(|e| {
+        let payload = serde_json::to_string(&flags.flags).map_err(|e| {
             tracing::error!("Failed to serialize flags: {}", e);
             FlagError::DataParsingError
         })?;
@@ -1392,23 +1392,46 @@ mod tests {
         }
 
         // Fetch flags from both sources
-        let redis_flags = FeatureFlagList::from_redis(redis_client, team.id)
+        let mut redis_flags = FeatureFlagList::from_redis(redis_client, team.id)
             .await
             .expect("Failed to fetch flags from Redis");
-        let pg_flags = FeatureFlagList::from_pg(pg_client, team.id)
+        let mut pg_flags = FeatureFlagList::from_pg(pg_client, team.id)
             .await
             .expect("Failed to fetch flags from Postgres");
 
+        // Sort flags by key to ensure consistent order
+        redis_flags.flags.sort_by(|a, b| a.key.cmp(&b.key));
+        pg_flags.flags.sort_by(|a, b| a.key.cmp(&b.key));
+
         // Compare results
-        assert_eq!(redis_flags.flags.len(), pg_flags.flags.len());
+        assert_eq!(
+            redis_flags.flags.len(),
+            pg_flags.flags.len(),
+            "Number of flags mismatch"
+        );
+
         for (redis_flag, pg_flag) in redis_flags.flags.iter().zip(pg_flags.flags.iter()) {
-            assert_eq!(redis_flag.key, pg_flag.key);
-            assert_eq!(redis_flag.name, pg_flag.name);
-            assert_eq!(redis_flag.active, pg_flag.active);
-            assert_eq!(redis_flag.deleted, pg_flag.deleted);
+            assert_eq!(redis_flag.key, pg_flag.key, "Flag key mismatch");
+            assert_eq!(
+                redis_flag.name, pg_flag.name,
+                "Flag name mismatch for key: {}",
+                redis_flag.key
+            );
+            assert_eq!(
+                redis_flag.active, pg_flag.active,
+                "Flag active status mismatch for key: {}",
+                redis_flag.key
+            );
+            assert_eq!(
+                redis_flag.deleted, pg_flag.deleted,
+                "Flag deleted status mismatch for key: {}",
+                redis_flag.key
+            );
             assert_eq!(
                 redis_flag.filters.groups[0].rollout_percentage,
-                pg_flag.filters.groups[0].rollout_percentage
+                pg_flag.filters.groups[0].rollout_percentage,
+                "Flag rollout percentage mismatch for key: {}",
+                redis_flag.key
             );
         }
     }
