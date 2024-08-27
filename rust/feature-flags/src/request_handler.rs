@@ -71,6 +71,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
         .get_team_from_cache_or_pg(&token, state.redis.clone(), state.postgres.clone())
         .await?;
     let distinct_id = request.extract_distinct_id()?;
+    let team_id = team.id;
     let person_property_overrides = get_person_property_overrides(
         !request.geoip_disable.unwrap_or(false),
         request.person_properties.clone(),
@@ -80,10 +81,11 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
     let group_property_overrides = request.group_properties.clone();
 
     let feature_flags_from_cache_or_pg = request
-        .get_flags_from_cache_or_pg(team.id, state.redis.clone(), state.postgres.clone())
+        .get_flags_from_cache_or_pg(team_id, state.redis.clone(), state.postgres.clone())
         .await?;
 
     let flags_response = evaluate_feature_flags(
+        team_id,
         distinct_id,
         feature_flags_from_cache_or_pg,
         Some(state.postgres.clone()),
@@ -151,20 +153,22 @@ fn decode_request(headers: &HeaderMap, body: Bytes) -> Result<FlagRequest, FlagE
 /// - Returns a map of feature flag keys to their values
 /// - If an error occurs while evaluating a flag, it will be logged and the flag will be omitted from the result
 pub async fn evaluate_feature_flags(
+    team_id: i32,
     distinct_id: String,
     feature_flags_from_cache_or_pg: FeatureFlagList,
     database_client: Option<Arc<dyn Client + Send + Sync>>,
     person_property_overrides: Option<HashMap<String, Value>>,
     group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
 ) -> FlagsResponse {
+    let mut feature_flags = HashMap::new();
+    let mut error_while_computing_flags = false;
     let mut matcher = FeatureFlagMatcher::new(
         distinct_id.clone(),
+        team_id,
         database_client,
         person_property_overrides,
         group_property_overrides,
     );
-    let mut feature_flags = HashMap::new();
-    let mut error_while_computing_flags = false;
     let feature_flag_list = feature_flags_from_cache_or_pg.flags;
 
     for flag in feature_flag_list {
@@ -340,6 +344,7 @@ mod tests {
         person_properties.insert("country".to_string(), json!("US"));
 
         let result = evaluate_feature_flags(
+            1,
             "user123".to_string(),
             feature_flag_list,
             Some(pg_client),

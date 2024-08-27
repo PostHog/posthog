@@ -1,6 +1,7 @@
 pub mod api;
 pub mod config;
 pub mod database;
+pub mod database_healthcheck;
 pub mod flag_definitions;
 pub mod flag_matching;
 pub mod flag_request;
