@@ -17,7 +17,9 @@ const configWithSentry = (config: Partial<PostHogConfig>): Partial<PostHogConfig
 }
 
 export function loadPostHogJS(): void {
+    window.console.warn('LOADING POSTHOG')
     if (window.JS_POSTHOG_API_KEY) {
+        window.console.warn('LOADING POSTHOG WITH KEY', window.JS_POSTHOG_API_KEY)
         posthog.init(
             window.JS_POSTHOG_API_KEY,
             configWithSentry({
@@ -34,8 +36,10 @@ export function loadPostHogJS(): void {
                     }
 
                     if (window.IMPERSONATED_SESSION) {
+                        window.console.warn('IMPERSONATING SESSION', window.IMPERSONATED_SESSION)
                         posthog.opt_out_capturing()
                     } else {
+                        window.console.warn('OPTING IN CAPTURING')
                         posthog.opt_in_capturing()
                     }
                 },
@@ -59,6 +63,8 @@ export function loadPostHogJS(): void {
                 },
             })
         )
+        window.posthog?.capture('capturing posthog event')
+        window.console.warn('POSTHOG LOADED, EVENT CAPTURED')
 
         const Cypress = (window as any).Cypress
 
@@ -80,6 +86,7 @@ export function loadPostHogJS(): void {
         // Make sure we have access to the object in window for debugging
         window.posthog = posthog
     } else {
+        window.console.warn('POSTHOG NOT LOADED')
         posthog.init('fake token', {
             autocapture: false,
             loaded: function (ph) {

@@ -8,19 +8,20 @@ describe('Billing', () => {
     })
 
     it('Show and submit unsubscribe survey', () => {
+        cy.intercept('/api/billing/deactivate?products=product_analytics', {
+            fixture: 'api/billing/billing-unsubscribed-product-analytics.json',
+        }).as('unsubscribeProductAnalytics')
+        cy.visit('/organization/billing')
+
+        cy.get('[data-attr=more-button]').first().click()
+        cy.contains('.LemonButton', 'Unsubscribe').click()
+        cy.get('.LemonModal h3').should('contain', 'Unsubscribe from Product analytics')
+        cy.get('[data-attr=unsubscribe-reason-too-expensive]').click()
+        cy.get('[data-attr=unsubscribe-reason-survey-textarea]').type('Product analytics')
+        cy.contains('.LemonModal .LemonButton', 'Unsubscribe').click()
+        cy.wait(5000) // Wait 5 seconds
+
         cy.window().then((win) => {
-            cy.intercept('/api/billing/deactivate?products=product_analytics', {
-                fixture: 'api/billing/billing-unsubscribed-product-analytics.json',
-            }).as('unsubscribeProductAnalytics')
-            cy.visit('/organization/billing')
-
-            cy.get('[data-attr=more-button]').first().click()
-            cy.contains('.LemonButton', 'Unsubscribe').click()
-            cy.get('.LemonModal h3').should('contain', 'Unsubscribe from Product analytics')
-            cy.get('[data-attr=unsubscribe-reason-too-expensive]').click()
-            cy.get('[data-attr=unsubscribe-reason-survey-textarea]').type('Product analytics')
-            cy.contains('.LemonModal .LemonButton', 'Unsubscribe').click()
-
             win.console.warn('_CYPRESS_POSTHOG_CAPTURES', (win as any)._cypress_posthog_captures)
             const events = (win as any)._cypress_posthog_captures
             const matchingEvents = events.filter((event) => event.event === 'survey sent')

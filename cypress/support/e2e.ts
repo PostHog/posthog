@@ -20,7 +20,7 @@ Cypress.on('window:before:load', (win) => {
     cy.spy(win.console, 'error')
     cy.spy(win.console, 'warn')
 
-    win.console.warn('SETTING _CYPRESS_POSTHOG_CAPTURES')
+    win.console.warn('SETTING _CYPRESS_POSTHOG_CAPTURES BEFORE LOAD')
     win._cypress_posthog_captures = []
 })
 
