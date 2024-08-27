@@ -26,7 +26,7 @@ from django.db.models import QuerySet, Prefetch, prefetch_related_objects, Outer
 from django.db.models.expressions import F
 from django.utils import timezone
 from rest_framework import serializers, viewsets, request, status
-from rest_framework.decorators import action
+from posthog.api.utils import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response

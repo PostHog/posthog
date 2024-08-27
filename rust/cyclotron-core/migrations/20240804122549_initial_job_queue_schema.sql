@@ -78,6 +78,17 @@ CREATE INDEX idx_queue_queue_name ON cyclotron_jobs(queue_name);
 ---------------------------------------------------------------------
 
 
+-- The dead letter metadata table - when a job is DLQ'd, whovever does it leaves a note here for us.
+CREATE TABLE IF NOT EXISTS cyclotron_dead_letter_metadata (
+    job_id UUID PRIMARY KEY,
+    -- The queue the job was on before it was DLQ'd (important if e.g. we want to re-schedule it after fixing a bug)
+    original_queue_name TEXT NOT NULL,
+    -- This is the reason the job was DLQ'd. This should be for humans, but can include structured data if needed (keep in mind the original job will still exist)
+    reason TEXT NOT NULL,
+    -- This is the time the job was DLQ'd
+    dlq_time TIMESTAMPTZ NOT NULL
+);
+
 -- These are just a starting point, supporting overriding the state for a given team, function or queue
 -- For now these are entirely unused
 CREATE TABLE IF NOT EXISTS cyclotron_team_control (
