@@ -84,13 +84,6 @@ def add_query_params(url: str, params: dict[str, str]) -> str:
 def _convert_response_to_csv_data(data: Any) -> Generator[Any, None, None]:
     if isinstance(data.get("results"), list):
         results = data.get("results")
-    elif isinstance(data.get("result"), list):
-        results = data.get("result")
-    else:
-        return None
-
-    if isinstance(data.get("results"), list):
-        # query like
         if len(results) > 0 and (isinstance(results[0], list) or isinstance(results[0], tuple)) and data.get("types"):
             # e.g. {'columns': ['count()'], 'hasMore': False, 'results': [[1775]], 'types': ['UInt64']}
             # or {'columns': ['count()', 'event'], 'hasMore': False, 'results': [[551, '$feature_flag_called'], [265, '$autocapture']], 'types': ['UInt64', 'String']}
@@ -111,6 +104,13 @@ def _convert_response_to_csv_data(data: Any) -> Generator[Any, None, None]:
                         row_dict[data["columns"][idx]] = x
                 yield row_dict
             return
+
+    if isinstance(data.get("results"), list) or isinstance(data.get("results"), dict):
+        results = data.get("results")
+    elif isinstance(data.get("results"), list) or isinstance(data.get("results"), dict):
+        results = data.get("result")
+    else:
+        return None
 
     if isinstance(results, list):
         first_result = next(iter(results), None)

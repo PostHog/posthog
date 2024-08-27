@@ -27,6 +27,7 @@ from posthog.tasks.exports import csv_exporter
 from posthog.tasks.exports.csv_exporter import (
     UnexpectedEmptyJsonResponse,
     add_query_params,
+    _convert_response_to_csv_data,
 )
 from posthog.hogql.constants import CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events, _create_person
@@ -556,6 +557,45 @@ class TestCSVExporter(APIBaseTest):
                     "$pageview,test'123,$pageview,1,60.0,60.0",
                 ],
             )
+
+    def test_funnel_time_to_convert(self) -> None:
+        data = {
+            "average_conversion_time": 1.45,
+            "bins": [
+                [1, 1],
+                [2, 3],
+                [3, 5],
+                [4, 17],
+                [5, 29],
+                [6, 44],
+                [7, 38],
+                [8, 24],
+                [9, 10],
+                [10, 7],
+                [11, 3],
+                [12, 1],
+                [13, 1],
+                [14, 1],
+                [15, 0],
+                [16, 0],
+                [17, 0],
+                [18, 0],
+                [19, 0],
+                [20, 0],
+                [21, 1],
+                [22, 0],
+                [23, 1],
+                [24, 0],
+                [25, 0],
+                [26, 0],
+            ],
+        }
+        csv_data = yield _convert_response_to_csv_data(data)
+        assert 1 == csv_data["bin"]
+        assert 1 == csv_data["value"]
+        csv_data = yield _convert_response_to_csv_data(data)
+        assert 2 == csv_data["bin"]
+        assert 3 == csv_data["value"]
 
     @patch("posthog.models.exported_asset.UUIDT")
     def test_csv_exporter_empty_result(self, mocked_uuidt: Any) -> None:
