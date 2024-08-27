@@ -50,6 +50,7 @@ def execute_bytecode(
     last_op = len(bytecode) - 1
     stack: list = []
     upvalues: list[dict] = []
+    upvalues_by_id: dict[int, dict] = {}
     mem_stack: list = []
     call_stack: list[CallFrame] = []
     throw_stack: list[ThrowFrame] = []
@@ -129,8 +130,15 @@ def execute_bytecode(
                 break
             if upvalue["location"] == index:
                 return upvalue
-        created_upvalue = {"__hogUpValue__": True, "location": index, "closed": False, "value": None}
+        created_upvalue = {
+            "__hogUpValue__": True,
+            "location": index,
+            "closed": False,
+            "value": None,
+            "id": len(upvalues) + 1,
+        }
         upvalues.append(created_upvalue)
+        upvalues_by_id[created_upvalue["id"]] = created_upvalue
         upvalues.sort(key=lambda x: x["location"])
         return created_upvalue
 

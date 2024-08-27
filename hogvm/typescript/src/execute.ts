@@ -135,6 +135,10 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
     const syncDuration = vmState ? vmState.syncDuration : 0
     const stack: any[] = vmState ? vmState.stack.map(convertJSToHog) : []
     const upvalues: HogUpValue[] = vmState ? vmState.upvalues : []
+    const upvaluesById: Record<number, HogUpValue> = {}
+    for (const upvalue of upvalues) {
+        upvaluesById[upvalue.id] = upvalue
+    }
     const memStack: number[] = stack.map((s) => calculateCost(s))
     const callStack: CallFrame[] = vmState ? vmState.callStack : []
     const throwStack: ThrowFrame[] = vmState ? vmState.throwStack : []
@@ -236,15 +240,17 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 return upvalues[i]
             }
         }
-        const createdUpvalue = {
+        const createdUpValue = {
             __hogUpValue__: true,
+            id: upvalues.length + 1, // used to deduplicate post deserialization
             location: index,
             closed: false,
             value: null,
         } satisfies HogUpValue
-        upvalues.push(createdUpvalue)
+        upvalues.push(createdUpValue)
+        upvaluesById[createdUpValue.id] = createdUpValue
         upvalues.sort((a, b) => a.location - b.location)
-        return createdUpvalue
+        return createdUpValue
     }
 
     while (frame.ip < bytecode.length) {
@@ -522,7 +528,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                     throw new HogVMException(`Invalid callable: ${JSON.stringify(callable)}`)
                 }
                 const upvalueCount = next()
-                const upvalues: HogUpValue[] = []
+                const closureUpValues: HogUpValue[] = []
                 if (upvalueCount !== callable.upvalueCount) {
                     throw new HogVMException(
                         `Invalid upvalue count. Expected ${callable.upvalueCount}, got ${upvalueCount}`
@@ -532,12 +538,12 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 for (let i = 0; i < callable.upvalueCount; i++) {
                     const [isLocal, index] = [next(), next()]
                     if (isLocal) {
-                        upvalues.push(captureUpValue(stackStart + index))
+                        closureUpValues.push(captureUpValue(stackStart + index))
                     } else {
-                        upvalues.push(frame.closure.upvalues[index])
+                        closureUpValues.push(frame.closure.upvalues[index])
                     }
                 }
-                pushStack(newHogClosure(callable, upvalues))
+                pushStack(newHogClosure(callable, closureUpValues))
                 break
             }
             case Operation.GET_UPVALUE: {
@@ -545,9 +551,14 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 if (index >= frame.closure.upvalues.length) {
                     throw new HogVMException(`Invalid upvalue index: ${index}`)
                 }
-                const upvalue = frame.closure.upvalues[index]
+                let upvalue = frame.closure.upvalues[index]
                 if (!isHogUpValue(upvalue)) {
                     throw new HogVMException(`Invalid upvalue: ${upvalue}`)
+                }
+                // denormalize to the same object after vm stack deserialization
+                if (upvalue !== upvaluesById[upvalue.id]) {
+                    upvalue = upvaluesById[upvalue.id]
+                    frame.closure.upvalues[index] = upvalue
                 }
                 if (upvalue.closed) {
                     pushStack(upvalue.value)
@@ -561,9 +572,14 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 if (index >= frame.closure.upvalues.length) {
                     throw new HogVMException(`Invalid upvalue index: ${index}`)
                 }
-                const upvalue = frame.closure.upvalues[index]
+                let upvalue = frame.closure.upvalues[index]
                 if (!isHogUpValue(upvalue)) {
                     throw new HogVMException(`Invalid upvalue: ${upvalue}`)
+                }
+                // denormalize to the same object after vm stack deserialization
+                if (upvalue !== upvaluesById[upvalue.id]) {
+                    upvalue = upvaluesById[upvalue.id]
+                    frame.closure.upvalues[index] = upvalue
                 }
                 if (upvalue.closed) {
                     upvalue.value = popStack()

@@ -2034,6 +2034,7 @@ describe('hogvm execute', () => {
                             {
                                 __hogUpValue__: true,
                                 location: 0,
+                                id: 1,
                                 closed: false,
                                 value: null,
                             },
@@ -2044,6 +2045,7 @@ describe('hogvm execute', () => {
                     {
                         __hogUpValue__: true,
                         location: 0,
+                        id: 1,
                         closed: false,
                         value: null,
                     },
@@ -2071,7 +2073,7 @@ describe('hogvm execute', () => {
                 ops: 5,
                 asyncSteps: 1,
                 syncDuration: expect.any(Number),
-                maxMemUsed: 339,
+                maxMemUsed: 357,
             },
         })
         result.state!.stack.push(null)
@@ -2089,7 +2091,7 @@ describe('hogvm execute', () => {
                 ops: 19,
                 asyncSteps: 1,
                 syncDuration: expect.any(Number),
-                maxMemUsed: 670,
+                maxMemUsed: 706,
             },
         })
     })
@@ -2192,6 +2194,7 @@ describe('hogvm execute', () => {
                         upvalues: [
                             {
                                 __hogUpValue__: true,
+                                id: 1,
                                 location: 1,
                                 closed: true,
                                 value: 'outside',
@@ -2202,6 +2205,7 @@ describe('hogvm execute', () => {
                 upvalues: [
                     {
                         __hogUpValue__: true,
+                        id: 1,
                         location: 1,
                         closed: true,
                         value: 'outside',
@@ -2230,7 +2234,7 @@ describe('hogvm execute', () => {
                 ops: 11,
                 asyncSteps: 1,
                 syncDuration: expect.any(Number),
-                maxMemUsed: 876,
+                maxMemUsed: 912,
             },
         })
         result.state!.stack.push(null)
@@ -2248,7 +2252,7 @@ describe('hogvm execute', () => {
                 ops: 17,
                 asyncSteps: 1,
                 syncDuration: expect.any(Number),
-                maxMemUsed: 876,
+                maxMemUsed: 912,
             },
         })
     })
@@ -2258,8 +2262,9 @@ describe('hogvm execute', () => {
         //   let x := 'outside'
         //   fn inner() {
         //     print(x)
+        //     sleep(2)
+        //     return x
         //   }
-        //   sleep(2)
         //   return inner
         // }
         //
@@ -2272,14 +2277,26 @@ describe('hogvm execute', () => {
             'outer',
             0,
             0,
-            25,
+            31,
             32,
             'outside',
             52,
             'inner',
             0,
             1,
-            3,
+            15,
+            55,
+            0,
+            2,
+            'print',
+            1,
+            35,
+            33,
+            2,
+            2,
+            'sleep',
+            1,
+            35,
             55,
             0,
             38,
@@ -2287,12 +2304,6 @@ describe('hogvm execute', () => {
             1,
             true,
             0,
-            33,
-            2,
-            2,
-            'sleep',
-            1,
-            35,
             36,
             1,
             38,
@@ -2325,7 +2336,7 @@ describe('hogvm execute', () => {
             asyncFunctionName: 'sleep',
             asyncFunctionArgs: [2],
             state: {
-                bytecode,
+                bytecode: bytecode,
                 stack: [
                     {
                         __hogClosure__: true,
@@ -2338,7 +2349,6 @@ describe('hogvm execute', () => {
                         },
                         upvalues: [],
                     },
-                    'outside',
                     {
                         __hogClosure__: true,
                         callable: {
@@ -2351,9 +2361,10 @@ describe('hogvm execute', () => {
                         upvalues: [
                             {
                                 __hogUpValue__: true,
+                                id: 1,
                                 location: 1,
-                                closed: false,
-                                value: null,
+                                closed: true,
+                                value: 'outside',
                             },
                         ],
                     },
@@ -2361,14 +2372,15 @@ describe('hogvm execute', () => {
                 upvalues: [
                     {
                         __hogUpValue__: true,
+                        id: 1,
                         location: 1,
-                        closed: false,
-                        value: null,
+                        closed: true,
+                        value: 'outside',
                     },
                 ],
                 callStack: [
                     {
-                        ip: 38,
+                        ip: 48,
                         stackStart: 0,
                         argCount: 0,
                         closure: {
@@ -2384,28 +2396,36 @@ describe('hogvm execute', () => {
                         },
                     },
                     {
-                        ip: 26,
-                        stackStart: 1,
+                        ip: 25,
+                        stackStart: 2,
                         argCount: 0,
                         closure: {
                             __hogClosure__: true,
                             callable: {
                                 __hogCallable__: 'local',
-                                name: 'outer',
+                                name: 'inner',
                                 argCount: 0,
-                                upvalueCount: 0,
-                                ip: 7,
+                                upvalueCount: 1,
+                                ip: 14,
                             },
-                            upvalues: [],
+                            upvalues: [
+                                {
+                                    __hogUpValue__: true,
+                                    id: 1,
+                                    location: 1,
+                                    closed: true,
+                                    value: 'outside',
+                                },
+                            ],
                         },
                     },
                 ],
                 throwStack: [],
                 declaredFunctions: {},
-                ops: 9,
+                ops: 16,
                 asyncSteps: 1,
                 syncDuration: expect.any(Number),
-                maxMemUsed: 562,
+                maxMemUsed: 912,
             },
         })
         result.state!.stack.push(null)
@@ -2420,10 +2440,10 @@ describe('hogvm execute', () => {
                 callStack: [],
                 throwStack: [],
                 declaredFunctions: {},
-                ops: 17,
+                ops: 20,
                 asyncSteps: 1,
                 syncDuration: expect.any(Number),
-                maxMemUsed: 876,
+                maxMemUsed: 912,
             },
         })
     })

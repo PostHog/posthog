@@ -42,6 +42,7 @@ export interface HogCallable {
 
 export interface HogUpValue {
     __hogUpValue__: true
+    id: number
     location: number
     closed: boolean
     value: any
