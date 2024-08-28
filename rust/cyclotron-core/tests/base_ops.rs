@@ -197,13 +197,16 @@ async fn test_queue(db: PgPool) {
         .set_scheduled_at(job.id, now - Duration::minutes(10))
         .expect("failed to set scheduled_at");
     worker
-        .set_vm_state(job.id, Some("test".to_string()))
+        .set_vm_state(job.id, Some("test".as_bytes().to_owned()))
         .expect("failed to set vm_state");
     worker
-        .set_parameters(job.id, Some("test".to_string()))
+        .set_parameters(job.id, Some("test".as_bytes().to_owned()))
         .expect("failed to set parameters");
     worker
-        .set_metadata(job.id, Some("test".to_string()))
+        .set_blob(job.id, Some("test".as_bytes().to_owned()))
+        .expect("failed to set blob");
+    worker
+        .set_metadata(job.id, Some("test".as_bytes().to_owned()))
         .expect("failed to set metadata");
 
     // Flush the job
@@ -221,9 +224,9 @@ async fn test_queue(db: PgPool) {
     assert_eq!(job.queue_name, "test_2");
     assert_eq!(job.priority, 1);
     assert!(dates_match(&job.scheduled, &(now - Duration::minutes(10))),);
-    assert_eq!(job.vm_state, Some("test".to_string()));
-    assert_eq!(job.parameters, Some("test".to_string()));
-    assert_eq!(job.metadata, Some("test".to_string()));
+    assert_eq!(job.vm_state, Some("test".as_bytes().to_owned()));
+    assert_eq!(job.parameters, Some("test".as_bytes().to_owned()));
+    assert_eq!(job.metadata, Some("test".as_bytes().to_owned()));
 }
 
 #[sqlx::test(migrations = "./migrations")]

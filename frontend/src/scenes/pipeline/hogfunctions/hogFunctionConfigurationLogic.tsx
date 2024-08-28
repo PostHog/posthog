@@ -563,7 +563,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
 
         resetForm: () => {
             const baseConfig = values.defaultFormState
-
             if (!baseConfig) {
                 return
             }

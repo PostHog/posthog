@@ -20,6 +20,8 @@ axum = { workspace = true }
 serve-metrics = { path = "../common/serve_metrics" }
 metrics = { workspace = true }
 chrono = { workspace = true }
+lru = { workspace = true }
+common-metrics = { path = "../common/metrics" }
 
 [lints]
 workspace = true

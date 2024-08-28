@@ -54,6 +54,8 @@ class DataImportPipeline:
         self.should_chunk_pipeline = (
             incremental
             and inputs.job_type != ExternalDataSource.Type.POSTGRES
+            and inputs.job_type != ExternalDataSource.Type.MYSQL
+            and inputs.job_type != ExternalDataSource.Type.MSSQL
             and inputs.job_type != ExternalDataSource.Type.SNOWFLAKE
         )
 

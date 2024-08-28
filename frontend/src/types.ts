@@ -33,7 +33,6 @@ import { Scene } from 'scenes/sceneTypes'
 import { QueryContext } from '~/queries/types'
 
 import type {
-    AnomalyCondition,
     DashboardFilter,
     DatabaseSchemaField,
     HogQLQuery,
@@ -961,7 +960,7 @@ export type ActionStepProperties =
 
 export interface RecordingPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Recording
-    key: DurationType | 'console_log_level' | 'console_log_query' | 'snapshot_source' | 'visited_page'
+    key: DurationType | 'snapshot_source' | 'visited_page'
     operator: PropertyOperator
 }
 
@@ -970,7 +969,10 @@ export interface RecordingDurationFilter extends RecordingPropertyFilter {
     value: number
 }
 
-export type DurationType = 'duration' | 'active_seconds' | 'inactive_seconds'
+export interface LogEntryPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.LogEntry
+    operator: PropertyOperator
+}
 
 export interface LogEntryPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.LogEntry
@@ -985,9 +987,11 @@ export interface LogEntryMessageFilter extends LogEntryPropertyFilter {
     key: 'message'
     value: string
 }
+
+export type DurationType = 'duration' | 'active_seconds' | 'inactive_seconds'
 export type FilterableLogLevel = 'info' | 'warn' | 'error'
 
-export interface RecordingFilters {
+export interface LegacyRecordingFilters {
     date_from?: string | null
     date_to?: string | null
     events?: FilterType['events']
@@ -1008,11 +1012,6 @@ export interface RecordingUniversalFilters {
     duration: RecordingDurationFilter[]
     filter_test_accounts?: boolean
     filter_group: UniversalFiltersGroup
-}
-
-export interface SessionRecordingsResponse {
-    results: SessionRecordingType[]
-    has_next: boolean
 }
 
 export type ErrorCluster = {
@@ -1324,7 +1323,7 @@ export interface SessionRecordingPlaylistType {
     created_by: UserBasicType | null
     last_modified_at: string
     last_modified_by: UserBasicType | null
-    filters?: RecordingFilters
+    filters?: LegacyRecordingFilters
 }
 
 export interface SessionRecordingSegmentType {
@@ -3855,6 +3854,7 @@ export const externalDataSources = [
     'Hubspot',
     'Postgres',
     'MySQL',
+    'MSSQL',
     'Zendesk',
     'Snowflake',
     'Salesforce',
@@ -3876,7 +3876,7 @@ export interface ExternalDataStripeSource {
     source_id: string
     connection_id: string
     status: string
-    source_type: string
+    source_type: ExternalDataSourceType
     prefix: string
     last_run_at?: Dayjs
     schemas: ExternalDataSourceSchema[]
@@ -4250,6 +4250,7 @@ export type SourceFieldConfig =
 
 export interface SourceConfig {
     name: ExternalDataSourceType
+    label?: string
     caption: string | React.ReactNode
     fields: SourceFieldConfig[]
     disabledReason?: string | null
@@ -4459,14 +4460,6 @@ export type HogFunctionInvocationGlobals = {
             properties: Record<string, any>
         }
     >
-}
-
-export interface AlertType {
-    id: number
-    name: string
-    insight?: number
-    target_value: string
-    anomaly_condition: AnomalyCondition
 }
 
 export type AppMetricsV2Response = {
