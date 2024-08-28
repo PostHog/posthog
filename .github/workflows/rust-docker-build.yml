@@ -124,5 +124,6 @@ jobs:
                         "release": "capture-replay",
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": ${{ toJson(github.repository) }},
-                        "labels": []
+                        "labels": [],
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
