@@ -7,7 +7,7 @@ from rest_framework.exceptions import NotFound
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, HogFunctionSubTemplate
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.permissions import PostHogFeatureFlagPermission
 from rest_framework_dataclasses.serializers import DataclassSerializer
@@ -16,7 +16,14 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 logger = structlog.get_logger(__name__)
 
 
+class HogFunctionSubTemplateSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = HogFunctionSubTemplate
+
+
 class HogFunctionTemplateSerializer(DataclassSerializer):
+    sub_templates = HogFunctionSubTemplateSerializer(many=True, required=False)
+
     class Meta:
         dataclass = HogFunctionTemplate
 

@@ -2133,6 +2133,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "lru"
+version = "0.12.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "37ee39891760e7d94734f6f63fedc29a2e4a152f836120753a72503f09fcf904"
+dependencies = [
+ "hashbrown 0.14.3",
+]
+
+[[package]]
 name = "mach"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2836,9 +2845,11 @@ version = "0.1.0"
 dependencies = [
  "axum 0.7.5",
  "chrono",
+ "common-metrics",
  "envconfig",
  "futures",
  "health",
+ "lru",
  "metrics",
  "rdkafka",
  "serde",
