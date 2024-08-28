@@ -6,10 +6,12 @@ import { closeHub, createHub } from '../../../../src/utils/db/hub'
 import { UUIDT } from '../../../../src/utils/utils'
 import { normalizeEventStep } from '../../../../src/worker/ingestion/event-pipeline/normalizeEventStep'
 import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/processPersonsStep'
+import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
+import { EventsProcessor } from '../../../../src/worker/ingestion/process-event'
 import { createOrganization, createTeam, fetchPostgresPersons, resetTestDatabase } from '../../../helpers/sql'
 
 describe('processPersonsStep()', () => {
-    let runner: any
+    let runner: Pick<EventPipelineRunner, 'hub' | 'eventsProcessor'>
     let hub: Hub
 
     let uuid: string
@@ -21,8 +23,8 @@ describe('processPersonsStep()', () => {
         await resetTestDatabase()
         hub = await createHub()
         runner = {
-            nextStep: (...args: any[]) => args,
             hub: hub,
+            eventsProcessor: new EventsProcessor(hub),
         }
         const organizationId = await createOrganization(runner.hub.db.postgres)
         teamId = await createTeam(runner.hub.db.postgres, organizationId)
