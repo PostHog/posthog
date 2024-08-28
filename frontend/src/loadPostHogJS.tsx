@@ -25,6 +25,7 @@ export function loadPostHogJS(): void {
             ui_host: window.JS_POSTHOG_UI_HOST,
             rageclick: true,
             persistence: 'localStorage+cookie',
+            opt_out_useragent_filter: true,
             bootstrap: window.POSTHOG_USER_IDENTITY_WITH_FLAGS ? window.POSTHOG_USER_IDENTITY_WITH_FLAGS : {},
             opt_in_site_apps: true,
             api_transport: 'fetch',
