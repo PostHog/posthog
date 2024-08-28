@@ -80,19 +80,22 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         return view
 
     def update(self, instance: Any, validated_data: Any) -> Any:
-        view: DataWarehouseSavedQuery = super().update(instance, validated_data)
-
-        try:
-            view.columns = view.get_columns()
-            view.external_tables = view.s3_tables
-        except Exception as err:
-            raise serializers.ValidationError(str(err))
-
         with transaction.atomic():
+            view: DataWarehouseSavedQuery = super().update(instance, validated_data)
+
+            try:
+                view.columns = view.get_columns()
+                view.external_tables = view.s3_tables
+            except RecursionError:
+                raise serializers.ValidationError("Model contains a cycle")
+
+            except Exception as err:
+                raise serializers.ValidationError(str(err))
+
             view.save()
 
             try:
-                DataWarehouseModelPath.objects.create_from_saved_query(view)
+                DataWarehouseModelPath.objects.update_from_saved_query(view)
             except Exception:
                 logger.exception("Failed to update model path when updating view %s", view.name)
 
