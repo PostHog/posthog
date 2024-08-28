@@ -1,4 +1,5 @@
 import { toHogDate, toHogDateTime } from './stl/date'
+import { HogUpValue } from './objects'
 
 export class HogVMException extends Error {
     constructor(message: string) {
@@ -93,6 +94,8 @@ export function convertJSToHog(x: any): any {
             return toHogDateTime(x.dt, x.zone)
         } else if (x.__hogDate__) {
             return toHogDate(x.year, x.month, x.day)
+        } else if (x.__hogClosure__ || x.__hogCallable__) {
+            return x
         }
         const map = new Map()
         for (const key in x) {
@@ -113,7 +116,7 @@ export function convertHogToJS(x: any): any {
     } else if (typeof x === 'object' && Array.isArray(x)) {
         return x.map(convertHogToJS)
     } else if (typeof x === 'object' && x !== null) {
-        if (x.__hogDateTime__ || x.__hogDate__) {
+        if (x.__hogDateTime__ || x.__hogDate__ || x.__hogClosure__ || x.__hogCallable__) {
             return x
         }
         const obj: Record<string, any> = {}
