@@ -1,4 +1,4 @@
-import { auth } from '../productAnalytics'
+import { auth } from '../support'
 
 describe('Redirect to other subdomain if logged in', () => {
     it('Redirects to the EU instance', () => {

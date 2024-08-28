@@ -1,4 +1,4 @@
-import { auth } from '../productAnalytics'
+import { auth } from '../support'
 import { randomString } from '../support/random'
 
 const VALID_PASSWORD = 'hedgE-hog-123%'

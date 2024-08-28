@@ -1,4 +1,4 @@
-import { auth } from '../productAnalytics'
+import { auth } from '../support'
 
 const preflightSuccessResponse = {
     django: true,
