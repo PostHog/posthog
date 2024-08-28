@@ -460,7 +460,7 @@ class TestPostHogTokenCookieMiddleware(APIBaseTest):
         self.assertEqual(response.cookies["ph_current_instance"].value, SITE_URL)
         self.assertEqual(response.cookies["ph_current_instance"]["max-age"], 31536000)
 
-        response = self.client.get("/logout")
+        response = self.client.post("/logout")
         self.client.logout()
 
         # Check that the local cookies will be removed by having 'expires' in the past
@@ -542,7 +542,7 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
             assert res.status_code == 302
             assert res.headers["Location"] == "/logout/"
 
-            res = self.client.get("/logout/")
+            res = self.client.post("/logout/")
             assert res.status_code == 302
             assert res.headers["Location"] == "/admin/"
 
