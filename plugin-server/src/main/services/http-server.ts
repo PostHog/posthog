@@ -12,6 +12,8 @@ v8Profiler.setGenerateType(1)
 
 export const expressApp: express.Application = express()
 
+expressApp.use(express.json())
+
 export function setupCommonRoutes(
     healthChecks: { [service: string]: () => Promise<boolean> | boolean },
     analyticsEventsIngestionConsumer?: KafkaJSIngestionConsumer | IngestionConsumer

@@ -1,6 +1,9 @@
 import 'givens/setup'
 import './commands'
 import 'cypress-axe'
+
+import { urls } from 'scenes/urls'
+
 import { decideResponse } from '../fixtures/api/decide'
 
 try {
@@ -18,6 +21,10 @@ Cypress.on('window:before:load', (win) => {
     cy.spy(win.console, 'warn')
 
     win._cypress_posthog_captures = []
+})
+
+before(() => {
+    cy.task('resetInsightCache') // Reset insight cache before each suite
 })
 
 beforeEach(() => {
@@ -50,6 +57,8 @@ beforeEach(() => {
 
     if (Cypress.spec.name.includes('before-onboarding')) {
         cy.visit('/?no-preloaded-app-context=true')
+    } else if (Cypress.spec.name.includes('organizationSettings')) {
+        cy.visit(urls.settings('organization'))
     } else {
         cy.visit('/insights')
         cy.wait('@getInsights').then(() => {

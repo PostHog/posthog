@@ -1,6 +1,6 @@
 {
     "name": "@posthog/hogvm",
-    "version": "1.0.14",
+    "version": "1.0.38",
     "description": "PostHog Hog Virtual Machine",
     "types": "dist/index.d.ts",
     "main": "dist/index.js",
@@ -22,6 +22,7 @@
         "@swc-node/register": "^1.9.1",
         "@swc/core": "^1.5.7",
         "@swc/jest": "^0.2.36",
+        "@types/luxon": "^3.4.2",
         "@types/node": "^20.14.2",
         "jest": "^28.1.1",
         "prettier": "^3.2.5",
@@ -34,5 +35,13 @@
         "tsconfig.build.json",
         "tsconfig.json",
         ".prettierrc"
-    ]
+    ],
+    "peerDependencies": {
+        "luxon": "^3.4.4",
+        "re2": "^1.21.3"
+    },
+    "dependencies": {
+        "luxon": "^3.4.4",
+        "re2": "^1.21.3"
+    }
 }

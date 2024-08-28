@@ -1,6 +1,6 @@
 export const enum Operation {
     GET_GLOBAL = 1,
-    CALL = 2,
+    CALL_GLOBAL = 2,
     AND = 3,
     OR = 4,
     NOT = 5,
@@ -46,4 +46,15 @@ export const enum Operation {
     TUPLE = 44,
     GET_PROPERTY = 45,
     SET_PROPERTY = 46,
+    JUMP_IF_STACK_NOT_NULL = 47,
+    GET_PROPERTY_NULLISH = 48,
+    THROW = 49,
+    TRY = 50,
+    POP_TRY = 51,
+    CALLABLE = 52,
+    CLOSURE = 53,
+    CALL_LOCAL = 54,
+    GET_UPVALUE = 55,
+    SET_UPVALUE = 56,
+    CLOSE_UPVALUE = 57,
 }

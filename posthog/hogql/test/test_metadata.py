@@ -1,6 +1,8 @@
+from typing import Optional
+
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.models import PropertyDefinition, Cohort
-from posthog.schema import HogQLMetadata, HogQLMetadataResponse, HogQLQuery
+from posthog.schema import HogQLMetadata, HogQLMetadataResponse, HogQLQuery, HogLanguage
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from django.test import override_settings
 
@@ -12,8 +14,9 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         return get_hogql_metadata(
             query=HogQLMetadata(
                 kind="HogQLMetadata",
-                expr=query,
-                exprSource=HogQLQuery(kind="HogQLQuery", query=f"select * from {table}"),
+                language=HogLanguage.HOG_QL_EXPR,
+                query=query,
+                sourceQuery=HogQLQuery(query=f"select * from {table}"),
                 response=None,
                 debug=debug,
             ),
@@ -22,7 +25,21 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
 
     def _select(self, query: str) -> HogQLMetadataResponse:
         return get_hogql_metadata(
-            query=HogQLMetadata(kind="HogQLMetadata", select=query, response=None),
+            query=HogQLMetadata(kind="HogQLMetadata", language=HogLanguage.HOG_QL, query=query, response=None),
+            team=self.team,
+        )
+
+    def _program(self, query: str, globals: Optional[dict] = None) -> HogQLMetadataResponse:
+        return get_hogql_metadata(
+            query=HogQLMetadata(
+                kind="HogQLMetadata", language=HogLanguage.HOG, query=query, globals=globals, response=None
+            ),
+            team=self.team,
+        )
+
+    def _template(self, query: str) -> HogQLMetadataResponse:
+        return get_hogql_metadata(
+            query=HogQLMetadata(kind="HogQLMetadata", language=HogLanguage.HOG_TEMPLATE, query=query, response=None),
             team=self.team,
         )
 
@@ -33,8 +50,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": False,
-                "inputExpr": "select 1",
-                "inputSelect": None,
+                "query": "select 1",
                 "errors": [
                     {
                         "message": "extraneous input '1' expecting <EOF>",
@@ -52,8 +68,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": True,
-                "inputExpr": None,
-                "inputSelect": "select 1",
+                "query": "select 1",
                 "errors": [],
             },
         )
@@ -64,8 +79,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": True,
-                "inputExpr": "timestamp",
-                "inputSelect": None,
+                "query": "timestamp",
                 "errors": [],
             },
         )
@@ -76,8 +90,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": False,
-                "inputExpr": None,
-                "inputSelect": "timestamp",
+                "query": "timestamp",
                 "errors": [
                     {
                         "message": "mismatched input 'timestamp' expecting {SELECT, WITH, '{', '(', '<'}",
@@ -96,8 +109,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": False,
-                "inputExpr": "1 as true",
-                "inputSelect": None,
+                "query": "1 as true",
                 "errors": [
                     {
                         "message": '"true" cannot be an alias or identifier, as it\'s a reserved keyword',
@@ -116,8 +128,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": False,
-                "inputExpr": "1 + no_field",
-                "inputSelect": None,
+                "query": "1 + no_field",
                 "errors": [
                     {
                         "message": "Unable to resolve field: no_field",
@@ -154,8 +165,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.model_dump()
             | {
                 "isValid": True,
-                "inputExpr": None,
-                "inputSelect": query,
+                "query": query,
                 "notices": [
                     {
                         "message": "Field 'person_id' is of type 'String'",
@@ -208,8 +218,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": True,
-                "inputExpr": "properties.string || properties.number",
-                "inputSelect": None,
+                "query": "properties.string || properties.number",
                 "notices": [
                     {
                         "message": "Event property 'string' is of type 'String'. This property is not materialized 🐢.",
@@ -244,8 +253,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": True,
-                "inputExpr": "properties.string || properties.number",
-                "inputSelect": None,
+                "query": "properties.string || properties.number",
                 "notices": [
                     {
                         "message": "Event property 'string' is of type 'String'.",
@@ -271,8 +279,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             | {
                 "isValid": True,
                 "isValidView": True,
-                "inputExpr": None,
-                "inputSelect": "select event AS event FROM events",
+                "query": "select event AS event FROM events",
                 "errors": [],
             },
         )
@@ -298,8 +305,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             | {
                 "isValid": True,
                 "isValidView": True,
-                "inputExpr": None,
-                "inputSelect": "select event AS event FROM event_view",
+                "query": "select event AS event FROM event_view",
                 "errors": [],
             },
         )
@@ -312,5 +318,68 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             | {
                 "isValid": True,
                 "errors": [],
+            },
+        )
+
+    def test_hog_program(self):
+        metadata = self._program("let i := 3")
+        self.assertEqual(
+            metadata.dict(),
+            metadata.dict()
+            | {
+                "isValid": True,
+                "errors": [],
+            },
+        )
+
+    def test_hog_program_invalid(self):
+        metadata = self._program("let i := NONO()")
+        self.assertEqual(
+            metadata.dict(),
+            metadata.dict()
+            | {
+                "query": "let i := NONO()",
+                "isValid": False,
+                "isValidView": False,
+                "notices": [],
+                "warnings": [],
+                "errors": [{"end": 15, "fix": None, "message": "Hog function `NONO` is not implemented", "start": 9}],
+            },
+        )
+
+    def test_hog_program_globals(self):
+        metadata = self._program("print(event, region)", globals={"event": "banana"})
+        self.assertEqual(
+            metadata.dict(),
+            metadata.dict()
+            | {
+                "query": "print(event, region)",
+                "isValid": True,
+                "isValidView": False,
+                "notices": [{"end": 11, "fix": None, "message": "Global variable: event", "start": 6}],
+                "warnings": [{"end": 19, "fix": None, "message": "Unknown global variable: region", "start": 13}],
+                "errors": [],
+            },
+        )
+
+    def test_string_template(self):
+        metadata = self._program("this is a {event} string")
+        self.assertEqual(
+            metadata.dict(),
+            metadata.dict()
+            | {
+                "isValid": True,
+                "errors": [],
+            },
+        )
+
+    def test_string_template_invalid(self):
+        metadata = self._program("this is a {NONO()} string")
+        self.assertEqual(
+            metadata.dict(),
+            metadata.dict()
+            | {
+                "isValid": False,
+                "errors": [{"end": 17, "fix": None, "message": "Hog function `NONO` is not implemented", "start": 11}],
             },
         )

@@ -22,7 +22,6 @@ from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
 from posthog.test.base import APIBaseTest
 
-
 VALID_TEST_PASSWORD = "mighty-strong-secure-1337!!"
 
 
@@ -117,6 +116,28 @@ class TestLoginAPI(APIBaseTest):
 
         # Assert the email was sent.
         mock_send_email_verification.assert_called_once_with(self.user)
+
+    @patch("posthog.api.authentication.is_email_available", return_value=True)
+    @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")
+    @patch("posthog.api.authentication.is_email_verification_disabled", return_value=True)
+    def test_email_unverified_user_can_log_in_if_email_available_but_verification_disabled_flag_is_true(
+        self, mock_is_verification_disabled, mock_send_email_verification, mock_is_email_available
+    ):
+        self.user.is_email_verified = False
+        self.user.save()
+        self.assertEqual(self.user.is_email_verified, False)
+        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True})
+
+        # Test that we're actually logged in
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["email"], self.user.email)
+
+        mock_is_verification_disabled.assert_called_once()
+        mock_is_email_available.assert_called_once()
+        mock_send_email_verification.assert_not_called()
 
     @patch("posthog.api.authentication.is_email_available", return_value=True)
     @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")

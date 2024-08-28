@@ -2,6 +2,7 @@ from typing import Any
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
+
 from posthog.models.utils import sane_repr
 
 from posthog.utils import absolute_uri
@@ -13,9 +14,6 @@ class DashboardManager(models.Manager):
 
 
 class Dashboard(models.Model):
-    objects = DashboardManager()
-    objects_including_soft_deleted = models.Manager()
-
     class CreationMode(models.TextChoices):
         DEFAULT = "default", "Default"
         TEMPLATE = (
@@ -42,17 +40,17 @@ class Dashboard(models.Model):
         CAN_VIEW = 21, "Can view dashboard"
         CAN_EDIT = 37, "Can edit dashboard"
 
-    name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
-    description: models.TextField = models.TextField(blank=True)
-    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
-    pinned: models.BooleanField = models.BooleanField(default=False)
-    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
-    created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
-    deleted: models.BooleanField = models.BooleanField(default=False)
-    last_accessed_at: models.DateTimeField = models.DateTimeField(blank=True, null=True)
-    filters: models.JSONField = models.JSONField(default=dict)
-    creation_mode: models.CharField = models.CharField(max_length=16, default="default", choices=CreationMode.choices)
-    restriction_level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
+    name = models.CharField(max_length=400, null=True, blank=True)
+    description = models.TextField(blank=True)
+    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    pinned = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True, blank=True)
+    created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
+    deleted = models.BooleanField(default=False)
+    last_accessed_at = models.DateTimeField(blank=True, null=True)
+    filters = models.JSONField(default=dict)
+    creation_mode = models.CharField(max_length=16, default="default", choices=CreationMode.choices)
+    restriction_level = models.PositiveSmallIntegerField(
         default=RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
         choices=RestrictionLevel.choices,
     )
@@ -74,11 +72,23 @@ class Dashboard(models.Model):
     )
 
     # DEPRECATED: using the new "sharing" relation instead
-    share_token: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    share_token = models.CharField(max_length=400, null=True, blank=True)
     # DEPRECATED: using the new "is_sharing_enabled" relation instead
-    is_shared: models.BooleanField = models.BooleanField(default=False)
+    is_shared = models.BooleanField(default=False)
+
+    objects = DashboardManager()
+    objects_including_soft_deleted: models.Manager["Dashboard"] = models.Manager()
 
     __repr__ = sane_repr("team_id", "id", "name")
+
+    class Meta:
+        indexes = [
+            models.Index(
+                name="idx_dashboard_deleted_team_id",
+                fields=["-pinned", "name", "deleted", "team_id"],
+                condition=models.Q(deleted=False),
+            ),
+        ]
 
     def __str__(self):
         return self.name or str(self.id)

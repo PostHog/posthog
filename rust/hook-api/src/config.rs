@@ -2,7 +2,7 @@ use envconfig::Envconfig;
 
 #[derive(Envconfig)]
 pub struct Config {
-    #[envconfig(from = "BIND_HOST", default = "0.0.0.0")]
+    #[envconfig(from = "BIND_HOST", default = "::")]
     pub host: String,
 
     #[envconfig(from = "BIND_PORT", default = "3300")]
@@ -19,6 +19,12 @@ pub struct Config {
 
     #[envconfig(default = "5000000")]
     pub max_body_size: usize,
+
+    #[envconfig(default = "100")]
+    pub concurrency_limit: usize,
+
+    #[envconfig(default = "false")]
+    pub hog_mode: bool,
 }
 
 impl Config {

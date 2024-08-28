@@ -6,8 +6,8 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { ManualLinkSourceType, SourceConfig } from '~/types'
 
-import { DataWarehouseBetaNotice } from '../DataWarehouseBetaNotice'
-import PostgresSchemaForm from '../external/forms/PostgresSchemaForm'
+import { DataWarehouseInitialBillingLimitNotice } from '../DataWarehouseInitialBillingLimitNotice'
+import SchemaForm from '../external/forms/SchemaForm'
 import SourceForm from '../external/forms/SourceForm'
 import { SyncProgressStep } from '../external/forms/SyncProgressStep'
 import { DatawarehouseTableForm } from '../new/DataWarehouseTableForm'
@@ -16,45 +16,11 @@ import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
 import { sourceWizardLogic } from './sourceWizardLogic'
 
 export const scene: SceneExport = {
-    component: NewSourceWizard,
+    component: NewSourceWizardScene,
     logic: sourceWizardLogic,
 }
-export function NewSourceWizard(): JSX.Element {
-    const { modalTitle, modalCaption } = useValues(sourceWizardLogic)
-    const { onBack, onSubmit, closeWizard } = useActions(sourceWizardLogic)
-    const { currentStep, isLoading, canGoBack, canGoNext, nextButtonText, showSkipButton } =
-        useValues(sourceWizardLogic)
-    const { tableLoading: manualLinkIsLoading } = useValues(dataWarehouseTableLogic)
-
-    const footer = useCallback(() => {
-        if (currentStep === 1) {
-            return null
-        }
-
-        return (
-            <div className="mt-2 flex flex-row justify-end gap-2">
-                <LemonButton
-                    type="secondary"
-                    center
-                    data-attr="source-modal-back-button"
-                    onClick={onBack}
-                    disabledReason={!canGoBack && 'You cant go back from here'}
-                >
-                    Back
-                </LemonButton>
-                <LemonButton
-                    loading={isLoading || manualLinkIsLoading}
-                    disabledReason={!canGoNext && 'You cant click next yet'}
-                    type="primary"
-                    center
-                    onClick={() => onSubmit()}
-                    data-attr="source-link"
-                >
-                    {nextButtonText}
-                </LemonButton>
-            </div>
-        )
-    }, [currentStep, isLoading, manualLinkIsLoading, canGoNext, canGoBack, nextButtonText, showSkipButton])
+export function NewSourceWizardScene(): JSX.Element {
+    const { closeWizard } = useActions(sourceWizardLogic)
 
     return (
         <>
@@ -72,33 +38,87 @@ export function NewSourceWizard(): JSX.Element {
                     </>
                 }
             />
-            <DataWarehouseBetaNotice />
-            <>
-                <h3>{modalTitle}</h3>
-                <p>{modalCaption}</p>
-                <FirstStep />
-                <SecondStep />
-                <ThirdStep />
-                <FourthStep />
-                {footer()}
-            </>
+            <NewSourcesWizard />
         </>
     )
 }
 
-interface ModalPageProps {
-    page: number
-    children?: React.ReactNode
+interface NewSourcesWizardProps {
+    onComplete?: () => void
 }
 
-function ModalPage({ children, page }: ModalPageProps): JSX.Element {
-    const { currentStep } = useValues(sourceWizardLogic)
+export function NewSourcesWizard({ onComplete }: NewSourcesWizardProps): JSX.Element {
+    const wizardLogic = sourceWizardLogic({ onComplete })
 
-    if (currentStep !== page) {
-        return <></>
-    }
+    const {
+        modalTitle,
+        modalCaption,
+        isWrapped,
+        currentStep,
+        isLoading,
+        canGoBack,
+        canGoNext,
+        nextButtonText,
+        showSkipButton,
+    } = useValues(wizardLogic)
+    const { onBack, onSubmit } = useActions(wizardLogic)
+    const { tableLoading: manualLinkIsLoading } = useValues(dataWarehouseTableLogic)
 
-    return <div>{children}</div>
+    const footer = useCallback(() => {
+        if (currentStep === 1) {
+            return null
+        }
+
+        return (
+            <div className="mt-4 flex flex-row justify-end gap-2">
+                {canGoBack && (
+                    <LemonButton
+                        type="secondary"
+                        center
+                        data-attr="source-modal-back-button"
+                        onClick={onBack}
+                        disabledReason={!canGoBack && 'You cant go back from here'}
+                    >
+                        Back
+                    </LemonButton>
+                )}
+                <LemonButton
+                    loading={isLoading || manualLinkIsLoading}
+                    disabledReason={!canGoNext && 'You cant click next yet'}
+                    type="primary"
+                    center
+                    onClick={() => onSubmit()}
+                    data-attr="source-link"
+                >
+                    {nextButtonText}
+                </LemonButton>
+            </div>
+        )
+    }, [currentStep, isLoading, manualLinkIsLoading, canGoNext, canGoBack, nextButtonText, showSkipButton])
+
+    return (
+        <>
+            {!isWrapped && <DataWarehouseInitialBillingLimitNotice />}
+            <>
+                <h3>{modalTitle}</h3>
+                <p>{modalCaption}</p>
+
+                {currentStep === 1 ? (
+                    <FirstStep />
+                ) : currentStep === 2 ? (
+                    <SecondStep />
+                ) : currentStep === 3 ? (
+                    <ThirdStep />
+                ) : currentStep === 4 ? (
+                    <FourthStep />
+                ) : (
+                    <div>Something went wrong...</div>
+                )}
+
+                {footer()}
+            </>
+        </>
+    )
 }
 
 function FirstStep(): JSX.Element {
@@ -121,13 +141,13 @@ function FirstStep(): JSX.Element {
     }
 
     return (
-        <ModalPage page={1}>
+        <>
             <h2 className="mt-4">Managed by PostHog</h2>
 
-            <span>
+            <p>
                 Data will be synced to PostHog and regularly refreshed.{' '}
                 <Link to="https://posthog.com/docs/data-warehouse/setup#stripe">Learn more</Link>
-            </span>
+            </p>
             <LemonTable
                 dataSource={connectors}
                 loading={false}
@@ -144,7 +164,11 @@ function FirstStep(): JSX.Element {
                         title: 'Name',
                         key: 'name',
                         render: function RenderName(_, sourceConfig) {
-                            return <span className="font-semibold text-sm gap-1">{sourceConfig.name}</span>
+                            return (
+                                <span className="font-semibold text-sm gap-1">
+                                    {sourceConfig.label ?? sourceConfig.name}
+                                </span>
+                            )
                         },
                     },
                     {
@@ -165,10 +189,10 @@ function FirstStep(): JSX.Element {
 
             <h2 className="mt-4">Self Managed</h2>
 
-            <span>
+            <p>
                 Data will be queried directly from your data source that you manage.{' '}
                 <Link to="https://posthog.com/docs/data-warehouse/setup#linking-a-custom-source">Learn more</Link>
-            </span>
+            </p>
             <LemonTable
                 dataSource={manualConnectors}
                 loading={false}
@@ -207,32 +231,20 @@ function FirstStep(): JSX.Element {
                     },
                 ]}
             />
-        </ModalPage>
+        </>
     )
 }
 
 function SecondStep(): JSX.Element {
     const { selectedConnector } = useValues(sourceWizardLogic)
 
-    return (
-        <ModalPage page={2}>
-            {selectedConnector ? <SourceForm sourceConfig={selectedConnector} /> : <DatawarehouseTableForm />}
-        </ModalPage>
-    )
+    return selectedConnector ? <SourceForm sourceConfig={selectedConnector} /> : <DatawarehouseTableForm />
 }
 
 function ThirdStep(): JSX.Element {
-    return (
-        <ModalPage page={3}>
-            <PostgresSchemaForm />
-        </ModalPage>
-    )
+    return <SchemaForm />
 }
 
 function FourthStep(): JSX.Element {
-    return (
-        <ModalPage page={4}>
-            <SyncProgressStep />
-        </ModalPage>
-    )
+    return <SyncProgressStep />
 }

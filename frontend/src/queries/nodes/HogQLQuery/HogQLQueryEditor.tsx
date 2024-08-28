@@ -1,97 +1,23 @@
 import { Monaco } from '@monaco-editor/react'
-import { IconInfo, IconMagicWand } from '@posthog/icons'
+import { IconMagicWand, IconPlus, IconX } from '@posthog/icons'
 import { LemonInput, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { CodeEditor } from 'lib/components/CodeEditors'
+import { router } from 'kea-router'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import type { editor as importedEditor, IDisposable } from 'monaco-editor'
-import { languages } from 'monaco-editor'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { CodeEditor } from 'lib/monaco/CodeEditor'
+import { activemodelStateKey, codeEditorLogic, editorModelsStateKey } from 'lib/monaco/codeEditorLogic'
+import type { editor as importedEditor, IDisposable, Uri } from 'monaco-editor'
 import { useEffect, useRef, useState } from 'react'
-import { DatabaseTableTreeWithItems } from 'scenes/data-warehouse/external/DataWarehouseTables'
-import useResizeObserver from 'use-resize-observer'
+import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
+import { urls } from 'scenes/urls'
 
-import { performQuery } from '~/queries/query'
-import { AutocompleteCompletionItem, HogQLAutocomplete, HogQLQuery, NodeKind } from '~/queries/schema'
+import { HogQLQuery } from '~/queries/schema'
 
 import { hogQLQueryEditorLogic } from './hogQLQueryEditorLogic'
-
-const convertCompletionItemKind = (kind: AutocompleteCompletionItem['kind']): languages.CompletionItemKind => {
-    switch (kind) {
-        case 'Method':
-            return languages.CompletionItemKind.Method
-        case 'Function':
-            return languages.CompletionItemKind.Function
-        case 'Constructor':
-            return languages.CompletionItemKind.Constructor
-        case 'Field':
-            return languages.CompletionItemKind.Field
-        case 'Variable':
-            return languages.CompletionItemKind.Variable
-        case 'Class':
-            return languages.CompletionItemKind.Class
-        case 'Struct':
-            return languages.CompletionItemKind.Struct
-        case 'Interface':
-            return languages.CompletionItemKind.Interface
-        case 'Module':
-            return languages.CompletionItemKind.Module
-        case 'Property':
-            return languages.CompletionItemKind.Property
-        case 'Event':
-            return languages.CompletionItemKind.Event
-        case 'Operator':
-            return languages.CompletionItemKind.Operator
-        case 'Unit':
-            return languages.CompletionItemKind.Unit
-        case 'Value':
-            return languages.CompletionItemKind.Value
-        case 'Constant':
-            return languages.CompletionItemKind.Constant
-        case 'Enum':
-            return languages.CompletionItemKind.Enum
-        case 'EnumMember':
-            return languages.CompletionItemKind.EnumMember
-        case 'Keyword':
-            return languages.CompletionItemKind.Keyword
-        case 'Text':
-            return languages.CompletionItemKind.Text
-        case 'Color':
-            return languages.CompletionItemKind.Color
-        case 'File':
-            return languages.CompletionItemKind.File
-        case 'Reference':
-            return languages.CompletionItemKind.Reference
-        case 'Customcolor':
-            return languages.CompletionItemKind.Customcolor
-        case 'Folder':
-            return languages.CompletionItemKind.Folder
-        case 'TypeParameter':
-            return languages.CompletionItemKind.TypeParameter
-        case 'User':
-            return languages.CompletionItemKind.User
-        case 'Issue':
-            return languages.CompletionItemKind.Issue
-        case 'Snippet':
-            return languages.CompletionItemKind.Snippet
-        default:
-            throw new Error(`Unknown CompletionItemKind: ${kind}`)
-    }
-}
-
-const kindToSortText = (kind: AutocompleteCompletionItem['kind'], label: string): string => {
-    if (kind === 'Variable') {
-        return `1-${label}`
-    }
-    if (kind === 'Method' || kind === 'Function') {
-        return `2-${label}`
-    }
-    return `3-${label}`
-}
 
 export interface HogQLQueryEditorProps {
     query: HogQLQuery
@@ -104,15 +30,20 @@ export interface HogQLQueryEditorProps {
 let uniqueNode = 0
 
 const EDITOR_HEIGHT = 222
-const TABLE_PANEL_HEIGHT = EDITOR_HEIGHT + 78
 
 export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
     const editorRef = useRef<HTMLDivElement | null>(null)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const artificialHogHeight = featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG] ? 40 : 0
-    const [panelHeight, setPanelHeight] = useState<number>(TABLE_PANEL_HEIGHT + artificialHogHeight)
 
-    const [key] = useState(() => uniqueNode++)
+    const [key, setKey] = useState(() =>
+        router.values.location.pathname.includes(urls.dataWarehouse()) ? router.values.location.pathname : uniqueNode++
+    )
+
+    useEffect(() => {
+        if (router.values.location.pathname.includes(urls.dataWarehouse())) {
+            setKey(router.values.location.pathname)
+        }
+    }, [router.values.location.pathname])
+
     const [monacoAndEditor, setMonacoAndEditor] = useState(
         null as [Monaco, importedEditor.IStandaloneCodeEditor] | null
     )
@@ -126,10 +57,31 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
         monaco,
     }
     const logic = hogQLQueryEditorLogic(hogQLQueryEditorLogicProps)
-    const { queryInput, hasErrors, error, prompt, aiAvailable, promptError, promptLoading, isValidView } =
-        useValues(logic)
-    const { setQueryInput, saveQuery, setPrompt, draftFromPrompt, saveAsView } = useActions(logic)
+    const { queryInput, prompt, aiAvailable, promptError, promptLoading, multitab } = useValues(logic)
+    const { setQueryInput, saveQuery, setPrompt, draftFromPrompt, saveAsView, onUpdateView } = useActions(logic)
 
+    const codeEditorKey = `hogQLQueryEditor/${key}`
+    const codeEditorLogicProps = {
+        key: codeEditorKey,
+        query: queryInput,
+        language: 'hogQL',
+        metadataFilters: props.query.filters,
+        multitab,
+    }
+    const { hasErrors, error, isValidView, activeModelUri, allModels } = useValues(
+        codeEditorLogic(codeEditorLogicProps)
+    )
+
+    const { createModel, setModel, deleteModel, setModels, addModel, updateState } = useActions(
+        codeEditorLogic(codeEditorLogicProps)
+    )
+
+    const { editingView } = useValues(
+        dataWarehouseSceneLogic({
+            monaco,
+            editor,
+        })
+    )
     // Using useRef, not useState, as we don't want to reload the component when this changes.
     const monacoDisposables = useRef([] as IDisposable[])
     useEffect(() => {
@@ -138,23 +90,19 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
         }
     }, [])
 
-    useResizeObserver({
-        ref: editorRef,
-        onResize: () => {
-            if (editorRef.current) {
-                setPanelHeight(Math.max(TABLE_PANEL_HEIGHT, editorRef.current.clientHeight + 78 + artificialHogHeight))
+    useEffect(() => {
+        if (monaco && activeModelUri && multitab) {
+            const _model = monaco.editor.getModel(activeModelUri)
+            const val = _model?.getValue()
+            if (val) {
+                setQueryInput(val)
+                saveQuery()
             }
-        },
-    })
+        }
+    }, [activeModelUri])
 
     return (
         <div className="flex items-start gap-2">
-            <FlaggedFeature flag={FEATURE_FLAGS.DATA_WAREHOUSE}>
-                {/* eslint-disable-next-line react/forbid-dom-props */}
-                <div className="flex max-sm:hidden" style={{ maxHeight: panelHeight }}>
-                    <DatabaseTableTreeWithItems inline />
-                </div>
-            </FlaggedFeature>
             <div
                 data-attr="hogql-query-editor"
                 className={clsx(
@@ -196,171 +144,94 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                     </div>
                 </FlaggedFeature>
                 {promptError ? <LemonBanner type="warning">{promptError}</LemonBanner> : null}
-                <div className="relative flex-1 overflow-hidden">
-                    <span className="absolute top-0 right-0 mt-1 mr-5 z-10 bg-bg-light">
-                        <LemonButtonWithDropdown
-                            icon={<IconInfo />}
-                            type="secondary"
-                            size="small"
-                            dropdown={{
-                                overlay: (
-                                    <div>
-                                        Run SQL queries with{' '}
-                                        <Link to="https://posthog.com/manual/hogql" target="_blank">
-                                            HogQL
-                                        </Link>
-                                        , our wrapper around ClickHouse SQL
-                                    </div>
-                                ),
-                                placement: 'right-start',
-                                fallbackPlacements: ['left-start'],
-                                actionable: true,
-                                closeParentPopoverOnClickInside: true,
-                            }}
-                        />
-                    </span>
+                <div className="relative flex-1 overflow-hidden flex-col">
+                    {multitab && (
+                        <div className="flex flex-row overflow-scroll hide-scrollbar">
+                            {allModels.map((model) => (
+                                <QueryTab
+                                    key={model.path}
+                                    active={model.path === activeModelUri?.path}
+                                    model={model}
+                                    onClick={setModel}
+                                    onClear={allModels.length > 1 ? deleteModel : undefined}
+                                />
+                            ))}
+                            <LemonButton
+                                onClick={() => {
+                                    createModel()
+                                }}
+                                icon={<IconPlus fontSize={14} />}
+                            />
+                        </div>
+                    )}
                     {/* eslint-disable-next-line react/forbid-dom-props */}
                     <div ref={editorRef} className="resize-y overflow-hidden" style={{ height: EDITOR_HEIGHT }}>
                         <CodeEditor
-                            className="border rounded overflow-hidden h-full"
-                            language="hogql"
+                            queryKey={codeEditorKey}
+                            className="border rounded-b overflow-hidden h-full"
+                            language="hogQL"
                             value={queryInput}
-                            onChange={(v) => setQueryInput(v ?? '')}
+                            onChange={(v) => {
+                                setQueryInput(v ?? '')
+                                updateState()
+                            }}
                             height="100%"
                             onMount={(editor, monaco) => {
-                                const completetionItemProviderDisposable =
-                                    monaco.languages.registerCompletionItemProvider('hogql', {
-                                        triggerCharacters: [' ', ',', '.'],
-                                        provideCompletionItems: async (model, position) => {
-                                            const word = model.getWordUntilPosition(position)
-
-                                            const startOffset = model.getOffsetAt({
-                                                lineNumber: position.lineNumber,
-                                                column: word.startColumn,
-                                            })
-                                            const endOffset = model.getOffsetAt({
-                                                lineNumber: position.lineNumber,
-                                                column: word.endColumn,
-                                            })
-
-                                            const response = await performQuery<HogQLAutocomplete>({
-                                                kind: NodeKind.HogQLAutocomplete,
-                                                select: model.getValue(), // Use the text from the model instead of logic due to a race condition on the logic values updating quick enough
-                                                filters: props.query.filters,
-                                                startPosition: startOffset,
-                                                endPosition: endOffset,
-                                            })
-
-                                            const completionItems = response.suggestions
-
-                                            const suggestions = completionItems.map<languages.CompletionItem>(
-                                                (item) => {
-                                                    const kind = convertCompletionItemKind(item.kind)
-                                                    const sortText = kindToSortText(item.kind, item.label)
-
-                                                    return {
-                                                        label: {
-                                                            label: item.label,
-                                                            detail: item.detail,
-                                                        },
-                                                        documentation: item.documentation,
-                                                        insertText: item.insertText,
-                                                        range: {
-                                                            startLineNumber: position.lineNumber,
-                                                            endLineNumber: position.lineNumber,
-                                                            startColumn: word.startColumn,
-                                                            endColumn: word.endColumn,
-                                                        },
-                                                        kind,
-                                                        sortText,
-                                                        command:
-                                                            kind === languages.CompletionItemKind.Function
-                                                                ? {
-                                                                      id: 'cursorLeft',
-                                                                      title: 'Move cursor left',
-                                                                  }
-                                                                : undefined,
-                                                    }
-                                                }
-                                            )
-
-                                            return {
-                                                suggestions,
-                                                incomplete: response.incomplete_list,
-                                            }
-                                        },
-                                    })
-
-                                monacoDisposables.current.push(completetionItemProviderDisposable)
-
-                                const codeActionProviderDisposable = monaco.languages.registerCodeActionProvider(
-                                    'hogql',
-                                    {
-                                        provideCodeActions: (model, _range, context) => {
-                                            if (logic.isMounted()) {
-                                                // Monaco gives us a list of markers that we're looking at, but without the quick fixes.
-                                                const markersFromMonaco = context.markers
-                                                // We have a list of _all_ markers returned from the HogQL metadata query
-                                                const markersFromMetadata = logic.values.modelMarkers
-                                                // We need to merge the two lists
-                                                const quickFixes: languages.CodeAction[] = []
-
-                                                for (const activeMarker of markersFromMonaco) {
-                                                    const start = model.getOffsetAt({
-                                                        column: activeMarker.startColumn,
-                                                        lineNumber: activeMarker.startLineNumber,
-                                                    })
-                                                    const end = model.getOffsetAt({
-                                                        column: activeMarker.endColumn,
-                                                        lineNumber: activeMarker.endLineNumber,
-                                                    })
-                                                    for (const rawMarker of markersFromMetadata) {
-                                                        if (
-                                                            rawMarker.hogQLFix &&
-                                                            // if ranges overlap
-                                                            rawMarker.start <= end &&
-                                                            rawMarker.end >= start
-                                                        ) {
-                                                            quickFixes.push({
-                                                                title: `Replace with: ${rawMarker.hogQLFix}`,
-                                                                diagnostics: [rawMarker],
-                                                                kind: 'quickfix',
-                                                                edit: {
-                                                                    edits: [
-                                                                        {
-                                                                            resource: model.uri,
-                                                                            textEdit: {
-                                                                                range: rawMarker,
-                                                                                text: rawMarker.hogQLFix,
-                                                                            },
-                                                                            versionId: undefined,
-                                                                        },
-                                                                    ],
-                                                                },
-                                                                isPreferred: true,
-                                                            })
-                                                        }
-                                                    }
-                                                }
-                                                return {
-                                                    actions: quickFixes,
-                                                    dispose: () => {},
-                                                }
-                                            }
-                                        },
-                                    }
-                                )
-                                monacoDisposables.current.push(codeActionProviderDisposable)
-
-                                monacoDisposables.current.push(
-                                    editor.addAction({
-                                        id: 'saveAndRunPostHog',
-                                        label: 'Save and run query',
-                                        keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter],
-                                        run: () => saveQuery(),
-                                    })
-                                )
                                 setMonacoAndEditor([monaco, editor])
+
+                                const allModelQueries = localStorage.getItem(editorModelsStateKey(codeEditorKey))
+                                const activeModelUri = localStorage.getItem(activemodelStateKey(codeEditorKey))
+
+                                if (allModelQueries && multitab) {
+                                    // clear existing models
+                                    monaco.editor.getModels().forEach((model) => {
+                                        model.dispose()
+                                    })
+
+                                    const models = JSON.parse(allModelQueries || '[]')
+                                    const newModels: Uri[] = []
+
+                                    models.forEach((model: Record<string, any>) => {
+                                        if (monaco) {
+                                            const uri = monaco.Uri.parse(model.path)
+                                            const newModel = monaco.editor.createModel(model.query, 'hogQL', uri)
+                                            editor?.setModel(newModel)
+                                            newModels.push(uri)
+                                        }
+                                    })
+
+                                    setModels(newModels)
+
+                                    if (activeModelUri) {
+                                        const uri = monaco.Uri.parse(activeModelUri)
+                                        const activeModel = monaco.editor
+                                            .getModels()
+                                            .find((model) => model.uri.path === uri.path)
+                                        activeModel && editor?.setModel(activeModel)
+                                        const val = activeModel?.getValue()
+                                        if (val) {
+                                            setQueryInput(val)
+                                            saveQuery()
+                                        }
+                                        setModel(uri)
+                                    } else if (newModels.length) {
+                                        setModel(newModels[0])
+                                    }
+                                } else {
+                                    const model = editor.getModel()
+
+                                    if (model) {
+                                        addModel(model.uri)
+                                        setModel(model.uri)
+                                    }
+                                }
+                            }}
+                            onPressCmdEnter={(value, selectionType) => {
+                                if (value && selectionType === 'selection') {
+                                    saveQuery(value)
+                                } else {
+                                    saveQuery()
+                                }
                             }}
                             options={{
                                 minimap: {
@@ -378,14 +249,14 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                         />
                     </div>
                 </div>
-                <div className="flex flex-row">
+                <div className="flex flex-row px-px">
                     {props.editorFooter ? (
                         props.editorFooter(hasErrors, error, isValidView)
                     ) : (
                         <>
                             <div className="flex-1">
                                 <LemonButton
-                                    onClick={saveQuery}
+                                    onClick={() => saveQuery()}
                                     type="primary"
                                     disabledReason={
                                         !props.setQuery
@@ -401,7 +272,24 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                     {!props.setQuery ? 'No permission to update' : 'Update and run'}
                                 </LemonButton>
                             </div>
-                            {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] ? (
+                            {editingView ? (
+                                <LemonButton
+                                    className="ml-2"
+                                    onClick={onUpdateView}
+                                    type="primary"
+                                    center
+                                    disabledReason={
+                                        hasErrors
+                                            ? error ?? 'Query has errors'
+                                            : !isValidView
+                                            ? 'All fields must have an alias'
+                                            : ''
+                                    }
+                                    data-attr="hogql-query-editor-update-view"
+                                >
+                                    Update view
+                                </LemonButton>
+                            ) : (
                                 <LemonButton
                                     className="ml-2"
                                     onClick={saveAsView}
@@ -415,36 +303,54 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                             : ''
                                     }
                                     data-attr="hogql-query-editor-save-as-view"
+                                    tooltip={
+                                        <div>
+                                            Save a query as a view that can be referenced in another query. This is
+                                            useful for modeling data and organizing large queries into readable chunks.{' '}
+                                            <Link to="https://posthog.com/docs/data-warehouse">More Info</Link>{' '}
+                                        </div>
+                                    }
                                 >
                                     Save as view
                                 </LemonButton>
-                            ) : null}
-                            {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] && (
-                                <LemonButtonWithDropdown
-                                    className="ml-2"
-                                    icon={<IconInfo />}
-                                    type="secondary"
-                                    size="small"
-                                    dropdown={{
-                                        overlay: (
-                                            <div>
-                                                Save a query as a view that can be referenced in another query. This is
-                                                useful for modeling data and organizing large queries into readable
-                                                chunks.{' '}
-                                                <Link to="https://posthog.com/docs/data-warehouse">More Info</Link>{' '}
-                                            </div>
-                                        ),
-                                        placement: 'right-start',
-                                        fallbackPlacements: ['left-start'],
-                                        actionable: true,
-                                        closeParentPopoverOnClickInside: true,
-                                    }}
-                                />
                             )}
                         </>
                     )}
                 </div>
             </div>
         </div>
+    )
+}
+
+// one off component for query editor tabs
+interface QueryTabProps {
+    model: Uri
+    active?: boolean
+    onClick?: (model: Uri) => void
+    onClear?: (model: Uri) => void
+}
+
+function QueryTab({ model, active, onClear, onClick }: QueryTabProps): JSX.Element {
+    return (
+        <button
+            onClick={() => onClick?.(model)}
+            className={clsx(
+                'space-y-px rounded-t p-1 flex flex-row items-center gap-1 hover:bg-[var(--bg-light)] cursor-pointer',
+                active ? 'bg-[var(--bg-light)] border' : 'bg-bg-3000',
+                onClear ? 'pl-3 pr-2' : 'px-4'
+            )}
+        >
+            {'Query ' + model.path.split('/').pop()}
+            {onClear && (
+                <LemonButton
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        onClear(model)
+                    }}
+                    size="xsmall"
+                    icon={<IconX />}
+                />
+            )}
+        </button>
     )
 }

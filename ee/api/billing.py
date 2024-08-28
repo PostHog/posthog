@@ -7,7 +7,7 @@ from django.conf import settings
 from django.http import HttpResponse
 from django.shortcuts import redirect
 from rest_framework import serializers, status, viewsets
-from rest_framework.decorators import action
+from posthog.api.utils import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -36,14 +36,14 @@ class LicenseKeySerializer(serializers.Serializer):
 
 class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = BillingSerializer
-    derive_current_team_from_user_only = True
+    param_derived_from_user_current_team = "team_id"
 
     scope_object = "INTERNAL"
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         license = get_cached_instance_license()
         if license and not license.is_v2_license:
-            raise NotFound("Billing V2 is not supported for this license type")
+            raise NotFound("Billing is not supported for this license type")
 
         org = self._get_org()
 
@@ -93,6 +93,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             required=False
         )  # This is required but in order to support an error for the legacy 'plan' param we need to set required=False
         redirect_path = serializers.CharField(required=False)
+        intent_product = serializers.CharField(required=False)
 
         def validate(self, data):
             plan = data.get("plan")
@@ -137,6 +138,10 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         products = serializer.validated_data.get("products")
         url = f"{url}&products={products}"
 
+        intent_product = serializer.validated_data.get("intent_product")
+        if intent_product:
+            url = f"{url}&intent_product={intent_product}"
+
         if license:
             billing_service_token = build_billing_token(license, organization)
             url = f"{url}&token={billing_service_token}"
@@ -171,9 +176,23 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             else:
-                raise e
+                raise
 
         return self.list(request, *args, **kwargs)
+
+    @action(methods=["GET"], detail=False)
+    def portal(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        license = get_cached_instance_license()
+        if not license:
+            return Response(
+                {"sucess": True},
+                status=status.HTTP_200_OK,
+            )
+
+        organization = self._get_org_required()
+
+        res = BillingManager(license)._get_stripe_portal_url(organization)
+        return redirect(res)
 
     @action(methods=["GET"], detail=False)
     def get_invoices(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
@@ -194,7 +213,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             if len(e.args) > 2:
                 detail_object = e.args[2]
                 if not isinstance(detail_object, dict):
-                    raise e
+                    raise
                 return Response(
                     {
                         "statusText": e.args[0],
@@ -204,7 +223,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             else:
-                raise e
+                raise
 
         return Response(
             {

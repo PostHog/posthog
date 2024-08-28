@@ -1,5 +1,5 @@
 import { IconFlag } from '@posthog/icons'
-import clsx from 'clsx'
+import { TitledSnack } from 'lib/components/TitledSnack'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
@@ -12,6 +12,16 @@ interface StackFrame {
     lineno: number
     colno: number
     function: string
+    context_line?: string
+}
+
+interface ExceptionTrace {
+    stacktrace: {
+        frames: StackFrame[]
+    }
+    module: string
+    type: string
+    value: string
 }
 
 function parseToFrames(rawTrace: string): StackFrame[] {
@@ -25,7 +35,7 @@ function StackTrace({ rawTrace }: { rawTrace: string }): JSX.Element | null {
             <>
                 {frames.length ? (
                     frames.map((frame, index) => {
-                        const { filename, lineno, colno, function: functionName } = frame
+                        const { filename, lineno, colno, function: functionName, context_line } = frame
 
                         return (
                             <TitledSnack
@@ -34,6 +44,7 @@ function StackTrace({ rawTrace }: { rawTrace: string }): JSX.Element | null {
                                 value={
                                     <>
                                         {filename}:{lineno}:{colno}
+                                        {context_line ? `:${context_line}` : ''}
                                     </>
                                 }
                             />
@@ -51,40 +62,20 @@ function StackTrace({ rawTrace }: { rawTrace: string }): JSX.Element | null {
     }
 }
 
-function TitledSnack({
-    title,
-    value,
-    type = 'default',
-}: {
-    title: string
-    value: string | JSX.Element
-    type?: 'default' | 'success'
-}): JSX.Element {
+function ChainedStackTraces({ exceptionList }: { exceptionList: ExceptionTrace[] }): JSX.Element {
     return (
-        <div className="flex flex-row items-center">
-            <span
-                className={clsx(
-                    'pl-1.5 pr-1 py-1 max-w-full',
-                    'border-r',
-                    'rounded-l rounded-r-none',
-                    'text-primary-alt overflow-hidden text-ellipsis',
-                    type === 'success' ? 'bg-success-highlight' : 'bg-primary-highlight'
-                )}
-            >
-                <strong>{title}:</strong>
-            </span>
-            <span
-                className={clsx(
-                    'pr-1.5 pl-1 py-1 max-w-full',
-                    'rounded-r rounded-l-none',
-                    'text-primary-alt overflow-hidden text-ellipsis',
-                    type === 'success' ? 'bg-success-highlight' : 'bg-primary-highlight',
-                    'flex flex-1 items-center'
-                )}
-            >
-                {value}
-            </span>
-        </div>
+        <>
+            <LemonDivider dashed={true} />
+            <h2 className="mb-0">Stack Trace</h2>
+            {exceptionList.map(({ stacktrace, value }, index) => {
+                return (
+                    <div key={index} className="flex flex-col gap-1 mt-6">
+                        <h3 className="mb-0">{value}</h3>
+                        <StackTrace rawTrace={JSON.stringify(stacktrace.frames)} />
+                    </div>
+                )
+            })}
+        </>
     )
 }
 
@@ -128,6 +119,7 @@ export function getExceptionPropertiesFrom(eventProperties: Record<string, any>)
     } = eventProperties
 
     let $exception_stack_trace_raw = eventProperties.$exception_stack_trace_raw
+    let $exception_list = eventProperties.$exception_list
     // exception autocapture sets $exception_stack_trace_raw as a string
     // if it isn't present then this is probably a sentry exception.
     // try and grab the frames from that
@@ -139,6 +131,14 @@ export function getExceptionPropertiesFrom(eventProperties: Record<string, any>)
             }
         }
     }
+    // exception autocapture sets $exception_list for chained exceptions.
+    // If it's not present, get this list from the sentry_exception
+    if (!$exception_list?.length && $sentry_exception) {
+        if (Array.isArray($sentry_exception.values)) {
+            $exception_list = $sentry_exception.values
+        }
+    }
+
     return {
         $exception_type,
         $exception_message,
@@ -152,6 +152,7 @@ export function getExceptionPropertiesFrom(eventProperties: Record<string, any>)
         $active_feature_flags,
         $sentry_url,
         $exception_stack_trace_raw,
+        $exception_list,
         $level,
     }
 }
@@ -170,6 +171,7 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
         $active_feature_flags,
         $sentry_url,
         $exception_stack_trace_raw,
+        $exception_list,
         $level,
     } = getExceptionPropertiesFrom(eventProperties)
 
@@ -185,7 +187,7 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
                         <>
                             {$sentry_url ? (
                                 <Link
-                                    className="text-primary-alt hover:underline decoration-primary-alt cursor-pointer"
+                                    className="text-3000 hover:underline decoration-primary-alt cursor-pointer"
                                     to={$sentry_url}
                                     target="_blank"
                                 >
@@ -199,10 +201,12 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
                 />
                 <TitledSnack title="synthetic" value={$exception_synthetic ? 'true' : 'false'} />
                 <TitledSnack title="library" value={`${$lib} ${$lib_version}`} />
-                <TitledSnack title="browser" value={`${$browser} ${$browser_version}`} />
-                <TitledSnack title="os" value={`${$os} ${$os_version}`} />
+                <TitledSnack title="browser" value={$browser ? `${$browser} ${$browser_version}` : 'unknown'} />
+                <TitledSnack title="os" value={$os ? `${$os} ${$os_version}` : 'unknown'} />
             </div>
-            {!!$exception_stack_trace_raw?.length && (
+            {$exception_list?.length ? (
+                <ChainedStackTraces exceptionList={$exception_list} />
+            ) : $exception_stack_trace_raw?.length ? (
                 <>
                     <LemonDivider dashed={true} />
                     <div className="flex flex-col gap-1 mt-6">
@@ -210,7 +214,7 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
                         <StackTrace rawTrace={$exception_stack_trace_raw} />
                     </div>
                 </>
-            )}
+            ) : null}
             <LemonDivider dashed={true} />
             <div className="flex flex-col gap-1 mt-6">
                 <h2 className="mb-0">Active Feature Flags</h2>

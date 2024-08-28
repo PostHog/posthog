@@ -218,6 +218,8 @@ export const mockIntegration: IntegrationType = {
             name: 'PostHog',
         },
     },
+    icon_url: '',
+    display_name: '',
     created_at: '2022-01-01T00:09:00',
     created_by: mockBasicUser,
 }

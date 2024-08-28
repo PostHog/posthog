@@ -1,7 +1,29 @@
 from typing import Literal, cast, Optional
 
 import math
+from posthog.hogql.ast import (
+    VariableAssignment,
+    Constant,
+    ArithmeticOperation,
+    Field,
+    ExprStatement,
+    Call,
+    ArithmeticOperationOp,
+    CompareOperationOp,
+    CompareOperation,
+    JoinExpr,
+    SelectQuery,
+    Program,
+    IfStatement,
+    Block,
+    WhileStatement,
+    Function,
+    Array,
+    Dict,
+    VariableDeclaration,
+)
 
+from posthog.hogql.parser import parse_program
 from posthog.hogql import ast
 from posthog.hogql.errors import ExposedHogQLError, SyntaxError
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select, parse_string_template
@@ -34,6 +56,9 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 clear_locations(parse_select(query, placeholders=placeholders, backend=backend)),
             )
 
+        def _program(self, program: str) -> ast.Program:
+            return cast(ast.Program, clear_locations(cast(ast.Expr, parse_program(program, backend=backend))))
+
         def test_numbers(self):
             self.assertEqual(self._expr("1"), ast.Constant(value=1))
             self.assertEqual(self._expr("1.2"), ast.Constant(value=1.2))
@@ -58,6 +83,48 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
         def test_null(self):
             self.assertEqual(self._expr("null"), ast.Constant(value=None))
 
+        def test_nullish(self):
+            self.assertEqual(
+                self._expr("1 ?? 2"),
+                ast.Call(
+                    name="ifNull",
+                    args=[
+                        ast.Constant(value=1),
+                        ast.Constant(value=2),
+                    ],
+                ),
+            )
+
+        def test_null_property(self):
+            self.assertEqual(
+                self._expr("a?.b"),
+                ast.ArrayAccess(
+                    array=ast.Field(chain=["a"]),
+                    property=ast.Constant(value="b"),
+                    nullish=True,
+                ),
+            )
+
+        def test_null_tuple(self):
+            self.assertEqual(
+                self._expr("a?.1"),
+                ast.TupleAccess(
+                    tuple=ast.Field(chain=["a"]),
+                    index=1,
+                    nullish=True,
+                ),
+            )
+
+        def test_null_property_nested(self):
+            self.assertEqual(
+                self._expr("a?.b?.['c']"),
+                ast.ArrayAccess(
+                    array=ast.ArrayAccess(array=ast.Field(chain=["a"]), property=ast.Constant(value="b"), nullish=True),
+                    property=ast.Constant(value="c"),
+                    nullish=True,
+                ),
+            )
+
         def test_conditional(self):
             self.assertEqual(
                 self._expr("1 > 2 ? 1 : 2"),
@@ -80,6 +147,11 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             self.assertEqual(self._expr("[1]"), ast.Array(exprs=[ast.Constant(value=1)]))
             self.assertEqual(
                 self._expr("[1, avg()]"),
+                ast.Array(exprs=[ast.Constant(value=1), ast.Call(name="avg", args=[])]),
+            )
+            self.assertEqual(self._expr("[1,]"), ast.Array(exprs=[ast.Constant(value=1)]))
+            self.assertEqual(
+                self._expr("[1, avg(),]"),
                 ast.Array(exprs=[ast.Constant(value=1), ast.Call(name="avg", args=[])]),
             )
             self.assertEqual(
@@ -115,10 +187,62 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 self._expr("(1, avg())"),
                 ast.Tuple(exprs=[ast.Constant(value=1), ast.Call(name="avg", args=[])]),
             )
+            self.assertEqual(
+                self._expr("(1, avg(),)"),
+                ast.Tuple(exprs=[ast.Constant(value=1), ast.Call(name="avg", args=[])]),
+            )
+            self.assertEqual(
+                self._expr("(1,)"),
+                ast.Tuple(exprs=[ast.Constant(value=1)]),
+            )
             # needs at least two values to be a tuple
             self.assertEqual(self._expr("(1)"), ast.Constant(value=1))
 
         def test_lambdas(self):
+            self.assertEqual(
+                self._expr("(x, y) -> x * y"),
+                ast.Lambda(
+                    args=["x", "y"],
+                    expr=ast.ArithmeticOperation(
+                        op=ast.ArithmeticOperationOp.Mult,
+                        left=ast.Field(chain=["x"]),
+                        right=ast.Field(chain=["y"]),
+                    ),
+                ),
+            )
+            self.assertEqual(
+                self._expr("x, y -> x * y"),
+                ast.Lambda(
+                    args=["x", "y"],
+                    expr=ast.ArithmeticOperation(
+                        op=ast.ArithmeticOperationOp.Mult,
+                        left=ast.Field(chain=["x"]),
+                        right=ast.Field(chain=["y"]),
+                    ),
+                ),
+            )
+            self.assertEqual(
+                self._expr("(x) -> x * y"),
+                ast.Lambda(
+                    args=["x"],
+                    expr=ast.ArithmeticOperation(
+                        op=ast.ArithmeticOperationOp.Mult,
+                        left=ast.Field(chain=["x"]),
+                        right=ast.Field(chain=["y"]),
+                    ),
+                ),
+            )
+            self.assertEqual(
+                self._expr("x -> x * y"),
+                ast.Lambda(
+                    args=["x"],
+                    expr=ast.ArithmeticOperation(
+                        op=ast.ArithmeticOperationOp.Mult,
+                        left=ast.Field(chain=["x"]),
+                        right=ast.Field(chain=["y"]),
+                    ),
+                ),
+            )
             self.assertEqual(
                 self._expr("arrayMap(x -> x * 2)"),
                 ast.Call(
@@ -165,6 +289,54 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                             ),
                         )
                     ],
+                ),
+            )
+
+        def test_lambda_blocks(self):
+            self.assertEqual(
+                self._expr("(x, y) -> { print('hello'); return x * y }"),
+                ast.Lambda(
+                    args=["x", "y"],
+                    expr=ast.Block(
+                        declarations=[
+                            ast.ExprStatement(expr=ast.Call(name="print", args=[ast.Constant(value="hello")])),
+                            ast.ReturnStatement(
+                                expr=ast.ArithmeticOperation(
+                                    op=ast.ArithmeticOperationOp.Mult,
+                                    left=ast.Field(chain=["x"]),
+                                    right=ast.Field(chain=["y"]),
+                                )
+                            ),
+                        ]
+                    ),
+                ),
+            )
+
+        def test_call_expr(self):
+            self.assertEqual(
+                self._expr("asd.asd(123)"),
+                ast.ExprCall(
+                    expr=ast.Field(chain=["asd", "asd"]),
+                    args=[ast.Constant(value=123)],
+                ),
+            )
+            self.assertEqual(
+                self._expr("asd['asd'](123)"),
+                ast.ExprCall(
+                    expr=ast.ArrayAccess(array=ast.Field(chain=["asd"]), property=ast.Constant(value="asd")),
+                    args=[ast.Constant(value=123)],
+                ),
+            )
+            self.assertEqual(
+                self._expr("(x -> x * 2)(3)"),
+                ast.ExprCall(
+                    expr=ast.Lambda(
+                        args=["x"],
+                        expr=ast.ArithmeticOperation(
+                            op=ast.ArithmeticOperationOp.Mult, left=ast.Field(chain=["x"]), right=ast.Constant(value=2)
+                        ),
+                    ),
+                    args=[ast.Constant(value=3)],
                 ),
             )
 
@@ -563,7 +735,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
         def test_placeholders(self):
             self.assertEqual(
                 self._expr("{foo}"),
-                ast.Placeholder(field="foo"),
+                ast.Placeholder(chain=["foo"]),
             )
             self.assertEqual(
                 self._expr("{foo}", {"foo": ast.Constant(value="bar")}),
@@ -774,7 +946,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 self._select("select 1 from {placeholder}"),
                 ast.SelectQuery(
                     select=[ast.Constant(value=1)],
-                    select_from=ast.JoinExpr(table=ast.Placeholder(field="placeholder")),
+                    select_from=ast.JoinExpr(table=ast.Placeholder(chain=["placeholder"])),
                 ),
             )
             self.assertEqual(
@@ -1164,7 +1336,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                     where=ast.CompareOperation(
                         op=ast.CompareOperationOp.Eq,
                         left=ast.Constant(value=1),
-                        right=ast.Placeholder(field="hogql_val_1"),
+                        right=ast.Placeholder(chain=["hogql_val_1"]),
                     ),
                 ),
             )
@@ -1483,26 +1655,6 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             )
             self.assertEqual(expr, expected)
 
-        def test_property_access_with_arrays_zero_index_error(self):
-            query = f"SELECT properties.something[0] FROM events"
-            with self.assertRaisesMessage(
-                SyntaxError,
-                "SQL indexes start from one, not from zero. E.g: array[1]",
-            ) as e:
-                self._select(query)
-            self.assertEqual(e.exception.start, 7)
-            self.assertEqual(e.exception.end, 30)
-
-        def test_property_access_with_tuples_zero_index_error(self):
-            query = f"SELECT properties.something.0 FROM events"
-            with self.assertRaisesMessage(
-                SyntaxError,
-                "SQL indexes start from one, not from zero. E.g: array[1]",
-            ) as e:
-                self._select(query)
-            self.assertEqual(e.exception.start, 7)
-            self.assertEqual(e.exception.end, 29)
-
         def test_reserved_keyword_alias_error(self):
             query = f"SELECT 0 AS trUE FROM events"
             with self.assertRaisesMessage(
@@ -1644,6 +1796,19 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ],
             )
 
+        def test_visit_hogqlx_tag_column_source(self):
+            query = """
+                select <a href='https://google.com'>{event}</a> from events
+            """
+            node = self._select(query)
+            assert isinstance(node, ast.SelectQuery) and cast(ast.HogQLXTag, node.select[0]) == ast.HogQLXTag(
+                kind="a",
+                attributes=[
+                    ast.HogQLXAttribute(name="href", value=Constant(value="https://google.com")),
+                    ast.HogQLXAttribute(name="source", value=ast.Field(chain=["event"])),
+                ],
+            )
+
         def test_select_extract_as_function(self):
             node = self._select("select extract('string', 'other string') from events")
 
@@ -1770,6 +1935,13 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             node2 = self._expr("f'strings\\' to {'strings'}'")
             assert node2 == node
 
+            node = self._string_template("strings\\{ to {'strings'}")
+            assert node == ast.Call(
+                name="concat", args=[ast.Constant(value="strings{ to "), ast.Constant(value="strings")]
+            )
+            node2 = self._expr("f'strings\\{ to {'strings'}'")
+            assert node2 == node
+
         def test_template_strings_full_multiline(self):
             node = self._string_template("hello \n{event}")
             assert node == ast.Call(name="concat", args=[ast.Constant(value="hello \n"), ast.Field(chain=["event"])])
@@ -1782,5 +1954,550 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                     ast.Field(chain=["person", "properties", "email"]),
                 ],
             )
+
+        def test_program_variable_declarations(self):
+            code = "let a := '123'; let b := a - 2; print(b);"
+            program = self._program(code)
+
+            expected = Program(
+                declarations=[
+                    VariableDeclaration(name="a", expr=Constant(type=None, value="123")),
+                    VariableDeclaration(
+                        name="b",
+                        expr=ArithmeticOperation(
+                            type=None,
+                            left=Field(type=None, chain=["a"]),
+                            right=Constant(type=None, value=2),
+                            op=ArithmeticOperationOp.Sub,
+                        ),
+                    ),
+                    ExprStatement(
+                        expr=Call(
+                            type=None,
+                            name="print",
+                            args=[Field(type=None, chain=["b"])],
+                            params=None,
+                            distinct=False,
+                        ),
+                    ),
+                ]
+            )
+            self.assertEqual(program, expected)
+
+        def test_program_variable_reassignment(self):
+            code = "let a := 3; a := 4;"
+            program = self._program(code)
+            expected = Program(
+                start=None,
+                end=None,
+                declarations=[
+                    VariableDeclaration(
+                        start=None,
+                        end=None,
+                        name="a",
+                        expr=Constant(start=None, end=None, type=None, value=3),
+                    ),
+                    VariableAssignment(
+                        start=None,
+                        end=None,
+                        left=Field(chain=["a"]),
+                        right=Constant(start=None, end=None, type=None, value=4),
+                    ),
+                ],
+            )
+            self.assertEqual(program, expected)
+
+        def test_program_variable_declarations_with_sql_expr(self):
+            code = """
+                let query := (select id, properties.email from events where timestamp > now() - interval 1 day);
+                let results := run(query);
+            """
+            program = self._program(code)
+            expected = Program(
+                declarations=[
+                    VariableDeclaration(
+                        name="query",
+                        expr=SelectQuery(
+                            type=None,
+                            ctes=None,
+                            select=[
+                                Field(type=None, chain=["id"]),
+                                Field(type=None, chain=["properties", "email"]),
+                            ],
+                            distinct=None,
+                            select_from=JoinExpr(
+                                type=None,
+                                join_type=None,
+                                table=Field(type=None, chain=["events"]),
+                                table_args=None,
+                                alias=None,
+                                table_final=None,
+                                constraint=None,
+                                next_join=None,
+                                sample=None,
+                            ),
+                            array_join_op=None,
+                            array_join_list=None,
+                            window_exprs=None,
+                            where=CompareOperation(
+                                type=None,
+                                left=Field(type=None, chain=["timestamp"]),
+                                right=ArithmeticOperation(
+                                    type=None,
+                                    left=Call(type=None, name="now", args=[], params=None, distinct=False),
+                                    right=Call(
+                                        type=None,
+                                        name="toIntervalDay",
+                                        args=[Constant(type=None, value=1)],
+                                        params=None,
+                                        distinct=False,
+                                    ),
+                                    op=ArithmeticOperationOp.Sub,
+                                ),
+                                op=CompareOperationOp.Gt,
+                            ),
+                            prewhere=None,
+                            having=None,
+                            group_by=None,
+                            order_by=None,
+                            limit=None,
+                            limit_by=None,
+                            limit_with_ties=None,
+                            offset=None,
+                            settings=None,
+                            view_name=None,
+                        ),
+                    ),
+                    VariableDeclaration(
+                        name="results",
+                        expr=Call(
+                            name="run",
+                            args=[Field(type=None, chain=["query"])],
+                            params=None,
+                            distinct=False,
+                        ),
+                    ),
+                ]
+            )
+            self.assertEqual(program, expected)
+
+        def test_program_if(self):
+            code = """
+                if (a) {
+                    let c := 3;
+                }
+                else
+                    print(d);
+            """
+
+            program = self._program(code)
+            expected = Program(
+                declarations=[
+                    IfStatement(
+                        expr=Field(type=None, chain=["a"]),
+                        then=Block(
+                            declarations=[
+                                VariableDeclaration(
+                                    name="c",
+                                    expr=Constant(type=None, value=3),
+                                )
+                            ],
+                        ),
+                        else_=ExprStatement(
+                            expr=Call(
+                                type=None,
+                                name="print",
+                                args=[Field(type=None, chain=["d"])],
+                                params=None,
+                                distinct=False,
+                            ),
+                        ),
+                    )
+                ],
+            )
+
+            self.assertEqual(program, expected)
+
+        def test_program_while(self):
+            code = """
+                while (a < 5) {
+                    let c := 3;
+                }
+            """
+
+            program = self._program(code)
+            expected = Program(
+                declarations=[
+                    WhileStatement(
+                        expr=CompareOperation(
+                            type=None,
+                            left=Field(type=None, chain=["a"]),
+                            right=Constant(type=None, value=5),
+                            op=CompareOperationOp.Lt,
+                        ),
+                        body=Block(
+                            declarations=[VariableDeclaration(name="c", expr=Constant(type=None, value=3))],
+                        ),
+                    )
+                ],
+            )
+
+            self.assertEqual(program, expected)
+
+        def test_program_function(self):
+            code = """
+                fn query(a, b) {
+                    let c := 3;
+                }
+            """
+
+            program = self._program(code)
+            expected = Program(
+                declarations=[
+                    Function(
+                        name="query",
+                        params=["a", "b"],
+                        body=Block(
+                            declarations=[VariableDeclaration(name="c", expr=Constant(type=None, value=3))],
+                        ),
+                    )
+                ],
+            )
+            self.assertEqual(program, expected)
+
+        def test_program_functions(self):
+            code = """
+                fn query(a, b) {
+                    let c := 3;
+                }
+
+                fn read(a, b) {
+                    print(3);
+                    let b := 4;
+                }
+            """
+
+            program = self._program(code)
+
+            expected = Program(
+                start=None,
+                end=None,
+                declarations=[
+                    Function(
+                        start=None,
+                        end=None,
+                        name="query",
+                        params=["a", "b"],
+                        body=Block(
+                            start=None,
+                            end=None,
+                            declarations=[
+                                VariableDeclaration(
+                                    start=None,
+                                    end=None,
+                                    name="c",
+                                    expr=Constant(start=None, end=None, type=None, value=3),
+                                )
+                            ],
+                        ),
+                    ),
+                    Function(
+                        start=None,
+                        end=None,
+                        name="read",
+                        params=["a", "b"],
+                        body=Block(
+                            start=None,
+                            end=None,
+                            declarations=[
+                                ExprStatement(
+                                    start=None,
+                                    end=None,
+                                    expr=Call(
+                                        start=None,
+                                        end=None,
+                                        type=None,
+                                        name="print",
+                                        args=[Constant(start=None, end=None, type=None, value=3)],
+                                        params=None,
+                                        distinct=False,
+                                    ),
+                                ),
+                                VariableDeclaration(
+                                    start=None,
+                                    end=None,
+                                    name="b",
+                                    expr=Constant(start=None, end=None, type=None, value=4),
+                                ),
+                            ],
+                        ),
+                    ),
+                ],
+            )
+            self.assertEqual(program, expected)
+
+        def test_program_array(self):
+            code = "let a := [1, 2, 3];"
+            program = self._program(code)
+
+            expected = Program(
+                start=None,
+                end=None,
+                declarations=[
+                    VariableDeclaration(
+                        start=None,
+                        end=None,
+                        name="a",
+                        expr=Array(
+                            start=None,
+                            end=None,
+                            type=None,
+                            exprs=[
+                                Constant(start=None, end=None, type=None, value=1),
+                                Constant(start=None, end=None, type=None, value=2),
+                                Constant(start=None, end=None, type=None, value=3),
+                            ],
+                        ),
+                    )
+                ],
+            )
+            self.assertEqual(program, expected)
+
+        def test_program_dict(self):
+            code = "let a := {};"
+            program = self._program(code)
+
+            expected = Program(
+                start=None,
+                end=None,
+                declarations=[
+                    VariableDeclaration(
+                        start=None,
+                        end=None,
+                        name="a",
+                        expr=Dict(start=None, end=None, type=None, items=[]),
+                    )
+                ],
+            )
+
+            self.assertEqual(program, expected)
+
+            code = "let a := {1: 2, 'a': [3, 4], g: true};"
+            program = self._program(code)
+
+            expected = Program(
+                start=None,
+                end=None,
+                declarations=[
+                    VariableDeclaration(
+                        start=None,
+                        end=None,
+                        name="a",
+                        expr=Dict(
+                            start=None,
+                            end=None,
+                            type=None,
+                            items=[
+                                (
+                                    Constant(start=None, end=None, type=None, value=1),
+                                    Constant(start=None, end=None, type=None, value=2),
+                                ),
+                                (
+                                    Constant(start=None, end=None, type=None, value="a"),
+                                    Array(
+                                        start=None,
+                                        end=None,
+                                        type=None,
+                                        exprs=[
+                                            Constant(start=None, end=None, type=None, value=3),
+                                            Constant(start=None, end=None, type=None, value=4),
+                                        ],
+                                    ),
+                                ),
+                                (
+                                    Field(start=None, end=None, type=None, chain=["g"]),
+                                    Constant(start=None, end=None, type=None, value=True),
+                                ),
+                            ],
+                        ),
+                    )
+                ],
+            )
+            self.assertEqual(program, expected)
+
+        def test_program_simple_return(self):
+            code = "return"
+            program = self._program(code)
+            expected = Program(
+                declarations=[ast.ReturnStatement(expr=None)],
+            )
+            self.assertEqual(program, expected)
+
+        def test_program_simple_return_twice(self):
+            code = "return;return"
+            program = self._program(code)
+            expected = Program(
+                declarations=[ast.ReturnStatement(expr=None), ast.ReturnStatement(expr=None)],
+            )
+            self.assertEqual(program, expected)
+
+        def test_program_exceptions_throw_simple(self):
+            code = "return"
+            program = self._program(code)
+            expected = Program(
+                declarations=[ast.ReturnStatement(expr=None)],
+            )
+            self.assertEqual(program, expected)
+
+        def test_program_exceptions_try_catch_blocks(self):
+            code = "try { 1 } catch (e) { 2 }"
+            program = self._program(code)
+            expected = Program(
+                declarations=[
+                    ast.TryCatchStatement(
+                        try_stmt=ast.Block(declarations=[ast.ExprStatement(expr=ast.Constant(value=1))]),
+                        catches=[("e", None, ast.Block(declarations=[ast.ExprStatement(expr=Constant(value=2))]))],
+                    )
+                ]
+            )
+            self.assertEqual(program, expected)
+
+        def test_program_exceptions_try_finally_simple(self):
+            code = "try {1 } finally { 2 }"
+            program = self._program(code)
+            expected = Program(
+                declarations=[
+                    ast.TryCatchStatement(
+                        try_stmt=ast.Block(declarations=[ast.ExprStatement(expr=ast.Constant(value=1))]),
+                        catches=[],
+                        finally_stmt=ast.Block(declarations=[ast.ExprStatement(expr=Constant(value=2))]),
+                    )
+                ]
+            )
+            self.assertEqual(program, expected)
+
+        def test_program_exceptions_try_catch_finally(self):
+            code = "try {1} catch (e) {2} finally {3}"
+            program = self._program(code)
+            expected = Program(
+                declarations=[
+                    ast.TryCatchStatement(
+                        try_stmt=ast.Block(declarations=[ast.ExprStatement(expr=ast.Constant(value=1))]),
+                        catches=[("e", None, ast.Block(declarations=[ast.ExprStatement(expr=Constant(value=2))]))],
+                        finally_stmt=ast.Block(declarations=[ast.ExprStatement(expr=Constant(value=3))]),
+                    )
+                ]
+            )
+            self.assertEqual(program, expected)
+
+        def test_program_exceptions_try_alone(self):
+            # This parses, but will throw later when printing bytecode.
+            code = "try {1}"
+            program = self._program(code)
+            expected = Program(
+                declarations=[
+                    ast.TryCatchStatement(
+                        try_stmt=ast.Block(declarations=[ast.ExprStatement(expr=ast.Constant(value=1))]), catches=[]
+                    )
+                ]
+            )
+            self.assertEqual(program, expected)
+
+        def test_program_exceptions_try_catch_type(self):
+            code = "try {1} catch (e: DodgyError) {2}"
+            program = self._program(code)
+            expected = Program(
+                declarations=[
+                    ast.TryCatchStatement(
+                        try_stmt=ast.Block(declarations=[ast.ExprStatement(expr=ast.Constant(value=1))]),
+                        catches=[
+                            ("e", "DodgyError", ast.Block(declarations=[ast.ExprStatement(expr=Constant(value=2))]))
+                        ],
+                        finally_stmt=None,
+                    )
+                ]
+            )
+            self.assertEqual(program, expected)
+
+        def test_program_exceptions_try_catch_multiple(self):
+            code = "try {1} catch (e: DodgyError) {2}  catch (e: FishyError) {3}"
+            program = self._program(code)
+            expected = Program(
+                declarations=[
+                    ast.TryCatchStatement(
+                        try_stmt=ast.Block(declarations=[ast.ExprStatement(expr=ast.Constant(value=1))]),
+                        catches=[
+                            ("e", "DodgyError", ast.Block(declarations=[ast.ExprStatement(expr=Constant(value=2))])),
+                            ("e", "FishyError", ast.Block(declarations=[ast.ExprStatement(expr=Constant(value=3))])),
+                        ],
+                        finally_stmt=None,
+                    )
+                ]
+            )
+            self.assertEqual(program, expected)
+
+        def test_program_exceptions_try_catch_multiple_plain(self):
+            code = "try {1} catch (e: DodgyError) {2}  catch (e: FishyError) {3} catch {4}"
+            program = self._program(code)
+            expected = Program(
+                declarations=[
+                    ast.TryCatchStatement(
+                        try_stmt=ast.Block(declarations=[ast.ExprStatement(expr=ast.Constant(value=1))]),
+                        catches=[
+                            ("e", "DodgyError", ast.Block(declarations=[ast.ExprStatement(expr=Constant(value=2))])),
+                            ("e", "FishyError", ast.Block(declarations=[ast.ExprStatement(expr=Constant(value=3))])),
+                            (None, None, ast.Block(declarations=[ast.ExprStatement(expr=Constant(value=4))])),
+                        ],
+                        finally_stmt=None,
+                    )
+                ]
+            )
+            self.assertEqual(program, expected)
+
+        def test_pop_empty_stack(self):
+            with self.assertRaises(SyntaxError) as e:
+                self._select("select } from events")
+            self.assertEqual(str(e.exception), "Unmatched curly bracket")
+
+        def test_for_in_loops(self):
+            code = """
+                for (let i in [1, 2, 3]) {
+                    print(a);
+                }
+            """
+            program = self._program(code)
+            expected = ast.Program(
+                declarations=[
+                    ast.ForInStatement(
+                        keyVar=None,
+                        valueVar="i",
+                        expr=ast.Array(exprs=[Constant(value=1), Constant(value=2), Constant(value=3)]),
+                        body=ast.Block(
+                            declarations=[ast.ExprStatement(expr=Call(name="print", args=[Field(chain=["a"])]))]
+                        ),
+                    )
+                ]
+            )
+            self.assertEqual(program, expected)
+
+            code = """
+                for (let key, value in [1, 2, 3]) {
+                    print(a);
+                }
+            """
+            program = self._program(code)
+            expected = ast.Program(
+                declarations=[
+                    ast.ForInStatement(
+                        keyVar="key",
+                        valueVar="value",
+                        expr=ast.Array(exprs=[Constant(value=1), Constant(value=2), Constant(value=3)]),
+                        body=ast.Block(
+                            declarations=[ast.ExprStatement(expr=Call(name="print", args=[Field(chain=["a"])]))]
+                        ),
+                    )
+                ]
+            )
+            self.assertEqual(program, expected)
 
     return TestParser

@@ -27,6 +27,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         "balance": IntegerDatabaseField(name="balance"),
         "__created": IntegerDatabaseField(name="created", hidden=True),
         "created_at": ast.ExpressionField(
+            isolate_scope=True,
             expr=ast.Call(
                 name="toDateTime",
                 args=[
@@ -65,6 +66,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         "status": StringDatabaseField(name="status"),
         "__created": IntegerDatabaseField(name="created", hidden=True),
         "created_at": ast.ExpressionField(
+            isolate_scope=True,
             expr=ast.Call(
                 name="toDateTime",
                 args=[
@@ -89,6 +91,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         "amount_due": IntegerDatabaseField(name="amount_due"),
         "__period_start": IntegerDatabaseField(name="period_start", hidden=True),
         "period_start_at": ast.ExpressionField(
+            isolate_scope=True,
             expr=ast.Call(
                 name="toDateTime",
                 args=[
@@ -102,6 +105,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         ),
         "__period_end": IntegerDatabaseField(name="period_end", hidden=True),
         "period_end_at": ast.ExpressionField(
+            isolate_scope=True,
             expr=ast.Call(
                 name="toDateTime",
                 args=[
@@ -120,6 +124,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         "auto_advance": BooleanDatabaseField(name="auto_advance"),
         "__effective_at": IntegerDatabaseField(name="effective_at", hidden=True),
         "effective_at": ast.ExpressionField(
+            isolate_scope=True,
             expr=ast.Call(
                 name="toDateTime",
                 args=[
@@ -157,6 +162,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         "subscription_details": StringJSONDatabaseField(name="subscription_details"),
         "__webhooks_delivered_at": IntegerDatabaseField(name="webhooks_delivered_at", hidden=True),
         "webhooks_delivered_at": ast.ExpressionField(
+            isolate_scope=True,
             expr=ast.Call(
                 name="toDateTime",
                 args=[
@@ -182,6 +188,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         "status": StringDatabaseField(name="status"),
         "__created": IntegerDatabaseField(name="created", hidden=True),
         "created_at": ast.ExpressionField(
+            isolate_scope=True,
             expr=ast.Call(
                 name="toDateTime",
                 args=[
@@ -226,6 +233,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         "object": StringDatabaseField(name="object"),
         "__created": IntegerDatabaseField(name="created", hidden=True),
         "created_at": ast.ExpressionField(
+            isolate_scope=True,
             expr=ast.Call(
                 name="toDateTime",
                 args=[
@@ -244,6 +252,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         "nickname": StringDatabaseField(name="nickname"),
         "recurring": StringJSONDatabaseField(name="recurring"),
         "tiers_mode": StringDatabaseField(name="tiers_mode"),
+        "tiers": StringArrayDatabaseField(name="tiers"),
         "unit_amount": IntegerDatabaseField(name="unit_amount"),
         "tax_behavior": StringDatabaseField(name="tax_behavior"),
         "billing_scheme": StringDatabaseField(name="billing_scheme"),
@@ -258,6 +267,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         "object": StringDatabaseField(name="object"),
         "__created": IntegerDatabaseField(name="created", hidden=True),
         "created_at": ast.ExpressionField(
+            isolate_scope=True,
             expr=ast.Call(
                 name="toDateTime",
                 args=[
@@ -271,6 +281,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         ),
         "__updated": IntegerDatabaseField(name="updated", hidden=True),
         "updated_at": ast.ExpressionField(
+            isolate_scope=True,
             expr=ast.Call(
                 name="toDateTime",
                 args=[
@@ -298,6 +309,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         "status": StringDatabaseField(name="status"),
         "__created": IntegerDatabaseField(name="created", hidden=True),
         "created_at": ast.ExpressionField(
+            isolate_scope=True,
             expr=ast.Call(
                 name="toDateTime",
                 args=[
@@ -313,6 +325,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         "customer_id": StringDatabaseField(name="customer"),
         "__ended_at": IntegerDatabaseField(name="ended_at", hidden=True),
         "ended_at": ast.ExpressionField(
+            isolate_scope=True,
             expr=ast.Call(
                 name="toDateTime",
                 args=[
@@ -329,6 +342,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         "quantity": IntegerDatabaseField(name="quantity"),
         "__start_date": IntegerDatabaseField(name="start_date", hidden=True),
         "start_date": ast.ExpressionField(
+            isolate_scope=True,
             expr=ast.Call(
                 name="toDateTime",
                 args=[
@@ -342,6 +356,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         ),
         "__canceled_at": IntegerDatabaseField(name="canceled_at", hidden=True),
         "canceled_at": ast.ExpressionField(
+            isolate_scope=True,
             expr=ast.Call(
                 name="toDateTime",
                 args=[
@@ -362,6 +377,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         "default_tax_rates": StringJSONDatabaseField(name="default_tax_rates"),
         "__current_period_start": IntegerDatabaseField(name="current_period_start", hidden=True),
         "current_period_start": ast.ExpressionField(
+            isolate_scope=True,
             expr=ast.Call(
                 name="toDateTime",
                 args=[
@@ -375,6 +391,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         ),
         "__current_period_end": IntegerDatabaseField(name="current_period_end", hidden=True),
         "current_period_end": ast.ExpressionField(
+            isolate_scope=True,
             expr=ast.Call(
                 name="toDateTime",
                 args=[
@@ -388,6 +405,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         ),
         "__billing_cycle_anchor": IntegerDatabaseField(name="billing_cycle_anchor", hidden=True),
         "billing_cycle_anchor": ast.ExpressionField(
+            isolate_scope=True,
             expr=ast.Call(
                 name="toDateTime",
                 args=[
@@ -413,6 +431,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         "status": StringDatabaseField(name="status"),
         "__created": IntegerDatabaseField(name="created", hidden=True),
         "created_at": ast.ExpressionField(
+            isolate_scope=True,
             expr=ast.Call(
                 name="toDateTime",
                 args=[
@@ -429,6 +448,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         "fee_details": StringJSONDatabaseField(name="fee_details"),
         "__available_on": IntegerDatabaseField(name="available_on", hidden=True),
         "available_on": ast.ExpressionField(
+            isolate_scope=True,
             expr=ast.Call(
                 name="toDateTime",
                 args=[
@@ -637,5 +657,5 @@ def get_dlt_mapping_for_external_table(table):
             "nullable": True,
         }
         for _, field in external_tables[table].items()
-        if type(field) != ast.ExpressionField
+        if type(field) is not ast.ExpressionField
     }

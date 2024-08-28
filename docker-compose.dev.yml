@@ -8,6 +8,17 @@
 #
 
 services:
+    proxy:
+        extends:
+            file: docker-compose.base.yml
+            service: proxy
+        ports:
+            - 8010:8000
+        depends_on:
+            - replay-capture
+            - capture
+        extra_hosts:
+            - 'web:host-gateway'
     db:
         extends:
             file: docker-compose.base.yml
@@ -26,6 +37,12 @@ services:
             service: redis
         ports:
             - '6379:6379'
+    redis7:
+        extends:
+            file: docker-compose.base.yml
+            service: redis7
+        ports:
+            - '6479:6379'
 
     flower:
         extends:
@@ -103,16 +120,22 @@ services:
         environment:
             - LISTEN_PORT=2080
 
-    # Optional capture
+    # capture-rs
     capture:
-        profiles: ['capture-rs']
         extends:
             file: docker-compose.base.yml
             service: capture
-        ports:
-            - 3000:3000
         environment:
             - DEBUG=1
+        depends_on:
+            - redis
+            - kafka
+
+    # vector replay capture
+    replay-capture:
+        extends:
+            file: docker-compose.base.yml
+            service: replay-capture
         depends_on:
             - redis
             - kafka

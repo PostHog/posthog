@@ -75,7 +75,6 @@ const meta: Meta = {
             get: {
                 '/api/projects/:team_id/actions/': toPaginatedResponse([MOCK_ACTION]),
                 '/api/projects/:team_id/actions/1/': MOCK_ACTION,
-                '/api/projects/:team_id/actions/1/plugin_configs': toPaginatedResponse([]),
             },
         }),
     ],

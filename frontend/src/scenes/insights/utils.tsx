@@ -6,9 +6,18 @@ import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { ReactNode } from 'react'
 import { urls } from 'scenes/urls'
 
+import { propertyFilterTypeToPropertyDefinitionType } from '~/lib/components/PropertyFilters/utils'
 import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
 import { examples } from '~/queries/examples'
-import { ActionsNode, BreakdownFilter, DataWarehouseNode, EventsNode, PathsFilter } from '~/queries/schema'
+import {
+    ActionsNode,
+    BreakdownFilter,
+    DataWarehouseNode,
+    EventsNode,
+    InsightVizNode,
+    NodeKind,
+    PathsFilter,
+} from '~/queries/schema'
 import { isDataWarehouseNode, isEventsNode } from '~/queries/utils'
 import {
     ActionFilter,
@@ -19,10 +28,12 @@ import {
     EntityFilter,
     EntityTypes,
     EventType,
+    GroupTypeIndex,
     InsightShortId,
     InsightType,
     PathType,
-    TrendsFilterType,
+    PropertyFilterType,
+    PropertyOperator,
 } from '~/types'
 
 import { insightLogic } from './insightLogic'
@@ -207,26 +218,69 @@ export function isNullBreakdown(breakdown_value: string | number | null | undefi
 }
 
 function isValidJsonArray(maybeJson: string): boolean {
-    try {
-        const json = JSON.parse(maybeJson)
-        return Array.isArray(json)
-    } catch {
-        return false
+    if (maybeJson.startsWith('[')) {
+        try {
+            const json = JSON.parse(maybeJson)
+            return Array.isArray(json)
+        } catch {
+            return false
+        }
     }
+
+    return false
+}
+
+function formatNumericBreakdownLabel(
+    breakdown_value: number,
+    breakdownFilter: BreakdownFilter | null | undefined,
+    formatPropertyValueForDisplay: FormatPropertyValueForDisplayFunction | undefined,
+    multipleBreakdownIndex: number | undefined
+): string {
+    if (isOtherBreakdown(breakdown_value)) {
+        return BREAKDOWN_OTHER_DISPLAY
+    }
+
+    if (isNullBreakdown(breakdown_value)) {
+        return BREAKDOWN_NULL_DISPLAY
+    }
+
+    if (formatPropertyValueForDisplay) {
+        const nestedBreakdown =
+            typeof multipleBreakdownIndex === 'number'
+                ? breakdownFilter?.breakdowns?.[multipleBreakdownIndex]
+                : undefined
+
+        const groupIndex = (nestedBreakdown?.group_type_index ?? breakdownFilter?.breakdown_group_type_index) as
+            | GroupTypeIndex
+            | undefined
+
+        return (
+            formatPropertyValueForDisplay(
+                nestedBreakdown?.property ?? breakdownFilter?.breakdown,
+                breakdown_value,
+                propertyFilterTypeToPropertyDefinitionType(nestedBreakdown?.type ?? breakdownFilter?.breakdown_type),
+                groupIndex
+            )?.toString() ?? 'None'
+        )
+    }
+
+    return String(breakdown_value)
 }
 
 export function formatBreakdownLabel(
     breakdown_value: BreakdownKeyType | undefined,
     breakdownFilter: BreakdownFilter | null | undefined,
     cohorts: CohortType[] | undefined,
-    formatPropertyValueForDisplay: FormatPropertyValueForDisplayFunction | undefined
+    formatPropertyValueForDisplay: FormatPropertyValueForDisplayFunction | undefined,
+    multipleBreakdownIndex?: number
 ): string {
-    if (
-        breakdownFilter?.breakdown_histogram_bin_count != null &&
-        typeof breakdown_value === 'string' &&
-        breakdown_value.length > 0 &&
-        isValidJsonArray(breakdown_value)
-    ) {
+    if (Array.isArray(breakdown_value)) {
+        return breakdown_value
+            .map((v, index) => formatBreakdownLabel(v, breakdownFilter, cohorts, formatPropertyValueForDisplay, index))
+            .join('::')
+    }
+
+    if (typeof breakdown_value === 'string' && breakdown_value.length > 0 && isValidJsonArray(breakdown_value)) {
         // replace nan with null
         const bucketValues = breakdown_value.replace(/\bnan\b/g, 'null')
         const [bucketStart, bucketEnd] = JSON.parse(bucketValues)
@@ -234,43 +288,58 @@ export function formatBreakdownLabel(
             bucketStart,
             breakdownFilter,
             cohorts,
-            formatPropertyValueForDisplay
+            formatPropertyValueForDisplay,
+            multipleBreakdownIndex
         )
         const formattedBucketEnd = formatBreakdownLabel(
             bucketEnd,
             breakdownFilter,
             cohorts,
-            formatPropertyValueForDisplay
+            formatPropertyValueForDisplay,
+            multipleBreakdownIndex
         )
         if (formattedBucketStart === formattedBucketEnd) {
             return formattedBucketStart
         }
         return `${formattedBucketStart} – ${formattedBucketEnd}`
-    } else if (breakdownFilter?.breakdown_type === 'cohort') {
+    }
+
+    if (breakdownFilter?.breakdown_type === 'cohort') {
         // :TRICKY: Different endpoints represent the all users cohort breakdown differently
         if (breakdown_value === 0 || breakdown_value === 'all') {
             return 'All Users'
         }
+
         return cohorts?.filter((c) => c.id == breakdown_value)[0]?.name ?? (breakdown_value || '').toString()
-    } else if (typeof breakdown_value == 'number') {
-        return isOtherBreakdown(breakdown_value)
-            ? BREAKDOWN_OTHER_DISPLAY
-            : isNullBreakdown(breakdown_value)
-            ? BREAKDOWN_NULL_DISPLAY
-            : formatPropertyValueForDisplay
-            ? formatPropertyValueForDisplay(breakdownFilter?.breakdown, breakdown_value)?.toString() ?? 'None'
-            : String(breakdown_value)
-    } else if (typeof breakdown_value == 'string') {
+    }
+
+    if (typeof breakdown_value == 'number') {
+        return formatNumericBreakdownLabel(
+            breakdown_value,
+            breakdownFilter,
+            formatPropertyValueForDisplay,
+            multipleBreakdownIndex
+        )
+    }
+
+    const maybeNumericValue = Number(breakdown_value)
+    if (!Number.isNaN(maybeNumericValue)) {
+        return formatNumericBreakdownLabel(
+            maybeNumericValue,
+            breakdownFilter,
+            formatPropertyValueForDisplay,
+            multipleBreakdownIndex
+        )
+    }
+
+    if (typeof breakdown_value == 'string') {
         return isOtherBreakdown(breakdown_value) || breakdown_value === 'nan'
             ? BREAKDOWN_OTHER_DISPLAY
             : isNullBreakdown(breakdown_value) || breakdown_value === ''
             ? BREAKDOWN_NULL_DISPLAY
             : breakdown_value
-    } else if (Array.isArray(breakdown_value)) {
-        return breakdown_value
-            .map((v) => formatBreakdownLabel(v, breakdownFilter, cohorts, formatPropertyValueForDisplay))
-            .join('::')
     }
+
     return ''
 }
 
@@ -295,15 +364,15 @@ export function getResponseBytes(apiResponse: Response): number {
 }
 
 export const insightTypeURL = {
-    TRENDS: urls.insightNew({ insight: InsightType.TRENDS }),
-    STICKINESS: urls.insightNew({ insight: InsightType.STICKINESS }),
-    LIFECYCLE: urls.insightNew({ insight: InsightType.LIFECYCLE }),
-    FUNNELS: urls.insightNew({ insight: InsightType.FUNNELS }),
-    RETENTION: urls.insightNew({ insight: InsightType.RETENTION }),
-    PATHS: urls.insightNew({ insight: InsightType.PATHS }),
-    JSON: urls.insightNew(undefined, undefined, JSON.stringify(examples.EventsTableFull)),
-    HOG: urls.insightNew(undefined, undefined, JSON.stringify(examples.Hoggonacci)),
-    SQL: urls.insightNew(undefined, undefined, JSON.stringify(examples.DataVisualization)),
+    TRENDS: urls.insightNew(InsightType.TRENDS),
+    STICKINESS: urls.insightNew(InsightType.STICKINESS),
+    LIFECYCLE: urls.insightNew(InsightType.LIFECYCLE),
+    FUNNELS: urls.insightNew(InsightType.FUNNELS),
+    RETENTION: urls.insightNew(InsightType.RETENTION),
+    PATHS: urls.insightNew(InsightType.PATHS),
+    JSON: urls.insightNew(undefined, undefined, examples.EventsTableFull),
+    HOG: urls.insightNew(undefined, undefined, examples.Hoggonacci),
+    SQL: urls.insightNew(undefined, undefined, examples.DataVisualization),
 }
 
 /** Combines a list of words, separating with the correct punctuation. For example: [a, b, c, d] -> "a, b, c, and d"  */
@@ -319,46 +388,48 @@ export function concatWithPunctuation(phrases: string[]): string {
 }
 
 export function insightUrlForEvent(event: Pick<EventType, 'event' | 'properties'>): string | undefined {
-    let insightParams: Partial<TrendsFilterType> | undefined
+    let query: InsightVizNode | undefined
     if (event.event === '$pageview') {
-        insightParams = {
-            insight: InsightType.TRENDS,
-            interval: 'day',
-            display: ChartDisplayType.ActionsLineGraph,
-            actions: [],
-            events: [
-                {
-                    id: '$pageview',
-                    name: '$pageview',
-                    type: 'events',
-                    order: 0,
-                    properties: [
-                        {
-                            key: '$current_url',
-                            value: event.properties.$current_url,
-                            type: 'event',
-                        },
-                    ],
-                },
-            ],
+        query = {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                interval: 'day',
+                series: [
+                    {
+                        event: '$pageview',
+                        name: '$pageview',
+                        kind: NodeKind.EventsNode,
+                        properties: [
+                            {
+                                key: '$current_url',
+                                value: event.properties.$current_url,
+                                type: PropertyFilterType.Event,
+                                operator: PropertyOperator.Exact,
+                            },
+                        ],
+                    },
+                ],
+                trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
+            },
         }
     } else if (event.event !== '$autocapture') {
-        insightParams = {
-            insight: InsightType.TRENDS,
-            interval: 'day',
-            display: ChartDisplayType.ActionsLineGraph,
-            actions: [],
-            events: [
-                {
-                    id: event.event,
-                    name: event.event,
-                    type: 'events',
-                    order: 0,
-                    properties: [],
-                },
-            ],
+        query = {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                interval: 'day',
+                series: [
+                    {
+                        event: event.event,
+                        name: event.event,
+                        kind: NodeKind.EventsNode,
+                    },
+                ],
+                trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
+            },
         }
     }
 
-    return insightParams ? urls.insightNew(insightParams) : undefined
+    return query ? urls.insightNew(undefined, undefined, query) : undefined
 }

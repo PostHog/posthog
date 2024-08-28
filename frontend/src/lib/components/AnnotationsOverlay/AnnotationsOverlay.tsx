@@ -60,8 +60,10 @@ export function AnnotationsOverlay({
     const { insightProps } = useValues(insightLogic)
     const { tickIntervalPx, firstTickLeftPx } = useAnnotationsPositioning(chart, chartWidth, chartHeight)
 
+    // FIXME: This pollutes insightProps with dates and ticks, which is not ideal
     const annotationsOverlayLogicProps: AnnotationsOverlayLogicProps = {
         ...insightProps,
+        dashboardId: insightProps.dashboardId,
         insightNumericId,
         dates,
         ticks: chart.scales.x.ticks,
@@ -185,6 +187,7 @@ function AnnotationsPopover({
         insightId,
         activeBadgeElement,
         isPopoverShown,
+        annotationsOverlayProps,
     } = useValues(annotationsOverlayLogic)
     const { closePopover } = useActions(annotationsOverlayLogic)
     const { openModalToCreateAnnotation } = useActions(annotationModalLogic)
@@ -209,7 +212,9 @@ function AnnotationsPopover({
                     footer={
                         <LemonButton
                             type="primary"
-                            onClick={() => openModalToCreateAnnotation(activeDate, insightId)}
+                            onClick={() =>
+                                openModalToCreateAnnotation(activeDate, insightId, annotationsOverlayProps.dashboardId)
+                            }
                             disabled={!isDateLocked}
                         >
                             Add annotation
@@ -235,7 +240,7 @@ function AnnotationsPopover({
 }
 
 function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Element {
-    const { insightId, timezone } = useValues(annotationsOverlayLogic)
+    const { insightId, timezone, annotationsOverlayProps } = useValues(annotationsOverlayLogic)
     const { deleteAnnotation } = useActions(annotationsModel)
     const { openModalToEditAnnotation } = useActions(annotationModalLogic)
 
@@ -251,7 +256,9 @@ function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Ele
                     size="small"
                     icon={<IconPencil />}
                     tooltip="Edit this annotation"
-                    onClick={() => openModalToEditAnnotation(annotation, insightId)}
+                    onClick={() =>
+                        openModalToEditAnnotation(annotation, insightId, annotationsOverlayProps.dashboardId)
+                    }
                     noPadding
                 />
                 <LemonButton

@@ -1,10 +1,6 @@
+import warnings
 from copy import copy
-from typing import (
-    Any,
-    Optional,
-    cast,
-    NamedTuple,
-)
+from typing import Any, Optional, NamedTuple, Union
 from collections.abc import Callable
 import graphlib  # type: ignore[import,unused-ignore]
 import string
@@ -43,7 +39,6 @@ from .typing import (
     PaginatorType,
     AuthType,
     AuthConfig,
-    IncrementalArgs,
     IncrementalConfig,
     PaginatorConfig,
     ResolvedParam,
@@ -141,28 +136,68 @@ def create_auth(auth_config: Optional[AuthConfig]) -> Optional[AuthConfigBase]:
 def setup_incremental_object(
     request_params: dict[str, Any],
     incremental_config: Optional[IncrementalConfig] = None,
-) -> tuple[Optional[Incremental[Any]], Optional[IncrementalParam]]:
-    for key, value in request_params.items():
-        if isinstance(value, dlt.sources.incremental):
-            return value, IncrementalParam(start=key, end=None)
-        if isinstance(value, dict) and value.get("type") == "incremental":
-            config = exclude_keys(value, {"type"})
+) -> tuple[Optional[Incremental[Any]], Optional[IncrementalParam], Optional[Callable[..., Any]]]:
+    incremental_params: list[str] = []
+    for param_name, param_config in request_params.items():
+        if (
+            isinstance(param_config, dict)
+            and param_config.get("type") == "incremental"
+            or isinstance(param_config, dlt.sources.incremental)
+        ):
+            incremental_params.append(param_name)
+    if len(incremental_params) > 1:
+        raise ValueError(f"Only a single incremental parameter is allower per endpoint. Found: {incremental_params}")
+    convert: Optional[Callable[..., Any]]
+    for param_name, param_config in request_params.items():
+        if isinstance(param_config, dlt.sources.incremental):
+            if param_config.end_value is not None:
+                raise ValueError(
+                    f"Only initial_value is allowed in the configuration of param: {param_name}. To set end_value too use the incremental configuration at the resource level. See https://dlthub.com/docs/dlt-ecosystem/verified-sources/rest_api#incremental-loading/"
+                )
+            return param_config, IncrementalParam(start=param_name, end=None), None
+        if isinstance(param_config, dict) and param_config.get("type") == "incremental":
+            if param_config.get("end_value") or param_config.get("end_param"):
+                raise ValueError(
+                    f"Only start_param and initial_value are allowed in the configuration of param: {param_name}. To set end_value too use the incremental configuration at the resource level. See https://dlthub.com/docs/dlt-ecosystem/verified-sources/rest_api#incremental-loading"
+                )
+            convert = parse_convert_or_deprecated_transform(param_config)
+
+            config = exclude_keys(param_config, {"type", "convert", "transform"})
             # TODO: implement param type to bind incremental to
             return (
                 dlt.sources.incremental(**config),
-                IncrementalParam(start=key, end=None),
+                IncrementalParam(start=param_name, end=None),
+                convert,
             )
     if incremental_config:
-        config = exclude_keys(incremental_config, {"start_param", "end_param"})
+        convert = parse_convert_or_deprecated_transform(incremental_config)
+        config = exclude_keys(incremental_config, {"start_param", "end_param", "convert", "transform"})
         return (
-            dlt.sources.incremental(**cast(IncrementalArgs, config)),
+            dlt.sources.incremental(**config),
             IncrementalParam(
                 start=incremental_config["start_param"],
                 end=incremental_config.get("end_param"),
             ),
+            convert,
         )
 
-    return None, None
+    return None, None, None
+
+
+def parse_convert_or_deprecated_transform(
+    config: Union[IncrementalConfig, dict[str, Any]],
+) -> Optional[Callable[..., Any]]:
+    convert = config.get("convert", None)
+    deprecated_transform = config.get("transform", None)
+    if deprecated_transform:
+        warnings.warn(
+            "The key `transform` is deprecated in the incremental configuration and it will be removed. "
+            "Use `convert` instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        convert = deprecated_transform
+    return convert
 
 
 def make_parent_key_name(resource_name: str, field_name: str) -> str:
@@ -182,7 +217,7 @@ def build_resource_dependency_graph(
         if isinstance(resource_kwargs, dict):
             # clone resource here, otherwise it needs to be cloned in several other places
             # note that this clones only dict structure, keeping all instances without deepcopy
-            resource_kwargs = update_dict_nested({}, resource_kwargs)  # type: ignore[assignment]
+            resource_kwargs = update_dict_nested({}, resource_kwargs)  # type: ignore
 
         endpoint_resource = _make_endpoint_resource(resource_kwargs, resource_defaults)
         assert isinstance(endpoint_resource["endpoint"], dict)

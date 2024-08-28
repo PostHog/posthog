@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
+	"github.com/getsentry/sentry-go"
 )
 
 type PostHogEventWrapper struct {
@@ -27,15 +28,26 @@ type PostHogEvent struct {
 	Lng        float64
 }
 
-type KafkaConsumer struct {
-	consumer     *kafka.Consumer
+type KafkaConsumerInterface interface {
+	SubscribeTopics(topics []string, rebalanceCb kafka.RebalanceCb) error
+	ReadMessage(timeout time.Duration) (*kafka.Message, error)
+	Close() error
+}
+
+type KafkaConsumer interface {
+	Consume()
+	Close()
+}
+
+type PostHogKafkaConsumer struct {
+	consumer     KafkaConsumerInterface
 	topic        string
-	geolocator   *GeoLocator
+	geolocator   GeoLocator
 	outgoingChan chan PostHogEvent
 	statsChan    chan PostHogEvent
 }
 
-func NewKafkaConsumer(brokers string, securityProtocol string, groupID string, topic string, geolocator *GeoLocator, outgoingChan chan PostHogEvent, statsChan chan PostHogEvent) (*KafkaConsumer, error) {
+func NewPostHogKafkaConsumer(brokers string, securityProtocol string, groupID string, topic string, geolocator GeoLocator, outgoingChan chan PostHogEvent, statsChan chan PostHogEvent) (*PostHogKafkaConsumer, error) {
 	config := &kafka.ConfigMap{
 		"bootstrap.servers":  brokers,
 		"group.id":           groupID,
@@ -49,7 +61,7 @@ func NewKafkaConsumer(brokers string, securityProtocol string, groupID string, t
 		return nil, err
 	}
 
-	return &KafkaConsumer{
+	return &PostHogKafkaConsumer{
 		consumer:     consumer,
 		topic:        topic,
 		geolocator:   geolocator,
@@ -58,15 +70,17 @@ func NewKafkaConsumer(brokers string, securityProtocol string, groupID string, t
 	}, nil
 }
 
-func (c *KafkaConsumer) Consume() {
+func (c *PostHogKafkaConsumer) Consume() {
 	err := c.consumer.SubscribeTopics([]string{c.topic}, nil)
 	if err != nil {
+		sentry.CaptureException(err)
 		log.Fatalf("Failed to subscribe to topic: %v", err)
 	}
 
 	for {
 		msg, err := c.consumer.ReadMessage(-1)
 		if err != nil {
+			sentry.CaptureException(err)
 			log.Printf("Error consuming message: %v", err)
 			continue
 		}
@@ -74,6 +88,7 @@ func (c *KafkaConsumer) Consume() {
 		var wrapperMessage PostHogEventWrapper
 		err = json.Unmarshal(msg.Value, &wrapperMessage)
 		if err != nil {
+			sentry.CaptureException(err)
 			log.Printf("Error decoding JSON: %v", err)
 			continue
 		}
@@ -81,6 +96,7 @@ func (c *KafkaConsumer) Consume() {
 		var phEvent PostHogEvent
 		err = json.Unmarshal([]byte(wrapperMessage.Data), &phEvent)
 		if err != nil {
+			sentry.CaptureException(err)
 			log.Printf("Error decoding JSON: %v", err)
 			continue
 		}
@@ -110,7 +126,10 @@ func (c *KafkaConsumer) Consume() {
 		}
 
 		if ipStr != "" {
-			phEvent.Lat, phEvent.Lng = c.geolocator.Lookup(ipStr)
+			phEvent.Lat, phEvent.Lng, err = c.geolocator.Lookup(ipStr)
+			if err != nil && err.Error() != "invalid IP address" { // An invalid IP address is not an error on our side
+				sentry.CaptureException(err)
+			}
 		}
 
 		c.outgoingChan <- phEvent
@@ -118,6 +137,6 @@ func (c *KafkaConsumer) Consume() {
 	}
 }
 
-func (c *KafkaConsumer) Close() {
+func (c *PostHogKafkaConsumer) Close() {
 	c.consumer.Close()
 }

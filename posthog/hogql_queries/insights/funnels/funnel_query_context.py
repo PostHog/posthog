@@ -101,7 +101,7 @@ class FunnelQueryContext(QueryContext):
             boxed_breakdown: list[Union[str, int]] = box_value(self.breakdownFilter.breakdown)
             self.breakdown = boxed_breakdown
         else:
-            self.breakdown = self.breakdownFilter.breakdown  # type: ignore
+            self.breakdown = self.breakdownFilter.breakdown
 
         self.actorsQuery = None
 

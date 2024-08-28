@@ -45,7 +45,7 @@ def redis_heartbeat() -> None:
     ),
     retry_backoff=1,
     retry_backoff_max=10,
-    max_retries=3,
+    max_retries=10,
     expires=60 * 10,  # Do not run queries that got stuck for more than this
     reject_on_worker_lost=True,
 )
@@ -59,7 +59,6 @@ def process_query_task(
     query_id: str,
     query_json: dict,
     limit_context: Optional[LimitContext] = None,
-    refresh_requested: bool = False,  # TODO: Remove this parameter after the next deploy
 ) -> None:
     """
     Kick off query
@@ -226,6 +225,60 @@ def ingestion_lag() -> None:
                 lag_gauge.labels(scenario=metric).set(lag)
     except:
         pass
+
+
+@shared_task(ignore_result=True, queue=CeleryQueue.SESSION_REPLAY_GENERAL.value)
+def replay_count_metrics() -> None:
+    try:
+        logger.info("[replay_count_metrics] running task")
+
+        from posthog.client import sync_execute
+
+        # ultimately I want to observe values by team id, but at the moment that would be lots of series, let's reduce the value first
+        query = """
+        select
+            --team_id,
+            count() as all_recordings,
+            countIf(snapshot_source == 'mobile') as mobile_recordings,
+            countIf(snapshot_source == 'web') as web_recordings,
+            countIf(snapshot_source =='web' and first_url is null) as invalid_web_recordings
+        from (
+            select any(team_id) as team_id, argMinMerge(first_url) as first_url, argMinMerge(snapshot_source) as snapshot_source
+            from session_replay_events
+            where min_first_timestamp >= now() - interval 65 minute
+            and min_first_timestamp <= now() - interval 5 minute
+            group by session_id
+        )
+        --group by team_id
+        """
+
+        results = sync_execute(
+            query,
+        )
+
+        metrics = [
+            "all_recordings",
+            "mobile_recordings",
+            "web_recordings",
+            "invalid_web_recordings",
+        ]
+        descriptions = [
+            "All recordings that started in the last hour",
+            "Recordings started in the last hour that are from mobile",
+            "Recordings started in the last hour that are from web",
+            "Acts as a proxy for replay sessions which haven't received a full snapshot",
+        ]
+        with pushed_metrics_registry("celery_replay_tracking") as registry:
+            for i in range(0, 4):
+                gauge = Gauge(
+                    f"replay_tracking_{metrics[i]}",
+                    descriptions[i],
+                    registry=registry,
+                )
+                count = results[0][i]
+                gauge.set(count)
+    except Exception as e:
+        logger.exception("Failed to run invalid web replays task", error=e, inc_exc_info=True)
 
 
 KNOWN_CELERY_TASK_IDENTIFIERS = {
@@ -431,6 +484,7 @@ def clickhouse_mutation_count() -> None:
 def clickhouse_clear_removed_data() -> None:
     from posthog.models.async_deletion.delete_cohorts import AsyncCohortDeletion
     from posthog.models.async_deletion.delete_events import AsyncEventDeletion
+    from posthog.pagerduty.pd import create_incident
 
     runner = AsyncEventDeletion()
 
@@ -438,11 +492,13 @@ def clickhouse_clear_removed_data() -> None:
         runner.mark_deletions_done()
     except Exception as e:
         logger.error("Failed to mark deletions done", error=e, exc_info=True)
+        create_incident("Failed to mark deletions done", "clickhouse_clear_removed_data", severity="error")
 
     try:
         runner.run()
     except Exception as e:
         logger.error("Failed to run deletions", error=e, exc_info=True)
+        create_incident("Failed to run deletions", "clickhouse_clear_removed_data", severity="error")
 
     cohort_runner = AsyncCohortDeletion()
 
@@ -450,11 +506,13 @@ def clickhouse_clear_removed_data() -> None:
         cohort_runner.mark_deletions_done()
     except Exception as e:
         logger.error("Failed to mark cohort deletions done", error=e, exc_info=True)
+        create_incident("Failed to mark cohort deletions done", "clickhouse_clear_removed_data", severity="error")
 
     try:
         cohort_runner.run()
     except Exception as e:
         logger.error("Failed to run cohort deletions", error=e, exc_info=True)
+        create_incident("Failed to run cohort deletions", "clickhouse_clear_removed_data", severity="error")
 
 
 @shared_task(ignore_result=True)
@@ -563,7 +621,7 @@ def poll_query_performance(last_known_run_time_ns: int) -> None:
 
         poll_query_performance_nontask()
     except Exception as e:
-        logger.error("Poll query performance failed", error=e)
+        logger.exception("Poll query performance failed", error=e)
 
     elapsed_ns = time.time_ns() - start_time_ns
     if elapsed_ns > Polling.TIME_BETWEEN_RUNS_NANOSECONDS:
@@ -593,7 +651,7 @@ def start_poll_query_performance() -> None:
             poll_query_performance.delay(last_run_start_time_ns)
 
     except Exception as e:
-        logger.error("Restarting poll query performance because of an error", error=e)
+        logger.exception("Restarting poll query performance because of an error", error=e)
         poll_query_performance.delay(last_run_start_time_ns)
 
 
@@ -868,3 +926,13 @@ def calculate_replay_error_clusters() -> None:
         pass
     except Exception as e:
         logger.error("Failed to calculate replay error clusters", error=e, exc_info=True)
+
+
+@shared_task(ignore_result=True)
+def calculate_external_data_rows_synced() -> None:
+    try:
+        from posthog.tasks.warehouse import capture_external_data_rows_synced
+    except ImportError:
+        pass
+    else:
+        capture_external_data_rows_synced()

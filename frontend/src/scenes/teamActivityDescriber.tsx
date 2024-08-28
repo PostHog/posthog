@@ -152,7 +152,12 @@ const teamActionsMapping: Record<
     },
     // autocapture
     autocapture_exceptions_errors_to_ignore: () => null,
-    autocapture_exceptions_opt_in: () => null,
+    autocapture_exceptions_opt_in(change: ActivityChange | undefined): ChangeMapping | null {
+        return { description: [<>{change?.after ? 'enabled' : 'disabled'} exception autocapture</>] }
+    },
+    autocapture_web_vitals_opt_in(change: ActivityChange | undefined): ChangeMapping | null {
+        return { description: [<>{change?.after ? 'enabled' : 'disabled'} web vitals autocapture</>] }
+    },
     autocapture_opt_out(change: ActivityChange | undefined): ChangeMapping | null {
         return { description: [<>{change?.after ? 'opted in to' : 'opted out of'} autocapture</>] }
     },
@@ -222,7 +227,6 @@ const teamActionsMapping: Record<
     correlation_config: () => null,
     data_attributes: () => null,
     effective_membership_level: () => null,
-    groups_on_events_querying_enabled: () => null,
     has_group_types: () => null,
     ingested_event: () => null,
     is_demo: () => null,

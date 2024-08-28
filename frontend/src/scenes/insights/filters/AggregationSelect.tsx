@@ -113,7 +113,6 @@ export function AggregationSelect({
                                 <HogQLEditor
                                     onChange={onSelect}
                                     value={value}
-                                    disablePersonProperties
                                     placeholder={
                                         "Enter HogQL expression, such as:\n- distinct_id\n- properties.$session_id\n- concat(distinct_id, ' ', properties.$session_id)\n- if(1 < 2, 'one', 'two')"
                                     }

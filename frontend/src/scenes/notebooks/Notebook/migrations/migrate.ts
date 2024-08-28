@@ -1,5 +1,7 @@
 import { JSONContent } from '@tiptap/core'
 import { isEmptyObject } from 'lib/utils'
+import { NotebookNodePlaylistAttributes } from 'scenes/notebooks/Nodes/NotebookNodePlaylist'
+import { convertLegacyFiltersToUniversalFilters } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
 import {
     breakdownFilterToQuery,
@@ -31,7 +33,7 @@ import {
     TrendsFilter,
     TrendsFilterLegacy,
 } from '~/queries/schema'
-import { FunnelExclusionLegacy, NotebookNodeType, NotebookType } from '~/types'
+import { FunnelExclusionLegacy, LegacyRecordingFilters, NotebookNodeType, NotebookType } from '~/types'
 
 // NOTE: Increment this number when you add a new content migration
 // It will bust the cache on the localContent in the notebookLogic
@@ -49,7 +51,39 @@ export function migrate(notebook: NotebookType): NotebookType {
     content = convertInsightToQueryNode(content)
     content = convertInsightQueryStringsToObjects(content)
     content = convertInsightQueriesToNewSchema(content)
+    content = convertPlaylistFiltersToUniversalFilters(content)
     return { ...notebook, content: { type: 'doc', content: content } }
+}
+
+function convertPlaylistFiltersToUniversalFilters(content: JSONContent[]): JSONContent[] {
+    return content.map((node) => {
+        if (node.type != NotebookNodeType.RecordingPlaylist) {
+            return node
+        }
+
+        // Legacy attrs on Notebook playlist nodes
+        const simpleFilters = node.attrs?.simpleFilters as LegacyRecordingFilters
+        const filters = node.attrs?.filters as LegacyRecordingFilters
+
+        const { universalFilters } = node.attrs as NotebookNodePlaylistAttributes
+
+        if (universalFilters) {
+            return node
+        }
+
+        const jsonFilters = typeof filters === 'string' ? JSON.parse(filters) : filters
+        const jsonSimpleFilters = typeof simpleFilters === 'string' ? JSON.parse(simpleFilters) : simpleFilters
+
+        const jsonUniversalFilters = convertLegacyFiltersToUniversalFilters(jsonSimpleFilters, jsonFilters)
+
+        return {
+            ...node,
+            attrs: {
+                ...node.attrs,
+                universalFilters: JSON.stringify(jsonUniversalFilters),
+            },
+        }
+    })
 }
 
 function convertInsightToQueryNode(content: JSONContent[]): JSONContent[] {
@@ -82,11 +116,28 @@ function convertInsightQueryStringsToObjects(content: JSONContent[]): JSONConten
             return node
         }
 
+        let query
+
+        try {
+            query = JSON.parse(node.attrs.query)
+        } catch (e) {
+            query = {
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.EventsQuery,
+                    select: ['*', 'event', 'person', 'timestamp'],
+                    orderBy: ['timestamp DESC'],
+                    after: '-24h',
+                    limit: 100,
+                },
+            }
+        }
+
         return {
             ...node,
             attrs: {
                 ...node.attrs,
-                query: JSON.parse(node.attrs.query),
+                query,
             },
         }
     })
@@ -123,7 +174,7 @@ function convertInsightQueriesToNewSchema(content: JSONContent[]): JSONContent[]
 
             query.trendsFilter = Object.fromEntries(
                 Object.entries(query.trendsFilter as TrendsFilter)
-                    .filter(([k, _]) => TRENDS_FILTER_PROPERTIES.has(k))
+                    .filter(([k, _]) => TRENDS_FILTER_PROPERTIES.has(k as keyof TrendsFilter))
                     .concat(Object.entries(trendsFilterToQuery(query.trendsFilter as any)))
             )
         }
@@ -160,7 +211,7 @@ function convertInsightQueriesToNewSchema(content: JSONContent[]): JSONContent[]
             // This has to come after compare, because it removes compare
             query.stickinessFilter = Object.fromEntries(
                 Object.entries(query.stickinessFilter as StickinessFilter)
-                    .filter(([k, _]) => STICKINESS_FILTER_PROPERTIES.has(k))
+                    .filter(([k, _]) => STICKINESS_FILTER_PROPERTIES.has(k as keyof StickinessFilter))
                     .concat(Object.entries(stickinessFilterToQuery(query.stickinessFilter as any)))
             )
         }

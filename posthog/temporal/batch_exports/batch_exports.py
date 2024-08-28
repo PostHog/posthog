@@ -13,14 +13,16 @@ from temporalio.common import RetryPolicy
 from posthog.batch_exports.models import BatchExportBackfill, BatchExportRun
 from posthog.batch_exports.service import (
     BatchExportField,
+    BatchExportModel,
+    BatchExportSchema,
     acount_failed_batch_export_runs,
-    acreate_batch_export_backfill,
-    acreate_batch_export_run,
     apause_batch_export,
-    aupdate_batch_export_backfill_status,
-    aupdate_batch_export_run,
     cancel_running_batch_export_backfill,
+    create_batch_export_backfill,
+    create_batch_export_run,
     running_backfills_for_batch_export,
+    update_batch_export_backfill_status,
+    update_batch_export_run,
 )
 from posthog.temporal.batch_exports.metrics import (
     get_export_finished_metric,
@@ -29,137 +31,212 @@ from posthog.temporal.batch_exports.metrics import (
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import bind_temporal_worker_logger
+from posthog.warehouse.util import database_sync_to_async
 
-SELECT_QUERY_TEMPLATE = Template(
+BytesGenerator = collections.abc.Generator[bytes, None, None]
+RecordsGenerator = collections.abc.Generator[pa.RecordBatch, None, None]
+
+AsyncBytesGenerator = collections.abc.AsyncGenerator[bytes, None]
+AsyncRecordsGenerator = collections.abc.AsyncGenerator[pa.RecordBatch, None]
+
+SELECT_FROM_PERSONS_VIEW = """
+SELECT
+    persons.team_id AS team_id,
+    persons.distinct_id AS distinct_id,
+    persons.person_id AS person_id,
+    persons.properties AS properties,
+    persons.person_distinct_id_version AS person_distinct_id_version,
+    persons.person_version AS person_version,
+    persons._inserted_at AS _inserted_at
+FROM
+    persons_batch_export(
+        team_id={team_id},
+        interval_start={interval_start},
+        interval_end={interval_end}
+    ) AS persons
+FORMAT ArrowStream
+-- This is half of configured MAX_MEMORY_USAGE for batch exports.
+-- TODO: Make the setting available to all queries.
+SETTINGS max_bytes_before_external_group_by=50000000000
+"""
+
+SELECT_FROM_EVENTS_VIEW = Template(
     """
-    SELECT
-    $distinct
+SELECT
     $fields
-    FROM events
-    WHERE
-        team_id = {team_id}
-        AND $timestamp_field >= toDateTime64({data_interval_start}, 6, 'UTC')
-        AND $timestamp_field < toDateTime64({data_interval_end}, 6, 'UTC')
-        $timestamp
-        $exclude_events
-        $include_events
-    $order_by
-    $format
-    """
-)
-
-TIMESTAMP_PREDICATES = Template(
-    """
--- These 'timestamp' checks are a heuristic to exploit the sort key.
--- Ideally, we need a schema that serves our needs, i.e. with a sort key on the _timestamp field used for batch exports.
--- As a side-effect, this heuristic will discard historical loads older than a day.
-AND timestamp >= toDateTime64({data_interval_start}, 6, 'UTC') - INTERVAL $lookback_days DAY
-AND timestamp < toDateTime64({data_interval_end}, 6, 'UTC') + INTERVAL 1 DAY
+FROM
+    events_batch_export(
+        team_id={team_id},
+        lookback_days={lookback_days},
+        interval_start={interval_start},
+        interval_end={interval_end},
+        include_events={include_events}::Array(String),
+        exclude_events={exclude_events}::Array(String)
+    ) AS events
+FORMAT ArrowStream
 """
 )
 
+SELECT_FROM_EVENTS_VIEW_UNBOUNDED = Template(
+    """
+SELECT
+    $fields
+FROM
+    events_batch_export_unbounded(
+        team_id={team_id},
+        interval_start={interval_start},
+        interval_end={interval_end},
+        include_events={include_events}::Array(String),
+        exclude_events={exclude_events}::Array(String)
+    ) AS events
+FORMAT ArrowStream
+"""
+)
 
-def get_timestamp_predicates_for_team(team_id: int, is_backfill: bool = False) -> str:
-    if str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS or is_backfill:
-        return ""
-    else:
-        return TIMESTAMP_PREDICATES.substitute(
-            lookback_days=settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS),
-        )
-
-
-def get_timestamp_field(is_backfill: bool) -> str:
-    """Return the field to use for timestamp bounds."""
-    if is_backfill:
-        timestamp_field = "timestamp"
-    else:
-        timestamp_field = "COALESCE(inserted_at, _timestamp)"
-    return timestamp_field
-
-
-async def get_rows_count(
-    client: ClickHouseClient,
-    team_id: int,
-    interval_start: str,
-    interval_end: str,
-    exclude_events: collections.abc.Iterable[str] | None = None,
-    include_events: collections.abc.Iterable[str] | None = None,
-    is_backfill: bool = False,
-) -> int:
-    """Return a count of rows to be batch exported."""
-    data_interval_start_ch = dt.datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
-    data_interval_end_ch = dt.datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
-
-    if exclude_events:
-        exclude_events_statement = "AND event NOT IN {exclude_events}"
-        events_to_exclude_tuple = tuple(exclude_events)
-    else:
-        exclude_events_statement = ""
-        events_to_exclude_tuple = ()
-
-    if include_events:
-        include_events_statement = "AND event IN {include_events}"
-        events_to_include_tuple = tuple(include_events)
-    else:
-        include_events_statement = ""
-        events_to_include_tuple = ()
-
-    timestamp_field = get_timestamp_field(is_backfill)
-    timestamp_predicates = get_timestamp_predicates_for_team(team_id, is_backfill)
-
-    query = SELECT_QUERY_TEMPLATE.substitute(
-        fields="count(DISTINCT event, cityHash64(distinct_id), cityHash64(uuid)) as count",
-        order_by="",
-        format="",
-        distinct="",
-        timestamp_field=timestamp_field,
-        timestamp=timestamp_predicates,
-        exclude_events=exclude_events_statement,
-        include_events=include_events_statement,
-    )
-
-    count = await client.read_query(
-        query,
-        query_parameters={
-            "team_id": team_id,
-            "data_interval_start": data_interval_start_ch,
-            "data_interval_end": data_interval_end_ch,
-            "exclude_events": events_to_exclude_tuple,
-            "include_events": events_to_include_tuple,
-        },
-    )
-
-    if count is None or len(count) == 0:
-        raise ValueError("Unexpected result from ClickHouse: `None` returned for count query")
-
-    return int(count)
+SELECT_FROM_EVENTS_VIEW_BACKFILL = Template(
+    """
+SELECT
+    $fields
+FROM
+    events_batch_export_backfill(
+        team_id={team_id},
+        interval_start={interval_start},
+        interval_end={interval_end},
+        include_events={include_events}::Array(String),
+        exclude_events={exclude_events}::Array(String)
+    ) AS events
+FORMAT ArrowStream
+"""
+)
 
 
 def default_fields() -> list[BatchExportField]:
     """Return list of default batch export Fields."""
     return [
-        BatchExportField(expression="toString(uuid)", alias="uuid"),
+        BatchExportField(expression="uuid", alias="uuid"),
         BatchExportField(expression="team_id", alias="team_id"),
         BatchExportField(expression="timestamp", alias="timestamp"),
-        BatchExportField(expression="COALESCE(inserted_at, _timestamp)", alias="_inserted_at"),
+        BatchExportField(expression="_inserted_at", alias="_inserted_at"),
         BatchExportField(expression="created_at", alias="created_at"),
         BatchExportField(expression="event", alias="event"),
-        BatchExportField(expression="nullIf(properties, '')", alias="properties"),
-        BatchExportField(expression="toString(distinct_id)", alias="distinct_id"),
-        BatchExportField(expression="nullIf(JSONExtractString(properties, '$set'), '')", alias="set"),
+        BatchExportField(expression="properties", alias="properties"),
+        BatchExportField(expression="distinct_id", alias="distinct_id"),
+        BatchExportField(expression="set", alias="set"),
         BatchExportField(
-            expression="nullIf(JSONExtractString(properties, '$set_once'), '')",
+            expression="set_once",
             alias="set_once",
         ),
     ]
 
 
-BytesGenerator = collections.abc.Generator[bytes, None, None]
-RecordsGenerator = collections.abc.Generator[pa.RecordBatch, None, None]
+async def iter_model_records(
+    client: ClickHouseClient,
+    model: BatchExportModel | BatchExportSchema | None,
+    team_id: int,
+    is_backfill: bool,
+    destination_default_fields: list[BatchExportField] | None = None,
+    **parameters,
+) -> AsyncRecordsGenerator:
+    if destination_default_fields is None:
+        batch_export_default_fields = default_fields()
+    else:
+        batch_export_default_fields = destination_default_fields
 
-# Spoiler: We'll use these ones later 8)
-# AsyncBytesGenerator = collections.abc.AsyncGenerator[bytes, None]
-# AsyncRecordsGenerator = collections.abc.AsyncGenerator[pa.RecordBatch, None]
+    if isinstance(model, BatchExportModel):
+        async for record in iter_records_from_model_view(
+            client=client,
+            model_name=model.name,
+            team_id=team_id,
+            is_backfill=is_backfill,
+            fields=model.schema["fields"] if model.schema is not None else batch_export_default_fields,
+            extra_query_parameters=model.schema["values"] if model.schema is not None else None,
+            **parameters,
+        ):
+            yield record
+
+    else:
+        for record in iter_records(
+            client,
+            team_id=team_id,
+            is_backfill=is_backfill,
+            fields=model["fields"] if model is not None else batch_export_default_fields,
+            extra_query_parameters=model["values"] if model is not None else None,
+            **parameters,
+        ):
+            yield record
+
+
+async def iter_records_from_model_view(
+    client: ClickHouseClient,
+    model_name: str,
+    is_backfill: bool,
+    team_id: int,
+    interval_start: str,
+    interval_end: str,
+    fields: list[BatchExportField],
+    **parameters,
+) -> AsyncRecordsGenerator:
+    if model_name == "persons":
+        view = SELECT_FROM_PERSONS_VIEW
+    elif str(team_id) not in settings.ASYNC_ARROW_STREAMING_TEAM_IDS:
+        # TODO: Let this model be exported by `astream_query_as_arrow`.
+        # Just to reduce risk, I don't want to change the function that runs 100% of the exports
+        # without battle testing it first.
+        # There are already changes going out to the queries themselves that will impact events in a
+        # positive way. So, we can come back later and drop this block.
+        # UPDATE: Will start moving teams over to `astream_query_as_arrow` by setting their ids
+        # in `ASYNC_ARROW_STREAMING_TEAM_IDS`. If testing goes well, we'll remove this block.
+        for record_batch in iter_records(
+            client,
+            team_id=team_id,
+            is_backfill=is_backfill,
+            interval_start=interval_start,
+            interval_end=interval_end,
+            fields=fields,
+            **parameters,
+        ):
+            yield record_batch
+        return
+    else:
+        if parameters["exclude_events"]:
+            parameters["exclude_events"] = list(parameters["exclude_events"])
+        else:
+            parameters["exclude_events"] = []
+
+        if parameters["include_events"]:
+            parameters["include_events"] = list(parameters["include_events"])
+        else:
+            parameters["include_events"] = []
+
+        if str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
+            query_template = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
+        elif is_backfill:
+            query_template = SELECT_FROM_EVENTS_VIEW_BACKFILL
+        else:
+            query_template = SELECT_FROM_EVENTS_VIEW
+            lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS)
+            parameters["lookback_days"] = lookback_days
+
+        if "_inserted_at" not in [field["alias"] for field in fields]:
+            control_fields = [BatchExportField(expression="_inserted_at", alias="_inserted_at")]
+        else:
+            control_fields = []
+
+        query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields + control_fields)
+
+        view = query_template.substitute(fields=query_fields)
+
+    parameters["team_id"] = team_id
+    parameters["interval_start"] = dt.datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
+    parameters["interval_end"] = dt.datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
+    extra_query_parameters = parameters.pop("extra_query_parameters") or {}
+    parameters = {**parameters, **extra_query_parameters}
+
+    async for record_batch in client.astream_query_as_arrow(
+        query=view,
+        query_parameters=parameters,
+    ):
+        yield record_batch
 
 
 def iter_records(
@@ -193,56 +270,49 @@ def iter_records(
     data_interval_end_ch = dt.datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
 
     if exclude_events:
-        exclude_events_statement = "AND event NOT IN {exclude_events}"
-        events_to_exclude_tuple = tuple(exclude_events)
+        events_to_exclude_array = list(exclude_events)
     else:
-        exclude_events_statement = ""
-        events_to_exclude_tuple = ()
+        events_to_exclude_array = []
 
     if include_events:
-        include_events_statement = "AND event IN {include_events}"
-        events_to_include_tuple = tuple(include_events)
+        events_to_include_array = list(include_events)
     else:
-        include_events_statement = ""
-        events_to_include_tuple = ()
-
-    timestamp_field = get_timestamp_field(is_backfill)
-    timestamp_predicates = get_timestamp_predicates_for_team(team_id, is_backfill)
+        events_to_include_array = []
 
     if fields is None:
         query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in default_fields())
     else:
         if "_inserted_at" not in [field["alias"] for field in fields]:
-            control_fields = [BatchExportField(expression="COALESCE(inserted_at, _timestamp)", alias="_inserted_at")]
+            control_fields = [BatchExportField(expression="_inserted_at", alias="_inserted_at")]
         else:
             control_fields = []
 
         query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields + control_fields)
 
-    query = SELECT_QUERY_TEMPLATE.substitute(
-        fields=query_fields,
-        order_by="ORDER BY COALESCE(inserted_at, _timestamp)",
-        format="FORMAT ArrowStream",
-        distinct="DISTINCT ON (event, cityHash64(distinct_id), cityHash64(uuid))",
-        timestamp_field=timestamp_field,
-        timestamp=timestamp_predicates,
-        exclude_events=exclude_events_statement,
-        include_events=include_events_statement,
-    )
     base_query_parameters = {
         "team_id": team_id,
-        "data_interval_start": data_interval_start_ch,
-        "data_interval_end": data_interval_end_ch,
-        "exclude_events": events_to_exclude_tuple,
-        "include_events": events_to_include_tuple,
+        "interval_start": data_interval_start_ch,
+        "interval_end": data_interval_end_ch,
+        "exclude_events": events_to_exclude_array,
+        "include_events": events_to_include_array,
     }
+    if str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
+        query = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
+    elif is_backfill:
+        query = SELECT_FROM_EVENTS_VIEW_BACKFILL
+    else:
+        query = SELECT_FROM_EVENTS_VIEW
+        lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS)
+        base_query_parameters["lookback_days"] = lookback_days
+
+    query_str = query.substitute(fields=query_fields)
 
     if extra_query_parameters is not None:
         query_parameters = base_query_parameters | extra_query_parameters
     else:
         query_parameters = base_query_parameters
 
-    yield from client.stream_query_as_arrow(query, query_parameters=query_parameters)
+    yield from client.stream_query_as_arrow(query_str, query_parameters=query_parameters)
 
 
 def get_data_interval(interval: str, data_interval_end: str | None) -> tuple[dt.datetime, dt.datetime]:
@@ -348,7 +418,7 @@ async def start_batch_export_run(inputs: StartBatchExportRunInputs) -> BatchExpo
         inputs.data_interval_end,
     )
 
-    run = await acreate_batch_export_run(
+    run = await database_sync_to_async(create_batch_export_run)(
         batch_export_id=uuid.UUID(inputs.batch_export_id),
         data_interval_start=inputs.data_interval_start,
         data_interval_end=inputs.data_interval_end,
@@ -406,9 +476,9 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
         for key, value in dataclasses.asdict(inputs).items()
         if key not in not_model_params and value is not None
     }
-    batch_export_run = await aupdate_batch_export_run(
+    batch_export_run = await database_sync_to_async(update_batch_export_run)(
         run_id=uuid.UUID(inputs.id),
-        finished_at=dt.datetime.now(),
+        finished_at=dt.datetime.now(dt.UTC),
         **update_params,
     )
 
@@ -416,14 +486,16 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
         logger.error("Batch export failed with error: %s", batch_export_run.latest_error)
 
     elif batch_export_run.status == BatchExportRun.Status.FAILED:
-        logger.error("Batch export failed with non-retryable error: %s", batch_export_run.latest_error)
+        logger.error("Batch export failed with non-recoverable error: %s", batch_export_run.latest_error)
 
         from posthog.tasks.email import send_batch_export_run_failure
 
         try:
-            await send_batch_export_run_failure(inputs.id)
+            await database_sync_to_async(send_batch_export_run_failure)(inputs.id)
         except Exception:
             logger.exception("Failure email notification could not be sent")
+        else:
+            logger.info("Failure notification email for run %s has been sent", inputs.id)
 
         is_over_failure_threshold = await check_if_over_failure_threshold(
             inputs.batch_export_id,
@@ -585,7 +657,7 @@ async def create_batch_export_backfill_model(inputs: CreateBatchExportBackfillIn
         inputs.start_at,
         inputs.end_at,
     )
-    run = await acreate_batch_export_backfill(
+    run = await database_sync_to_async(create_batch_export_backfill)(
         batch_export_id=uuid.UUID(inputs.batch_export_id),
         start_at=inputs.start_at,
         end_at=inputs.end_at,
@@ -607,7 +679,9 @@ class UpdateBatchExportBackfillStatusInputs:
 @activity.defn
 async def update_batch_export_backfill_model_status(inputs: UpdateBatchExportBackfillStatusInputs) -> None:
     """Activity that updates the status of an BatchExportRun."""
-    backfill = await aupdate_batch_export_backfill_status(backfill_id=uuid.UUID(inputs.id), status=inputs.status)
+    backfill = await database_sync_to_async(update_batch_export_backfill_status)(
+        backfill_id=uuid.UUID(inputs.id), status=inputs.status
+    )
     logger = await bind_temporal_worker_logger(team_id=backfill.team_id)
 
     if backfill.status in (BatchExportBackfill.Status.FAILED, BatchExportBackfill.Status.FAILED_RETRYABLE):
@@ -657,17 +731,12 @@ async def execute_batch_export_insert_activity(
         maximum_retry_interval_seconds: Maximum interval in seconds between retries.
     """
     get_export_started_metric().add(1)
-    retry_policy = RetryPolicy(
-        initial_interval=dt.timedelta(seconds=initial_retry_interval_seconds),
-        maximum_interval=dt.timedelta(seconds=maximum_retry_interval_seconds),
-        maximum_attempts=maximum_attempts,
-        non_retryable_error_types=non_retryable_error_types,
-    )
 
     if interval == "hour":
         start_to_close_timeout = dt.timedelta(hours=1)
     elif interval == "day":
         start_to_close_timeout = dt.timedelta(days=1)
+        maximum_attempts = 0
     elif interval.startswith("every"):
         _, value, unit = interval.split(" ")
         kwargs = {unit: int(value)}
@@ -675,6 +744,13 @@ async def execute_batch_export_insert_activity(
         start_to_close_timeout = max(dt.timedelta(minutes=10), dt.timedelta(**kwargs))
     else:
         raise ValueError(f"Unsupported interval: '{interval}'")
+
+    retry_policy = RetryPolicy(
+        initial_interval=dt.timedelta(seconds=initial_retry_interval_seconds),
+        maximum_interval=dt.timedelta(seconds=maximum_retry_interval_seconds),
+        maximum_attempts=maximum_attempts,
+        non_retryable_error_types=non_retryable_error_types,
+    )
 
     try:
         records_completed = await workflow.execute_activity(

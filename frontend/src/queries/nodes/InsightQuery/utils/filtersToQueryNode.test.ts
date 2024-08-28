@@ -40,9 +40,9 @@ import {
 
 import {
     actionsAndEventsToSeries,
-    cleanHiddenLegendIndexes,
-    cleanHiddenLegendSeries,
     filtersToQueryNode,
+    hiddenLegendKeysToBreakdowns,
+    hiddenLegendKeysToIndexes,
 } from './filtersToQueryNode'
 
 describe('actionsAndEventsToSeries', () => {
@@ -81,9 +81,47 @@ describe('actionsAndEventsToSeries', () => {
 
         expect(result[0].kind).toEqual(NodeKind.EventsNode)
     })
+
+    it('converts funnels math types', () => {
+        const actions: ActionFilter[] = [
+            { type: 'actions', id: '1', order: 0, name: 'item1', math: 'total' },
+            { type: 'actions', id: '1', order: 1, name: 'item2', math: 'first_time_for_user' },
+        ]
+        const events: ActionFilter[] = [
+            { id: '$pageview', type: 'events', order: 2, name: 'item3', math: 'total' },
+            { id: '$autocapture', type: 'events', order: 3, name: 'item4', math: 'first_time_for_user' },
+        ]
+
+        const result = actionsAndEventsToSeries({ events, actions }, false, MathAvailability.FunnelsOnly)
+
+        expect(result).toEqual([
+            {
+                kind: NodeKind.ActionsNode,
+                id: '1',
+                name: 'item1',
+            },
+            {
+                kind: NodeKind.ActionsNode,
+                id: '1',
+                name: 'item2',
+                math: BaseMathType.FirstTimeForUser,
+            },
+            {
+                kind: NodeKind.EventsNode,
+                event: '$pageview',
+                name: 'item3',
+            },
+            {
+                kind: NodeKind.EventsNode,
+                event: '$autocapture',
+                name: 'item4',
+                math: BaseMathType.FirstTimeForUser,
+            },
+        ])
+    })
 })
 
-describe('cleanHiddenLegendIndexes', () => {
+describe('hiddenLegendKeysToIndexes', () => {
     it('converts legend keys', () => {
         const keys: Record<string, boolean | undefined> = {
             1: true,
@@ -91,7 +129,7 @@ describe('cleanHiddenLegendIndexes', () => {
             3: undefined,
         }
 
-        const result = cleanHiddenLegendIndexes(keys)
+        const result = hiddenLegendKeysToIndexes(keys)
 
         expect(result).toEqual([1])
     })
@@ -99,7 +137,7 @@ describe('cleanHiddenLegendIndexes', () => {
     it('handles undefined legend keys', () => {
         const keys = undefined
 
-        const result = cleanHiddenLegendIndexes(keys)
+        const result = hiddenLegendKeysToIndexes(keys)
 
         expect(result).toEqual(undefined)
     })
@@ -111,13 +149,13 @@ describe('cleanHiddenLegendIndexes', () => {
             1: true,
         }
 
-        const result = cleanHiddenLegendIndexes(keys)
+        const result = hiddenLegendKeysToIndexes(keys)
 
         expect(result).toEqual([1])
     })
 })
 
-describe('cleanHiddenLegendSeries', () => {
+describe('hiddenLegendKeysToBreakdowns', () => {
     it('converts legend keys', () => {
         const keys: Record<string, boolean | undefined> = {
             Chrome: true,
@@ -126,7 +164,7 @@ describe('cleanHiddenLegendSeries', () => {
             Safari: undefined,
         }
 
-        const result = cleanHiddenLegendSeries(keys)
+        const result = hiddenLegendKeysToBreakdowns(keys)
 
         expect(result).toEqual(['Chrome', 'Chrome iOS'])
     })
@@ -134,7 +172,7 @@ describe('cleanHiddenLegendSeries', () => {
     it('handles undefined legend keys', () => {
         const keys = undefined
 
-        const result = cleanHiddenLegendSeries(keys)
+        const result = hiddenLegendKeysToBreakdowns(keys)
 
         expect(result).toEqual(undefined)
     })
@@ -146,7 +184,7 @@ describe('cleanHiddenLegendSeries', () => {
             1: true,
         }
 
-        const result = cleanHiddenLegendSeries(keys)
+        const result = hiddenLegendKeysToBreakdowns(keys)
 
         expect(result).toEqual(['Opera', 'Baseline'])
     })
@@ -157,7 +195,7 @@ describe('cleanHiddenLegendSeries', () => {
             1: true,
         }
 
-        const result = cleanHiddenLegendSeries(keys)
+        const result = hiddenLegendKeysToBreakdowns(keys)
 
         expect(result).toEqual(['Opera'])
     })
@@ -389,7 +427,7 @@ describe('filtersToQueryNode', () => {
                 trendsFilter: {
                     smoothingIntervals: 1,
                     showLegend: true,
-                    hidden_legend_indexes: [0, 10],
+                    hiddenLegendIndexes: [0, 10],
                     aggregationAxisFormat: 'numeric',
                     aggregationAxisPrefix: '£',
                     aggregationAxisPostfix: '%',
@@ -404,6 +442,112 @@ describe('filtersToQueryNode', () => {
                 compareFilter: {
                     compare: true,
                     compare_to: '-4d',
+                },
+                series: [],
+            }
+            expect(result).toEqual(query)
+        })
+
+        it('converts multiple breakdowns', () => {
+            const filters: Partial<TrendsFilterType> = {
+                insight: InsightType.TRENDS,
+                breakdowns: [
+                    {
+                        type: 'event',
+                        property: '$pathname',
+                        normalize_url: true,
+                    },
+                    {
+                        type: 'group',
+                        property: '$num',
+                        group_type_index: 0,
+                        histogram_bin_count: 10,
+                    },
+                ],
+            }
+
+            const result = filtersToQueryNode(filters)
+
+            const query: TrendsQuery = {
+                kind: NodeKind.TrendsQuery,
+                breakdownFilter: {
+                    breakdowns: [
+                        {
+                            type: 'event',
+                            property: '$pathname',
+                            normalize_url: true,
+                        },
+                        {
+                            type: 'group',
+                            property: '$num',
+                            group_type_index: 0,
+                            histogram_bin_count: 10,
+                        },
+                    ],
+                },
+                series: [],
+            }
+            expect(result).toEqual(query)
+        })
+
+        it('converts legacy funnel breakdowns', () => {
+            const filters: Partial<TrendsFilterType> = {
+                insight: InsightType.TRENDS,
+                breakdowns: [
+                    {
+                        type: 'event',
+                        property: '$current_url',
+                    },
+                    {
+                        property: '$pathname',
+                    } as any,
+                ],
+            }
+
+            const result = filtersToQueryNode(filters)
+
+            const query: TrendsQuery = {
+                kind: NodeKind.TrendsQuery,
+                breakdownFilter: {
+                    breakdowns: [
+                        {
+                            type: 'event',
+                            property: '$current_url',
+                        },
+                        {
+                            type: 'event',
+                            property: '$pathname',
+                        },
+                    ],
+                },
+                series: [],
+            }
+            expect(result).toEqual(query)
+        })
+
+        it('does not add breakdown_type for multiple breakdowns', () => {
+            const filters: Partial<TrendsFilterType> = {
+                insight: InsightType.TRENDS,
+                breakdowns: [
+                    {
+                        type: 'person',
+                        property: '$browser',
+                    },
+                ],
+            }
+
+            const result = filtersToQueryNode(filters)
+
+            const query: TrendsQuery = {
+                kind: NodeKind.TrendsQuery,
+                breakdownFilter: {
+                    breakdowns: [
+                        {
+                            type: 'person',
+                            property: '$browser',
+                        },
+                    ],
+                    breakdown_type: undefined,
                 },
                 series: [],
             }
@@ -486,9 +630,30 @@ describe('filtersToQueryNode', () => {
                         },
                     ],
                     layout: FunnelLayout.horizontal,
-                    hidden_legend_breakdowns: ['Chrome', 'Safari'],
+                    hiddenLegendBreakdowns: ['Chrome', 'Safari'],
                 },
                 series: [],
+            }
+            expect(result).toEqual(query)
+        })
+
+        it('converts math type', () => {
+            const filters: Partial<FunnelsFilterType> = {
+                events: [{ id: '$pageview', type: 'events', order: 0, math: BaseMathType.FirstTimeForUser }],
+                insight: InsightType.FUNNELS,
+            }
+
+            const result = filtersToQueryNode(filters)
+
+            const query: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: '$pageview',
+                        math: BaseMathType.FirstTimeForUser,
+                    },
+                ],
             }
             expect(result).toEqual(query)
         })
@@ -626,7 +791,7 @@ describe('filtersToQueryNode', () => {
                 kind: NodeKind.StickinessQuery,
                 stickinessFilter: {
                     showLegend: true,
-                    hidden_legend_indexes: [0, 10],
+                    hiddenLegendIndexes: [0, 10],
                     display: ChartDisplayType.ActionsLineGraph,
                 },
                 compareFilter: {

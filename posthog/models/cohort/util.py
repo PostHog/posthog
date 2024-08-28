@@ -311,7 +311,7 @@ def recalculate_cohortpeople(
 
     recalcluate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=cohort_query)
 
-    tag_queries(kind="cohort_calculation", team_id=cohort.team_id)
+    tag_queries(kind="cohort_calculation", team_id=cohort.team_id, query_type="CohortsQuery")
     if initiating_user_id:
         tag_queries(user_id=initiating_user_id)
 
@@ -324,7 +324,10 @@ def recalculate_cohortpeople(
             "team_id": cohort.team_id,
             "new_version": pending_version,
         },
-        settings={"optimize_on_insert": 0},
+        settings={
+            "max_execution_time": 240,
+            "optimize_on_insert": 0,
+        },
         workload=Workload.OFFLINE,
     )
 
@@ -493,7 +496,7 @@ def get_dependent_cohorts(
                 if not current_cohort:
                     continue
             else:
-                current_cohort = Cohort.objects.using(using_database).get(
+                current_cohort = Cohort.objects.db_manager(using_database).get(
                     pk=cohort_id, team_id=cohort.team_id, deleted=False
                 )
                 seen_cohorts_cache[cohort_id] = current_cohort

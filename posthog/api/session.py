@@ -1,15 +1,24 @@
 import json
 
 from rest_framework import request, response, viewsets
-from rest_framework.decorators import action
+from posthog.api.utils import action
 from rest_framework.exceptions import ValidationError
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.hogql.database.schema.sessions import get_lazy_session_table_properties, get_lazy_session_table_values
+from posthog.hogql.database.schema.sessions_v1 import (
+    get_lazy_session_table_properties_v1,
+    get_lazy_session_table_values_v1,
+)
+from posthog.hogql.database.schema.sessions_v2 import (
+    get_lazy_session_table_values_v2,
+    get_lazy_session_table_properties_v2,
+)
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
 )
+from posthog.schema import SessionTableVersion
 from posthog.utils import convert_property_value, flatten
 
 
@@ -30,7 +39,11 @@ class SessionViewSet(
         if not key:
             raise ValidationError(detail=f"Key not provided")
 
-        result = get_lazy_session_table_values(key, search_term=search_term, team=team)
+        modifiers = create_default_modifiers_for_team(team)
+        if modifiers.sessionTableVersion == SessionTableVersion.V2:
+            result = get_lazy_session_table_values_v2(key, search_term=search_term, team=team)
+        else:
+            result = get_lazy_session_table_values_v1(key, search_term=search_term, team=team)
 
         flattened = []
         for value in result:
@@ -47,7 +60,11 @@ class SessionViewSet(
 
         # unlike e.g. event properties, there's a very limited number of session properties,
         # so we can just return them all
-        results = get_lazy_session_table_properties(search)
+        modifiers = create_default_modifiers_for_team(self.team)
+        if modifiers.sessionTableVersion == SessionTableVersion.V2:
+            results = get_lazy_session_table_properties_v2(search)
+        else:
+            results = get_lazy_session_table_properties_v1(search)
         return response.Response(
             {
                 "count": len(results),

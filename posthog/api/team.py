@@ -9,7 +9,7 @@ from loginas.utils import is_impersonated_session
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework import exceptions, request, response, serializers, viewsets
-from rest_framework.decorators import action
+from posthog.api.utils import action
 
 from posthog.api.geoip import get_geoip_properties
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -30,10 +30,7 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import APIScopeObjectOrNotSupported
 from posthog.models.signals import mute_selected_signals
-from posthog.models.team.team import (
-    groups_on_events_querying_enabled,
-    set_team_in_cache,
-)
+from posthog.models.team.team import set_team_in_cache
 from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data
 from posthog.models.utils import UUIDT, generate_random_token_project
 from posthog.permissions import (
@@ -98,6 +95,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "api_token",
             "autocapture_opt_out",
             "autocapture_exceptions_opt_in",
+            "autocapture_web_vitals_opt_in",
             "autocapture_exceptions_errors_to_ignore",
             "capture_performance_opt_in",
             "capture_console_log_opt_in",
@@ -117,7 +115,6 @@ class CachingTeamSerializer(serializers.ModelSerializer):
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin):
     effective_membership_level = serializers.SerializerMethodField()
     has_group_types = serializers.SerializerMethodField()
-    groups_on_events_querying_enabled = serializers.SerializerMethodField()
     live_events_token = serializers.SerializerMethodField()
 
     class Meta:
@@ -145,6 +142,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "correlation_config",
             "autocapture_opt_out",
             "autocapture_exceptions_opt_in",
+            "autocapture_web_vitals_opt_in",
             "autocapture_exceptions_errors_to_ignore",
             "capture_console_log_opt_in",
             "capture_performance_opt_in",
@@ -162,7 +160,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "live_events_columns",
             "recording_domains",
             "person_on_events_querying_enabled",
-            "groups_on_events_querying_enabled",
             "inject_web_apps",
             "extra_settings",
             "modifiers",
@@ -184,7 +181,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "has_group_types",
             "default_modifiers",
             "person_on_events_querying_enabled",
-            "groups_on_events_querying_enabled",
             "live_events_token",
         )
 
@@ -194,12 +190,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     def get_has_group_types(self, team: Team) -> bool:
         return GroupTypeMapping.objects.filter(team=team).exists()
 
-    def get_groups_on_events_querying_enabled(self, team: Team) -> bool:
-        return groups_on_events_querying_enabled()
-
     def get_live_events_token(self, team: Team) -> Optional[str]:
         return encode_jwt(
-            {"team_id": team.id},
+            {"team_id": team.id, "api_token": team.api_token},
             timedelta(days=7),
             PosthogJwtAudience.LIVESTREAM,
         )

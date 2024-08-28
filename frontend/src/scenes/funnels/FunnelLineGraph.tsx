@@ -11,6 +11,7 @@ import { isInsightQueryNode } from '~/queries/utils'
 import { ChartParams, GraphDataset, GraphType } from '~/types'
 
 import { funnelDataLogic } from './funnelDataLogic'
+import { funnelPersonsModalLogic } from './funnelPersonsModalLogic'
 
 const LineGraphWrapper = ({ inCardView, children }: { inCardView?: boolean; children: JSX.Element }): JSX.Element => {
     if (inCardView) {
@@ -23,16 +24,18 @@ const LineGraphWrapper = ({ inCardView, children }: { inCardView?: boolean; chil
 export function FunnelLineGraph({
     inCardView,
     inSharedMode,
-    showPersonsModal = true,
+    showPersonsModal: showPersonsModalProp = true,
 }: Omit<ChartParams, 'filters'>): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { indexedSteps, aggregationTargetLabel, incompletenessOffsetFromEnd, interval, querySource, insightData } =
         useValues(funnelDataLogic(insightProps))
+    const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
 
     if (!isInsightQueryNode(querySource)) {
         return null
     }
 
+    const showPersonsModal = canOpenPersonModal && showPersonsModalProp
     const aggregationGroupTypeIndex = querySource.aggregation_group_type_index
 
     return (

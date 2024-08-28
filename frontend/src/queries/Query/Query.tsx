@@ -1,5 +1,4 @@
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 import { useEffect, useState } from 'react'
 import { HogDebug } from 'scenes/debug/HogDebug'
 
@@ -14,14 +13,12 @@ import { QueryContext } from '~/queries/types'
 
 import { DataTableVisualization } from '../nodes/DataVisualization/DataVisualization'
 import { SavedInsight } from '../nodes/SavedInsight/SavedInsight'
-import { TimeToSeeData } from '../nodes/TimeToSeeData/TimeToSeeData'
 import {
     isDataTableNode,
     isDataVisualizationNode,
     isHogQuery,
     isInsightVizNode,
     isSavedInsightNode,
-    isTimeToSeeDataSessionsNode,
     isWebOverviewQuery,
 } from '../utils'
 
@@ -31,23 +28,21 @@ export interface QueryProps<Q extends Node> {
     /** The query to render */
     query: Q | string | null
     /** Set this if you're controlling the query parameter */
-    setQuery?: (query: Q) => void
+    setQuery?: (query: Q, isSourceUpdate?: boolean) => void
 
     /** Custom components passed down to a few query nodes (e.g. custom table columns) */
-    context?: QueryContext
+    context?: QueryContext<any>
     /* Cached Results are provided when shared or exported,
     the data node logic becomes read only implicitly */
     cachedResults?: AnyResponseType
     /** Disable any changes to the query */
     readOnly?: boolean
-    /** Show a stale overlay */
-    stale?: boolean
     /** Reduce UI elements to only show data */
     embedded?: boolean
 }
 
 export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null {
-    const { query: propsQuery, setQuery: propsSetQuery, readOnly, stale, embedded } = props
+    const { query: propsQuery, setQuery: propsSetQuery, readOnly, embedded } = props
 
     const [localQuery, localSetQuery] = useState(propsQuery)
     useEffect(() => {
@@ -95,6 +90,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 cachedResults={props.cachedResults}
                 uniqueKey={uniqueKey}
                 context={queryContext}
+                readOnly={readOnly}
             />
         )
     } else if (isSavedInsightNode(query)) {
@@ -110,8 +106,6 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 embedded={embedded}
             />
         )
-    } else if (isTimeToSeeDataSessionsNode(query)) {
-        component = <TimeToSeeData query={query} cachedResults={props.cachedResults} />
     } else if (isWebOverviewQuery(query)) {
         component = <WebOverview query={query} cachedResults={props.cachedResults} context={queryContext} />
     } else if (isHogQuery(query)) {
@@ -134,7 +128,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                         <>
                             <QueryEditor
                                 query={JSON.stringify(query)}
-                                setQuery={(stringQuery) => setQuery?.(JSON.parse(stringQuery))}
+                                setQuery={(stringQuery) => setQuery?.(JSON.parse(stringQuery), true)}
                                 context={queryContext}
                             />
                             <div className="my-4">
@@ -142,7 +136,6 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                             </div>
                         </>
                     ) : null}
-                    {stale && <SpinnerOverlay mode="editing" />}
                     {component}
                 </>
             </ErrorBoundary>

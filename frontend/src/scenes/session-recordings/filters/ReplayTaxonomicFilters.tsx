@@ -20,34 +20,49 @@ export function ReplayTaxonomicFilters({ onChange }: ReplayTaxonomicFiltersProps
         filterGroup: { values: filters },
     } = useValues(universalFiltersLogic)
 
-    const hasConsoleLogLevelFilter = filters.find(
-        (f) => f.type === PropertyFilterType.Recording && f.key === 'console_log_level'
-    )
-    const hasConsoleLogQueryFilter = filters.find(
-        (f) => f.type === PropertyFilterType.Recording && f.key === 'console_log_query'
-    )
+    const hasFilter = (key: string): boolean => {
+        return !!filters.find((f) => f.type === PropertyFilterType.Recording && f.key === key)
+    }
+
+    const properties = [
+        {
+            label: 'Visited page',
+            key: 'visited_page',
+            propertyFilterType: PropertyFilterType.Recording,
+        },
+        {
+            label: 'Platform',
+            key: 'snapshot_source',
+            propertyFilterType: PropertyFilterType.Recording,
+        },
+        {
+            label: 'Console log level',
+            key: 'console_log_level',
+            propertyFilterType: PropertyFilterType.LogEntry,
+        },
+        {
+            label: 'Console log text',
+            key: 'console_log_query',
+            propertyFilterType: PropertyFilterType.LogEntry,
+        },
+    ]
 
     return (
         <div className="grid grid-cols-2 gap-4 px-1 pt-1.5 pb-2.5">
             <section>
-                <h5 className="mx-2 my-1">Session properties</h5>
+                <h5 className="mt-1 mb-0">Replay properties</h5>
                 <ul className="space-y-px">
-                    <LemonButton
-                        size="small"
-                        fullWidth
-                        onClick={() => onChange('console_log_level', {})}
-                        disabledReason={hasConsoleLogLevelFilter ? 'Log level filter already added' : undefined}
-                    >
-                        Console log level
-                    </LemonButton>
-                    <LemonButton
-                        size="small"
-                        fullWidth
-                        onClick={() => onChange('console_log_query', {})}
-                        disabledReason={hasConsoleLogQueryFilter ? 'Log text filter already added' : undefined}
-                    >
-                        Console log text
-                    </LemonButton>
+                    {properties.map(({ key, label, propertyFilterType }) => (
+                        <LemonButton
+                            key={key}
+                            size="small"
+                            fullWidth
+                            onClick={() => onChange(key, { propertyFilterType: propertyFilterType })}
+                            disabledReason={hasFilter(key) ? `${label} filter already added` : undefined}
+                        >
+                            {label}
+                        </LemonButton>
+                    ))}
                 </ul>
             </section>
 
@@ -64,7 +79,7 @@ const PersonProperties = ({ onChange }: { onChange: ReplayTaxonomicFiltersProps[
 
     return (
         <section>
-            <h5 className="mx-2 my-1">Person properties</h5>
+            <h5 className="mt-1 mb-0">Person properties</h5>
             <ul className="space-y-px">
                 {properties.map((property) => (
                     <LemonButton

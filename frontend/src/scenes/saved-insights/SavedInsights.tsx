@@ -2,12 +2,14 @@ import './SavedInsights.scss'
 
 import {
     IconBrackets,
-    IconCoffee,
+    IconCorrelationAnalysis,
+    IconCursor,
     IconFunnels,
     IconGraph,
     IconHogQL,
     IconLifecycle,
     IconPerson,
+    IconPieChart,
     IconPlusSmall,
     IconRetention,
     IconStar,
@@ -15,6 +17,8 @@ import {
     IconStickiness,
     IconTrends,
     IconUserPaths,
+    IconVideoCamera,
+    IconWarning,
 } from '@posthog/icons'
 import { LemonSelectOptions } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
@@ -23,7 +27,7 @@ import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TZLabel } from 'lib/components/TZLabel'
-import { IconAction, IconEvent, IconGridView, IconListView, IconSelectEvents, IconTableChart } from 'lib/lemon-ui/icons'
+import { IconAction, IconGridView, IconListView, IconTableChart } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -34,7 +38,8 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { isNonEmptyObject } from 'lib/utils'
+import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -43,10 +48,9 @@ import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { NodeKind } from '~/queries/schema'
-import { isInsightVizNode } from '~/queries/utils'
-import { ActivityScope, InsightModel, InsightType, LayoutView, SavedInsightsTabs } from '~/types'
+import { isNodeWithSource } from '~/queries/utils'
+import { ActivityScope, InsightType, LayoutView, QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import { INSIGHTS_PER_PAGE, savedInsightsLogic } from './savedInsightsLogic'
@@ -159,13 +163,13 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.FunnelCorrelationQuery]: {
         name: 'Funnel Correlation',
         description: 'See which events or properties correlate to a funnel result',
-        icon: IconPerson,
+        icon: IconCorrelationAnalysis,
         inMenu: false,
     },
     [NodeKind.EventsNode]: {
         name: 'Events',
         description: 'List and explore events',
-        icon: IconSelectEvents,
+        icon: IconCursor,
         inMenu: true,
     },
     [NodeKind.ActionsNode]: {
@@ -182,8 +186,8 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     },
     [NodeKind.EventsQuery]: {
         name: 'Events Query',
-        description: 'Hmmm, not every kind should be displayable I guess',
-        icon: IconEvent,
+        description: 'List and explore events',
+        icon: IconCursor,
         inMenu: true,
     },
     [NodeKind.PersonsNode]: {
@@ -246,30 +250,6 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconGraph,
         inMenu: true,
     },
-    [NodeKind.TimeToSeeDataSessionsQuery]: {
-        name: 'Internal PostHog performance data',
-        description: 'View performance data about a session in PostHog itself',
-        icon: IconCoffee,
-        inMenu: true,
-    },
-    [NodeKind.TimeToSeeDataQuery]: {
-        name: 'Internal PostHog performance data',
-        description: 'View listings of sessions holding performance data in PostHog itself',
-        icon: IconCoffee,
-        inMenu: true,
-    },
-    [NodeKind.TimeToSeeDataSessionsJSONNode]: {
-        name: 'Internal PostHog performance data',
-        description: 'View performance data about a session in PostHog itself as JSON',
-        icon: IconCoffee,
-        inMenu: true,
-    },
-    [NodeKind.TimeToSeeDataSessionsWaterfallNode]: {
-        name: 'Internal PostHog performance data',
-        description: 'View performance data about a session in PostHog itself in a trace/waterfall view',
-        icon: IconCoffee,
-        inMenu: true,
-    },
     [NodeKind.SessionsTimelineQuery]: {
         name: 'Sessions',
         description: 'Sessions timeline query',
@@ -279,7 +259,7 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.HogQLQuery]: {
         name: 'HogQL',
         description: 'Direct HogQL query',
-        icon: IconHogQL,
+        icon: IconBrackets,
         inMenu: true,
     },
     [NodeKind.HogQLMetadata]: {
@@ -303,19 +283,19 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.WebOverviewQuery]: {
         name: 'Overview Stats',
         description: 'View overview stats for a website',
-        icon: IconTrends,
+        icon: IconPieChart,
         inMenu: true,
     },
     [NodeKind.WebStatsTableQuery]: {
         name: 'Web Table',
         description: 'A table of results from web analytics, with a breakdown',
-        icon: IconTrends,
+        icon: IconPieChart,
         inMenu: true,
     },
     [NodeKind.WebTopClicksQuery]: {
         name: 'Top Clicks',
         description: 'View top clicks for a website',
-        icon: IconTrends,
+        icon: IconPieChart,
         inMenu: true,
     },
     [NodeKind.HogQuery]: {
@@ -324,6 +304,24 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconHogQL,
         inMenu: true,
     },
+    [NodeKind.SessionAttributionExplorerQuery]: {
+        name: 'Session Attribution',
+        description: 'Session Attribution Explorer',
+        icon: IconPieChart,
+        inMenu: true,
+    },
+    [NodeKind.ErrorTrackingQuery]: {
+        name: 'Error Tracking',
+        description: 'List and explore exception groups',
+        icon: IconWarning,
+        inMenu: false,
+    },
+    [NodeKind.RecordingsQuery]: {
+        name: 'Session Recordings',
+        description: 'View available recordings',
+        icon: IconVideoCamera,
+        inMenu: false,
+    },
 }
 
 export const INSIGHT_TYPE_OPTIONS: LemonSelectOptions<string> = [
@@ -331,7 +329,7 @@ export const INSIGHT_TYPE_OPTIONS: LemonSelectOptions<string> = [
     ...Object.entries(INSIGHT_TYPES_METADATA).map(([value, meta]) => ({
         value,
         label: meta.name,
-        icon: meta.icon ? <meta.icon color="#747EA2" noBackground /> : undefined,
+        icon: meta.icon ? <meta.icon /> : undefined,
     })),
 ]
 
@@ -340,16 +338,22 @@ export const scene: SceneExport = {
     logic: savedInsightsLogic,
 }
 
-export function InsightIcon({ insight, className }: { insight: InsightModel; className?: string }): JSX.Element | null {
-    let insightType = insight?.filters?.insight || InsightType.TRENDS
-    if (!!insight.query && !isInsightVizNode(insight.query)) {
-        insightType = InsightType.JSON
+export function InsightIcon({
+    insight,
+    className,
+}: {
+    insight: QueryBasedInsightModel
+    className?: string
+}): JSX.Element | null {
+    let Icon: (props?: any) => JSX.Element | null = () => null
+
+    if ('query' in insight && isNonEmptyObject(insight.query)) {
+        const insightType = isNodeWithSource(insight.query) ? insight.query.source.kind : insight.query.kind
+        const insightMetadata = QUERY_TYPES_METADATA[insightType]
+        Icon = insightMetadata && insightMetadata.icon
     }
-    const insightMetadata = INSIGHT_TYPES_METADATA[insightType]
-    if (insightMetadata && insightMetadata.icon) {
-        return <insightMetadata.icon className={className} />
-    }
-    return null
+
+    return Icon ? <Icon className={className} /> : null
 }
 
 export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Element {
@@ -385,22 +389,24 @@ function SavedInsightsGrid(): JSX.Element {
     return (
         <>
             <div className="saved-insights-grid mb-2">
-                {paginationState.dataSourcePage.map((insight: InsightModel) => (
-                    <InsightCard
-                        key={insight.short_id}
-                        insight={{ ...insight }}
-                        rename={() => renameInsight(insight)}
-                        duplicate={() => duplicateInsight(insight)}
-                        deleteWithUndo={async () =>
-                            await deleteWithUndo({
-                                object: insight,
-                                endpoint: `projects/${currentTeamId}/insights`,
-                                callback: loadInsights,
-                            })
-                        }
-                        placement="SavedInsightGrid"
-                    />
-                ))}
+                {paginationState.dataSourcePage.map((insight) => {
+                    return (
+                        <InsightCard
+                            key={insight.short_id}
+                            insight={insight}
+                            rename={() => renameInsight(insight)}
+                            duplicate={() => duplicateInsight(insight)}
+                            deleteWithUndo={async () =>
+                                await deleteInsightWithUndo({
+                                    object: insight,
+                                    endpoint: `projects/${currentTeamId}/insights`,
+                                    callback: loadInsights,
+                                })
+                            }
+                            placement="SavedInsightGrid"
+                        />
+                    )
+                })}
                 {insightsLoading && (
                     // eslint-disable-next-line react/forbid-dom-props
                     <div style={{ minHeight: '30rem' }}>
@@ -426,7 +432,7 @@ export function SavedInsights(): JSX.Element {
     const startCount = (page - 1) * INSIGHTS_PER_PAGE + 1
     const endCount = page * INSIGHTS_PER_PAGE < count ? page * INSIGHTS_PER_PAGE : count
 
-    const columns: LemonTableColumns<InsightModel> = [
+    const columns: LemonTableColumns<QueryBasedInsightModel> = [
         {
             key: 'id',
             width: 32,
@@ -438,8 +444,7 @@ export function SavedInsights(): JSX.Element {
             title: 'Name',
             dataIndex: 'name',
             key: 'name',
-            render: function renderName(name: string, legacyInsight) {
-                const insight = getQueryBasedInsightModel(legacyInsight)
+            render: function renderName(name: string, insight) {
                 return (
                     <>
                         <LemonTableLink
@@ -476,7 +481,7 @@ export function SavedInsights(): JSX.Element {
             ? [
                   {
                       title: 'Tags',
-                      dataIndex: 'tags' as keyof InsightModel,
+                      dataIndex: 'tags' as keyof QueryBasedInsightModel,
                       key: 'tags',
                       render: function renderTags(tags: string[]) {
                           return <ObjectTags tags={tags} staticOnly />
@@ -486,8 +491,13 @@ export function SavedInsights(): JSX.Element {
             : []),
         ...(tab === SavedInsightsTabs.Yours
             ? []
-            : [createdByColumn() as LemonTableColumn<InsightModel, keyof InsightModel | undefined>]),
-        createdAtColumn() as LemonTableColumn<InsightModel, keyof InsightModel | undefined>,
+            : [
+                  createdByColumn() as LemonTableColumn<
+                      QueryBasedInsightModel,
+                      keyof QueryBasedInsightModel | undefined
+                  >,
+              ]),
+        createdAtColumn() as LemonTableColumn<QueryBasedInsightModel, keyof QueryBasedInsightModel | undefined>,
         {
             title: 'Last modified',
             sorter: true,
@@ -530,7 +540,7 @@ export function SavedInsights(): JSX.Element {
                                 <LemonButton
                                     status="danger"
                                     onClick={() =>
-                                        void deleteWithUndo({
+                                        void deleteInsightWithUndo({
                                             object: insight,
                                             endpoint: `projects/${currentTeamId}/insights`,
                                             callback: loadInsights,

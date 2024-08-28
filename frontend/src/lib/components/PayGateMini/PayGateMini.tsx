@@ -8,15 +8,13 @@ import { billingLogic } from 'scenes/billing/billingLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { getProductIcon } from 'scenes/products/Products'
 
-import { AvailableFeature, BillingProductV2AddonType, BillingProductV2Type, BillingV2FeatureType } from '~/types'
+import { AvailableFeature, BillingFeatureType, BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
 import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
 import { PayGateButton } from './PayGateButton'
-import { payGateMiniLogic } from './payGateMiniLogic'
+import { payGateMiniLogic, PayGateMiniLogicProps } from './payGateMiniLogic'
 
-export interface PayGateMiniProps {
-    feature: AvailableFeature
-    currentUsage?: number
+export type PayGateMiniProps = PayGateMiniLogicProps & {
     /**
      * The content to show when the feature is available. Will show nothing if children is undefined.
      */
@@ -43,19 +41,10 @@ export function PayGateMini({
     isGrandfathered,
     docsLink,
 }: PayGateMiniProps): JSX.Element | null {
-    const {
-        productWithFeature,
-        featureInfo,
-        featureAvailableOnOrg,
-        gateVariant,
-        isAddonProduct,
-        featureInfoOnNextPlan,
-    } = useValues(payGateMiniLogic({ featureKey: feature, currentUsage }))
+    const { productWithFeature, featureInfo, gateVariant } = useValues(payGateMiniLogic({ feature, currentUsage }))
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
-    const { billing, billingLoading } = useValues(billingLogic)
+    const { billingLoading } = useValues(billingLogic)
     const { hideUpgradeModal } = useActions(upgradeModalLogic)
-
-    const scrollToProduct = !(featureInfo?.key === AvailableFeature.ORGANIZATIONS_PROJECTS && !isAddonProduct)
 
     useEffect(() => {
         if (gateVariant) {
@@ -87,26 +76,15 @@ export function PayGateMini({
     if (gateVariant && productWithFeature && featureInfo && !overrideShouldShowGate) {
         return (
             <PayGateContent
+                feature={feature}
+                currentUsage={currentUsage}
                 className={className}
                 background={background}
-                featureInfo={featureInfo}
-                featureAvailableOnOrg={featureAvailableOnOrg}
-                gateVariant={gateVariant}
-                productWithFeature={productWithFeature}
                 isGrandfathered={isGrandfathered}
-                isAddonProduct={isAddonProduct}
-                featureInfoOnNextPlan={featureInfoOnNextPlan}
                 handleCtaClick={handleCtaClick}
             >
                 <div className="flex items-center justify-center space-x-3">
-                    <PayGateButton
-                        gateVariant={gateVariant}
-                        productWithFeature={productWithFeature}
-                        featureInfo={featureInfo}
-                        onCtaClick={handleCtaClick}
-                        billing={billing}
-                        scrollToProduct={scrollToProduct}
-                    />
+                    <PayGateButton feature={feature} currentUsage={currentUsage} onClick={handleCtaClick} />
                     {docsLink && isCloudOrDev && (
                         <LemonButton
                             type="secondary"
@@ -126,33 +104,36 @@ export function PayGateMini({
     return <div className={className}>{children}</div>
 }
 
-interface PayGateContentProps {
+interface PayGateContentProps extends PayGateMiniLogicProps {
     className?: string
     background: boolean
-    featureInfo: BillingV2FeatureType
-    featureAvailableOnOrg?: BillingV2FeatureType | null
-    gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null
-    productWithFeature: BillingProductV2AddonType | BillingProductV2Type
     isGrandfathered?: boolean
-    isAddonProduct?: boolean
-    featureInfoOnNextPlan?: BillingV2FeatureType
     children: React.ReactNode
     handleCtaClick: () => void
 }
 
 function PayGateContent({
+    feature,
+    currentUsage,
     className,
     background,
-    featureInfo,
-    featureAvailableOnOrg,
-    gateVariant,
-    productWithFeature,
     isGrandfathered,
-    isAddonProduct,
-    featureInfoOnNextPlan,
     children,
     handleCtaClick,
-}: PayGateContentProps): JSX.Element {
+}: PayGateContentProps): JSX.Element | null {
+    const {
+        productWithFeature,
+        featureInfo,
+        featureAvailableOnOrg,
+        gateVariant,
+        isAddonProduct,
+        featureInfoOnNextPlan,
+    } = useValues(payGateMiniLogic({ feature, currentUsage }))
+
+    if (!productWithFeature || !featureInfo) {
+        return null
+    }
+
     return (
         <div
             className={clsx(
@@ -182,10 +163,10 @@ function PayGateContent({
 }
 
 const renderUsageLimitMessage = (
-    featureAvailableOnOrg: BillingV2FeatureType | null | undefined,
-    featureInfoOnNextPlan: BillingV2FeatureType | undefined,
+    featureAvailableOnOrg: BillingFeatureType | null | undefined,
+    featureInfoOnNextPlan: BillingFeatureType | undefined,
     gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
-    featureInfo: BillingV2FeatureType,
+    featureInfo: BillingFeatureType,
     productWithFeature: BillingProductV2AddonType | BillingProductV2Type,
     isAddonProduct?: boolean,
     handleCtaClick?: () => void
@@ -211,10 +192,12 @@ const renderUsageLimitMessage = (
                 </p>
                 {featureInfo.key === AvailableFeature.ORGANIZATIONS_PROJECTS && !isAddonProduct ? (
                     <>
-                        <p>
-                            Please enter your credit card details by subscribing to any product (eg. Product analytics
-                            or Session replay) to create up to <b>{featureInfoOnNextPlan?.limit} projects</b>.
-                        </p>
+                        {featureInfoOnNextPlan?.limit && (
+                            <p>
+                                Please enter your credit card details to create up to{' '}
+                                <b>{featureInfoOnNextPlan?.limit} projects</b>.
+                            </p>
+                        )}
                         <p className="italic text-xs text-muted mb-4">
                             Need unlimited projects? Check out the{' '}
                             <Link to="/organization/billing?products=platform_and_support" onClick={handleCtaClick}>
@@ -223,9 +206,11 @@ const renderUsageLimitMessage = (
                             .
                         </p>
                     </>
+                ) : !isAddonProduct ? (
+                    <p>Upgrade to create more {featureInfo.name}</p>
                 ) : (
                     <p>
-                        Please upgrade your <b>{productWithFeature.name}</b> plan to create more {featureInfo.name}
+                        Upgrade your <b>{productWithFeature.name}</b> plan to create more {featureInfo.name}
                     </p>
                 )}
             </div>
@@ -253,16 +238,13 @@ const renderGateVariantMessage = (
             </>
         )
     }
-    return (
-        <>
-            Upgrade your <b>{productWithFeature?.name}</b> plan to use this feature.
-        </>
-    )
+
+    return <>Upgrade to use this feature.</>
 }
 
 const GrandfatheredMessage = (): JSX.Element => {
     return (
-        <div className="flex gap-x-2 bg-bg-3000 p-4 rounded text-left mb-4">
+        <div className="flex gap-x-2 bg-bg-3000 rounded text-left mb-4">
             <IconInfo className="text-muted text-2xl" />
             <p className="text-muted mb-0">
                 Your plan does not include this feature, but previously set settings may remain. Please upgrade your

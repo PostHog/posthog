@@ -1,3 +1,4 @@
+from copy import deepcopy
 from typing import Optional, TypeVar, Generic, Any
 
 from posthog.hogql import ast
@@ -28,7 +29,7 @@ class Visitor(Generic[T]):
             if e.start is None or e.end is None:
                 e.start = node.start
                 e.end = node.end
-            raise e
+            raise
 
 
 class TraversingVisitor(Visitor[None]):
@@ -80,6 +81,11 @@ class TraversingVisitor(Visitor[None]):
         for expr in node.exprs:
             self.visit(expr)
 
+    def visit_dict(self, node: ast.Dict):
+        for key, value in node.items:
+            self.visit(key)
+            self.visit(value)
+
     def visit_constant(self, node: ast.Constant):
         self.visit(node.type)
 
@@ -95,6 +101,11 @@ class TraversingVisitor(Visitor[None]):
         if node.params:
             for expr in node.params:
                 self.visit(expr)
+
+    def visit_expr_call(self, node: ast.ExprCall):
+        self.visit(node.expr)
+        for expr in node.args:
+            self.visit(expr)
 
     def visit_sample_expr(self, node: ast.SampleExpr):
         self.visit(node.sample_value)
@@ -286,12 +297,36 @@ class TraversingVisitor(Visitor[None]):
         self.visit(node.expr)
         self.visit(node.body)
 
+    def visit_for_statement(self, node: ast.ForStatement):
+        if node.initializer:
+            self.visit(node.initializer)
+        self.visit(node.condition)
+        self.visit(node.increment)
+        self.visit(node.body)
+
+    def visit_for_in_statement(self, node: ast.ForInStatement):
+        self.visit(node.expr)
+        self.visit(node.body)
+
     def visit_expr_statement(self, node: ast.ExprStatement):
         self.visit(node.expr)
 
     def visit_return_statement(self, node: ast.ReturnStatement):
         if node.expr:
             self.visit(node.expr)
+
+    def visit_throw_statement(self, node: ast.ThrowStatement):
+        if node.expr:
+            self.visit(node.expr)
+
+    def visit_try_catch_statement(self, node: ast.TryCatchStatement):
+        self.visit(node.try_stmt)
+        for catch in node.catches:
+            self.visit(catch[2])
+        self.visit(node.finally_stmt)
+
+    def visit_function(self, node: ast.Function):
+        self.visit(node.body)
 
     def visit_declaration(self, node: ast.Declaration):
         raise NotImplementedError("Abstract 'visit_declaration' not implemented")
@@ -396,6 +431,7 @@ class CloningVisitor(Visitor[Any]):
             type=None if self.clear_types else node.type,
             tuple=self.visit(node.tuple),
             index=node.index,
+            nullish=node.nullish,
         )
 
     def visit_tuple(self, node: ast.Tuple):
@@ -422,6 +458,7 @@ class CloningVisitor(Visitor[Any]):
             type=None if self.clear_types else node.type,
             array=self.visit(node.array),
             property=self.visit(node.property),
+            nullish=node.nullish,
         )
 
     def visit_array(self, node: ast.Array):
@@ -430,6 +467,14 @@ class CloningVisitor(Visitor[Any]):
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
             exprs=[self.visit(expr) for expr in node.exprs],
+        )
+
+    def visit_dict(self, node: ast.Dict):
+        return ast.Dict(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            items=[(self.visit(key), self.visit(value)) for key, value in node.items],
         )
 
     def visit_constant(self, node: ast.Constant):
@@ -453,7 +498,7 @@ class CloningVisitor(Visitor[Any]):
             start=None if self.clear_locations else node.start,
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
-            field=node.field,
+            chain=node.chain,
         )
 
     def visit_call(self, node: ast.Call):
@@ -465,6 +510,15 @@ class CloningVisitor(Visitor[Any]):
             args=[self.visit(arg) for arg in node.args],
             params=[self.visit(param) for param in node.params] if node.params is not None else None,
             distinct=node.distinct,
+        )
+
+    def visit_expr_call(self, node: ast.ExprCall):
+        return ast.ExprCall(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            expr=self.visit(node.expr),
+            args=[self.visit(arg) for arg in node.args],
         )
 
     def visit_ratio_expr(self, node: ast.RatioExpr):
@@ -613,6 +667,26 @@ class CloningVisitor(Visitor[Any]):
             body=self.visit(node.body),
         )
 
+    def visit_for_statement(self, node: ast.ForStatement):
+        return ast.ForStatement(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            initializer=self.visit(node.initializer) if node.initializer else None,
+            condition=self.visit(node.condition),
+            increment=self.visit(node.increment),
+            body=self.visit(node.body),
+        )
+
+    def visit_for_in_statement(self, node: ast.ForInStatement):
+        return ast.ForInStatement(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            valueVar=node.valueVar,
+            keyVar=node.keyVar,
+            expr=self.visit(node.expr),
+            body=self.visit(node.body),
+        )
+
     def visit_expr_statement(self, node: ast.ExprStatement):
         return ast.ExprStatement(
             start=None if self.clear_locations else node.start,
@@ -625,6 +699,31 @@ class CloningVisitor(Visitor[Any]):
             start=None if self.clear_locations else node.start,
             end=None if self.clear_locations else node.end,
             expr=self.visit(node.expr) if node.expr else None,
+        )
+
+    def visit_throw_statement(self, node: ast.ThrowStatement):
+        return ast.ThrowStatement(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            expr=self.visit(node.expr) if node.expr else None,
+        )
+
+    def visit_try_catch_statement(self, node: ast.TryCatchStatement):
+        return ast.TryCatchStatement(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            try_stmt=self.visit(node.try_stmt),
+            catches=[(c[0], c[1], self.visit(c[2])) for c in node.catches],
+            finally_stmt=self.visit(node.finally_stmt),
+        )
+
+    def visit_function(self, node: ast.Function):
+        return ast.Function(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            name=node.name,
+            params=deepcopy(node.params),
+            body=self.visit(node.body),
         )
 
     def visit_declaration(self, node: ast.Declaration):

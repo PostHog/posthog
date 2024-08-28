@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { BIN_COUNT_AUTO } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -71,6 +71,8 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
 
     actions({
         hideSkewWarning: true,
+        setHiddenLegendBreakdowns: (hiddenLegendBreakdowns: string[]) => ({ hiddenLegendBreakdowns }),
+        toggleLegendBreakdownVisibility: (breakdown: string) => ({ breakdown }),
     }),
 
     reducers({
@@ -177,7 +179,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 if (!isTimeToConvertFunnel && Array.isArray(results)) {
                     if (isBreakdownFunnelResults(results)) {
                         const breakdownProperty = breakdownFilter?.breakdowns
-                            ? breakdownFilter?.breakdowns.map((b: { property: any }) => b.property).join('::')
+                            ? breakdownFilter?.breakdowns.map((b) => b.property).join('::')
                             : breakdownFilter?.breakdown ?? undefined
                         return aggregateBreakdownResult(results, breakdownProperty).sort((a, b) => a.order - b.order)
                     }
@@ -205,6 +207,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 return flattenedStepsByBreakdown(steps, funnelsFilter?.layout, disableBaseline, true)
             },
         ],
+        hiddenLegendBreakdowns: [(s) => [s.funnelsFilter], (funnelsFilter) => funnelsFilter?.hiddenLegendBreakdowns],
         visibleStepsWithConversionMetrics: [
             (s) => [s.stepsWithConversionMetrics, s.funnelsFilter, s.flattenedBreakdowns],
             (steps, funnelsFilter, flattenedBreakdowns): FunnelStepWithConversionMetrics[] => {
@@ -223,7 +226,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                         ?.filter(
                             (b) =>
                                 isOnlySeries ||
-                                !funnelsFilter?.hidden_legend_breakdowns?.includes(getVisibilityKey(b.breakdown_value))
+                                !funnelsFilter?.hiddenLegendBreakdowns?.includes(getVisibilityKey(b.breakdown_value))
                         ),
                 }))
             },
@@ -403,5 +406,16 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             (steps) =>
                 Array.isArray(steps) ? steps.map((step, index) => ({ ...step, seriesIndex: index, id: index })) : [],
         ],
+    })),
+
+    listeners(({ actions, values }) => ({
+        setHiddenLegendBreakdowns: ({ hiddenLegendBreakdowns }) => {
+            actions.updateInsightFilter({ hiddenLegendBreakdowns })
+        },
+        toggleLegendBreakdownVisibility: ({ breakdown }) => {
+            values.hiddenLegendBreakdowns?.includes(breakdown)
+                ? actions.setHiddenLegendBreakdowns(values.hiddenLegendBreakdowns.filter((b) => b !== breakdown))
+                : actions.setHiddenLegendBreakdowns([...(values.hiddenLegendBreakdowns || []), breakdown])
+        },
     })),
 ])

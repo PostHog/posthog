@@ -8,6 +8,7 @@ from posthog.schema import (
     PersonsArgMaxVersion,
     PersonsOnEventsMode,
     BounceRatePageViewMode,
+    SessionTableVersion,
 )
 
 if TYPE_CHECKING:
@@ -50,6 +51,9 @@ def set_default_modifier_values(modifiers: HogQLQueryModifiers, team: "Team"):
 
     if modifiers.bounceRatePageViewMode is None:
         modifiers.bounceRatePageViewMode = BounceRatePageViewMode.COUNT_PAGEVIEWS
+
+    if modifiers.sessionTableVersion is None:
+        modifiers.sessionTableVersion = SessionTableVersion.AUTO
 
 
 def set_default_in_cohort_via(modifiers: HogQLQueryModifiers) -> HogQLQueryModifiers:

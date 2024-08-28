@@ -496,6 +496,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "capabilities": {},
                 "metrics": {},
                 "public_jobs": {},
+                "hog_function_migration_available": False,
             },
         )
         self.assertEqual(Plugin.objects.count(), 1)
@@ -540,6 +541,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "capabilities": {},
                 "metrics": {},
                 "public_jobs": {},
+                "hog_function_migration_available": False,
             },
         )
         self.assertEqual(Plugin.objects.count(), 1)
@@ -586,6 +588,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "capabilities": {},
                 "metrics": {},
                 "public_jobs": {},
+                "hog_function_migration_available": False,
             },
         )
         self.assertEqual(Plugin.objects.count(), 1)
@@ -753,6 +756,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
             "capabilities": {},
             "metrics": {},
             "public_jobs": {},
+            "hog_function_migration_available": False,
         }
 
         assert Plugin.objects.count() == 1
@@ -885,6 +889,8 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         )
 
     def test_install_plugin_on_multiple_orgs(self, mock_get, mock_reload):
+        # Expectation: since plugins are url-unique, installing the same plugin on a second orgs should
+        # return a 400 response, as the plugin is already installed on the first org
         my_org = self.organization
         other_org = Organization.objects.create(
             name="FooBar2", plugins_access_level=Organization.PluginsAccessLevel.INSTALL
@@ -914,6 +920,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
             f"/api/organizations/{other_org.id}/plugins/",
             {"url": "https://github.com/PostHog/helloworldplugin"},
         )
+        # Fails due to org membership
         self.assertEqual(response.status_code, 403)
         self.assertEqual(Plugin.objects.count(), 1)
 
@@ -923,14 +930,9 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
             f"/api/organizations/{other_org.id}/plugins/",
             {"url": "https://github.com/PostHog/helloworldplugin"},
         )
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(Plugin.objects.count(), 2)
-        response = self.client.post(
-            f"/api/organizations/{other_org.id}/plugins/",
-            {"url": "https://github.com/PostHog/helloworldplugin"},
-        )
+        # Fails since the plugin already exists
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(Plugin.objects.count(), 2)
+        self.assertEqual(Plugin.objects.count(), 1)
 
     def test_cannot_access_others_orgs_plugins(self, mock_get, mock_reload):
         other_org = Organization.objects.create(
@@ -1028,7 +1030,6 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "name": "name in ui",
                 "description": "description in ui",
                 "deleted": False,
-                "filters": None,
             },
         )
         plugin_config = PluginConfig.objects.first()
@@ -1058,7 +1059,6 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "name": "name in ui",
                 "description": "description in ui",
                 "deleted": False,
-                "filters": None,
             },
         )
 
@@ -1097,7 +1097,6 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "name": "name in ui",
                 "description": "description in ui",
                 "deleted": False,
-                "filters": None,
             },
         )
 
@@ -1415,7 +1414,6 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "name": "Hello World",
                 "description": "Greet the World and Foo a Bar, JS edition!",
                 "deleted": False,
-                "filters": None,
             },
         )
 
@@ -1445,7 +1443,6 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "name": "Hello World",
                 "description": "Greet the World and Foo a Bar, JS edition!",
                 "deleted": False,
-                "filters": None,
             },
         )
 
@@ -1477,7 +1474,6 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "name": "Hello World",
                 "description": "Greet the World and Foo a Bar, JS edition!",
                 "deleted": False,
-                "filters": None,
             },
         )
         plugin_config = PluginConfig.objects.get(plugin=plugin_id)
@@ -1526,7 +1522,6 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                     "name": None,
                     "description": None,
                     "deleted": False,
-                    "filters": None,
                 },
                 {
                     "id": plugin_config2.pk,
@@ -1543,7 +1538,6 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                     "name": "ui name",
                     "description": "ui description",
                     "deleted": False,
-                    "filters": None,
                 },
             ],
         )
@@ -1667,49 +1661,6 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 },
             ]
         )
-
-    def test_update_plugin_filters(self, mock_get, mock_reload):
-        plugin = self._create_plugin()
-        response = self.client.post(
-            "/api/plugin_config/",
-            {
-                "plugin": plugin["id"],
-                "enabled": True,
-                "order": 0,
-                "filters": json.dumps(
-                    {
-                        "events": [
-                            {
-                                "name": "$pageview",
-                                "properties": [],
-                                "type": "events",
-                            }
-                        ]
-                    }
-                ),
-            },
-            format="multipart",
-        )
-
-        assert response.status_code == 201, response.json()
-
-        assert response.json()["filters"] == {"events": [{"name": "$pageview", "properties": [], "type": "events"}]}
-
-    def test_update_plugin_filters_fails_for_bad_formatting(self, mock_get, mock_reload):
-        plugin = self._create_plugin()
-        response = self.client.post(
-            "/api/plugin_config/",
-            {
-                "plugin": plugin["id"],
-                "enabled": True,
-                "order": 0,
-                "filters": json.dumps({"events": "wrong"}),
-            },
-            format="multipart",
-        )
-
-        assert response.status_code == 400, response.json()
-        assert response.json()["code"] == "not_a_list"
 
 
 class TestPluginsAccessLevelAPI(APIBaseTest):

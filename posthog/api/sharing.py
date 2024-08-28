@@ -16,7 +16,8 @@ from posthog.api.dashboards.dashboard import DashboardSerializer
 from posthog.api.exports import ExportedAssetSerializer
 from posthog.api.insight import InsightSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.models import SessionRecording, SharingConfiguration, Team
+from posthog.clickhouse.client.async_task_chain import task_chain_context
+from posthog.models import SessionRecording, SharingConfiguration, Team, InsightViewed
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.dashboard import Dashboard
 from posthog.models.exported_asset import (
@@ -269,14 +270,20 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             context["dashboard"] = resource.dashboard
             asset_title = resource.insight.name or resource.insight.derived_name
             asset_description = resource.insight.description or ""
+            InsightViewed.objects.update_or_create(
+                insight=resource.insight, team=None, user=None, defaults={"last_viewed_at": now()}
+            )
             insight_data = InsightSerializer(resource.insight, many=False, context=context).data
             exported_data.update({"insight": insight_data})
         elif resource.dashboard and not resource.dashboard.deleted:
             asset_title = resource.dashboard.name
             asset_description = resource.dashboard.description or ""
-            dashboard_data = DashboardSerializer(resource.dashboard, context=context).data
-            # We don't want the dashboard to be accidentally loaded via the shared endpoint
-            exported_data.update({"dashboard": dashboard_data})
+            resource.dashboard.last_accessed_at = now()
+            resource.dashboard.save(update_fields=["last_accessed_at"])
+            with task_chain_context():
+                dashboard_data = DashboardSerializer(resource.dashboard, context=context).data
+                # We don't want the dashboard to be accidentally loaded via the shared endpoint
+                exported_data.update({"dashboard": dashboard_data})
         elif isinstance(resource, SharingConfiguration) and resource.recording and not resource.recording.deleted:
             asset_title = "Session Recording"
             recording_data = SessionRecordingSerializer(resource.recording, context=context).data
@@ -294,6 +301,8 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             exported_data.update({"showInspector": True})
         if "legend" in request.GET:
             exported_data.update({"legend": True})
+        if "detailed" in request.GET:
+            exported_data.update({"detailed": True})
 
         if request.path.endswith(f".json"):
             return response.Response(exported_data)

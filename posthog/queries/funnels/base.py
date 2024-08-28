@@ -24,7 +24,6 @@ from posthog.models.property.util import (
     get_single_or_multi_property_string_expr,
     parse_prop_grouped_clauses,
 )
-from posthog.models.team.team import groups_on_events_querying_enabled
 from posthog.queries.breakdown_props import (
     format_breakdown_cohort_join_query,
     get_breakdown_cohort_name,
@@ -760,27 +759,13 @@ class ClickhouseFunnelBase(ABC):
             # :TRICKY: We only support string breakdown for group properties
             assert isinstance(self._filter.breakdown, str)
 
-            if (
-                alias_poe_mode_for_legacy(self._team.person_on_events_mode) != PersonsOnEventsMode.DISABLED
-                and groups_on_events_querying_enabled()
-            ):
-                properties_field = f"group{self._filter.breakdown_group_type_index}_properties"
-                expression, _ = get_property_string_expr(
-                    table="events",
-                    property_name=self._filter.breakdown,
-                    var="%(breakdown)s",
-                    column=properties_field,
-                    allow_denormalized_props=True,
-                    materialised_table_column=properties_field,
-                )
-            else:
-                properties_field = f"group_properties_{self._filter.breakdown_group_type_index}"
-                expression, _ = get_property_string_expr(
-                    table="groups",
-                    property_name=self._filter.breakdown,
-                    var="%(breakdown)s",
-                    column=properties_field,
-                )
+            properties_field = f"group_properties_{self._filter.breakdown_group_type_index}"
+            expression, _ = get_property_string_expr(
+                table="groups",
+                property_name=self._filter.breakdown,
+                var="%(breakdown)s",
+                column=properties_field,
+            )
             basic_prop_selector = f"{expression} AS prop_basic"
         elif self._filter.breakdown_type == "hogql":
             from posthog.hogql.hogql import translate_hogql

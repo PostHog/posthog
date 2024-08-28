@@ -118,12 +118,6 @@
 
 .InsightDetails__breakdown {
     margin-bottom: 0.5rem;
-
-    .breakdown-tag {
-        padding: 0.375rem 0.75rem;
-        font-size: 0.8125rem;
-        line-height: 0.8125rem;
-    }
 }
 
 .InsightDetails__footer {
@@ -157,8 +151,8 @@
     font-size: 0.6875rem;
     font-weight: 600;
     line-height: 1rem;
-    color: var(--primary-alt);
-    background: var(--primary-bg-hover);
+    color: var(--text-3000);
+    background: var(--primary-highlight);
     border-radius: var(--radius);
 
     &.SeriesDisplay__raw-name--action,

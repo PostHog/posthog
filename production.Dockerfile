@@ -38,11 +38,12 @@ COPY ./bin/ ./bin/
 COPY babel.config.js tsconfig.json webpack.config.js tailwind.config.js ./
 RUN pnpm build
 
-
 #
 # ---------------------------------------------------------
 #
-FROM node:18.19.1-bullseye-slim AS plugin-server-build
+FROM ghcr.io/posthog/rust-node-container:bullseye_rust_1.80.1-node_18.19.1 AS plugin-server-build
+WORKDIR /code
+COPY ./rust ./rust
 WORKDIR /code/plugin-server
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -83,7 +84,7 @@ RUN corepack enable && \
 #
 # ---------------------------------------------------------
 #
-FROM python:3.10.10-slim-bullseye AS posthog-build
+FROM python:3.11.9-slim-bullseye AS posthog-build
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -99,10 +100,11 @@ RUN apt-get update && \
     "libxmlsec1" \
     "libxmlsec1-dev" \
     "libffi-dev" \
+    "zlib1g-dev" \
     "pkg-config" \
     && \
     rm -rf /var/lib/apt/lists/* && \
-    pip install -r requirements.txt --compile --no-cache-dir --target=/python-runtime
+    PIP_NO_BINARY=lxml,xmlsec pip install -r requirements.txt --compile --no-cache-dir --target=/python-runtime
 
 ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime
@@ -139,104 +141,7 @@ RUN apt-get update && \
 #
 # ---------------------------------------------------------
 #
-# Build a version of the unit docker image for python3.10
-# We can remove this step once we are on python3.11
-FROM unit:python3.11 as unit
-FROM python:3.10-bullseye as unit-131-python-310
-
-# copied from https://github.com/nginx/unit/blob/master/pkg/docker/Dockerfile.python3.11
-LABEL org.opencontainers.image.title="Unit (python3.10)"
-LABEL org.opencontainers.image.description="Official build of Unit for Docker."
-LABEL org.opencontainers.image.url="https://unit.nginx.org"
-LABEL org.opencontainers.image.source="https://github.com/nginx/unit"
-LABEL org.opencontainers.image.documentation="https://unit.nginx.org/installation/#docker-images"
-LABEL org.opencontainers.image.vendor="NGINX Docker Maintainers <docker-maint@nginx.com>"
-LABEL org.opencontainers.image.version="1.31.1"
-
-RUN set -ex \
-    && savedAptMark="$(apt-mark showmanual)" \
-    && apt-get update \
-    && apt-get install --no-install-recommends --no-install-suggests -y ca-certificates mercurial build-essential libssl-dev libpcre2-dev curl pkg-config \
-    && mkdir -p /usr/lib/unit/modules /usr/lib/unit/debug-modules \
-    && mkdir -p /usr/src/unit \
-    && cd /usr/src/unit \
-    && hg clone -u 1.31.1-1 https://hg.nginx.org/unit \
-    && cd unit \
-    && NCPU="$(getconf _NPROCESSORS_ONLN)" \
-    && DEB_HOST_MULTIARCH="$(dpkg-architecture -q DEB_HOST_MULTIARCH)" \
-    && CC_OPT="$(DEB_BUILD_MAINT_OPTIONS="hardening=+all,-pie" DEB_CFLAGS_MAINT_APPEND="-Wp,-D_FORTIFY_SOURCE=2 -fPIC" dpkg-buildflags --get CFLAGS)" \
-    && LD_OPT="$(DEB_BUILD_MAINT_OPTIONS="hardening=+all,-pie" DEB_LDFLAGS_MAINT_APPEND="-Wl,--as-needed -pie" dpkg-buildflags --get LDFLAGS)" \
-    && CONFIGURE_ARGS_MODULES="--prefix=/usr \
-    --statedir=/var/lib/unit \
-    --control=unix:/var/run/control.unit.sock \
-    --runstatedir=/var/run \
-    --pid=/var/run/unit.pid \
-    --logdir=/var/log \
-    --log=/var/log/unit.log \
-    --tmpdir=/var/tmp \
-    --user=unit \
-    --group=unit \
-    --openssl \
-    --libdir=/usr/lib/$DEB_HOST_MULTIARCH" \
-    && CONFIGURE_ARGS="$CONFIGURE_ARGS_MODULES \
-    --njs" \
-    && make -j $NCPU -C pkg/contrib .njs \
-    && export PKG_CONFIG_PATH=$(pwd)/pkg/contrib/njs/build \
-    && ./configure $CONFIGURE_ARGS --cc-opt="$CC_OPT" --ld-opt="$LD_OPT" --modulesdir=/usr/lib/unit/debug-modules --debug \
-    && make -j $NCPU unitd \
-    && install -pm755 build/sbin/unitd /usr/sbin/unitd-debug \
-    && make clean \
-    && ./configure $CONFIGURE_ARGS --cc-opt="$CC_OPT" --ld-opt="$LD_OPT" --modulesdir=/usr/lib/unit/modules \
-    && make -j $NCPU unitd \
-    && install -pm755 build/sbin/unitd /usr/sbin/unitd \
-    && make clean \
-    && /bin/true \
-    && ./configure $CONFIGURE_ARGS_MODULES --cc-opt="$CC_OPT" --modulesdir=/usr/lib/unit/debug-modules --debug \
-    && ./configure python --config=/usr/local/bin/python3-config \
-    && make -j $NCPU python3-install \
-    && make clean \
-    && ./configure $CONFIGURE_ARGS_MODULES --cc-opt="$CC_OPT" --modulesdir=/usr/lib/unit/modules \
-    && ./configure python --config=/usr/local/bin/python3-config \
-    && make -j $NCPU python3-install \
-    && cd \
-    && rm -rf /usr/src/unit \
-    && for f in /usr/sbin/unitd /usr/lib/unit/modules/*.unit.so; do \
-    ldd $f | awk '/=>/{print $(NF-1)}' | while read n; do dpkg-query -S $n; done | sed 's/^\([^:]\+\):.*$/\1/' | sort | uniq >> /requirements.apt; \
-    done \
-    && apt-mark showmanual | xargs apt-mark auto > /dev/null \
-    && { [ -z "$savedAptMark" ] || apt-mark manual $savedAptMark; } \
-    && /bin/true \
-    && mkdir -p /var/lib/unit/ \
-    && mkdir -p /docker-entrypoint.d/ \
-    && groupadd --gid 998 unit \
-    && useradd \
-    --uid 998 \
-    --gid unit \
-    --no-create-home \
-    --home /nonexistent \
-    --comment "unit user" \
-    --shell /bin/false \
-    unit \
-    && apt-get update \
-    && apt-get --no-install-recommends --no-install-suggests -y install curl $(cat /requirements.apt) \
-    && apt-get purge -y --auto-remove build-essential \
-    && rm -rf /var/lib/apt/lists/* \
-    && rm -f /requirements.apt \
-    && ln -sf /dev/stdout /var/log/unit.log
-
-COPY --from=unit /usr/local/bin/docker-entrypoint.sh /usr/local/bin/
-COPY --from=unit /usr/share/unit/welcome/welcome.* /usr/share/unit/welcome/
-
-STOPSIGNAL SIGTERM
-
-ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
-EXPOSE 80
-CMD ["unitd", "--no-daemon", "--control", "unix:/var/run/control.unit.sock"]
-
-#
-# ---------------------------------------------------------
-#
-FROM unit-131-python-310
+FROM unit:python3.11
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 ENV PYTHONUNBUFFERED 1
@@ -253,6 +158,12 @@ RUN apt-get update && \
     "libxml2" \
     "gettext-base"
 
+# Install MS SQL dependencies
+RUN curl https://packages.microsoft.com/keys/microsoft.asc | tee /etc/apt/trusted.gpg.d/microsoft.asc
+RUN curl https://packages.microsoft.com/config/debian/11/prod.list | tee /etc/apt/sources.list.d/mssql-release.list
+RUN apt-get update
+RUN ACCEPT_EULA=Y apt-get install -y msodbcsql18
+
 # Install NodeJS 18.
 RUN apt-get install -y --no-install-recommends \
     "curl" \
@@ -265,7 +176,7 @@ RUN apt-get install -y --no-install-recommends \
 
 # Install and use a non-root user.
 RUN groupadd -g 1000 posthog && \
-    useradd -u 999 -r -g posthog posthog && \
+    useradd -r -g posthog posthog && \
     chown posthog:posthog /code
 USER posthog
 
@@ -277,6 +188,7 @@ RUN echo $COMMIT_HASH > /code/commit.txt
 COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/dist /code/plugin-server/dist
 COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/node_modules /code/plugin-server/node_modules
 COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/package.json /code/plugin-server/package.json
+
 
 # Copy the Python dependencies and Django staticfiles from the posthog-build stage.
 COPY --from=posthog-build --chown=posthog:posthog /code/staticfiles /code/staticfiles

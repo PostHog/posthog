@@ -53,6 +53,7 @@ import {
     EventsQuery,
     HogQLQuery,
     PersonsNode,
+    SessionAttributionExplorerQuery,
 } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
 import {
@@ -66,12 +67,14 @@ import {
 } from '~/queries/utils'
 import { EventType, InsightLogicProps } from '~/types'
 
+import { DataTableOpenEditor } from './DataTableOpenEditor'
+
 interface DataTableProps {
     uniqueKey?: string | number
     query: DataTableNode
     setQuery?: (query: DataTableNode) => void
     /** Custom table columns */
-    context?: QueryContext
+    context?: QueryContext<DataTableNode>
     /* Cached Results are provided when shared or exported,
     the data node logic becomes read only implicitly */
     cachedResults?: AnyResponseType
@@ -92,7 +95,7 @@ let uniqueNode = 0
 export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }: DataTableProps): JSX.Element {
     const [uniqueNodeKey] = useState(() => uniqueNode++)
     const [dataKey] = useState(() => `DataNode.${uniqueKey || uniqueNodeKey}`)
-    const insightProps: InsightLogicProps = context?.insightProps || {
+    const insightProps: InsightLogicProps<DataTableNode> = context?.insightProps || {
         dashboardItemId: `new-AdHoc.${dataKey}`,
         dataNodeCollectionId: dataKey,
     }
@@ -165,7 +168,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
         ...columnsInLemonTable.map((key, index) => ({
             dataIndex: key as any,
             ...renderColumnMeta(key, query, context),
-            render: function RenderDataTableColumn(_: any, { result, label }: DataTableRow) {
+            render: function RenderDataTableColumn(_: any, { result, label }: DataTableRow, recordIndex: number) {
                 if (label) {
                     if (index === (expandable ? 1 : 0)) {
                         return {
@@ -176,9 +179,9 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                     return { props: { colSpan: 0 } }
                 } else if (result) {
                     if (sourceFeatures.has(QueryFeature.resultIsArrayOfArrays)) {
-                        return renderColumn(key, result[index], result, query, setQuery, context)
+                        return renderColumn(key, result[index], result, recordIndex, query, setQuery, context)
                     }
-                    return renderColumn(key, result[key], result, query, setQuery, context)
+                    return renderColumn(key, result[key], result, recordIndex, query, setQuery, context)
                 }
             },
             sorter: undefined, // using custom sorting code
@@ -383,7 +386,8 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
     ].filter((column) => !query.hiddenColumns?.includes(column.dataIndex) && column.dataIndex !== '*')
 
     const setQuerySource = useCallback(
-        (source: EventsNode | EventsQuery | PersonsNode | ActorsQuery | HogQLQuery) => setQuery?.({ ...query, source }),
+        (source: EventsNode | EventsQuery | PersonsNode | ActorsQuery | HogQLQuery | SessionAttributionExplorerQuery) =>
+            setQuery?.({ ...query, source }),
         [setQuery]
     )
 
@@ -402,7 +406,11 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
             />
         ) : null,
         showDateRange && sourceFeatures.has(QueryFeature.dateRangePicker) ? (
-            <DateRange key="date-range" query={query.source as HogQLQuery | EventsQuery} setQuery={setQuerySource} />
+            <DateRange
+                key="date-range"
+                query={query.source as HogQLQuery | EventsQuery | SessionAttributionExplorerQuery}
+                setQuery={setQuerySource}
+            />
         ) : null,
         showEventFilter && sourceFeatures.has(QueryFeature.eventNameFilter) ? (
             <EventName key="event-name" query={query.source as EventsQuery} setQuery={setQuerySource} />
@@ -411,7 +419,12 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
             <PersonsSearch key="persons-search" query={query.source as PersonsNode} setQuery={setQuerySource} />
         ) : null,
         showPropertyFilter && sourceFeatures.has(QueryFeature.eventPropertyFilters) ? (
-            <EventPropertyFilters key="event-property" query={query.source as EventsQuery} setQuery={setQuerySource} />
+            <EventPropertyFilters
+                key="event-property"
+                query={query.source as EventsQuery | HogQLQuery | SessionAttributionExplorerQuery}
+                setQuery={setQuerySource}
+                taxonomicGroupTypes={Array.isArray(showPropertyFilter) ? showPropertyFilter : undefined}
+            />
         ) : null,
         showPropertyFilter && sourceFeatures.has(QueryFeature.personPropertyFilters) ? (
             <PersonPropertyFilters
@@ -444,6 +457,9 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
             <ColumnConfigurator key="column-configurator" query={query} setQuery={setQuery} />
         ) : null,
         showExport ? <DataTableExport key="data-table-export" query={query} setQuery={setQuery} /> : null,
+        showExport && showOpenEditorButton ? (
+            <DataTableOpenEditor key="data-table-export" query={query} setQuery={setQuery} />
+        ) : null,
     ].filter((x) => !!x)
 
     const showFirstRow = !isReadOnly && (firstRowLeft.length > 0 || firstRowRight.length > 0)

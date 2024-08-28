@@ -5,6 +5,7 @@ import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { dayjs } from 'lib/dayjs'
@@ -135,9 +136,13 @@ export function CohortTaxonomicField({
             groupTypes={taxonomicGroupTypes}
             placeholder={placeholder}
             data-attr={`cohort-taxonomic-field-${fieldKey}`}
-            renderValue={(value) => (
-                <span className="font-medium">{value || <span className="text-muted">{placeholder}</span>}</span>
-            )}
+            renderValue={(value) =>
+                value ? (
+                    <PropertyKeyInfo value={value as string} type={groupType} />
+                ) : (
+                    <span className="text-muted">{placeholder}</span>
+                )
+            }
         />
     )
 }

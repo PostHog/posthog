@@ -1,6 +1,9 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { DISPLAY_TYPES_WITHOUT_LEGEND } from 'lib/components/InsightLegend/utils'
+import {
+    DISPLAY_TYPES_WITHOUT_DETAILED_RESULTS,
+    DISPLAY_TYPES_WITHOUT_LEGEND,
+} from 'lib/components/InsightLegend/utils'
 import { Intervals, intervals } from 'lib/components/IntervalFilter/intervals'
 import { parseProperties } from 'lib/components/PropertyFilters/utils'
 import { NON_TIME_SERIES_DISPLAY_TYPES, NON_VALUES_ON_SERIES_DISPLAY_TYPES } from 'lib/constants'
@@ -8,26 +11,15 @@ import { dayjs } from 'lib/dayjs'
 import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils'
 import posthog from 'posthog-js'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { insightDataLogic, queryFromKind } from 'scenes/insights/insightDataLogic'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
 import { BASE_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
 
-import { queryNodeToFilter, seriesNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import {
-    getBreakdown,
-    getCompareFilter,
-    getDisplay,
-    getFormula,
-    getInterval,
-    getSeries,
-    getShowLabelsOnSeries,
-    getShowLegend,
-    getShowPercentStackView,
-    getShowValuesOnSeries,
-    supportsPercentStackView,
-} from '~/queries/nodes/InsightViz/utils'
+import { actionsModel } from '~/models/actionsModel'
+import { seriesNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { getAllEventNames, queryFromKind } from '~/queries/nodes/InsightViz/utils'
 import {
     BreakdownFilter,
     CompareFilter,
@@ -46,6 +38,17 @@ import {
 import {
     filterForQuery,
     filterKeyForQuery,
+    getBreakdown,
+    getCompareFilter,
+    getDisplay,
+    getFormula,
+    getInterval,
+    getSeries,
+    getShowLabelsOnSeries,
+    getShowLegend,
+    getShowPercentStackView,
+    getShowValuesOnSeries,
+    getYAxisScaleType,
     isActionsNode,
     isDataWarehouseNode,
     isEventsNode,
@@ -59,10 +62,10 @@ import {
     isStickinessQuery,
     isTrendsQuery,
     nodeKindToFilterProperty,
+    supportsPercentStackView,
 } from '~/queries/utils'
 import { BaseMathType, ChartDisplayType, FilterType, InsightLogicProps } from '~/types'
 
-import { insightLogic } from './insightLogic'
 import type { insightVizDataLogicType } from './insightVizDataLogicType'
 
 const SHOW_TIMEOUT_MESSAGE_AFTER = 5000
@@ -83,12 +86,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             databaseTableListLogic,
             ['dataWarehouseTablesMap'],
         ],
-        actions: [
-            insightLogic,
-            ['setFilters'],
-            insightDataLogic,
-            ['setQuery', 'setInsightData', 'loadData', 'loadDataSuccess', 'loadDataFailure'],
-        ],
+        actions: [insightDataLogic, ['setQuery', 'setInsightData', 'loadData', 'loadDataSuccess', 'loadDataFailure']],
     })),
 
     actions({
@@ -99,6 +97,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         updateBreakdownFilter: (breakdownFilter: BreakdownFilter) => ({ breakdownFilter }),
         updateCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
         updateDisplay: (display: ChartDisplayType | undefined) => ({ display }),
+        updateHiddenLegendIndexes: (hiddenLegendIndexes: number[] | undefined) => ({ hiddenLegendIndexes }),
         setTimedOutQueryId: (id: string | null) => ({ id }),
     }),
 
@@ -163,6 +162,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         showValuesOnSeries: [(s) => [s.querySource], (q) => (q ? getShowValuesOnSeries(q) : null)],
         showLabelOnSeries: [(s) => [s.querySource], (q) => (q ? getShowLabelsOnSeries(q) : null)],
         showPercentStackView: [(s) => [s.querySource], (q) => (q ? getShowPercentStackView(q) : null)],
+        yAxisScaleType: [(s) => [s.querySource], (q) => (q ? getYAxisScaleType(q) : null)],
         vizSpecificOptions: [(s) => [s.query], (q: Node) => (isInsightVizNode(q) ? q.vizSpecificOptions : null)],
         insightFilter: [(s) => [s.querySource], (q) => (q ? filterForQuery(q) : null)],
         trendsFilter: [(s) => [s.querySource], (q) => (isTrendsQuery(q) ? q.trendsFilter : null)],
@@ -176,7 +176,9 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         isUsingSessionAnalysis: [
             (s) => [s.series, s.breakdownFilter, s.properties],
             (series, breakdownFilter, properties) => {
-                const using_session_breakdown = breakdownFilter?.breakdown_type === 'session'
+                const using_session_breakdown =
+                    breakdownFilter?.breakdown_type === 'session' ||
+                    breakdownFilter?.breakdowns?.find((breakdown) => breakdown.type === 'session')
                 const using_session_math = series?.some((entity) => entity.math === 'unique_session')
                 const using_session_property_math = series?.some((entity) => {
                     // Should be made more generic is we ever add more session properties
@@ -270,6 +272,11 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 !(display && DISPLAY_TYPES_WITHOUT_LEGEND.includes(display)),
         ],
 
+        hasDetailedResultsTable: [
+            (s) => [s.isTrends, s.display],
+            (isTrends, display) => isTrends && !(display && DISPLAY_TYPES_WITHOUT_DETAILED_RESULTS.includes(display)),
+        ],
+
         hasFormula: [(s) => [s.formula], (formula) => formula !== undefined],
 
         activeUsersMath: [
@@ -359,50 +366,16 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 })),
             }),
         ],
+
+        // all events used in the insight (useful for fetching only relevant property definitions)
+        allEventNames: [
+            (s) => [s.querySource, actionsModel.selectors.actions],
+            (querySource, actions) => (querySource ? getAllEventNames(querySource, actions) : []),
+        ],
     }),
 
     listeners(({ actions, values, props }) => ({
-        updateDateRange: async ({ dateRange }, breakpoint) => {
-            await breakpoint(300)
-            actions.updateQuerySource({
-                dateRange: {
-                    ...values.dateRange,
-                    ...dateRange,
-                },
-                ...(dateRange.date_from == 'all' ? ({ compareFilter: undefined } as Partial<TrendsQuery>) : {}),
-            })
-        },
-        updateBreakdownFilter: async ({ breakdownFilter }, breakpoint) => {
-            await breakpoint(500) // extra debounce time because of number input
-            actions.updateQuerySource({
-                breakdownFilter: { ...values.breakdownFilter, ...breakdownFilter },
-            } as Partial<TrendsQuery>)
-        },
-        updateCompareFilter: async ({ compareFilter }, breakpoint) => {
-            await breakpoint(500) // extra debounce time because of number input
-            actions.updateQuerySource({
-                compareFilter: { ...values.compareFilter, ...compareFilter },
-            } as Partial<TrendsQuery>)
-        },
-        updateInsightFilter: async ({ insightFilter }, breakpoint) => {
-            await breakpoint(300)
-            const filterProperty = filterKeyForQuery(values.localQuerySource)
-            actions.updateQuerySource({
-                [filterProperty]: { ...values.localQuerySource[filterProperty], ...insightFilter },
-            })
-        },
-        updateDisplay: ({ display }) => {
-            actions.updateInsightFilter({ display })
-        },
-        updateQuerySource: ({ querySource }) => {
-            actions.setQuery({
-                ...values.query,
-                source: {
-                    ...values.querySource,
-                    ...handleQuerySourceUpdateSideEffects(querySource, values.querySource as InsightQueryNode),
-                },
-            } as Node)
-        },
+        // query
         setQuery: ({ query }) => {
             if (isInsightVizNode(query)) {
                 if (query.source.kind === NodeKind.TrendsQuery) {
@@ -417,12 +390,60 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 if (props.setQuery) {
                     props.setQuery(query)
                 }
-
-                const querySource = query.source
-                const filters = queryNodeToFilter(querySource)
-                actions.setFilters(filters)
             }
         },
+
+        // query source
+        updateQuerySource: ({ querySource }) => {
+            actions.setQuery({
+                ...values.query,
+                source: {
+                    ...values.querySource,
+                    ...handleQuerySourceUpdateSideEffects(querySource, values.querySource as InsightQueryNode),
+                },
+            } as Node)
+        },
+
+        // query source properties
+        updateDateRange: async ({ dateRange }, breakpoint) => {
+            await breakpoint(300)
+            actions.updateQuerySource({
+                dateRange: {
+                    ...values.dateRange,
+                    ...dateRange,
+                },
+                ...(dateRange.date_from == 'all' ? ({ compareFilter: undefined } as Partial<TrendsQuery>) : {}),
+            })
+        },
+        updateBreakdownFilter: async ({ breakdownFilter }, breakpoint) => {
+            await breakpoint(500) // extra debounce time because of number input
+            const update: Partial<TrendsQuery> = { breakdownFilter: { ...values.breakdownFilter, ...breakdownFilter } }
+            actions.updateQuerySource(update)
+        },
+        updateCompareFilter: async ({ compareFilter }, breakpoint) => {
+            await breakpoint(500) // extra debounce time because of number input
+            const update: Partial<TrendsQuery> = { compareFilter: { ...values.compareFilter, ...compareFilter } }
+            actions.updateQuerySource(update)
+        },
+
+        // insight filter
+        updateInsightFilter: async ({ insightFilter }, breakpoint) => {
+            await breakpoint(300)
+            const filterProperty = filterKeyForQuery(values.localQuerySource)
+            actions.updateQuerySource({
+                [filterProperty]: { ...values.localQuerySource[filterProperty], ...insightFilter },
+            })
+        },
+
+        // insight filter properties
+        updateDisplay: ({ display }) => {
+            actions.updateInsightFilter({ display })
+        },
+        updateHiddenLegendIndexes: ({ hiddenLegendIndexes }) => {
+            actions.updateInsightFilter({ hiddenLegendIndexes })
+        },
+
+        // data loading side effects i.e. diplaying loading screens for queries with longer duration
         loadData: async ({ queryId }, breakpoint) => {
             actions.setTimedOutQueryId(null)
 
@@ -577,6 +598,11 @@ const handleQuerySourceUpdateSideEffects = (
         mergedUpdate['properties'] = []
     }
 
+    // Remove breakdown filter if display type is BoldNumber because it is not supported
+    if (kind === NodeKind.TrendsQuery && maybeChangedDisplay === ChartDisplayType.BoldNumber) {
+        mergedUpdate['breakdownFilter'] = null
+    }
+
     // Don't allow minutes on anything other than Trends
     if (
         currentState.kind == NodeKind.TrendsQuery &&
@@ -616,7 +642,7 @@ const handleQuerySourceUpdateSideEffects = (
             (mergedUpdate as TrendsQuery).interval !== interval
         ) {
             ;(mergedUpdate as TrendsQuery).trendsFilter = {
-                ...(mergedUpdate as TrendsQuery).trendsFilter,
+                ...(currentState as TrendsQuery).trendsFilter,
                 smoothingIntervals: undefined,
             }
         }

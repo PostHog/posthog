@@ -19,6 +19,7 @@ from posthog.admin.admins import (
     SurveyAdmin,
     DataWarehouseTableAdmin,
     ProjectAdmin,
+    HogFunctionAdmin,
 )
 from posthog.models import (
     Organization,
@@ -39,6 +40,7 @@ from posthog.models import (
     PersonDistinctId,
     Survey,
     DataWarehouseTable,
+    HogFunction,
 )
 
 admin.site.register(Organization, OrganizationAdmin)
@@ -65,3 +67,4 @@ admin.site.register(PersonDistinctId, PersonDistinctIdAdmin)
 admin.site.register(Survey, SurveyAdmin)
 
 admin.site.register(DataWarehouseTable, DataWarehouseTableAdmin)
+admin.site.register(HogFunction, HogFunctionAdmin)

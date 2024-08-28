@@ -23,12 +23,12 @@ from posthog.temporal.common.clickhouse import encode_clickhouse_data
         (("; DROP TABLE events --",), b"('; DROP TABLE events --')"),
         (("'a'); DROP TABLE events --",), b"('\\'a\\'); DROP TABLE events --')"),
         (
-            dt.datetime(2023, 7, 14, 0, 0, 0, tzinfo=dt.timezone.utc),
+            dt.datetime(2023, 7, 14, 0, 0, 0, tzinfo=dt.UTC),
             b"toDateTime('2023-07-14 00:00:00', 'UTC')",
         ),
         (dt.datetime(2023, 7, 14, 0, 0, 0), b"toDateTime('2023-07-14 00:00:00')"),
         (
-            dt.datetime(2023, 7, 14, 0, 0, 0, 5555, tzinfo=dt.timezone.utc),
+            dt.datetime(2023, 7, 14, 0, 0, 0, 5555, tzinfo=dt.UTC),
             b"toDateTime64('2023-07-14 00:00:00.005555', 6, 'UTC')",
         ),
     ],

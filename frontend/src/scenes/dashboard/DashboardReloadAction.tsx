@@ -1,3 +1,4 @@
+import { IconCheck } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -47,12 +48,12 @@ export function DashboardReloadAction(): JSX.Element {
             <LemonButton
                 onClick={() => refreshAllDashboardItemsManual()}
                 type="secondary"
-                icon={itemsLoading ? <Spinner textColored /> : <IconRefresh />}
+                icon={itemsLoading ? <Spinner textColored /> : blockRefresh ? <IconCheck /> : <IconRefresh />}
                 size="small"
                 data-attr="dashboard-items-action-refresh"
                 disabledReason={
                     blockRefresh
-                        ? `Next refresh possible ${dayjs(oldestClientRefreshAllowed).fromNow()}`
+                        ? `Next bulk refresh possible ${dayjs(oldestClientRefreshAllowed).fromNow()}`
                         : itemsLoading
                         ? 'Refreshing...'
                         : ''

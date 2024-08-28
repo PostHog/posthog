@@ -6,6 +6,8 @@ import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
+import { examples } from '~/queries/examples'
+import { InsightVizNode, NodeKind } from '~/queries/schema'
 import { initKeaTests } from '~/test/init'
 import { InsightShortId, InsightType, ItemMode } from '~/types'
 
@@ -42,8 +44,8 @@ describe('insightSceneLogic', () => {
             })
     })
 
-    it('redirects when opening /insight/new with filters', async () => {
-        router.actions.push(urls.insightNew({ insight: InsightType.FUNNELS }))
+    it('redirects when opening /insight/new with insight type in theurl', async () => {
+        router.actions.push(urls.insightNew(InsightType.FUNNELS))
         await expectLogic(logic).toFinishAllListeners()
         await expectLogic(router)
             .delay(1)
@@ -55,7 +57,32 @@ describe('insightSceneLogic', () => {
                 }),
             })
 
-        expect(logic.values.insightLogicRef?.logic.values.filters.insight).toEqual(InsightType.FUNNELS)
+        expect((logic.values.insightLogicRef?.logic.values.insight.query as InsightVizNode).source?.kind).toEqual(
+            'FunnelsQuery'
+        )
+    })
+
+    it('redirects when opening /insight/new with query in the url', async () => {
+        router.actions.push(
+            urls.insightNew(undefined, undefined, {
+                kind: NodeKind.InsightVizNode,
+                source: examples.InsightPathsQuery,
+            } as InsightVizNode)
+        )
+        await expectLogic(logic).toFinishAllListeners()
+        await expectLogic(router)
+            .delay(1)
+            .toMatchValues({
+                location: partial({
+                    pathname: addProjectIdIfMissing(urls.insightNew(), MOCK_TEAM_ID),
+                    search: '',
+                    hash: '',
+                }),
+            })
+
+        expect((logic.values.insightLogicRef?.logic.values.insight.query as InsightVizNode).source?.kind).toEqual(
+            'PathsQuery'
+        )
     })
 
     it('persists edit mode in the url', async () => {

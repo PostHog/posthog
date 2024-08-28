@@ -6,6 +6,7 @@ from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp, ArithmeticOperationOp
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField, LazyJoinToAdd, LazyTableToAdd
+from posthog.hogql.errors import NotImplementedError
 
 from posthog.hogql.visitor import clone_expr, CloningVisitor, Visitor, TraversingVisitor
 
@@ -41,7 +42,7 @@ class WhereClauseExtractor(CloningVisitor):
     context: HogQLContext
     clear_types: bool = False
     clear_locations: bool = False
-    capture_timestamp_comparisons: bool = False
+    capture_timestamp_comparisons: bool = False  # implement handle_timestamp_comparison if setting this to True
     tracked_tables: list[ast.LazyTable | ast.LazyJoin]
     tombstone_string: str
 
@@ -53,6 +54,13 @@ class WhereClauseExtractor(CloningVisitor):
         self.tombstone_string = (
             "__TOMBSTONE__" + ("".join(random.choices(string.ascii_uppercase + string.digits, k=10))) + "__"
         )
+
+    def handle_timestamp_comparison(
+        self, node: ast.CompareOperation, is_left_constant: bool, is_right_constant: bool
+    ) -> Optional[ast.Expr]:
+        raise NotImplementedError(
+            message=f"handle_timestamp_comparison not implemented"
+        )  # handle this in a subclass if setting capture_timestamp_comparisons to True
 
     def add_local_tables(self, join_or_table: LazyJoinToAdd | LazyTableToAdd):
         """Add the tables whose filters to extract into a new where clause."""
@@ -98,85 +106,9 @@ class WhereClauseExtractor(CloningVisitor):
 
         # extract timestamps from the main query into e.g. the sessions subquery
         if self.capture_timestamp_comparisons:
-            is_left_timestamp_field = is_simple_timestamp_field_expression(
-                node.left, self.context, self.tombstone_string
-            )
-            is_right_timestamp_field = is_simple_timestamp_field_expression(
-                node.right, self.context, self.tombstone_string
-            )
-            # handle the left side being a min_timestamp expression and the right being constant
-            if is_left_timestamp_field and is_right_constant:
-                if node.op == CompareOperationOp.Eq:
-                    return ast.And(
-                        exprs=[
-                            ast.CompareOperation(
-                                op=ast.CompareOperationOp.LtEq,
-                                left=ast.ArithmeticOperation(
-                                    op=ast.ArithmeticOperationOp.Sub,
-                                    left=rewrite_timestamp_field(node.left, self.context),
-                                    right=ast.Call(
-                                        name="toIntervalDay", args=[ast.Constant(value=SESSION_BUFFER_DAYS)]
-                                    ),
-                                ),
-                                right=node.right,
-                            ),
-                            ast.CompareOperation(
-                                op=ast.CompareOperationOp.GtEq,
-                                left=ast.ArithmeticOperation(
-                                    op=ast.ArithmeticOperationOp.Add,
-                                    left=rewrite_timestamp_field(node.left, self.context),
-                                    right=ast.Call(
-                                        name="toIntervalDay", args=[ast.Constant(value=SESSION_BUFFER_DAYS)]
-                                    ),
-                                ),
-                                right=node.right,
-                            ),
-                        ]
-                    )
-                elif node.op == CompareOperationOp.Gt or node.op == CompareOperationOp.GtEq:
-                    return ast.CompareOperation(
-                        op=ast.CompareOperationOp.GtEq,
-                        left=ast.ArithmeticOperation(
-                            op=ast.ArithmeticOperationOp.Add,
-                            left=rewrite_timestamp_field(node.left, self.context),
-                            right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=SESSION_BUFFER_DAYS)]),
-                        ),
-                        right=node.right,
-                    )
-                elif node.op == CompareOperationOp.Lt or node.op == CompareOperationOp.LtEq:
-                    return ast.CompareOperation(
-                        op=ast.CompareOperationOp.LtEq,
-                        left=ast.ArithmeticOperation(
-                            op=ast.ArithmeticOperationOp.Sub,
-                            left=rewrite_timestamp_field(node.left, self.context),
-                            right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=SESSION_BUFFER_DAYS)]),
-                        ),
-                        right=node.right,
-                    )
-            elif is_right_timestamp_field and is_left_constant:
-                # let's not duplicate the logic above, instead just flip and it and recurse
-                if node.op in [
-                    CompareOperationOp.Eq,
-                    CompareOperationOp.Lt,
-                    CompareOperationOp.LtEq,
-                    CompareOperationOp.Gt,
-                    CompareOperationOp.GtEq,
-                ]:
-                    return self.visit(
-                        ast.CompareOperation(
-                            op=CompareOperationOp.Eq
-                            if node.op == CompareOperationOp.Eq
-                            else CompareOperationOp.Lt
-                            if node.op == CompareOperationOp.Gt
-                            else CompareOperationOp.LtEq
-                            if node.op == CompareOperationOp.GtEq
-                            else CompareOperationOp.Gt
-                            if node.op == CompareOperationOp.Lt
-                            else CompareOperationOp.GtEq,
-                            left=node.right,
-                            right=node.left,
-                        )
-                    )
+            result = self.handle_timestamp_comparison(node, is_left_constant, is_right_constant)
+            if result:
+                return result
 
         # Check if any of the fields are a field on our requested table
         if len(self.tracked_tables) > 0:
@@ -289,7 +221,7 @@ class WhereClauseExtractor(CloningVisitor):
                 filtered.append(expr)
 
         if len(filtered) == 0:
-            return ast.Constant(value=False)
+            return ast.Constant(value=True)
         elif len(filtered) == 1:
             return filtered[0]
         else:
@@ -322,9 +254,117 @@ class WhereClauseExtractor(CloningVisitor):
 
 class SessionMinTimestampWhereClauseExtractor(WhereClauseExtractor):
     capture_timestamp_comparisons = True
+    timestamp_field: ast.Expr
+    time_buffer: ast.Expr
 
     def __init__(self, context: HogQLContext):
         super().__init__(context)
+
+    def handle_timestamp_comparison(
+        self, node: ast.CompareOperation, is_left_constant: bool, is_right_constant: bool
+    ) -> Optional[ast.Expr]:
+        is_left_timestamp_field = is_simple_timestamp_field_expression(node.left, self.context, self.tombstone_string)
+        is_right_timestamp_field = is_simple_timestamp_field_expression(node.right, self.context, self.tombstone_string)
+
+        # handle the left side being a min_timestamp expression and the right being constant
+        if is_left_timestamp_field and is_right_constant:
+            if node.op == CompareOperationOp.Eq:
+                return ast.And(
+                    exprs=[
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.LtEq,
+                            left=ast.ArithmeticOperation(
+                                op=ast.ArithmeticOperationOp.Sub,
+                                left=rewrite_timestamp_field(node.left, self.timestamp_field, self.context),
+                                right=self.time_buffer,
+                            ),
+                            right=node.right,
+                        ),
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.GtEq,
+                            left=ast.ArithmeticOperation(
+                                op=ast.ArithmeticOperationOp.Add,
+                                left=rewrite_timestamp_field(node.left, self.timestamp_field, self.context),
+                                right=self.time_buffer,
+                            ),
+                            right=node.right,
+                        ),
+                    ]
+                )
+            elif node.op == CompareOperationOp.Gt or node.op == CompareOperationOp.GtEq:
+                return ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.ArithmeticOperation(
+                        op=ast.ArithmeticOperationOp.Add,
+                        left=rewrite_timestamp_field(node.left, self.timestamp_field, self.context),
+                        right=self.time_buffer,
+                    ),
+                    right=node.right,
+                )
+            elif node.op == CompareOperationOp.Lt or node.op == CompareOperationOp.LtEq:
+                return ast.CompareOperation(
+                    op=ast.CompareOperationOp.LtEq,
+                    left=ast.ArithmeticOperation(
+                        op=ast.ArithmeticOperationOp.Sub,
+                        left=rewrite_timestamp_field(node.left, self.timestamp_field, self.context),
+                        right=self.time_buffer,
+                    ),
+                    right=node.right,
+                )
+        elif is_right_timestamp_field and is_left_constant:
+            # let's not duplicate the logic above, instead just flip and it and recurse
+            if node.op in [
+                CompareOperationOp.Eq,
+                CompareOperationOp.Lt,
+                CompareOperationOp.LtEq,
+                CompareOperationOp.Gt,
+                CompareOperationOp.GtEq,
+            ]:
+                return self.visit(
+                    ast.CompareOperation(
+                        op=CompareOperationOp.Eq
+                        if node.op == CompareOperationOp.Eq
+                        else CompareOperationOp.Lt
+                        if node.op == CompareOperationOp.Gt
+                        else CompareOperationOp.LtEq
+                        if node.op == CompareOperationOp.GtEq
+                        else CompareOperationOp.Gt
+                        if node.op == CompareOperationOp.Lt
+                        else CompareOperationOp.GtEq,
+                        left=node.right,
+                        right=node.left,
+                    )
+                )
+        return None
+
+
+class SessionMinTimestampWhereClauseExtractorV1(SessionMinTimestampWhereClauseExtractor):
+    timestamp_field = ast.Field(chain=["raw_sessions", "min_timestamp"])
+    time_buffer = ast.Call(name="toIntervalDay", args=[ast.Constant(value=SESSION_BUFFER_DAYS)])
+
+
+class SessionMinTimestampWhereClauseExtractorV2(SessionMinTimestampWhereClauseExtractor):
+    timestamp_field = ast.Call(
+        name="fromUnixTimestamp",
+        args=[
+            ast.Call(
+                name="intDiv",
+                args=[
+                    ast.Call(
+                        name="_toUInt64",
+                        args=[
+                            ast.Call(
+                                name="bitShiftRight",
+                                args=[ast.Field(chain=["raw_sessions", "session_id_v7"]), ast.Constant(value=80)],
+                            )
+                        ],
+                    ),
+                    ast.Constant(value=1000),
+                ],
+            )
+        ],
+    )
+    time_buffer = ast.Call(name="toIntervalDay", args=[ast.Constant(value=SESSION_BUFFER_DAYS)])
 
 
 def has_tombstone(expr: ast.Expr, tombstone_string: str) -> bool:
@@ -497,11 +537,15 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
 
     def visit_alias(self, node: ast.Alias) -> bool:
         from posthog.hogql.database.schema.events import EventsTable
-        from posthog.hogql.database.schema.sessions import SessionsTable
+        from posthog.hogql.database.schema.sessions_v1 import SessionsTableV1
         from posthog.hogql.database.schema.session_replay_events import RawSessionReplayEventsTable
 
         if node.type and isinstance(node.type, ast.FieldAliasType):
-            resolved_field = node.type.resolve_database_field(self.context)
+            try:
+                resolved_field = node.type.resolve_database_field(self.context)
+            except NotImplementedError:
+                return False
+
             table_type = node.type.resolve_table_type(self.context)
             if not table_type:
                 return False
@@ -515,7 +559,7 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
                 )
                 or (
                     isinstance(table_type, ast.LazyTableType)
-                    and isinstance(table_type.table, SessionsTable)
+                    and isinstance(table_type.table, SessionsTableV1)
                     and resolved_field.name == "$start_timestamp"
                 )
                 or (
@@ -531,20 +575,22 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
         return all(self.visit(arg) for arg in node.exprs)
 
 
-def rewrite_timestamp_field(expr: ast.Expr, context: HogQLContext) -> ast.Expr:
-    return RewriteTimestampFieldVisitor(context).visit(expr)
+def rewrite_timestamp_field(expr: ast.Expr, timestamp_field: ast.Expr, context: HogQLContext) -> ast.Expr:
+    return RewriteTimestampFieldVisitor(context, timestamp_field).visit(expr)
 
 
 class RewriteTimestampFieldVisitor(CloningVisitor):
     context: HogQLContext
+    timestamp_field: ast.Expr
 
-    def __init__(self, context: HogQLContext, *args, **kwargs):
+    def __init__(self, context: HogQLContext, timestamp_field: ast.Expr, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.context = context
+        self.timestamp_field = timestamp_field
 
-    def visit_field(self, node: ast.Field) -> ast.Field:
+    def visit_field(self, node: ast.Field) -> ast.Expr:
         from posthog.hogql.database.schema.events import EventsTable
-        from posthog.hogql.database.schema.sessions import SessionsTable
+        from posthog.hogql.database.schema.sessions_v1 import SessionsTableV1
         from posthog.hogql.database.schema.session_replay_events import RawSessionReplayEventsTable
 
         if node.type and isinstance(node.type, ast.FieldType):
@@ -556,13 +602,13 @@ class RewriteTimestampFieldVisitor(CloningVisitor):
             if resolved_field and isinstance(resolved_field, DatabaseField):
                 if (
                     (isinstance(table, EventsTable) and resolved_field.name == "timestamp")
-                    or (isinstance(table, SessionsTable) and resolved_field.name == "$start_timestamp")
+                    or (isinstance(table, SessionsTableV1) and resolved_field.name == "$start_timestamp")
                     or (isinstance(table, RawSessionReplayEventsTable) and resolved_field.name == "min_first_timestamp")
                 ):
-                    return ast.Field(chain=["raw_sessions", "min_timestamp"])
+                    return self.timestamp_field
         # no type information, so just use the name of the field
         if node.chain[-1] in ["$start_timestamp", "min_timestamp", "timestamp", "min_first_timestamp"]:
-            return ast.Field(chain=["raw_sessions", "min_timestamp"])
+            return self.timestamp_field
         return node
 
     def visit_alias(self, node: ast.Alias) -> ast.Expr:

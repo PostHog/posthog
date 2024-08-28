@@ -1,38 +1,25 @@
 import { TZLabel } from '@posthog/apps-common'
-import {
-    LemonButton,
-    LemonDialog,
-    LemonSelect,
-    LemonSwitch,
-    LemonTable,
-    LemonTag,
-    Link,
-    Spinner,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonTable, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import cloudflareLogo from 'public/cloudflare-logo.svg'
-import googleStorageLogo from 'public/google-cloud-storage-logo.png'
-import hubspotLogo from 'public/hubspot-logo.svg'
-import postgresLogo from 'public/postgres-logo.svg'
-import s3Logo from 'public/s3-logo.png'
-import snowflakeLogo from 'public/snowflake-logo.svg'
-import stripeLogo from 'public/stripe-logo.svg'
-import zendeskLogo from 'public/zendesk-logo.svg'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import IconAwsS3 from 'public/services/aws-s3.png'
+import Iconazure from 'public/services/azure.png'
+import IconCloudflare from 'public/services/cloudflare.png'
+import IconGoogleCloudStorage from 'public/services/google-cloud-storage.png'
+import IconHubspot from 'public/services/hubspot.png'
+import IconMySQL from 'public/services/mysql.png'
+import IconPostgres from 'public/services/postgres.png'
+import IconSalesforce from 'public/services/salesforce.png'
+import IconSnowflake from 'public/services/snowflake.png'
+import IconMSSQL from 'public/services/sql-azure.png'
+import IconStripe from 'public/services/stripe.png'
+import IconZendesk from 'public/services/zendesk.png'
 import { urls } from 'scenes/urls'
 
-import { DataTableNode, NodeKind } from '~/queries/schema'
-import {
-    DataWarehouseSyncInterval,
-    ExternalDataSourceSchema,
-    ExternalDataStripeSource,
-    manualLinkSources,
-    ProductKey,
-} from '~/types'
+import { manualLinkSources, PipelineNodeTab, PipelineStage } from '~/types'
 
+import { SOURCE_DETAILS } from '../new/sourceWizardLogic'
 import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
 
 const StatusTagSetting = {
@@ -45,39 +32,14 @@ const StatusTagSetting = {
 export function DataWarehouseManagedSourcesTable(): JSX.Element {
     const { dataWarehouseSources, dataWarehouseSourcesLoading, sourceReloadingById } =
         useValues(dataWarehouseSettingsLogic)
-    const { deleteSource, reloadSource, updateSource } = useActions(dataWarehouseSettingsLogic)
-
-    const renderExpandable = (source: ExternalDataStripeSource): JSX.Element => {
-        return (
-            <div className="px-4 py-3">
-                <div className="flex flex-col">
-                    <div className="mt-2">
-                        <SchemaTable schemas={source.schemas} />
-                    </div>
-                </div>
-            </div>
-        )
-    }
-
-    if (!dataWarehouseSourcesLoading && dataWarehouseSources?.results.length === 0) {
-        return (
-            <ProductIntroduction
-                productName="Data Warehouse Source"
-                productKey={ProductKey.DATA_WAREHOUSE}
-                thingName="data source"
-                description="Use data warehouse sources to import data from your external data into PostHog."
-                isEmpty={dataWarehouseSources?.results.length == 0}
-                docsURL="https://posthog.com/docs/data-warehouse"
-                action={() => router.actions.push(urls.pipelineNodeDataWarehouseNew())}
-            />
-        )
-    }
+    const { deleteSource, reloadSource } = useActions(dataWarehouseSettingsLogic)
 
     return (
         <LemonTable
             dataSource={dataWarehouseSources?.results ?? []}
             loading={dataWarehouseSourcesLoading}
             disableTableWhileLoading={false}
+            pagination={{ pageSize: 10 }}
             columns={[
                 {
                     width: 0,
@@ -86,35 +48,18 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
                     },
                 },
                 {
-                    title: 'Source Type',
+                    title: 'Source',
                     key: 'name',
                     render: function RenderName(_, source) {
-                        return source.source_type
-                    },
-                },
-                {
-                    title: 'Table prefix',
-                    key: 'prefix',
-                    render: function RenderPrefix(_, source) {
-                        return source.prefix
-                    },
-                },
-                {
-                    title: 'Sync Frequency',
-                    key: 'frequency',
-                    render: function RenderFrequency(_, source) {
                         return (
-                            <LemonSelect
-                                className="my-1"
-                                value={source.sync_frequency || 'day'}
-                                onChange={(value) =>
-                                    updateSource({ ...source, sync_frequency: value as DataWarehouseSyncInterval })
-                                }
-                                options={[
-                                    { value: 'day' as DataWarehouseSyncInterval, label: 'Daily' },
-                                    { value: 'week' as DataWarehouseSyncInterval, label: 'Weekly' },
-                                    { value: 'month' as DataWarehouseSyncInterval, label: 'Monthly' },
-                                ]}
+                            <LemonTableLink
+                                to={urls.pipelineNode(
+                                    PipelineStage.Source,
+                                    `managed-${source.id}`,
+                                    PipelineNodeTab.Schemas
+                                )}
+                                title={SOURCE_DETAILS[source.source_type]?.label ?? source.source_type}
+                                description={source.prefix}
                             />
                         )
                     },
@@ -136,7 +81,9 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
                     key: 'rows_synced',
                     tooltip: 'Total number of rows synced across all schemas in this source',
                     render: function RenderRowsSynced(_, source) {
-                        return source.schemas.reduce((acc, schema) => acc + (schema.table?.row_count ?? 0), 0)
+                        return source.schemas
+                            .reduce((acc, schema) => acc + (schema.table?.row_count ?? 0), 0)
+                            .toLocaleString()
                     },
                 },
                 {
@@ -207,11 +154,6 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
                     },
                 },
             ]}
-            expandable={{
-                expandedRowRender: renderExpandable,
-                rowExpandable: () => true,
-                noIndent: true,
-            }}
         />
     )
 }
@@ -234,14 +176,18 @@ export function RenderDataWarehouseSourceIcon({
     const sizePx = size === 'small' ? 30 : 60
 
     const icon = {
-        Stripe: stripeLogo,
-        Hubspot: hubspotLogo,
-        Zendesk: zendeskLogo,
-        Postgres: postgresLogo,
-        Snowflake: snowflakeLogo,
-        aws: s3Logo,
-        'google-cloud': googleStorageLogo,
-        'cloudflare-r2': cloudflareLogo,
+        Stripe: IconStripe,
+        Hubspot: IconHubspot,
+        Zendesk: IconZendesk,
+        Postgres: IconPostgres,
+        MySQL: IconMySQL,
+        Snowflake: IconSnowflake,
+        aws: IconAwsS3,
+        'google-cloud': IconGoogleCloudStorage,
+        'cloudflare-r2': IconCloudflare,
+        azure: Iconazure,
+        Salesforce: IconSalesforce,
+        MSSQL: IconMSSQL,
     }[type]
 
     return (
@@ -256,170 +202,9 @@ export function RenderDataWarehouseSourceIcon({
                 }
             >
                 <Link to={getDataWarehouseSourceUrl(type)}>
-                    <img src={icon} alt={type} height={sizePx} width={sizePx} />
+                    <img src={icon} alt={type} height={sizePx} width={sizePx} className="rounded" />
                 </Link>
             </Tooltip>
         </div>
-    )
-}
-
-interface SchemaTableProps {
-    schemas: ExternalDataSourceSchema[]
-}
-
-const SchemaTable = ({ schemas }: SchemaTableProps): JSX.Element => {
-    const { updateSchema, reloadSchema, resyncSchema } = useActions(dataWarehouseSettingsLogic)
-    const { schemaReloadingById } = useValues(dataWarehouseSettingsLogic)
-
-    return (
-        <LemonTable
-            dataSource={schemas}
-            columns={[
-                {
-                    title: 'Schema Name',
-                    key: 'name',
-                    render: function RenderName(_, schema) {
-                        return <span>{schema.name}</span>
-                    },
-                },
-                {
-                    title: 'Refresh Type',
-                    key: 'incremental',
-                    render: function RenderIncremental(_, schema) {
-                        return schema.incremental ? (
-                            <Tooltip title="Each run will only pull data that has since been added" placement="top">
-                                <LemonTag type="primary">Incremental</LemonTag>
-                            </Tooltip>
-                        ) : (
-                            <Tooltip title="Each run will pull all data from the source" placement="top">
-                                <LemonTag type="default">Full Refresh</LemonTag>
-                            </Tooltip>
-                        )
-                    },
-                },
-                {
-                    title: 'Enabled',
-                    key: 'should_sync',
-                    render: function RenderShouldSync(_, schema) {
-                        return (
-                            <LemonSwitch
-                                checked={schema.should_sync}
-                                onChange={(active) => {
-                                    updateSchema({ ...schema, should_sync: active })
-                                }}
-                            />
-                        )
-                    },
-                },
-                {
-                    title: 'Synced Table',
-                    key: 'table',
-                    render: function RenderTable(_, schema) {
-                        if (schema.table) {
-                            const query: DataTableNode = {
-                                kind: NodeKind.DataTableNode,
-                                full: true,
-                                source: {
-                                    kind: NodeKind.HogQLQuery,
-                                    // TODO: Use `hogql` tag?
-                                    query: `SELECT ${schema.table.columns
-                                        .filter(
-                                            ({ table, fields, chain, schema_valid }) =>
-                                                !table && !fields && !chain && schema_valid
-                                        )
-                                        .map(({ name }) => name)} FROM ${
-                                        schema.table.name === 'numbers' ? 'numbers(0, 10)' : schema.table.name
-                                    } LIMIT 100`,
-                                },
-                            }
-                            return (
-                                <Link to={urls.dataWarehouse(JSON.stringify(query))}>
-                                    <code>{schema.table.name}</code>
-                                </Link>
-                            )
-                        }
-                        return <div>Not yet synced</div>
-                    },
-                },
-                {
-                    title: 'Last Synced At',
-                    key: 'last_synced_at',
-                    render: function Render(_, schema) {
-                        return schema.last_synced_at ? (
-                            <>
-                                <TZLabel time={schema.last_synced_at} formatDate="MMM DD, YYYY" formatTime="HH:mm" />
-                            </>
-                        ) : null
-                    },
-                },
-                {
-                    title: 'Rows Synced',
-                    key: 'rows_synced',
-                    render: function Render(_, schema) {
-                        return schema.table?.row_count ?? ''
-                    },
-                },
-                {
-                    title: 'Status',
-                    key: 'status',
-                    render: function RenderStatus(_, schema) {
-                        if (!schema.status) {
-                            return null
-                        }
-
-                        return <LemonTag type={StatusTagSetting[schema.status] || 'default'}>{schema.status}</LemonTag>
-                    },
-                },
-                {
-                    key: 'actions',
-                    width: 0,
-                    render: function RenderActions(_, schema) {
-                        if (schemaReloadingById[schema.id]) {
-                            return (
-                                <div>
-                                    <Spinner />
-                                </div>
-                            )
-                        }
-
-                        return (
-                            <div className="flex flex-row justify-end">
-                                <div>
-                                    <More
-                                        overlay={
-                                            <>
-                                                <LemonButton
-                                                    type="tertiary"
-                                                    key={`reload-data-warehouse-schema-${schema.id}`}
-                                                    onClick={() => {
-                                                        reloadSchema(schema)
-                                                    }}
-                                                >
-                                                    Reload
-                                                </LemonButton>
-                                                {schema.incremental && (
-                                                    <Tooltip title="Completely resync incrementally loaded data. Only recommended if there is an issue with data quality in previously imported data">
-                                                        <LemonButton
-                                                            type="tertiary"
-                                                            key={`resync-data-warehouse-schema-${schema.id}`}
-                                                            onClick={() => {
-                                                                resyncSchema(schema)
-                                                            }}
-                                                            status="danger"
-                                                        >
-                                                            Resync
-                                                        </LemonButton>
-                                                    </Tooltip>
-                                                )}
-                                            </>
-                                        }
-                                    />
-                                </div>
-                            </div>
-                        )
-                    },
-                },
-            ]}
-        />
     )
 }

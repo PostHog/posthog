@@ -6,7 +6,6 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
@@ -20,7 +19,6 @@ import { urls } from 'scenes/urls'
 import { ActivityScope, Breadcrumb } from '~/types'
 
 import { ActionsTable } from './actions/ActionsTable'
-import { DatabaseTableList } from './database/DatabaseTableList'
 import type { dataManagementSceneLogicType } from './DataManagementSceneType'
 import { EventDefinitionsTable } from './events/EventDefinitionsTable'
 import { IngestionWarningsView } from './ingestion-warnings/IngestionWarningsView'
@@ -33,7 +31,6 @@ export enum DataManagementTab {
     Annotations = 'annotations',
     History = 'history',
     IngestionWarnings = 'warnings',
-    Database = 'database',
 }
 
 const tabs: Record<
@@ -96,18 +93,6 @@ const tabs: Record<
         url: urls.ingestionWarnings(),
         label: 'Ingestion warnings',
         content: <IngestionWarningsView />,
-    },
-    [DataManagementTab.Database]: {
-        url: urls.database(),
-        label: (
-            <>
-                Database
-                <LemonTag type="warning" className="uppercase ml-2">
-                    Beta
-                </LemonTag>
-            </>
-        ),
-        content: <DatabaseTableList />,
     },
 }
 

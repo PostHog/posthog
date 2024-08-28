@@ -94,8 +94,8 @@ describe('sessionRecordingDataLogic', () => {
             expect(logic.values).toMatchObject({
                 bufferedToTime: null,
                 durationMs: 0,
-                start: undefined,
-                end: undefined,
+                start: null,
+                end: null,
                 segments: [],
                 sessionEventsData: null,
                 filters: {},
@@ -146,8 +146,8 @@ describe('sessionRecordingDataLogic', () => {
                 .toMatchValues({
                     sessionPlayerData: {
                         bufferedToTime: null,
-                        start: undefined,
-                        end: undefined,
+                        start: null,
+                        end: null,
                         durationMs: 0,
                         segments: [],
                         sessionRecordingId: '2',

@@ -234,8 +234,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
         (session_recordings, _, _) = self._filter_recordings_by(
             {
-                "duration_type_filter": "duration",
-                "session_recording_duration": '{"type":"recording","key":"duration","value":60,"operator":"gt"}',
+                "having_predicates": '[{"type":"recording","key":"duration","value":60,"operator":"gt"}]',
             }
         )
 
@@ -249,8 +248,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
         (session_recordings, _, _) = self._filter_recordings_by(
             {
-                "duration_type_filter": "active_seconds",
-                "session_recording_duration": '{"type":"recording","key":"duration","value":60,"operator":"gt"}',
+                "having_predicates": '[{"type":"recording","key":"active_seconds","value":"60","operator":"gt"}]',
             }
         )
 
@@ -260,8 +258,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
         (session_recordings, _, _) = self._filter_recordings_by(
             {
-                "duration_type_filter": "inactive_seconds",
-                "session_recording_duration": '{"type":"recording","key":"duration","value":60,"operator":"gt"}',
+                "having_predicates": '[{"type":"recording","key":"inactive_seconds","value":"60","operator":"gt"}]',
             }
         )
 
@@ -423,21 +420,21 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         )
 
         (session_recordings) = self._filter_recordings_by(
-            {"no_filter": None, "limit": 3, "offset": 0, "entity_order": "active_seconds"}
+            {"no_filter": None, "limit": 3, "offset": 0, "order": "active_seconds"}
         )
 
         ordered_by_activity = [(r["session_id"], r["active_seconds"]) for r in session_recordings.results]
         assert ordered_by_activity == [(session_id_two, 1.0), (session_id_one, 0.002)]
 
         (session_recordings) = self._filter_recordings_by(
-            {"no_filter": None, "limit": 3, "offset": 0, "entity_order": "console_error_count"}
+            {"no_filter": None, "limit": 3, "offset": 0, "order": "console_error_count"}
         )
 
         ordered_by_errors = [(r["session_id"], r["console_error_count"]) for r in session_recordings.results]
         assert ordered_by_errors == [(session_id_one, 1012), (session_id_two, 430)]
 
         (session_recordings) = self._filter_recordings_by(
-            {"no_filter": None, "limit": 3, "offset": 0, "entity_order": "start_time"}
+            {"no_filter": None, "limit": 3, "offset": 0, "order": "start_time"}
         )
 
         ordered_by_default = [(r["session_id"], r["start_time"]) for r in session_recordings.results]
@@ -854,7 +851,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
         (session_recordings, _, _) = self._filter_recordings_by(
             {
-                "duration_type_filter": "duration",
                 "events": [
                     {
                         "id": "$pageview",
@@ -863,7 +859,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                         "name": "$pageview",
                     }
                 ],
-                "session_recording_duration": '{"type":"recording","key":"duration","value":60,"operator":"gt"}',
+                "having_predicates": '[{"type":"recording","key":"duration","value":60,"operator":"gt"}]',
             }
         )
 
@@ -873,7 +869,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
         (session_recordings, _, _) = self._filter_recordings_by(
             {
-                "duration_type_filter": "active_seconds",
                 "events": [
                     {
                         "id": "$pageview",
@@ -882,7 +877,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                         "name": "$pageview",
                     }
                 ],
-                "session_recording_duration": '{"type":"recording","key":"duration","value":60,"operator":"gt"}',
+                "having_predicates": '[{"type":"recording","key":"active_seconds","value":60,"operator":"gt"}]',
             }
         )
 
@@ -1033,12 +1028,17 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         self.create_event(
             user,
             self.an_hour_ago,
-            properties={"$session_id": session_id, "$window_id": "1"},
+            properties={"$session_id": session_id, "$window_id": "1", "foo": "bar"},
         )
         self.create_event(
             user,
             self.an_hour_ago,
-            properties={"$session_id": session_id, "$window_id": "1"},
+            properties={"$session_id": session_id, "$window_id": "1", "bar": "foo"},
+        )
+        self.create_event(
+            user,
+            self.an_hour_ago,
+            properties={"$session_id": session_id, "$window_id": "1", "bar": "foo"},
             event_name="new-event",
         )
         produce_replay_summary(
@@ -1089,6 +1089,94 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             }
         )
         assert session_recordings == []
+
+        # it uses hasAny instead of hasAll because of the OR filter
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                    },
+                    {
+                        "id": "new-event2",
+                        "type": "events",
+                        "order": 0,
+                        "name": "new-event2",
+                    },
+                ],
+                "operand": "OR",
+            }
+        )
+        assert len(session_recordings) == 1
+
+        # two events with the same name
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "name": "$pageview",
+                        "properties": [{"key": "foo", "value": ["bar"], "operator": "exact", "type": "event"}],
+                    },
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "name": "$pageview",
+                        "properties": [{"key": "bar", "value": ["foo"], "operator": "exact", "type": "event"}],
+                    },
+                ],
+                "operand": "AND",
+            }
+        )
+        assert len(session_recordings) == 1
+
+        # two events with different names
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "name": "$pageview",
+                        "properties": [{"key": "foo", "value": ["bar"], "operator": "exact", "type": "event"}],
+                    },
+                    {
+                        "id": "new-event",
+                        "type": "events",
+                        "name": "new-event",
+                        "properties": [{"key": "foo", "value": ["bar"], "operator": "exact", "type": "event"}],
+                    },
+                ],
+                "operand": "AND",
+            }
+        )
+        assert len(session_recordings) == 0
+
+        # two events with different names
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "name": "$pageview",
+                        "properties": [{"key": "foo", "value": ["bar"], "operator": "exact", "type": "event"}],
+                    },
+                    {
+                        "id": "new-event",
+                        "type": "events",
+                        "name": "new-event",
+                        "properties": [{"key": "foo", "value": ["bar"], "operator": "exact", "type": "event"}],
+                    },
+                ],
+                "operand": "OR",
+            }
+        )
+        assert len(session_recordings) == 1
 
     @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(["$session_id", "$browser"], person_properties=["email"])
@@ -1300,12 +1388,12 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         )
 
         (session_recordings, _, _) = self._filter_recordings_by(
-            {"session_recording_duration": '{"type":"recording","key":"duration","value":60,"operator":"gt"}'}
+            {"having_predicates": '[{"type":"recording","key":"duration","value":60,"operator":"gt"}]'}
         )
         assert [r["session_id"] for r in session_recordings] == [session_id_two]
 
         (session_recordings, _, _) = self._filter_recordings_by(
-            {"session_recording_duration": '{"type":"recording","key":"duration","value":60,"operator":"lt"}'}
+            {"having_predicates": '[{"type":"recording","key":"duration","value":60,"operator":"lt"}]'}
         )
         assert [r["session_id"] for r in session_recordings] == [session_id_one]
 
@@ -1500,13 +1588,19 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         )
 
         (session_recordings, _, _) = self._filter_recordings_by(
-            {"console_logs": ["warn"], "console_search_query": "random"}
+            {
+                "console_log_filters": '[{"key": "level", "value": ["warn"], "operator": "exact", "type": "log_entry"}, {"key": "message", "value": "random", "operator": "exact", "type": "log_entry"}]',
+                "operand": "AND",
+            }
         )
         assert len(session_recordings) == 1
         assert session_recordings[0]["session_id"] == session_with_both_log_filters
 
         (session_recordings, _, _) = self._filter_recordings_by(
-            {"console_logs": ["warn"], "console_search_query": "random", "operand": "OR"}
+            {
+                "console_log_filters": '[{"key": "level", "value": ["warn"], "operator": "exact", "type": "log_entry"}, {"key": "message", "value": "random", "operator": "exact", "type": "log_entry"}]',
+                "operand": "OR",
+            }
         )
         assert len(session_recordings) == 2
 
@@ -2513,7 +2607,14 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.id,
         )
 
-        (session_recordings, _, _) = self._filter_recordings_by({"console_logs": ["info"]})
+        # (session_recordings, _, _) = self._filter_recordings_by({"console_logs": ["info"]})
+
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {
+                "console_log_filters": '[{"key": "level", "value": ["info"], "operator": "exact", "type": "log_entry"}]',
+                "operand": "AND",
+            }
+        )
 
         actual = sorted(
             [(sr["session_id"], sr["console_log_count"]) for sr in session_recordings],
@@ -2524,7 +2625,12 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             (with_logs_session_id, 4),
         ]
 
-        (session_recordings, _, _) = self._filter_recordings_by({"console_logs": ["warn"]})
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {
+                "console_log_filters": '[{"key": "level", "value": ["warn"], "operator": "exact", "type": "log_entry"}]',
+                "operand": "AND",
+            }
+        )
         assert session_recordings == []
 
     @snapshot_clickhouse_queries
@@ -2557,7 +2663,12 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.id,
         )
 
-        (session_recordings, _, _) = self._filter_recordings_by({"console_logs": ["warn"]})
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {
+                "console_log_filters": '[{"key": "level", "value": ["warn"], "operator": "exact", "type": "log_entry"}]',
+                "operand": "AND",
+            }
+        )
 
         assert sorted(
             [(sr["session_id"], sr["console_warn_count"]) for sr in session_recordings],
@@ -2566,7 +2677,12 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             (with_logs_session_id, 4),
         ]
 
-        (session_recordings, _, _) = self._filter_recordings_by({"console_logs": ["info"]})
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {
+                "console_log_filters": '[{"key": "level", "value": ["info"], "operator": "exact", "type": "log_entry"}]',
+                "operand": "AND",
+            }
+        )
 
         assert session_recordings == []
 
@@ -2600,7 +2716,12 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.id,
         )
 
-        (session_recordings, _, _) = self._filter_recordings_by({"console_logs": ["error"]})
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {
+                "console_log_filters": '[{"key": "level", "value": ["error"], "operator": "exact", "type": "log_entry"}]',
+                "operand": "AND",
+            }
+        )
 
         assert sorted(
             [(sr["session_id"], sr["console_error_count"]) for sr in session_recordings],
@@ -2609,7 +2730,12 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             (with_logs_session_id, 4),
         ]
 
-        (session_recordings, _, _) = self._filter_recordings_by({"console_logs": ["info"]})
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {
+                "console_log_filters": '[{"key": "level", "value": ["info"], "operator": "exact", "type": "log_entry"}]',
+                "operand": "AND",
+            }
+        )
 
         assert session_recordings == []
 
@@ -2690,7 +2816,12 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-        (session_recordings, _, _) = self._filter_recordings_by({"console_logs": ["warn", "error"]})
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {
+                "console_log_filters": '[{"key": "level", "value": ["warn", "error"], "operator": "exact", "type": "log_entry"}]',
+                "operand": "AND",
+            }
+        )
 
         assert sorted([sr["session_id"] for sr in session_recordings]) == sorted(
             [
@@ -2700,7 +2831,12 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             ]
         )
 
-        (session_recordings, _, _) = self._filter_recordings_by({"console_logs": ["info"]})
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {
+                "console_log_filters": '[{"key": "level", "value": ["info"], "operator": "exact", "type": "log_entry"}]',
+                "operand": "AND",
+            }
+        )
 
         assert sorted([sr["session_id"] for sr in session_recordings]) == sorted(
             [
@@ -2786,8 +2922,8 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         (session_recordings, _, _) = self._filter_recordings_by(
             {
                 # there are 5 warn and 4 error logs, message 4 matches in both
-                "console_logs": ["warn", "error"],
-                "console_search_query": "message 4",
+                "console_log_filters": '[{"key": "level", "value": ["warn", "error"], "operator": "exact", "type": "log_entry"}, {"key": "message", "value": "message 4", "operator": "exact", "type": "log_entry"}]',
+                "operand": "OR",
             }
         )
 
@@ -2802,22 +2938,8 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         (session_recordings, _, _) = self._filter_recordings_by(
             {
                 # there are 5 warn and 4 error logs, message 5 matches only matches in warn
-                "console_logs": ["warn", "error"],
-                "console_search_query": "message 5",
-            }
-        )
-
-        assert sorted([sr["session_id"] for sr in session_recordings]) == sorted(
-            [
-                with_warns_session_id,
-            ]
-        )
-
-        (session_recordings, _, _) = self._filter_recordings_by(
-            {
-                # match is case-insensitive
-                "console_logs": ["warn", "error"],
-                "console_search_query": "MESSAGE 5",
+                "console_log_filters": '[{"key": "level", "value": ["warn", "error"], "operator": "exact", "type": "log_entry"}, {"key": "message", "value": "message 5", "operator": "icontains", "type": "log_entry"}]',
+                "operand": "AND",
             }
         )
 
@@ -2830,12 +2952,47 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         (session_recordings, _, _) = self._filter_recordings_by(
             {
                 # message 5 does not match log level "info"
-                "console_logs": ["info"],
-                "console_search_query": "message 5",
+                "console_log_filters": '[{"key": "level", "value": ["info"], "operator": "exact", "type": "log_entry"}, {"key": "message", "value": "message 5", "operator": "icontains", "type": "log_entry"}]',
+                "operand": "AND",
             }
         )
 
-        assert sorted([sr["session_id"] for sr in session_recordings]) == sorted([])
+        assert sorted([sr["session_id"] for sr in session_recordings]) == []
+
+    @snapshot_clickhouse_queries
+    def test_filter_for_recordings_by_snapshot_source(self):
+        user = "test_duration_filter-user"
+        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+
+        session_id_one = "session one id"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_id_one,
+            team_id=self.team.id,
+            snapshot_source="web",
+        )
+
+        session_id_two = "session two id"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_id_two,
+            team_id=self.team.id,
+            snapshot_source="mobile",
+        )
+
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {
+                "having_predicates": '[{"key": "snapshot_source", "value": ["web"], "operator": "exact", "type": "recording"}]'
+            }
+        )
+        assert [r["session_id"] for r in session_recordings] == [session_id_one]
+
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {
+                "having_predicates": '[{"key": "snapshot_source", "value": ["mobile"], "operator": "exact", "type": "recording"}]'
+            }
+        )
+        assert [r["session_id"] for r in session_recordings] == [session_id_two]
 
     @also_test_with_materialized_columns(
         event_properties=["is_internal_user"],

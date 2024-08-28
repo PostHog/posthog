@@ -1,3 +1,4 @@
+from datetime import timedelta
 import sys
 import json
 from .execute import execute_bytecode
@@ -18,6 +19,6 @@ with open(filename) as file:
     code = file.read()
     code = json.loads(code)
 
-response = execute_bytecode(code, globals=None, timeout=5, team=None, debug=debug)
+response = execute_bytecode(code, globals=None, timeout=timedelta(seconds=5), team=None, debug=debug)
 for line in response.stdout:
     print(line)  # noqa: T201

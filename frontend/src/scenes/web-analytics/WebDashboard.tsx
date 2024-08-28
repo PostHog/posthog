@@ -2,6 +2,7 @@ import { IconExpand45, IconInfo, IconOpenSidebar, IconX } from '@posthog/icons'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
@@ -10,6 +11,9 @@ import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { isNotNil } from 'lib/utils'
 import React, { useState } from 'react'
+import { WebAnalyticsErrorTrackingTile } from 'scenes/web-analytics/tiles/WebAnalyticsErrorTracking'
+import { WebAnalyticsRecordingsTile } from 'scenes/web-analytics/tiles/WebAnalyticsRecordings'
+import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
 import { WebAnalyticsHealthCheck } from 'scenes/web-analytics/WebAnalyticsHealthCheck'
 import {
     QueryTile,
@@ -19,14 +23,14 @@ import {
     webAnalyticsLogic,
 } from 'scenes/web-analytics/webAnalyticsLogic'
 import { WebAnalyticsModal } from 'scenes/web-analytics/WebAnalyticsModal'
-import { WebAnalyticsNotice } from 'scenes/web-analytics/WebAnalyticsNotice'
-import { WebQuery } from 'scenes/web-analytics/WebAnalyticsTile'
 import { WebPropertyFilters } from 'scenes/web-analytics/WebPropertyFilters'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
 import { QuerySchema } from '~/queries/schema'
+
+import { WebAnalyticsLiveUserCount } from './WebAnalyticsLiveUserCount'
 
 const Filters = (): JSX.Element => {
     const {
@@ -38,12 +42,10 @@ const Filters = (): JSX.Element => {
 
     return (
         <div
-            className="sticky z-20 pt-2"
-            // eslint-disable-next-line react/forbid-dom-props
-            style={{
-                backgroundColor: 'var(--bg-3000)',
-                top: mobileLayout ? 'var(--breadcrumbs-height-full)' : 'var(--breadcrumbs-height-compact)',
-            }}
+            className={clsx(
+                'sticky z-20 pt-2 bg-bg-3000',
+                mobileLayout ? 'top-[var(--breadcrumbs-height-full)]' : 'top-[var(--breadcrumbs-height-compact)]'
+            )}
         >
             <div className="flex flex-row flex-wrap gap-2">
                 <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
@@ -64,10 +66,14 @@ const Tiles = (): JSX.Element => {
     return (
         <div className="mt-2 grid grid-cols-1 md:grid-cols-2 xxl:grid-cols-3 gap-x-4 gap-y-12">
             {tiles.map((tile, i) => {
-                if ('query' in tile) {
+                if (tile.kind === 'query') {
                     return <QueryTileItem key={i} tile={tile} />
-                } else if ('tabs' in tile) {
+                } else if (tile.kind === 'tabs') {
                     return <TabsTileItem key={i} tile={tile} />
+                } else if (tile.kind === 'replay') {
+                    return <WebAnalyticsRecordingsTile key={i} tile={tile} />
+                } else if (tile.kind === 'error_tracking') {
+                    return <WebAnalyticsErrorTrackingTile key={i} tile={tile} />
                 }
                 return null
             })}
@@ -194,22 +200,23 @@ export const WebTabs = ({
             | {
                   docsUrl: PostHogComDocsURL
                   title: string
-                  description: string
+                  description: string | JSX.Element
               }
             | undefined
     }[]
     setActiveTabId: (id: string) => void
     openModal: (tileId: TileId, tabId: string) => void
-    getNewInsightUrl: (tileId: TileId, tabId: string) => string
+    getNewInsightUrl: (tileId: TileId, tabId: string) => string | undefined
     tileId: TileId
 }): JSX.Element => {
     const activeTab = tabs.find((t) => t.id === activeTabId)
+    const newInsightUrl = getNewInsightUrl(tileId, activeTabId)
 
     const buttonsRow = [
-        activeTab?.canOpenInsight ? (
+        activeTab?.canOpenInsight && newInsightUrl ? (
             <LemonButton
                 key="open-insight-button"
-                to={getNewInsightUrl(tileId, activeTabId)}
+                to={newInsightUrl}
                 icon={<IconOpenInNew />}
                 size="small"
                 type="secondary"
@@ -271,7 +278,7 @@ export const WebTabs = ({
 export interface LearnMorePopoverProps {
     docsURL: PostHogComDocsURL
     title: string
-    description: string
+    description: string | JSX.Element
 }
 
 export const LearnMorePopover = ({ docsURL, title, description }: LearnMorePopoverProps): JSX.Element => {
@@ -293,7 +300,7 @@ export const LearnMorePopover = ({ docsURL, title, description }: LearnMorePopov
                             icon={<IconX />}
                         />
                     </div>
-                    <p className="text-sm text-gray-700">{description}</p>
+                    <div className="text-sm text-gray-700">{description}</div>
                     <div className="flex justify-end mt-4">
                         <LemonButton
                             to={docsURL}
@@ -317,8 +324,9 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
         <BindLogic logic={webAnalyticsLogic} props={{}}>
             <BindLogic logic={dataNodeCollectionLogic} props={{ key: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
                 <WebAnalyticsModal />
-                <WebAnalyticsNotice />
+                <VersionCheckerBanner />
                 <div className="WebAnalyticsDashboard w-full flex flex-col">
+                    <WebAnalyticsLiveUserCount />
                     <Filters />
                     <WebAnalyticsHealthCheck />
                     <Tiles />

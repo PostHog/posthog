@@ -5,6 +5,11 @@
     overflow: hidden;
     border: 1px solid var(--border);
     border-radius: var(--radius);
+
+    &--embedded {
+        border: none;
+        border-radius: 0;
+    }
 }
 
 .LemonCollapsePanel {

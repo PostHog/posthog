@@ -192,7 +192,7 @@ def run_async_migration_next_op(migration_name: str, migration_instance: Optiona
 
     except Exception as e:
         error = f"Exception was thrown while running operation {migration_instance.current_operation_index} : {str(e)}"
-        logger.error(
+        logger.exception(
             "Error running async migration operation",
             migration=migration_name,
             current_operation_index=migration_instance.current_operation_index,

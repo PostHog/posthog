@@ -86,139 +86,45 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_cant_create_flag_with_invalid_filters(self):
         count = FeatureFlag.objects.count()
 
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags",
-            {
-                "name": "Beta feature",
-                "key": "beta-x",
-                "filters": {
-                    "groups": [
-                        {
-                            "rollout_percentage": 65,
-                            "properties": [
-                                {
-                                    "key": "email",
-                                    "type": "person",
-                                    "value": ["@posthog.com"],
-                                    "operator": "icontains",
-                                }
-                            ],
-                        }
-                    ]
-                },
-            },
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "invalid_value",
-                "detail": "Invalid value for operator icontains: ['@posthog.com']",
-                "attr": "filters",
-            },
-        )
+        invalid_operators = ["icontains", "regex", "not_icontains", "not_regex", "lt", "gt", "lte", "gte"]
 
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags",
-            {
-                "name": "Beta feature",
-                "key": "beta-x",
-                "filters": {
-                    "groups": [
-                        {
-                            "rollout_percentage": 65,
-                            "properties": [
-                                {
-                                    "key": "email",
-                                    "type": "person",
-                                    "value": ["@posthog.com"],
-                                    "operator": "regex",
-                                }
-                            ],
-                        }
-                    ]
+        for operator in invalid_operators:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags",
+                {
+                    "name": "Beta feature",
+                    "key": "beta-x",
+                    "filters": {
+                        "groups": [
+                            {
+                                "rollout_percentage": 65,
+                                "properties": [
+                                    {
+                                        "key": "email",
+                                        "type": "person",
+                                        "value": ["@posthog.com"],
+                                        "operator": operator,
+                                    }
+                                ],
+                            }
+                        ]
+                    },
                 },
-            },
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "invalid_value",
-                "detail": "Invalid value for operator regex: ['@posthog.com']",
-                "attr": "filters",
-            },
-        )
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(
+                response.json(),
+                {
+                    "type": "validation_error",
+                    "code": "invalid_value",
+                    "detail": f"Invalid value for operator {operator}: ['@posthog.com']",
+                    "attr": "filters",
+                },
+            )
 
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags",
-            {
-                "name": "Beta feature",
-                "key": "beta-x",
-                "filters": {
-                    "groups": [
-                        {
-                            "rollout_percentage": 65,
-                            "properties": [
-                                {
-                                    "key": "email",
-                                    "type": "person",
-                                    "value": ["@posthog.com"],
-                                    "operator": "not_icontains",
-                                }
-                            ],
-                        }
-                    ]
-                },
-            },
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "invalid_value",
-                "detail": "Invalid value for operator not_icontains: ['@posthog.com']",
-                "attr": "filters",
-            },
-        )
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags",
-            {
-                "name": "Beta feature",
-                "key": "beta-x",
-                "filters": {
-                    "groups": [
-                        {
-                            "rollout_percentage": 65,
-                            "properties": [
-                                {
-                                    "key": "email",
-                                    "type": "person",
-                                    "value": ["@posthog.com"],
-                                    "operator": "not_regex",
-                                }
-                            ],
-                        }
-                    ]
-                },
-            },
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "invalid_value",
-                "detail": "Invalid value for operator not_regex: ['@posthog.com']",
-                "attr": "filters",
-            },
-        )
         self.assertEqual(FeatureFlag.objects.count(), count)
 
+        # Test that a string value is still acceptable
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags",
             {
@@ -241,6 +147,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 },
             },
         )
+
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     def test_cant_update_flag_with_duplicate_key(self):
@@ -3866,6 +3773,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "scope": "burst",
                 "rate": "5/minute",
                 "path": f"/api/projects/TEAM_ID/feature_flags",
+                "hashed_personal_api_key": hash_key_value(personal_api_key),
             },
         )
 

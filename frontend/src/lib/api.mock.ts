@@ -79,6 +79,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     capture_performance_opt_in: true,
     heatmaps_opt_in: true,
     autocapture_exceptions_opt_in: false,
+    autocapture_web_vitals_opt_in: false,
     autocapture_exceptions_errors_to_ignore: [],
     effective_membership_level: OrganizationMembershipLevel.Admin,
     access_control: true,
@@ -86,7 +87,6 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     primary_dashboard: 1,
     live_events_columns: null,
     person_on_events_querying_enabled: true,
-    groups_on_events_querying_enabled: true,
     live_events_token: '123',
 }
 
@@ -105,6 +105,7 @@ export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
     metadata: {},
     available_product_features: [],
     member_count: 2,
+    logo_media_id: null,
 }
 
 export const MOCK_DEFAULT_BASIC_USER: UserBasicType = {
@@ -139,6 +140,7 @@ export const MOCK_DEFAULT_USER: UserType = {
         name,
         slug,
         membership_level,
+        logo_media_id: null,
     })),
     events_column_config: {
         active: 'DEFAULT',

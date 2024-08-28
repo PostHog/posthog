@@ -13,6 +13,7 @@ def create_external_data_job(
     external_data_source_id: UUID,
     external_data_schema_id: UUID,
     workflow_id: str,
+    workflow_run_id: str,
     team_id: int,
 ) -> ExternalDataJob:
     job = ExternalDataJob.objects.create(
@@ -22,6 +23,7 @@ def create_external_data_job(
         status=ExternalDataJob.Status.RUNNING,
         rows_synced=0,
         workflow_id=workflow_id,
+        workflow_run_id=workflow_run_id,
     )
 
     return job
@@ -33,8 +35,13 @@ def update_external_job_status(run_id: UUID, team_id: int, status: str, latest_e
     model.latest_error = latest_error
     model.save()
 
+    if status == ExternalDataJob.Status.FAILED:
+        schema_status = ExternalDataSchema.Status.ERROR
+    else:
+        schema_status = status
+
     schema = ExternalDataSchema.objects.get(id=model.schema_id, team_id=team_id)
-    schema.status = status
+    schema.status = schema_status
     schema.save()
 
     model.refresh_from_db()

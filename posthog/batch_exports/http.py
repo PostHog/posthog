@@ -5,8 +5,8 @@ import posthoganalytics
 import structlog
 from django.db import transaction
 from django.utils.timezone import now
-from rest_framework import request, response, serializers, viewsets, filters
-from rest_framework.decorators import action
+from rest_framework import filters, request, response, serializers, viewsets
+from posthog.api.utils import action
 from rest_framework.exceptions import (
     NotAuthenticated,
     NotFound,
@@ -14,15 +14,10 @@ from rest_framework.exceptions import (
     ValidationError,
 )
 from rest_framework.pagination import CursorPagination
-from rest_framework_dataclasses.serializers import DataclassSerializer
 
+from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.batch_exports.models import (
-    BATCH_EXPORT_INTERVALS,
-    BatchExportLogEntry,
-    BatchExportLogEntryLevel,
-    fetch_batch_export_log_entries,
-)
+from posthog.batch_exports.models import BATCH_EXPORT_INTERVALS
 from posthog.batch_exports.service import (
     BatchExportIdError,
     BatchExportSchema,
@@ -70,17 +65,16 @@ def validate_date_input(date_input: Any, team: Team | None = None) -> dt.datetim
         # As far as I'm concerned, if you give me something that quacks like an isoformatted str, you are golden.
         # Read more here: https://github.com/python/mypy/issues/2420.
         # Once PostHog is 3.11, try/except is zero cost if nothing is raised: https://bugs.python.org/issue40222.
-        parsed = dt.datetime.fromisoformat(date_input.replace("Z", "+00:00"))
+        parsed = dt.datetime.fromisoformat(date_input)
     except (TypeError, ValueError):
         raise ValidationError(f"Input {date_input} is not a valid ISO formatted datetime.")
 
     if parsed.tzinfo is None:
-        if team:
-            parsed = parsed.replace(tzinfo=team.timezone_info).astimezone(dt.timezone.utc)
-        else:
-            parsed = parsed.replace(tzinfo=dt.timezone.utc)
+        raise ValidationError(f"Input {date_input} is naive.")
+
     else:
-        parsed = parsed.astimezone(dt.timezone.utc)
+        if team is not None:
+            parsed = parsed.astimezone(team.timezone_info)
 
     return parsed
 
@@ -99,7 +93,7 @@ class RunsCursorPagination(CursorPagination):
     page_size = 100
 
 
-class BatchExportRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
+class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ReadOnlyModelViewSet):
     scope_object = "batch_export"
     queryset = BatchExportRun.objects.all()
     serializer_class = BatchExportRunSerializer
@@ -108,6 +102,10 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSe
     filter_backends = [filters.OrderingFilter]
     ordering_fields = ["created_at", "data_interval_start"]
     ordering = "-created_at"
+    log_source = "batch_exports"
+
+    def get_log_entry_instance_id(self) -> str:
+        return self.parents_query_dict.get("run_id", None)
 
     def safely_get_queryset(self, queryset):
         after = self.request.GET.get("after", None)
@@ -129,6 +127,26 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSe
 
         queryset = queryset.filter(batch_export_id=self.kwargs["parent_lookup_batch_export_id"])
         return queryset
+
+    @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
+    def retry(self, *args, **kwargs) -> response.Response:
+        """Retry a batch export run.
+
+        We use the same underlying mechanism as when backfilling a batch export, as retrying
+        a run is the same as backfilling one run.
+        """
+        batch_export_run = self.get_object()
+
+        temporal = sync_connect()
+        backfill_id = backfill_export(
+            temporal,
+            str(batch_export_run.batch_export.id),
+            self.team_id,
+            batch_export_run.data_interval_start,
+            batch_export_run.data_interval_end,
+        )
+
+        return response.Response({"backfill_id": backfill_id})
 
 
 class BatchExportDestinationSerializer(serializers.ModelSerializer):
@@ -199,6 +217,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
             "id",
             "team_id",
             "name",
+            "model",
             "destination",
             "interval",
             "paused",
@@ -349,41 +368,43 @@ class BatchExportSerializer(serializers.ModelSerializer):
         return batch_export
 
 
-class BatchExportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelViewSet):
     scope_object = "batch_export"
     queryset = BatchExport.objects.exclude(deleted=True).order_by("-created_at").prefetch_related("destination").all()
     serializer_class = BatchExportSerializer
+    log_source = "batch_exports"
 
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def backfill(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Trigger a backfill for a BatchExport."""
-        if not isinstance(request.user, User) or request.user.current_team is None:
-            raise NotAuthenticated()
-
         start_at_input = request.data.get("start_at", None)
         end_at_input = request.data.get("end_at", None)
 
         if start_at_input is None or end_at_input is None:
             raise ValidationError("Both 'start_at' and 'end_at' must be specified")
 
-        start_at = validate_date_input(start_at_input, request.user.current_team)
-        end_at = validate_date_input(end_at_input, request.user.current_team)
+        start_at = validate_date_input(start_at_input, self.team)
+        end_at = validate_date_input(end_at_input, self.team)
 
         if start_at >= end_at:
             raise ValidationError("The initial backfill datetime 'start_at' happens after 'end_at'")
 
-        team_id = request.user.current_team.id
-
         batch_export = self.get_object()
+
+        if end_at > dt.datetime.now(dt.UTC) + batch_export.interval_time_delta:
+            raise ValidationError(
+                f"The provided 'end_at' ({end_at.isoformat()}) is too far into the future. Cannot backfill beyond 1 batch period into the future."
+            )
+
         temporal = sync_connect()
         try:
-            backfill_id = backfill_export(temporal, str(batch_export.pk), team_id, start_at, end_at)
+            backfill_id = backfill_export(temporal, str(batch_export.pk), self.team_id, start_at, end_at)
         except BatchExportWithNoEndNotAllowedError:
             raise ValidationError("Backfilling a BatchExport with no end date is not allowed")
 
         return response.Response({"backfill_id": backfill_id})
 
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def pause(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Pause a BatchExport."""
         if not isinstance(request.user, User):
@@ -407,7 +428,7 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return response.Response({"paused": True})
 
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def unpause(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Unpause a BatchExport."""
         if not isinstance(request.user, User) or request.user.current_team is None:
@@ -445,54 +466,3 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
 class BatchExportOrganizationViewSet(BatchExportViewSet):
     filter_rewrite_rules = {"organization_id": "team__organization_id"}
-
-
-class BatchExportLogEntrySerializer(DataclassSerializer):
-    class Meta:
-        dataclass = BatchExportLogEntry
-
-
-class BatchExportLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    scope_object = "batch_export"
-    serializer_class = BatchExportLogEntrySerializer
-
-    def list(self, request: request.Request, *args, **kwargs):
-        limit_raw = request.GET.get("limit")
-        limit: int | None
-        if limit_raw:
-            try:
-                limit = int(limit_raw)
-            except ValueError:
-                raise ValidationError("Query param limit must be omitted or an integer!")
-        else:
-            limit = None
-
-        after_raw: str | None = request.GET.get("after")
-        after: dt.datetime | None = None
-        if after_raw is not None:
-            after = dt.datetime.fromisoformat(after_raw.replace("Z", "+00:00"))
-
-        before_raw: str | None = request.GET.get("before")
-        before: dt.datetime | None = None
-        if before_raw is not None:
-            before = dt.datetime.fromisoformat(before_raw.replace("Z", "+00:00"))
-
-        level_filter = [BatchExportLogEntryLevel[t.upper()] for t in (request.GET.getlist("level_filter", []))]
-        data = fetch_batch_export_log_entries(
-            team_id=self.team_id,
-            batch_export_id=self.parents_query_dict["batch_export_id"],
-            run_id=self.parents_query_dict.get("run_id", None),
-            after=after,
-            before=before,
-            search=request.GET.get("search"),
-            limit=limit,
-            level_filter=level_filter,
-        )
-
-        page = self.paginate_queryset(data)
-        if page is not None:
-            serializer = self.get_serializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
-
-        serializer = self.get_serializer(data, many=True)
-        return response.Response(serializer.data)

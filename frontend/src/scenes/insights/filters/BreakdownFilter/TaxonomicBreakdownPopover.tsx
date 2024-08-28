@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
-import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 
@@ -12,15 +13,26 @@ type TaxonomicBreakdownPopoverProps = {
     open: boolean
     setOpen: (open: boolean) => void
     children: React.ReactElement
+    taxanomicType?: TaxonomicFilterGroupType
+    breakdownType?: string
+    breakdownValue?: string | number | null
 }
 
-export const TaxonomicBreakdownPopover = ({ open, setOpen, children }: TaxonomicBreakdownPopoverProps): JSX.Element => {
-    const { allEventNames } = useValues(insightLogic)
+export const TaxonomicBreakdownPopover = ({
+    open,
+    setOpen,
+    children,
+    taxanomicType,
+    breakdownType,
+    breakdownValue,
+}: TaxonomicBreakdownPopoverProps): JSX.Element => {
+    const { insightProps } = useValues(insightLogic)
+    const { allEventNames } = useValues(insightVizDataLogic(insightProps))
     const { groupsTaxonomicTypes } = useValues(groupsModel)
-    const { taxonomicBreakdownType, includeSessions } = useValues(taxonomicBreakdownFilterLogic)
+    const { includeSessions } = useValues(taxonomicBreakdownFilterLogic)
 
-    const { breakdownFilter, currentDataWarehouseSchemaColumns } = useValues(taxonomicBreakdownFilterLogic)
-    const { addBreakdown } = useActions(taxonomicBreakdownFilterLogic)
+    const { currentDataWarehouseSchemaColumns } = useValues(taxonomicBreakdownFilterLogic)
+    const { addBreakdown, replaceBreakdown } = useActions(taxonomicBreakdownFilterLogic)
 
     const taxonomicGroupTypes = [
         TaxonomicFilterGroupType.EventProperties,
@@ -38,13 +50,25 @@ export const TaxonomicBreakdownPopover = ({ open, setOpen, children }: Taxonomic
         <Popover
             overlay={
                 <TaxonomicFilter
-                    groupType={taxonomicBreakdownType}
-                    value={breakdownFilter?.breakdown as TaxonomicFilterValue}
+                    groupType={taxanomicType}
+                    value={breakdownValue}
                     onChange={(taxonomicGroup, value) => {
-                        if (value) {
+                        if (breakdownValue && breakdownType) {
+                            replaceBreakdown(
+                                {
+                                    value: breakdownValue,
+                                    type: breakdownType,
+                                },
+                                {
+                                    value,
+                                    group: taxonomicGroup,
+                                }
+                            )
+                        } else {
                             addBreakdown(value, taxonomicGroup)
-                            setOpen(false)
                         }
+
+                        setOpen(false)
                     }}
                     eventNames={allEventNames}
                     taxonomicGroupTypes={taxonomicGroupTypes}

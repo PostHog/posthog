@@ -1,132 +1,57 @@
 import equal from 'fast-deep-equal'
-import { PERCENT_STACK_VIEW_DISPLAY_TYPE } from 'lib/constants'
-import { getEventNamesForAction, isEmptyObject } from 'lib/utils'
+import { getEventNamesForAction } from 'lib/utils'
 
+import { examples } from '~/queries/examples'
 import {
-    ActionsNode,
-    BreakdownFilter,
-    CompareFilter,
-    DataWarehouseNode,
-    EventsNode,
+    DataTableNode,
+    DataVisualizationNode,
+    HogQuery,
+    InsightNodeKind,
     InsightQueryNode,
     InsightVizNode,
     Node,
     NodeKind,
-    TrendsQuery,
 } from '~/queries/schema'
+import { isInsightQueryWithSeries } from '~/queries/utils'
 import {
-    isInsightQueryWithBreakdown,
-    isInsightQueryWithCompare,
-    isInsightQueryWithSeries,
-    isLifecycleQuery,
-    isStickinessQuery,
-    isTrendsQuery,
-} from '~/queries/utils'
-import { ActionType, ChartDisplayType, FilterType, InsightModel, IntervalType, QueryBasedInsightModel } from '~/types'
+    ActionType,
+    DashboardTile,
+    DashboardType,
+    FilterType,
+    InsightModel,
+    InsightType,
+    QueryBasedInsightModel,
+} from '~/types'
 
+import { nodeKindToDefaultQuery } from '../InsightQuery/defaults'
 import { filtersToQueryNode } from '../InsightQuery/utils/filtersToQueryNode'
-import { seriesToActionsAndEvents } from '../InsightQuery/utils/queryNodeToFilter'
 
 export const getAllEventNames = (query: InsightQueryNode, allActions: ActionType[]): string[] => {
-    const { actions, events } = seriesToActionsAndEvents((query as TrendsQuery).series || [])
-
-    // If there's a "All events" entity, don't filter by event names.
-    if (events.find((e) => e.id === null)) {
+    if (!isInsightQueryWithSeries(query)) {
         return []
     }
 
-    const allEvents = [
-        ...events.map((e) => String(e.id)),
-        ...actions.flatMap((action) => getEventNamesForAction(action.id as string | number, allActions)),
-    ]
+    const allEvents = query.series.flatMap((e) => {
+        if (e.kind == NodeKind.EventsNode) {
+            return e.event
+        } else if (e.kind == NodeKind.ActionsNode) {
+            return getEventNamesForAction(e.id, allActions)
+        }
+    })
+
+    // has one "all events" event
+    if (allEvents.some((e) => e === null)) {
+        return []
+    }
 
     // remove duplicates and empty events
-    return Array.from(new Set(allEvents.filter((a): a is string => !!a)))
+    return Array.from(new Set(allEvents.filter((e): e is string => !!e)))
 }
-
-export const getDisplay = (query: InsightQueryNode): ChartDisplayType | undefined => {
-    if (isStickinessQuery(query)) {
-        return query.stickinessFilter?.display
-    } else if (isTrendsQuery(query)) {
-        return query.trendsFilter?.display
-    }
-    return undefined
-}
-
-export const getFormula = (query: InsightQueryNode): string | undefined => {
-    if (isTrendsQuery(query)) {
-        return query.trendsFilter?.formula
-    }
-    return undefined
-}
-
-export const getSeries = (query: InsightQueryNode): (EventsNode | ActionsNode | DataWarehouseNode)[] | undefined => {
-    if (isInsightQueryWithSeries(query)) {
-        return query.series
-    }
-    return undefined
-}
-
-export const getInterval = (query: InsightQueryNode): IntervalType | undefined => {
-    if (isInsightQueryWithSeries(query)) {
-        return query.interval
-    }
-    return undefined
-}
-
-export const getBreakdown = (query: InsightQueryNode): BreakdownFilter | undefined => {
-    if (isInsightQueryWithBreakdown(query)) {
-        return query.breakdownFilter
-    }
-    return undefined
-}
-
-export const getCompareFilter = (query: InsightQueryNode): CompareFilter | undefined => {
-    if (isInsightQueryWithCompare(query)) {
-        return query.compareFilter
-    }
-    return undefined
-}
-
-export const getShowLegend = (query: InsightQueryNode): boolean | undefined => {
-    if (isStickinessQuery(query)) {
-        return query.stickinessFilter?.showLegend
-    } else if (isTrendsQuery(query)) {
-        return query.trendsFilter?.showLegend
-    } else if (isLifecycleQuery(query)) {
-        return query.lifecycleFilter?.showLegend
-    }
-    return undefined
-}
-
-export const getShowValuesOnSeries = (query: InsightQueryNode): boolean | undefined => {
-    if (isLifecycleQuery(query)) {
-        return query.lifecycleFilter?.showValuesOnSeries
-    } else if (isStickinessQuery(query)) {
-        return query.stickinessFilter?.showValuesOnSeries
-    } else if (isTrendsQuery(query)) {
-        return query.trendsFilter?.showValuesOnSeries
-    }
-    return undefined
-}
-
-export const getShowLabelsOnSeries = (query: InsightQueryNode): boolean | undefined => {
-    if (isTrendsQuery(query)) {
-        return query.trendsFilter?.showLabelsOnSeries
-    }
-    return undefined
-}
-
-export const supportsPercentStackView = (q: InsightQueryNode | null | undefined): boolean =>
-    isTrendsQuery(q) && PERCENT_STACK_VIEW_DISPLAY_TYPE.includes(getDisplay(q) || ChartDisplayType.ActionsLineGraph)
-
-export const getShowPercentStackView = (query: InsightQueryNode): boolean | undefined =>
-    supportsPercentStackView(query) && (query as TrendsQuery)?.trendsFilter?.showPercentStackView
 
 export const getCachedResults = (
-    cachedInsight: Partial<InsightModel> | undefined | null,
+    cachedInsight: Partial<QueryBasedInsightModel> | undefined | null,
     query: InsightQueryNode
-): Partial<InsightModel> | undefined => {
+): Partial<QueryBasedInsightModel> | undefined => {
     if (!cachedInsight) {
         return undefined
     }
@@ -138,8 +63,6 @@ export const getCachedResults = (
         if ('source' in cachedInsight.query) {
             cachedQueryNode = cachedInsight.query.source as Node
         }
-    } else if (cachedInsight.filters && !isEmptyObject(cachedInsight.filters)) {
-        cachedQueryNode = filtersToQueryNode(cachedInsight.filters)
     } else {
         return undefined
     }
@@ -184,4 +107,65 @@ export function getQueryFromInsightLike(insight: {
     }
 
     return query
+}
+
+export const queryFromFilters = (filters: Partial<FilterType>): InsightVizNode => ({
+    kind: NodeKind.InsightVizNode,
+    source: filtersToQueryNode(filters),
+})
+
+export const queryFromKind = (kind: InsightNodeKind, filterTestAccountsDefault: boolean): InsightVizNode => ({
+    kind: NodeKind.InsightVizNode,
+    source: { ...nodeKindToDefaultQuery[kind], ...(filterTestAccountsDefault ? { filterTestAccounts: true } : {}) },
+})
+
+export const getDefaultQuery = (
+    insightType: InsightType,
+    filterTestAccountsDefault: boolean
+): DataTableNode | DataVisualizationNode | HogQuery | InsightVizNode => {
+    if ([InsightType.SQL, InsightType.JSON, InsightType.HOG].includes(insightType)) {
+        if (insightType === InsightType.JSON) {
+            return examples.TotalEventsTable as DataTableNode
+        } else if (insightType === InsightType.SQL) {
+            return examples.DataVisualization as DataVisualizationNode
+        } else if (insightType === InsightType.HOG) {
+            return examples.Hoggonacci as HogQuery
+        }
+    } else {
+        if (insightType === InsightType.TRENDS) {
+            return queryFromKind(NodeKind.TrendsQuery, filterTestAccountsDefault)
+        } else if (insightType === InsightType.FUNNELS) {
+            return queryFromKind(NodeKind.FunnelsQuery, filterTestAccountsDefault)
+        } else if (insightType === InsightType.RETENTION) {
+            return queryFromKind(NodeKind.RetentionQuery, filterTestAccountsDefault)
+        } else if (insightType === InsightType.PATHS) {
+            return queryFromKind(NodeKind.PathsQuery, filterTestAccountsDefault)
+        } else if (insightType === InsightType.STICKINESS) {
+            return queryFromKind(NodeKind.StickinessQuery, filterTestAccountsDefault)
+        } else if (insightType === InsightType.LIFECYCLE) {
+            return queryFromKind(NodeKind.LifecycleQuery, filterTestAccountsDefault)
+        }
+    }
+
+    throw new Error('encountered unexpected type for view')
+}
+
+/** Get a dashboard where eventual `filters` based tiles are converted to `query` based ones. */
+export const getQueryBasedDashboard = (
+    dashboard: DashboardType<InsightModel> | null
+): DashboardType<QueryBasedInsightModel> | null => {
+    if (dashboard == null) {
+        return null
+    }
+
+    return {
+        ...dashboard,
+        tiles: dashboard.tiles?.map(
+            (tile) =>
+                ({
+                    ...tile,
+                    ...(tile.insight != null ? { insight: getQueryBasedInsightModel(tile.insight) } : {}),
+                } as DashboardTile<QueryBasedInsightModel>)
+        ),
+    }
 }

@@ -32,6 +32,10 @@
                           created_at: {},
                           distinct_id: {},
                           elements_chain: {},
+                          elements_chain_elements: {},
+                          elements_chain_href: {},
+                          elements_chain_ids: {},
+                          elements_chain_texts: {},
                           event: {},
                           goe_0: {},
                           goe_1: {},
@@ -117,6 +121,34 @@
                   alias: "elements_chain"
                   type: {
                     name: "elements_chain"
+                    table_type: <recursion ...>
+                  }
+                },
+                elements_chain_elements: {
+                  alias: "elements_chain_elements"
+                  type: {
+                    name: "elements_chain_elements"
+                    table_type: <recursion ...>
+                  }
+                },
+                elements_chain_href: {
+                  alias: "elements_chain_href"
+                  type: {
+                    name: "elements_chain_href"
+                    table_type: <recursion ...>
+                  }
+                },
+                elements_chain_ids: {
+                  alias: "elements_chain_ids"
+                  type: {
+                    name: "elements_chain_ids"
+                    table_type: <recursion ...>
+                  }
+                },
+                elements_chain_texts: {
+                  alias: "elements_chain_texts"
+                  type: {
+                    name: "elements_chain_texts"
                     table_type: <recursion ...>
                   }
                 },
@@ -382,6 +414,74 @@
           alias: "$group_4"
           type: <recursion ...>
         }
+      },
+      {
+        alias: "elements_chain_href"
+        expr: {
+          chain: [
+            "elements_chain_href"
+          ]
+          type: {
+            name: "elements_chain_href"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "elements_chain_href"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "elements_chain_texts"
+        expr: {
+          chain: [
+            "elements_chain_texts"
+          ]
+          type: {
+            name: "elements_chain_texts"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "elements_chain_texts"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "elements_chain_ids"
+        expr: {
+          chain: [
+            "elements_chain_ids"
+          ]
+          type: {
+            name: "elements_chain_ids"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "elements_chain_ids"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "elements_chain_elements"
+        expr: {
+          chain: [
+            "elements_chain_elements"
+          ]
+          type: {
+            name: "elements_chain_elements"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "elements_chain_elements"
+          type: <recursion ...>
+        }
       }
     ]
     select_from: {
@@ -540,6 +640,50 @@
             }
             hidden: True
             type: <recursion ...>
+          },
+          {
+            alias: "elements_chain_href"
+            expr: {
+              chain: [
+                "elements_chain_href"
+              ]
+              type: <recursion ...>
+            }
+            hidden: True
+            type: <recursion ...>
+          },
+          {
+            alias: "elements_chain_texts"
+            expr: {
+              chain: [
+                "elements_chain_texts"
+              ]
+              type: <recursion ...>
+            }
+            hidden: True
+            type: <recursion ...>
+          },
+          {
+            alias: "elements_chain_ids"
+            expr: {
+              chain: [
+                "elements_chain_ids"
+              ]
+              type: <recursion ...>
+            }
+            hidden: True
+            type: <recursion ...>
+          },
+          {
+            alias: "elements_chain_elements"
+            expr: {
+              chain: [
+                "elements_chain_elements"
+              ]
+              type: <recursion ...>
+            }
+            hidden: True
+            type: <recursion ...>
           }
         ]
         select_from: {
@@ -571,6 +715,10 @@
         created_at: <recursion ...>,
         distinct_id: <recursion ...>,
         elements_chain: <recursion ...>,
+        elements_chain_elements: <recursion ...>,
+        elements_chain_href: <recursion ...>,
+        elements_chain_ids: <recursion ...>,
+        elements_chain_texts: <recursion ...>,
         event: <recursion ...>,
         properties: <recursion ...>,
         timestamp: <recursion ...>,
@@ -607,6 +755,10 @@
                   created_at: {},
                   distinct_id: {},
                   elements_chain: {},
+                  elements_chain_elements: {},
+                  elements_chain_href: {},
+                  elements_chain_ids: {},
+                  elements_chain_texts: {},
                   event: {},
                   goe_0: {},
                   goe_1: {},
@@ -859,6 +1011,74 @@
           alias: "$group_4"
           type: <recursion ...>
         }
+      },
+      {
+        alias: "elements_chain_href"
+        expr: {
+          chain: [
+            "elements_chain_href"
+          ]
+          type: {
+            name: "elements_chain_href"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "elements_chain_href"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "elements_chain_texts"
+        expr: {
+          chain: [
+            "elements_chain_texts"
+          ]
+          type: {
+            name: "elements_chain_texts"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "elements_chain_texts"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "elements_chain_ids"
+        expr: {
+          chain: [
+            "elements_chain_ids"
+          ]
+          type: {
+            name: "elements_chain_ids"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "elements_chain_ids"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "elements_chain_elements"
+        expr: {
+          chain: [
+            "elements_chain_elements"
+          ]
+          type: {
+            name: "elements_chain_elements"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "elements_chain_elements"
+          type: <recursion ...>
+        }
       }
     ]
     select_from: {
@@ -884,6 +1104,10 @@
         created_at: <recursion ...>,
         distinct_id: <recursion ...>,
         elements_chain: <recursion ...>,
+        elements_chain_elements: <recursion ...>,
+        elements_chain_href: <recursion ...>,
+        elements_chain_ids: <recursion ...>,
+        elements_chain_texts: <recursion ...>,
         event: <recursion ...>,
         properties: <recursion ...>,
         timestamp: <recursion ...>,
@@ -930,6 +1154,10 @@
                           created_at: {},
                           distinct_id: {},
                           elements_chain: {},
+                          elements_chain_elements: {},
+                          elements_chain_href: {},
+                          elements_chain_ids: {},
+                          elements_chain_texts: {},
                           event: {},
                           goe_0: {},
                           goe_1: {},
@@ -1015,6 +1243,34 @@
                   alias: "elements_chain"
                   type: {
                     name: "elements_chain"
+                    table_type: <recursion ...>
+                  }
+                },
+                elements_chain_elements: {
+                  alias: "elements_chain_elements"
+                  type: {
+                    name: "elements_chain_elements"
+                    table_type: <recursion ...>
+                  }
+                },
+                elements_chain_href: {
+                  alias: "elements_chain_href"
+                  type: {
+                    name: "elements_chain_href"
+                    table_type: <recursion ...>
+                  }
+                },
+                elements_chain_ids: {
+                  alias: "elements_chain_ids"
+                  type: {
+                    name: "elements_chain_ids"
+                    table_type: <recursion ...>
+                  }
+                },
+                elements_chain_texts: {
+                  alias: "elements_chain_texts"
+                  type: {
+                    name: "elements_chain_texts"
                     table_type: <recursion ...>
                   }
                 },
@@ -1280,6 +1536,74 @@
           alias: "$group_4"
           type: <recursion ...>
         }
+      },
+      {
+        alias: "elements_chain_href"
+        expr: {
+          chain: [
+            "elements_chain_href"
+          ]
+          type: {
+            name: "elements_chain_href"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "elements_chain_href"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "elements_chain_texts"
+        expr: {
+          chain: [
+            "elements_chain_texts"
+          ]
+          type: {
+            name: "elements_chain_texts"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "elements_chain_texts"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "elements_chain_ids"
+        expr: {
+          chain: [
+            "elements_chain_ids"
+          ]
+          type: {
+            name: "elements_chain_ids"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "elements_chain_ids"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "elements_chain_elements"
+        expr: {
+          chain: [
+            "elements_chain_elements"
+          ]
+          type: {
+            name: "elements_chain_elements"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "elements_chain_elements"
+          type: <recursion ...>
+        }
       }
     ]
     select_from: {
@@ -1440,6 +1764,50 @@
                 }
                 hidden: True
                 type: <recursion ...>
+              },
+              {
+                alias: "elements_chain_href"
+                expr: {
+                  chain: [
+                    "elements_chain_href"
+                  ]
+                  type: <recursion ...>
+                }
+                hidden: True
+                type: <recursion ...>
+              },
+              {
+                alias: "elements_chain_texts"
+                expr: {
+                  chain: [
+                    "elements_chain_texts"
+                  ]
+                  type: <recursion ...>
+                }
+                hidden: True
+                type: <recursion ...>
+              },
+              {
+                alias: "elements_chain_ids"
+                expr: {
+                  chain: [
+                    "elements_chain_ids"
+                  ]
+                  type: <recursion ...>
+                }
+                hidden: True
+                type: <recursion ...>
+              },
+              {
+                alias: "elements_chain_elements"
+                expr: {
+                  chain: [
+                    "elements_chain_elements"
+                  ]
+                  type: <recursion ...>
+                }
+                hidden: True
+                type: <recursion ...>
               }
             ]
             select_from: {
@@ -1476,6 +1844,10 @@
                           created_at: {},
                           distinct_id: {},
                           elements_chain: {},
+                          elements_chain_elements: {},
+                          elements_chain_href: {},
+                          elements_chain_ids: {},
+                          elements_chain_texts: {},
                           event: {},
                           goe_0: {},
                           goe_1: {},
@@ -1727,6 +2099,74 @@
                   alias: "$group_4"
                   type: <recursion ...>
                 }
+              },
+              {
+                alias: "elements_chain_href"
+                expr: {
+                  chain: [
+                    "elements_chain_href"
+                  ]
+                  type: {
+                    name: "elements_chain_href"
+                    table_type: <recursion ...>
+                  }
+                }
+                hidden: True
+                type: {
+                  alias: "elements_chain_href"
+                  type: <recursion ...>
+                }
+              },
+              {
+                alias: "elements_chain_texts"
+                expr: {
+                  chain: [
+                    "elements_chain_texts"
+                  ]
+                  type: {
+                    name: "elements_chain_texts"
+                    table_type: <recursion ...>
+                  }
+                }
+                hidden: True
+                type: {
+                  alias: "elements_chain_texts"
+                  type: <recursion ...>
+                }
+              },
+              {
+                alias: "elements_chain_ids"
+                expr: {
+                  chain: [
+                    "elements_chain_ids"
+                  ]
+                  type: {
+                    name: "elements_chain_ids"
+                    table_type: <recursion ...>
+                  }
+                }
+                hidden: True
+                type: {
+                  alias: "elements_chain_ids"
+                  type: <recursion ...>
+                }
+              },
+              {
+                alias: "elements_chain_elements"
+                expr: {
+                  chain: [
+                    "elements_chain_elements"
+                  ]
+                  type: {
+                    name: "elements_chain_elements"
+                    table_type: <recursion ...>
+                  }
+                }
+                hidden: True
+                type: {
+                  alias: "elements_chain_elements"
+                  type: <recursion ...>
+                }
               }
             ]
             select_from: {
@@ -1752,6 +2192,10 @@
                 created_at: <recursion ...>,
                 distinct_id: <recursion ...>,
                 elements_chain: <recursion ...>,
+                elements_chain_elements: <recursion ...>,
+                elements_chain_href: <recursion ...>,
+                elements_chain_ids: <recursion ...>,
+                elements_chain_texts: <recursion ...>,
                 event: <recursion ...>,
                 properties: <recursion ...>,
                 timestamp: <recursion ...>,
@@ -1789,6 +2233,10 @@
         created_at: <recursion ...>,
         distinct_id: <recursion ...>,
         elements_chain: <recursion ...>,
+        elements_chain_elements: <recursion ...>,
+        elements_chain_href: <recursion ...>,
+        elements_chain_ids: <recursion ...>,
+        elements_chain_texts: <recursion ...>,
         event: <recursion ...>,
         properties: <recursion ...>,
         timestamp: <recursion ...>,
@@ -2037,6 +2485,10 @@
                   created_at: {},
                   distinct_id: {},
                   elements_chain: {},
+                  elements_chain_elements: {},
+                  elements_chain_href: {},
+                  elements_chain_ids: {},
+                  elements_chain_texts: {},
                   event: {},
                   goe_0: {},
                   goe_1: {},
@@ -2288,6 +2740,74 @@
           alias: "$group_4"
           type: <recursion ...>
         }
+      },
+      {
+        alias: "elements_chain_href"
+        expr: {
+          chain: [
+            "elements_chain_href"
+          ]
+          type: {
+            name: "elements_chain_href"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "elements_chain_href"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "elements_chain_texts"
+        expr: {
+          chain: [
+            "elements_chain_texts"
+          ]
+          type: {
+            name: "elements_chain_texts"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "elements_chain_texts"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "elements_chain_ids"
+        expr: {
+          chain: [
+            "elements_chain_ids"
+          ]
+          type: {
+            name: "elements_chain_ids"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "elements_chain_ids"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "elements_chain_elements"
+        expr: {
+          chain: [
+            "elements_chain_elements"
+          ]
+          type: {
+            name: "elements_chain_elements"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "elements_chain_elements"
+          type: <recursion ...>
+        }
       }
     ]
     select_from: {
@@ -2313,6 +2833,10 @@
         created_at: <recursion ...>,
         distinct_id: <recursion ...>,
         elements_chain: <recursion ...>,
+        elements_chain_elements: <recursion ...>,
+        elements_chain_href: <recursion ...>,
+        elements_chain_ids: <recursion ...>,
+        elements_chain_texts: <recursion ...>,
         event: <recursion ...>,
         properties: <recursion ...>,
         timestamp: <recursion ...>,
@@ -2353,6 +2877,10 @@
                     created_at: {},
                     distinct_id: {},
                     elements_chain: {},
+                    elements_chain_elements: {},
+                    elements_chain_href: {},
+                    elements_chain_ids: {},
+                    elements_chain_texts: {},
                     event: {},
                     goe_0: {},
                     goe_1: {},
@@ -2605,6 +3133,74 @@
           alias: "$group_4"
           type: <recursion ...>
         }
+      },
+      {
+        alias: "elements_chain_href"
+        expr: {
+          chain: [
+            "elements_chain_href"
+          ]
+          type: {
+            name: "elements_chain_href"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "elements_chain_href"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "elements_chain_texts"
+        expr: {
+          chain: [
+            "elements_chain_texts"
+          ]
+          type: {
+            name: "elements_chain_texts"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "elements_chain_texts"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "elements_chain_ids"
+        expr: {
+          chain: [
+            "elements_chain_ids"
+          ]
+          type: {
+            name: "elements_chain_ids"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "elements_chain_ids"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "elements_chain_elements"
+        expr: {
+          chain: [
+            "elements_chain_elements"
+          ]
+          type: {
+            name: "elements_chain_elements"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "elements_chain_elements"
+          type: <recursion ...>
+        }
       }
     ]
     select_from: {
@@ -2631,6 +3227,10 @@
         created_at: <recursion ...>,
         distinct_id: <recursion ...>,
         elements_chain: <recursion ...>,
+        elements_chain_elements: <recursion ...>,
+        elements_chain_href: <recursion ...>,
+        elements_chain_ids: <recursion ...>,
+        elements_chain_texts: <recursion ...>,
         event: <recursion ...>,
         properties: <recursion ...>,
         timestamp: <recursion ...>,
@@ -2671,6 +3271,10 @@
                       created_at: {},
                       distinct_id: {},
                       elements_chain: {},
+                      elements_chain_elements: {},
+                      elements_chain_href: {},
+                      elements_chain_ids: {},
+                      elements_chain_texts: {},
                       event: {},
                       goe_0: {},
                       goe_1: {},
@@ -2736,6 +3340,204 @@
       ctes: {}
       tables: {
         events: <recursion ...>
+      }
+    }
+  }
+  '''
+# ---
+# name: TestResolver.test_expression_field_type_scope
+  '''
+  {
+    select: [
+      {
+        alias: "some_expr"
+        expr: {
+          alias: "properties"
+          expr: {
+            chain: [
+              "properties"
+            ]
+            type: {
+              name: "properties"
+              table_type: {
+                alias: "e"
+                table_type: {
+                  table: {
+                    fields: {
+                      $group_0: {},
+                      $group_1: {},
+                      $group_2: {},
+                      $group_3: {},
+                      $group_4: {},
+                      $session_id: {},
+                      $window_id: {},
+                      created_at: {},
+                      distinct_id: {},
+                      elements_chain: {},
+                      elements_chain_elements: {},
+                      elements_chain_href: {},
+                      elements_chain_ids: {},
+                      elements_chain_texts: {},
+                      event: {},
+                      goe_0: {},
+                      goe_1: {},
+                      goe_2: {},
+                      goe_3: {},
+                      goe_4: {},
+                      group_0: {},
+                      group_1: {},
+                      group_2: {},
+                      group_3: {},
+                      group_4: {},
+                      pdi: {},
+                      person: {},
+                      person_id: {},
+                      poe: {},
+                      properties: {},
+                      session: {},
+                      some_expr: {},
+                      team_id: {},
+                      timestamp: {},
+                      uuid: {}
+                    }
+                  }
+                }
+              }
+            }
+          }
+          hidden: True
+          type: {
+            alias: "properties"
+            type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "some_expr"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "some_expr"
+        expr: {
+          alias: "properties"
+          expr: {
+            chain: [
+              "properties"
+            ]
+            type: {
+              name: "properties"
+              table_type: {
+                alias: "p"
+                table_type: {
+                  table: {
+                    fields: {
+                      $virt_initial_channel_type: {},
+                      $virt_initial_referring_domain_type: {},
+                      created_at: {},
+                      id: {},
+                      is_identified: {},
+                      pdi: {},
+                      properties: {},
+                      some_expr: {},
+                      team_id: {}
+                    },
+                    filter: None
+                  }
+                }
+              }
+            }
+          }
+          hidden: True
+          type: {
+            alias: "properties"
+            type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "some_expr"
+          type: <recursion ...>
+        }
+      }
+    ]
+    select_from: {
+      alias: "e"
+      next_join: {
+        alias: "p"
+        constraint: {
+          constraint_type: "ON"
+          expr: {
+            left: {
+              alias: "uuid"
+              expr: {
+                chain: [
+                  "e",
+                  "uuid"
+                ]
+                type: {
+                  name: "uuid"
+                  table_type: <recursion ...>
+                }
+              }
+              hidden: True
+              type: {
+                alias: "uuid"
+                type: <recursion ...>
+              }
+            }
+            op: "=="
+            right: {
+              alias: "id"
+              expr: {
+                chain: [
+                  "p",
+                  "id"
+                ]
+                type: {
+                  name: "id"
+                  table_type: <recursion ...>
+                }
+              }
+              hidden: True
+              type: {
+                alias: "id"
+                type: <recursion ...>
+              }
+            }
+            type: {
+              data_type: "bool"
+              nullable: False
+            }
+          }
+        }
+        join_type: "LEFT JOIN"
+        table: {
+          chain: [
+            "persons"
+          ]
+          type: <recursion ...>
+        }
+        type: <recursion ...>
+      }
+      table: {
+        chain: [
+          "events"
+        ]
+        type: <recursion ...>
+      }
+      type: <recursion ...>
+    }
+    type: {
+      aliases: {}
+      anonymous_tables: []
+      columns: {
+        some_expr: <recursion ...>
+      }
+      ctes: {}
+      tables: {
+        e: <recursion ...>,
+        p: <recursion ...>
       }
     }
   }
@@ -2955,6 +3757,10 @@
                   created_at: {},
                   distinct_id: {},
                   elements_chain: {},
+                  elements_chain_elements: {},
+                  elements_chain_href: {},
+                  elements_chain_ids: {},
+                  elements_chain_texts: {},
                   event: {},
                   goe_0: {},
                   goe_1: {},
@@ -3088,6 +3894,10 @@
                     created_at: {},
                     distinct_id: {},
                     elements_chain: {},
+                    elements_chain_elements: {},
+                    elements_chain_href: {},
+                    elements_chain_ids: {},
+                    elements_chain_texts: {},
                     event: {},
                     goe_0: {},
                     goe_1: {},
@@ -3225,6 +4035,10 @@
                       created_at: {},
                       distinct_id: {},
                       elements_chain: {},
+                      elements_chain_elements: {},
+                      elements_chain_href: {},
+                      elements_chain_ids: {},
+                      elements_chain_texts: {},
                       event: {},
                       goe_0: {},
                       goe_1: {},
@@ -3398,6 +4212,10 @@
                               created_at: {},
                               distinct_id: {},
                               elements_chain: {},
+                              elements_chain_elements: {},
+                              elements_chain_href: {},
+                              elements_chain_ids: {},
+                              elements_chain_texts: {},
                               event: {},
                               goe_0: {},
                               goe_1: {},
@@ -3576,6 +4394,10 @@
                   created_at: {},
                   distinct_id: {},
                   elements_chain: {},
+                  elements_chain_elements: {},
+                  elements_chain_href: {},
+                  elements_chain_ids: {},
+                  elements_chain_texts: {},
                   event: {},
                   goe_0: {},
                   goe_1: {},
@@ -3707,6 +4529,10 @@
                     created_at: {},
                     distinct_id: {},
                     elements_chain: {},
+                    elements_chain_elements: {},
+                    elements_chain_href: {},
+                    elements_chain_ids: {},
+                    elements_chain_texts: {},
                     event: {},
                     goe_0: {},
                     goe_1: {},
@@ -3839,6 +4665,10 @@
                   created_at: {},
                   distinct_id: {},
                   elements_chain: {},
+                  elements_chain_elements: {},
+                  elements_chain_href: {},
+                  elements_chain_ids: {},
+                  elements_chain_texts: {},
                   event: {},
                   goe_0: {},
                   goe_1: {},
@@ -3958,6 +4788,10 @@
                     created_at: {},
                     distinct_id: {},
                     elements_chain: {},
+                    elements_chain_elements: {},
+                    elements_chain_href: {},
+                    elements_chain_ids: {},
+                    elements_chain_texts: {},
                     event: {},
                     goe_0: {},
                     goe_1: {},
@@ -4164,6 +4998,10 @@
                       created_at: {},
                       distinct_id: {},
                       elements_chain: {},
+                      elements_chain_elements: {},
+                      elements_chain_href: {},
+                      elements_chain_ids: {},
+                      elements_chain_texts: {},
                       event: {},
                       goe_0: {},
                       goe_1: {},
@@ -4258,6 +5096,10 @@
                       created_at: {},
                       distinct_id: {},
                       elements_chain: {},
+                      elements_chain_elements: {},
+                      elements_chain_href: {},
+                      elements_chain_ids: {},
+                      elements_chain_texts: {},
                       event: {},
                       goe_0: {},
                       goe_1: {},
@@ -4364,6 +5206,10 @@
                   created_at: {},
                   distinct_id: {},
                   elements_chain: {},
+                  elements_chain_elements: {},
+                  elements_chain_href: {},
+                  elements_chain_ids: {},
+                  elements_chain_texts: {},
                   event: {},
                   goe_0: {},
                   goe_1: {},

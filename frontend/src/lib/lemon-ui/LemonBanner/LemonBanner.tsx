@@ -19,6 +19,7 @@ export interface LemonBannerProps {
     className?: string
     /** If provided, the banner will be dismissed and hidden when the key is set in localStorage. */
     dismissKey?: string
+    hideIcon?: boolean
 }
 
 /** Generic alert message. */
@@ -29,6 +30,7 @@ export function LemonBanner({
     action,
     className,
     dismissKey = '',
+    hideIcon = false,
 }: LemonBannerProps): JSX.Element | null {
     const logic = lemonBannerLogic({ dismissKey })
     const { isDismissed } = useValues(logic)
@@ -49,11 +51,12 @@ export function LemonBanner({
     return (
         <div className={clsx('LemonBanner @container', `LemonBanner--${type}`, className)}>
             <div className="flex items-center gap-2 grow @md:px-1">
-                {type === 'warning' || type === 'error' ? (
-                    <IconWarning className="LemonBanner__icon hidden @md:block" />
-                ) : (
-                    <IconInfo className="LemonBanner__icon hidden @md:block" />
-                )}
+                {!hideIcon &&
+                    (type === 'warning' || type === 'error' ? (
+                        <IconWarning className="LemonBanner__icon hidden @md:block" />
+                    ) : (
+                        <IconInfo className="LemonBanner__icon hidden @md:block" />
+                    ))}
                 <div className="grow overflow-hidden">{children}</div>
                 {action && <LemonButton className="hidden @md:flex" type="secondary" {...action} />}
                 {showCloseButton && <LemonButton size="small" icon={<IconX />} onClick={_onClose} aria-label="close" />}

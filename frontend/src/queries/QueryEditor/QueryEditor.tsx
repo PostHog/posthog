@@ -1,10 +1,9 @@
-import { useMonaco } from '@monaco-editor/react'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { CodeEditor } from 'lib/components/CodeEditors'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
-import { useEffect, useState } from 'react'
+import { CodeEditor } from 'lib/monaco/CodeEditor'
+import { useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { urls } from 'scenes/urls'
 
@@ -26,23 +25,6 @@ export function QueryEditor(props: QueryEditorProps): JSX.Element {
     const [key] = useState(() => i++)
     const { queryInput, error, inputChanged } = useValues(queryEditorLogic({ ...props, key }))
     const { setQueryInput, saveQuery } = useActions(queryEditorLogic({ ...props, key }))
-    const monaco = useMonaco()
-
-    useEffect(() => {
-        if (!monaco) {
-            return
-        }
-        monaco.languages.json.jsonDefaults.setDiagnosticsOptions({
-            validate: true,
-            schemas: [
-                {
-                    uri: 'http://internal/node-schema.json',
-                    fileMatch: ['*'], // associate with our model
-                    schema: schema,
-                },
-            ],
-        })
-    }, [monaco])
 
     return (
         <>
@@ -70,6 +52,7 @@ export function QueryEditor(props: QueryEditorProps): JSX.Element {
                                 value={queryInput}
                                 onChange={(v) => setQueryInput(v ?? '')}
                                 height={height}
+                                schema={schema}
                             />
                         )}
                     </AutoSizer>

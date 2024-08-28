@@ -108,4 +108,28 @@ describe('personInitialAndUTMProperties()', () => {
             $set: { $current_url: 'https://test.com' },
         })
     })
+
+    it('treats $os_name as fallback for $os', () => {
+        const propertiesOsNameOnly = {
+            $os_name: 'Android',
+        }
+        expect(personInitialAndUTMProperties(propertiesOsNameOnly)).toEqual({
+            $os: 'Android',
+            $os_name: 'Android',
+            $set_once: { $initial_os: 'Android' },
+            $set: { $os: 'Android' },
+        })
+
+        // Also test that $os takes precedence, with $os_name preserved (although this should not happen in the wild)
+        const propertiesBothOsKeys = {
+            $os: 'Windows',
+            $os_name: 'Android',
+        }
+        expect(personInitialAndUTMProperties(propertiesBothOsKeys)).toEqual({
+            $os: 'Windows',
+            $os_name: 'Android',
+            $set_once: { $initial_os: 'Windows' },
+            $set: { $os: 'Windows' },
+        })
+    })
 })

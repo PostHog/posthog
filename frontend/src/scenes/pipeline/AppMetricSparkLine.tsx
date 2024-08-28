@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { Sparkline, SparklineTimeSeries } from 'lib/lemon-ui/Sparkline'
+import { Sparkline, SparklineTimeSeries } from 'lib/components/Sparkline'
 
 import { pipelineNodeMetricsLogic } from './pipelineNodeMetricsLogic'
 import { PipelineNode } from './types'
@@ -17,17 +17,26 @@ export function AppMetricSparkLine({ pipelineNode }: { pipelineNode: PipelineNod
     const displayData: SparklineTimeSeries[] = [
         {
             color: 'success',
-            name: pipelineNode.backend == 'batch_export' ? 'Runs succeeded' : 'Events sent',
+            name: 'Success',
             values: successes,
         },
     ]
+
     if (appMetricsResponse?.metrics.failures.some((failure) => failure > 0)) {
         displayData.push({
             color: 'danger',
-            name: pipelineNode.backend == 'batch_export' ? 'Runs failed' : 'Events dropped',
+            name: 'Failure',
             values: failures,
         })
     }
 
-    return <Sparkline loading={appMetricsResponse === null} labels={dates} data={displayData} className="max-w-24" />
+    return (
+        <Sparkline
+            loading={appMetricsResponse === null}
+            labels={dates}
+            data={displayData}
+            className="max-w-24 h-8"
+            maximumIndicator={false}
+        />
+    )
 }

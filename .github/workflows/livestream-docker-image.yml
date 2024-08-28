@@ -58,31 +58,32 @@ jobs:
                   tags: ${{ steps.meta.outputs.tags }}
                   labels: ${{ steps.meta.outputs.labels }}
 
-    # deploy:
-    #   runs-on: ubuntu-latest
-    #   needs: build
-    #   steps:
-    #   - name: get deployer token
-    #     id: deployer
-    #     uses: getsentry/action-github-app-token@v3
-    #     with:
-    #         app_id: ${{ secrets.DEPLOYER_APP_ID }}
-    #         private_key: ${{ secrets.DEPLOYER_APP_PRIVATE_KEY }}
+    deploy:
+        runs-on: ubuntu-latest
+        needs: build
+        steps:
+            - name: get deployer token
+              id: deployer
+              uses: getsentry/action-github-app-token@v3
+              with:
+                  app_id: ${{ secrets.DEPLOYER_APP_ID }}
+                  private_key: ${{ secrets.DEPLOYER_APP_PRIVATE_KEY }}
 
-    #   - name: Trigger livestream deployment
-    #     uses: peter-evans/repository-dispatch@v3
-    #     with:
-    #         token: ${{ steps.deployer.outputs.token }}
-    #         repository: PostHog/charts
-    #         event-type: commit_state_update
-    #         client-payload: |
-    #             {
-    #               "values": {
-    #                 "image": {
-    #                   "sha": "${{ needs.build.outputs.sha }}"
-    #                 }
-    #               },
-    #               "release": "livestream",
-    #               "commit": ${{ toJson(github.event.head_commit) }},
-    #               "repository": ${{ toJson(github.repository) }}
-    #             }
+            - name: Trigger livestream deployment
+              uses: peter-evans/repository-dispatch@v3
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ needs.build.outputs.sha }}"
+                          }
+                        },
+                        "release": "livestream",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": ${{ toJson(github.repository) }},
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                      }

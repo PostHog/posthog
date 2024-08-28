@@ -101,6 +101,13 @@ export const allSDKs: SDK[] = [
         docsLink: 'https://posthog.com/docs/libraries/go',
     },
     {
+        name: 'Helicone',
+        key: SDKKey.HELICONE,
+        tags: [SDKTag.LLM],
+        image: require('./logos/helicone.svg'),
+        docsLink: 'https://posthog.com/docs/ai-engineering/helicone-posthog',
+    },
+    {
         name: 'iOS',
         key: SDKKey.IOS,
         tags: [SDKTag.MOBILE],
@@ -113,6 +120,13 @@ export const allSDKs: SDK[] = [
         tags: [SDKTag.SERVER],
         image: require('./logos/java.svg'),
         docsLink: 'https://posthog.com/docs/libraries/java',
+    },
+    {
+        name: 'Langfuse',
+        key: SDKKey.LANGFUSE,
+        tags: [SDKTag.LLM],
+        image: require('./logos/langfuse.svg'),
+        docsLink: 'https://posthog.com/docs/ai-engineering/langfuse-posthog',
     },
     {
         name: 'Laravel',
@@ -200,6 +214,13 @@ export const allSDKs: SDK[] = [
         tags: [SDKTag.WEB],
         image: require('./logos/svelte.svg'),
         docsLink: 'https://posthog.com/docs/libraries/svelte',
+    },
+    {
+        name: 'Traceloop',
+        key: SDKKey.TRACELOOP,
+        tags: [SDKTag.LLM],
+        image: require('./logos/traceloop.svg'),
+        docsLink: 'https://posthog.com/docs/ai-engineering/traceloop-posthog',
     },
     {
         name: 'Vue.js',

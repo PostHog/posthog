@@ -52,7 +52,8 @@ export type TaxonomicFilterRender = (props: {
 
 export interface TaxonomicFilterGroup {
     name: string
-    searchPlaceholder: string
+    /** Null means this group is not searchable (like HogQL expressions). */
+    searchPlaceholder: string | null
     type: TaxonomicFilterGroupType
     /** Component to show instead of the usual taxonomic list. */
     render?: TaxonomicFilterRender
@@ -64,7 +65,7 @@ export interface TaxonomicFilterGroup {
     logic?: LogicWrapper
     value?: string
     searchAlias?: string
-    valuesEndpoint?: (key: string) => string
+    valuesEndpoint?: (propertyKey: string) => string | undefined
     getName?: (instance: any) => string
     getValue?: (instance: any) => TaxonomicFilterValue
     getPopoverHeader: (instance: any) => string
@@ -108,6 +109,7 @@ export enum TaxonomicFilterGroupType {
     SessionProperties = 'session_properties',
     HogQLExpression = 'hogql_expression',
     Notebooks = 'notebooks',
+    LogEntries = 'log_entries',
     // Misc
     Replay = 'replay',
 }

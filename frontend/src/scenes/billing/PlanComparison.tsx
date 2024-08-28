@@ -11,10 +11,9 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React, { useState } from 'react'
 import { getProductIcon } from 'scenes/products/Products'
-import { urls } from 'scenes/urls'
 import useResizeObserver from 'use-resize-observer'
 
-import { BillingProductV2AddonType, BillingProductV2Type, BillingV2FeatureType, BillingV2PlanType } from '~/types'
+import { BillingFeatureType, BillingPlanType, BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
 import { convertLargeNumberToWords, getProration, getUpgradeProductLink } from './billing-utils'
 import { billingLogic } from './billingLogic'
@@ -26,7 +25,7 @@ export function PlanIcon({
     className,
     timeDenominator,
 }: {
-    feature?: BillingV2FeatureType
+    feature?: BillingFeatureType
     className?: string
     timeDenominator?: string
 }): JSX.Element {
@@ -59,7 +58,7 @@ const PricingTiers = ({
     plan,
     product,
 }: {
-    plan: BillingV2PlanType
+    plan: BillingPlanType
     product: BillingProductV2Type | BillingProductV2AddonType
 }): JSX.Element => {
     const { width, ref: tiersRef } = useResizeObserver()
@@ -122,12 +121,17 @@ export const PlanComparison = ({
     const fullyFeaturedPlan = plans[plans.length - 1]
     const { billing, redirectPath, timeRemainingInSeconds, timeTotalInSeconds } = useValues(billingLogic)
     const { width, ref: planComparisonRef } = useResizeObserver()
-    const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
+    const { reportBillingUpgradeClicked, reportBillingDowngradeClicked } = useActions(eventUsageLogic)
     const currentPlanIndex = plans.findIndex((plan) => plan.current_plan)
-    const { surveyID, comparisonModalHighlightedFeatureKey } = useValues(billingProductLogic({ product }))
-    const { reportSurveyShown, setSurveyResponse } = useActions(billingProductLogic({ product }))
+    const { surveyID, comparisonModalHighlightedFeatureKey, billingProductLoading } = useValues(
+        billingProductLogic({ product })
+    )
+    const { reportSurveyShown, setSurveyResponse, setBillingProductLoading } = useActions(
+        billingProductLogic({ product })
+    )
     const { featureFlags } = useValues(featureFlagLogic)
 
+    const ctaAction = billing?.subscription_level === 'custom' ? 'Subscribe' : 'Upgrade'
     const upgradeButtons = plans?.map((plan, i) => {
         return (
             <td key={`${plan.plan_key}-cta`} className="PlanTable__td__upgradeButton">
@@ -135,13 +139,13 @@ export const PlanComparison = ({
                     to={
                         plan.contact_support
                             ? 'mailto:sales@posthog.com?subject=Enterprise%20plan%20request'
-                            : !plan.included_if
-                            ? getUpgradeProductLink(product, plan.plan_key || '', redirectPath, includeAddons)
-                            : plan.included_if == 'has_subscription' &&
-                              i >= currentPlanIndex &&
-                              !billing?.has_active_subscription
-                            ? urls.organizationBilling()
-                            : undefined
+                            : i < currentPlanIndex
+                            ? undefined // Downgrade action handled in onClick
+                            : getUpgradeProductLink({
+                                  product,
+                                  redirectPath,
+                                  includeAddons,
+                              })
                     }
                     type={plan.current_plan || i < currentPlanIndex ? 'secondary' : 'primary'}
                     status={
@@ -163,14 +167,17 @@ export const PlanComparison = ({
                     }
                     onClick={() => {
                         if (!plan.current_plan) {
-                            // TODO: add current plan key and new plan key
-                            reportBillingUpgradeClicked(product.type)
-                        }
-                        if (plan.included_if == 'has_subscription' && !plan.current_plan && i < currentPlanIndex) {
-                            setSurveyResponse(product.type, '$survey_response_1')
-                            reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, product.type)
+                            setBillingProductLoading(product.type)
+                            if (i < currentPlanIndex) {
+                                setSurveyResponse('$survey_response_1', product.type)
+                                reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, product.type)
+                                reportBillingDowngradeClicked(product.type)
+                            } else {
+                                reportBillingUpgradeClicked(product.type)
+                            }
                         }
                     }}
+                    loading={billingProductLoading === product.type && !plan.current_plan && !plan.contact_support}
                     data-attr={`upgrade-${plan.name}`}
                 >
                     {plan.current_plan
@@ -182,15 +189,15 @@ export const PlanComparison = ({
                         : plan.included_if == 'has_subscription' &&
                           i >= currentPlanIndex &&
                           !billing?.has_active_subscription
-                        ? 'View products'
+                        ? ctaAction
                         : plan.free_allocation && !plan.tiers
                         ? 'Select' // Free plan
-                        : 'Subscribe'}
+                        : ctaAction}
                 </BillingUpgradeCTA>
                 {!plan.current_plan && !plan.free_allocation && includeAddons && product.addons?.length > 0 && (
                     <p className="text-center ml-0 mt-2 mb-0">
                         <Link
-                            to={`/api/billing/activate?products=${product.type}:${plan.plan_key}&redirect_path=${redirectPath}`}
+                            to={`/api/billing/activate?products=all_products:&redirect_path=${redirectPath}`}
                             className="text-muted text-xs"
                             disableClientSideRouting
                         >
@@ -225,7 +232,7 @@ export const PlanComparison = ({
                             hasActiveSubscription: billing?.has_active_subscription,
                         })
                         return (
-                            <td key={`${plan.plan_key}-basePrice`} className="text-sm font-bold">
+                            <td key={`${plan.plan_key}-basePrice`} className="text-sm font-medium">
                                 {plan.free_allocation && !plan.tiers
                                     ? 'Free forever'
                                     : plan.unit_amount_usd
@@ -233,7 +240,9 @@ export const PlanComparison = ({
                                     : plan.contact_support
                                     ? 'Custom'
                                     : plan.included_if == 'has_subscription'
-                                    ? 'Free, included with any product subscription'
+                                    ? billing?.subscription_level === 'custom'
+                                        ? 'Free, included with any product subscription'
+                                        : 'Usage-based - starting at $0'
                                     : '$0 per month'}
                                 {isProrated && (
                                     <p className="text-xxs text-muted font-normal italic mt-2">
@@ -336,7 +345,9 @@ export const PlanComparison = ({
                         })}
                 <tr>
                     <th colSpan={1} className="PlanTable__th__section rounded text-left">
-                        <h3 className="mt-6 mb-2">Product Features:</h3>
+                        <h3 className="mt-6 mb-2">
+                            {product.type === 'platform_and_support' ? 'Platform' : 'Product'} features:
+                        </h3>
                     </th>
                 </tr>
                 {fullyFeaturedPlan?.features?.map((feature, i) => (
@@ -416,7 +427,7 @@ export const PlanComparison = ({
                                             </th>
                                         </tr>
                                         {includedPlans
-                                            .find((plan: BillingV2PlanType) => plan.included_if == 'has_subscription')
+                                            .find((plan: BillingPlanType) => plan.included_if == 'has_subscription')
                                             ?.features?.map((feature, i) => (
                                                 <tr key={`tr-${feature.key}`}>
                                                     <th
@@ -480,20 +491,22 @@ export const PlanComparison = ({
 
 export const PlanComparisonModal = ({
     product,
+    title,
     includeAddons = false,
     modalOpen,
     onClose,
 }: {
     product: BillingProductV2Type
+    title?: string
     includeAddons?: boolean
     modalOpen: boolean
     onClose?: () => void
 }): JSX.Element | null => {
     return (
         <LemonModal isOpen={modalOpen} onClose={onClose}>
-            <div className="PlanComparisonModal flex w-full h-full justify-center p-8">
+            <div className="PlanComparisonModal flex w-full h-full justify-center p-6">
                 <div className="text-left bg-bg-light rounded relative w-full">
-                    <h2>{product.name} plans</h2>
+                    {title ? <h2>{title}</h2> : <h2>{product.name} plans</h2>}
                     <PlanComparison product={product} includeAddons={includeAddons} />
                 </div>
             </div>
@@ -501,13 +514,7 @@ export const PlanComparisonModal = ({
     )
 }
 
-const AddonPlanTiers = ({
-    plan,
-    addon,
-}: {
-    plan: BillingV2PlanType
-    addon: BillingProductV2AddonType
-}): JSX.Element => {
+const AddonPlanTiers = ({ plan, addon }: { plan: BillingPlanType; addon: BillingProductV2AddonType }): JSX.Element => {
     const [showTiers, setShowTiers] = useState(false)
 
     return showTiers ? (

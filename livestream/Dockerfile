@@ -5,7 +5,7 @@ RUN go mod download -x
 
 COPY . ./
 RUN go get ./...
-RUN go build -v -o /livestream ./...
+RUN go build -v -o /livestream .
 
 # Fetch the GeoLite2-City database that will be used for IP geolocation within Django.
 RUN apt-get update && \
@@ -21,4 +21,7 @@ RUN apt-get update && \
 
 FROM ubuntu
 COPY --from=builder /livestream /GeoLite2-City.mmdb /
+COPY --from=builder /etc/ssl/certs /etc/ssl/certs
+COPY --from=builder /usr/share/ca-certificates /usr/share/ca-certificates
+
 CMD ["/livestream"]

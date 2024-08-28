@@ -1,14 +1,13 @@
 import { actions, BuiltLogic, connect, kea, listeners, path, reducers, selectors, sharedListeners } from 'kea'
 import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
 import { insightLogicType } from 'scenes/insights/insightLogicType'
-import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
+import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
@@ -16,9 +15,9 @@ import { urls } from 'scenes/urls'
 import { ActivityFilters } from '~/layout/navigation-3000/sidepanel/panels/activity/activityForSceneLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { examples } from '~/queries/examples'
-import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { ActivityScope, Breadcrumb, FilterType, InsightShortId, InsightType, ItemMode } from '~/types'
+import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
+import { Node } from '~/queries/schema'
+import { ActivityScope, Breadcrumb, InsightShortId, InsightType, ItemMode } from '~/types'
 
 import { insightDataLogic } from './insightDataLogic'
 import { insightDataLogicType } from './insightDataLogicType'
@@ -29,15 +28,24 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
     path(['scenes', 'insights', 'insightSceneLogic']),
     connect(() => ({
         logic: [eventUsageLogic],
-        values: [teamLogic, ['currentTeam'], sceneLogic, ['activeScene'], preflightLogic, ['isDev']],
+        values: [
+            teamLogic,
+            ['currentTeam'],
+            sceneLogic,
+            ['activeScene'],
+            preflightLogic,
+            ['disableNavigationHooks'],
+            filterTestAccountsDefaultsLogic,
+            ['filterTestAccountsDefault'],
+        ],
     })),
     actions({
         setInsightId: (insightId: InsightShortId) => ({ insightId }),
         setInsightMode: (insightMode: ItemMode, source: InsightEventSource | null) => ({ insightMode, source }),
-        setSceneState: (insightId: InsightShortId, insightMode: ItemMode, subscriptionId: string | undefined) => ({
+        setSceneState: (insightId: InsightShortId, insightMode: ItemMode, itemId: string | undefined) => ({
             insightId,
             insightMode,
-            subscriptionId,
+            itemId,
         }),
         setInsightLogicRef: (logic: BuiltLogic<insightLogicType> | null, unmount: null | (() => void)) => ({
             logic,
@@ -47,6 +55,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             logic,
             unmount,
         }),
+        setOpenedWithQuery: (query: Node | null) => ({ query }),
     }),
     reducers({
         insightId: [
@@ -61,14 +70,16 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 setSceneState: (_, { insightMode }) => insightMode,
             },
         ],
-        subscriptionId: [
-            null as null | number | 'new',
+        itemId: [
+            null as null | string | number,
             {
-                setSceneState: (_, { subscriptionId }) =>
-                    subscriptionId !== undefined
-                        ? subscriptionId === 'new'
+                setSceneState: (_, { itemId }) =>
+                    itemId !== undefined
+                        ? itemId === 'new'
                             ? 'new'
-                            : parseInt(subscriptionId, 10)
+                            : Number.isInteger(+itemId)
+                            ? parseInt(itemId, 10)
+                            : itemId
                         : null,
             },
         ],
@@ -90,6 +101,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 setInsightDataLogicRef: (_, { logic, unmount }) => (logic && unmount ? { logic, unmount } : null),
             },
         ],
+        openedWithQuery: [null as Node | null, { setOpenedWithQuery: (_, { query }) => query }],
     }),
     selectors(() => ({
         insightSelector: [(s) => [s.insightLogicRef], (insightLogicRef) => insightLogicRef?.logic.selectors.insight],
@@ -102,8 +114,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 cohortsModel.selectors.cohortsById,
                 mathsLogic.selectors.mathDefinitions,
             ],
-            (insightLogicRef, legacyInsight, aggregationLabel, cohortsById, mathDefinitions): Breadcrumb[] => {
-                const insight = legacyInsight ? getQueryBasedInsightModel(legacyInsight) : null
+            (insightLogicRef, insight, aggregationLabel, cohortsById, mathDefinitions): Breadcrumb[] => {
                 return [
                     {
                         key: Scene.SavedInsights,
@@ -176,24 +187,10 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         setSceneState: sharedListeners.reloadInsightLogic,
     })),
     urlToAction(({ actions, values }) => ({
-        '/data-warehouse': (_, __, { q }) => {
-            actions.setSceneState(String('new') as InsightShortId, ItemMode.Edit, undefined)
-            values.insightDataLogicRef?.logic.actions.setQuery(examples.DataVisualization)
-            values.insightLogicRef?.logic.actions.setInsight(
-                {
-                    ...createEmptyInsight('new', false),
-                    ...(q ? { query: JSON.parse(q) } : {}),
-                },
-                {
-                    fromPersistentApi: false,
-                    overrideFilter: false,
-                }
-            )
-        },
-        '/insights/:shortId(/:mode)(/:subscriptionId)': (
-            { shortId, mode, subscriptionId }, // url params
+        '/insights/:shortId(/:mode)(/:itemId)': (
+            { shortId, mode, itemId }, // url params
             { dashboard, ...searchParams }, // search params
-            { filters: _filters, q }, // hash params
+            { insight: insightType, q }, // hash params
             { method, initial }, // "location changed" event payload
             { searchParams: previousSearchParams } // previous location
         ) => {
@@ -225,20 +222,19 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 return
             }
 
-            if (
-                insightId !== values.insightId ||
-                insightMode !== values.insightMode ||
-                subscriptionId !== values.subscriptionId
-            ) {
-                actions.setSceneState(insightId, insightMode, subscriptionId)
+            if (insightId !== values.insightId || insightMode !== values.insightMode || itemId !== values.itemId) {
+                actions.setSceneState(insightId, insightMode, itemId)
             }
 
-            // capture any filters from the URL, either #filters={} or ?insight=X&bla=foo&bar=baz
-            const filters: Partial<FilterType> | null =
-                Object.keys(_filters || {}).length > 0 ? _filters : searchParams.insight ? searchParams : null
+            let queryFromUrl: Node | null = null
+            if (q) {
+                queryFromUrl = JSON.parse(q)
+            } else if (insightType && Object.values(InsightType).includes(insightType)) {
+                queryFromUrl = getDefaultQuery(insightType, values.filterTestAccountsDefault)
+            }
 
-            // Redirect to a simple URL if we had filters in the URL
-            if (filters || q) {
+            // Redirect to a simple URL if we had a query in the URL
+            if (q || insightType) {
                 router.actions.replace(
                     insightId === 'new'
                         ? urls.insightNew(undefined, dashboard)
@@ -249,29 +245,25 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             }
 
             // reset the insight's state if we have to
-            if (initial || method === 'PUSH' || filters || q) {
+            if (initial || method === 'PUSH' || queryFromUrl) {
                 if (insightId === 'new') {
-                    const teamFilterTestAccounts = values.currentTeam?.test_account_filters_default_checked || false
+                    const query = queryFromUrl || getDefaultQuery(InsightType.TRENDS, values.filterTestAccountsDefault)
                     values.insightLogicRef?.logic.actions.setInsight(
                         {
-                            ...createEmptyInsight('new', teamFilterTestAccounts),
-                            ...(filters ? { filters: cleanFilters(filters || {}, teamFilterTestAccounts) } : {}),
+                            ...createEmptyInsight('new'),
                             ...(dashboard ? { dashboards: [dashboard] } : {}),
-                            ...(q ? { query: JSON.parse(q) } : {}),
+                            query,
                         },
                         {
                             fromPersistentApi: false,
-                            overrideFilter: true,
+                            overrideQuery: true,
                         }
                     )
 
-                    eventUsageLogic.actions.reportInsightCreated(filters?.insight || InsightType.TRENDS)
-                }
-            }
+                    actions.setOpenedWithQuery(query)
 
-            // show a warning toast if opened `/edit#filters={...}`
-            if (filters && insightMode === ItemMode.Edit && insightId !== 'new') {
-                lemonToast.info(`This insight has unsaved changes! Click "Save" to not lose them.`)
+                    eventUsageLogic.actions.reportInsightCreated(query)
+                }
             }
         },
     })),
@@ -297,30 +289,34 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
     }),
     beforeUnload(({ values }) => ({
         enabled: (newLocation?: CombinedLocation) => {
-            // safeguard against running this check on other scenes
+            // Don't run this check on other scenes
             if (values.activeScene !== Scene.Insight) {
                 return false
             }
 
-            if (values.isDev) {
-                // TRICKY: We disable beforeUnload handling in dev, but ONLY for insights
+            if (values.disableNavigationHooks) {
                 return false
             }
 
-            // If just the hash changes, don't show the prompt
-            if (router.values.currentLocation.pathname === newLocation?.pathname) {
+            // If just the hash or project part changes, don't show the prompt
+            const currentPathname = router.values.currentLocation.pathname.replace(/\/project\/\d+/, '')
+            const newPathname = newLocation?.pathname.replace(/\/project\/\d+/, '')
+            if (currentPathname === newPathname) {
                 return false
             }
 
-            return (
-                values.insightMode === ItemMode.Edit &&
-                (!!values.insightLogicRef?.logic.values.insightChanged ||
-                    !!values.insightDataLogicRef?.logic.values.queryChanged)
-            )
+            // Don't show the prompt if we're in edit mode (just exploring)
+            if (values.insightMode !== ItemMode.Edit) {
+                return false
+            }
+
+            const metadataChanged = !!values.insightLogicRef?.logic.values.insightChanged
+            const queryChanged = !!values.insightDataLogicRef?.logic.values.queryChanged
+
+            return metadataChanged || queryChanged
         },
         message: 'Leave insight?\nChanges you made will be discarded.',
         onConfirm: () => {
-            values.insightLogicRef?.logic.actions.cancelChanges()
             values.insightDataLogicRef?.logic.actions.cancelChanges()
         },
     })),

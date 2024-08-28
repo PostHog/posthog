@@ -12,7 +12,7 @@ const globals = {
 }
 
 module.exports = {
-    ignorePatterns: ['node_modules', 'plugin-server', 'cypress'],
+    ignorePatterns: ['node_modules', 'plugin-server'],
     env,
     settings: {
         react: {
@@ -117,22 +117,6 @@ module.exports = {
                     {
                         name: '@ant-design/icons',
                         message: 'Please use icons from the @posthog/icons package instead',
-                    },
-                    {
-                        name: 'antd',
-                        importNames: [
-                            'Card',
-                            'Col',
-                            'Row',
-                            'Alert',
-                            'Tooltip',
-                            'Progress',
-                            'Radio',
-                            'Divider',
-                            'Popconfirm',
-                            'Table',
-                        ],
-                        message: 'please use the Lemon equivalent instead',
                     },
                 ],
             },
@@ -317,7 +301,27 @@ module.exports = {
                 // but it's helpful sometimes
                 'jest/no-export': 'off',
                 // also helpful sometimes, but not always
-                'jest/no-conditional-expect': 'warn'
+                'jest/no-conditional-expect': 'warn',
+            },
+        },
+        {
+            files: ['**/*.cy.ts'],
+            env: {
+                ...env,
+                node: true,
+                'jest/globals': true,
+            },
+            "plugins": ["jest"],
+            "extends": ["plugin:jest/recommended"],
+            globals: {
+                ...globals,
+                given: 'readonly',
+            },
+            rules: {
+                // don't complain about unknown expect statements
+                'jest/valid-expect': 'off',
+                // don't warn about missing expect
+                'jest/expect-expect': 'off'
             },
         },
         {

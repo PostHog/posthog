@@ -1,6 +1,6 @@
 import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
-import { KafkaConsumer, Message, MessageHeader, PartitionMetadata, TopicPartition } from 'node-rdkafka'
+import { KafkaConsumer, Message, MessageHeader, PartitionMetadata } from 'node-rdkafka'
 import path from 'path'
 import { Counter } from 'prom-client'
 
@@ -11,6 +11,27 @@ import { captureIngestionWarning } from '../../../worker/ingestion/utils'
 import { eventDroppedCounter } from '../metrics'
 import { TeamIDWithConfig } from './session-recordings-consumer'
 import { IncomingRecordingMessage, ParsedBatch, PersistedRecordingMessage } from './types'
+
+const { promisify } = require('node:util')
+const { unzip } = require('node:zlib')
+
+const GZIP_HEADER = Buffer.from([0x1f, 0x8b, 0x08, 0x00])
+
+function isGzipped(buffer: Buffer): boolean {
+    if (buffer.length < GZIP_HEADER.length) {
+        return false
+    }
+
+    for (let i = 0; i < GZIP_HEADER.length; i++) {
+        if (buffer[i] !== GZIP_HEADER[i]) {
+            return false
+        }
+    }
+
+    return true
+}
+
+const do_unzip = promisify(unzip)
 
 const counterKafkaMessageReceived = new Counter({
     name: 'recording_blob_ingestion_kafka_message_received',
@@ -57,32 +78,6 @@ export const queryWatermarkOffsets = (
             }
 
             resolve([partition, offsets.highOffset])
-        })
-    })
-}
-
-export const queryCommittedOffsets = (
-    kafkaConsumer: KafkaConsumer | undefined,
-    topicPartitions: TopicPartition[]
-): Promise<Record<number, number>> => {
-    return new Promise<Record<number, number>>((resolve, reject) => {
-        if (!kafkaConsumer) {
-            return reject('Not connected')
-        }
-
-        kafkaConsumer.committed(topicPartitions, 10000, (err, offsets) => {
-            if (err) {
-                captureException(err)
-                status.error('🔥', 'Failed to query kafka committed offsets', err)
-                return reject(err)
-            }
-
-            resolve(
-                offsets.reduce((acc, { partition, offset }) => {
-                    acc[partition] = offset
-                    return acc
-                }, {} as Record<number, number>)
-            )
         })
     })
 }
@@ -246,18 +241,27 @@ export const parseKafkaMessage = async (
     let messagePayload: RawEventMessage
     let event: PipelineEvent
 
+    let messageUnzipped = message.value
     try {
-        messagePayload = JSON.parse(message.value.toString())
+        if (isGzipped(message.value)) {
+            messageUnzipped = await do_unzip(message.value)
+        }
+    } catch (error) {
+        return dropMessage('invalid_gzip_data', { error, team_id: teamIdWithConfig.teamId })
+    }
+
+    try {
+        messagePayload = JSON.parse(messageUnzipped.toString())
         event = JSON.parse(messagePayload.data)
     } catch (error) {
-        return dropMessage('invalid_json', { error })
+        return dropMessage('invalid_json', { error, team_id: teamIdWithConfig.teamId })
     }
 
     const { $snapshot_items, $session_id, $window_id, $snapshot_source } = event.properties || {}
 
     // NOTE: This is simple validation - ideally we should do proper schema based validation
     if (event.event !== '$snapshot_items' || !$snapshot_items || !$session_id) {
-        return dropMessage('received_non_snapshot_message')
+        return dropMessage('received_non_snapshot_message', { team_id: teamIdWithConfig.teamId })
     }
 
     const events: RRWebEvent[] = $snapshot_items.filter((event: any) => {

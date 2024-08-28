@@ -1,38 +1,24 @@
-import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonField } from 'lib/lemon-ui/LemonField'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
+import { DATAWAREHOUSE_EDITOR_ITEM_ID } from 'scenes/data-warehouse/external/dataWarehouseExternalSceneLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
-import { teamLogic } from 'scenes/teamLogic'
 
+import { examples } from '~/queries/examples'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { insightTypeToDefaultQuery, nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
-import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { getDefaultQuery, queryFromKind } from '~/queries/nodes/InsightViz/utils'
 import { queryExportContext } from '~/queries/query'
-import { InsightNodeKind, InsightVizNode, Node, NodeKind } from '~/queries/schema'
-import { isInsightVizNode } from '~/queries/utils'
-import { ExportContext, FilterType, InsightLogicProps, InsightType } from '~/types'
+import { DataVisualizationNode, InsightVizNode, Node, NodeKind } from '~/queries/schema'
+import { isDataTableNode, isDataVisualizationNode, isHogQuery, isInsightVizNode } from '~/queries/utils'
+import { ExportContext, InsightLogicProps, InsightType } from '~/types'
 
 import type { insightDataLogicType } from './insightDataLogicType'
 import { insightDataTimingLogic } from './insightDataTimingLogic'
 import { insightLogic } from './insightLogic'
-import { cleanFilters, setTestAccountFilterForNewInsight } from './utils/cleanFilters'
-import { compareFilters } from './utils/compareFilters'
-
-export const queryFromFilters = (filters: Partial<FilterType>): InsightVizNode => ({
-    kind: NodeKind.InsightVizNode,
-    source: filtersToQueryNode(filters),
-})
-
-export const queryFromKind = (kind: InsightNodeKind, filterTestAccountsDefault: boolean): InsightVizNode => ({
-    kind: NodeKind.InsightVizNode,
-    source: { ...nodeKindToDefaultQuery[kind], ...(filterTestAccountsDefault ? { filterTestAccounts: true } : {}) },
-})
+import { insightUsageLogic } from './insightUsageLogic'
+import { compareQuery } from './utils/queryUtils'
 
 export const insightDataLogic = kea<insightDataLogicType>([
     props({} as InsightLogicProps),
@@ -42,7 +28,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
     connect((props: InsightLogicProps) => ({
         values: [
             insightLogic,
-            ['filters', 'insight', 'savedInsight'],
+            ['insight', 'savedInsight'],
             dataNodeLogic({
                 key: insightVizDataNodeKey(props),
                 loadPriority: props.loadPriority,
@@ -58,31 +44,20 @@ export const insightDataLogic = kea<insightDataLogicType>([
             ],
             filterTestAccountsDefaultsLogic,
             ['filterTestAccountsDefault'],
-            teamLogic,
-            ['currentTeam'],
-            featureFlagLogic,
-            ['featureFlags'],
         ],
         actions: [
             insightLogic,
-            [
-                'setInsight',
-                'loadInsightSuccess',
-                'saveInsight as insightLogicSaveInsight',
-                'saveAsNamingSuccess as insightLogicSaveAsNamingSuccess',
-            ],
+            ['setInsight', 'loadInsightSuccess'],
             dataNodeLogic({ key: insightVizDataNodeKey(props) } as DataNodeLogicProps),
             ['loadData', 'loadDataSuccess', 'loadDataFailure', 'setResponse as setInsightData'],
         ],
-        logic: [insightDataTimingLogic(props)],
+        logic: [insightDataTimingLogic(props), insightUsageLogic(props)],
     })),
 
     actions({
         setQuery: (query: Node | null) => ({ query }),
-        saveAs: true,
-        saveAsNamingSuccess: (name: string) => ({ name }),
-        saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
         toggleQueryEditorPanel: true,
+        toggleDebugPanel: true,
         cancelChanges: true,
     }),
 
@@ -99,35 +74,35 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 toggleQueryEditorPanel: (state) => !state,
             },
         ],
+        showDebugPanel: [
+            false,
+            {
+                toggleDebugPanel: (state) => !state,
+            },
+        ],
     }),
 
     selectors({
-        useQueryDashboardCards: [
-            (s) => [s.featureFlags],
-            (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_DASHBOARD_CARDS],
-        ],
-
         query: [
-            (s) => [s.propsQuery, s.filters, s.insight, s.internalQuery, s.filterTestAccountsDefault],
-            (propsQuery, filters, insight, internalQuery, filterTestAccountsDefault) =>
+            (s) => [s.propsQuery, s.insight, s.internalQuery, s.filterTestAccountsDefault, s.isDataWarehouseQuery],
+            (propsQuery, insight, internalQuery, filterTestAccountsDefault, isDataWarehouseQuery): Node | null =>
                 propsQuery ||
                 internalQuery ||
                 insight.query ||
-                (filters && filters.insight ? queryFromFilters(filters) : undefined) ||
-                queryFromKind(NodeKind.TrendsQuery, filterTestAccountsDefault),
+                (isDataWarehouseQuery
+                    ? examples.DataWarehouse
+                    : queryFromKind(NodeKind.TrendsQuery, filterTestAccountsDefault)),
+        ],
+
+        isDataWarehouseQuery: [
+            () => [(_, props) => props],
+            (props: InsightLogicProps) => !!props.dashboardItemId?.startsWith(DATAWAREHOUSE_EDITOR_ITEM_ID),
         ],
 
         propsQuery: [
             () => [(_, props) => props],
             // overwrite query from props for standalone InsightVizNode queries
             (props: InsightLogicProps) => (props.dashboardItemId?.startsWith('new-AdHoc.') ? props.query : null),
-        ],
-
-        isQueryBasedInsight: [
-            (s) => [s.query],
-            (query) => {
-                return !!query && !isInsightVizNode(query)
-            },
         ],
 
         exportContext: [
@@ -152,24 +127,27 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
 
         queryChanged: [
-            (s) => [s.isQueryBasedInsight, s.query, s.insight, s.savedInsight, s.currentTeam],
-            (isQueryBasedInsight, query, insight, savedInsight, currentTeam) => {
-                if (isQueryBasedInsight) {
-                    return !objectsEqual(query, insight.query)
-                }
-                const currentFilters = queryNodeToFilter((query as InsightVizNode).source)
-
-                let savedFilters: Partial<FilterType>
-                if (savedInsight.filters) {
-                    savedFilters = savedInsight.filters
-                } else {
-                    savedFilters = queryNodeToFilter(
-                        insightTypeToDefaultQuery[currentFilters.insight || InsightType.TRENDS]
+            (s) => [s.query, s.savedInsight, s.filterTestAccountsDefault],
+            (query, savedInsight, filterTestAccountsDefault) => {
+                let savedOrDefaultQuery
+                if (savedInsight.query) {
+                    savedOrDefaultQuery = savedInsight.query as InsightVizNode | DataVisualizationNode
+                } else if (isInsightVizNode(query)) {
+                    savedOrDefaultQuery = getDefaultQuery(
+                        nodeKindToInsightType[query.source.kind],
+                        filterTestAccountsDefault
                     )
-                    setTestAccountFilterForNewInsight(savedFilters, currentTeam?.test_account_filters_default_checked)
+                } else if (isDataVisualizationNode(query)) {
+                    savedOrDefaultQuery = getDefaultQuery(InsightType.SQL, filterTestAccountsDefault)
+                } else if (isDataTableNode(query)) {
+                    savedOrDefaultQuery = getDefaultQuery(InsightType.JSON, filterTestAccountsDefault)
+                } else if (isHogQuery(query)) {
+                    savedOrDefaultQuery = getDefaultQuery(InsightType.HOG, filterTestAccountsDefault)
+                } else {
+                    return false
                 }
 
-                return !compareFilters(currentFilters, savedFilters, currentTeam?.test_account_filters_default_checked)
+                return !compareQuery(savedOrDefaultQuery, query as InsightVizNode | DataVisualizationNode)
             },
         ],
 
@@ -193,10 +171,13 @@ export const insightDataLogic = kea<insightDataLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
-        setInsight: ({ insight: { filters, query, result }, options: { overrideFilter } }) => {
-            if (overrideFilter && query == null) {
-                actions.setQuery(queryFromFilters(cleanFilters(filters || {})))
-            } else if (query) {
+        setInsight: ({ insight: { query, result }, options: { overrideQuery } }) => {
+            // we don't want to override the query for example when updating the insight's name
+            if (!overrideQuery) {
+                return
+            }
+
+            if (query) {
                 actions.setQuery(query)
             }
 
@@ -207,80 +188,12 @@ export const insightDataLogic = kea<insightDataLogicType>([
         loadInsightSuccess: ({ insight }) => {
             if (insight.query) {
                 actions.setQuery(insight.query)
-            } else if (!!insight.filters && !!Object.keys(insight.filters).length) {
-                const query = queryFromFilters(insight.filters)
-                actions.setQuery(query)
             }
-        },
-        saveInsight: ({ redirectToViewMode }) => {
-            let filters = values.insight.filters
-            if (isInsightVizNode(values.query)) {
-                const querySource = values.query.source
-                filters = queryNodeToFilter(querySource)
-            } else if (values.isQueryBasedInsight) {
-                filters = {}
-            }
-
-            let query = undefined
-            if (values.isQueryBasedInsight) {
-                query = values.query
-            }
-
-            actions.setInsight(
-                {
-                    ...values.insight,
-                    filters: filters,
-                    query: query ?? undefined,
-                },
-                { overrideFilter: true, fromPersistentApi: false }
-            )
-
-            actions.insightLogicSaveInsight(redirectToViewMode)
-        },
-        saveAs: async () => {
-            LemonDialog.openForm({
-                title: 'Save as new insight',
-                initialValues: { insightName: `${values.insight.name || values.insight.derived_name} (copy)` },
-                content: (
-                    <LemonField name="insightName">
-                        <LemonInput data-attr="insight-name" placeholder="Please enter the new name" autoFocus />
-                    </LemonField>
-                ),
-                errors: {
-                    insightName: (name) => (!name ? 'You must enter a name' : undefined),
-                },
-                onSubmit: async ({ insightName }) => actions.saveAsNamingSuccess(insightName),
-            })
-        },
-        saveAsNamingSuccess: ({ name }) => {
-            let filters = values.insight.filters
-            if (isInsightVizNode(values.query)) {
-                const querySource = values.query.source
-                filters = queryNodeToFilter(querySource)
-            } else if (values.isQueryBasedInsight) {
-                filters = {}
-            }
-
-            let query = undefined
-            if (values.isQueryBasedInsight) {
-                query = values.query
-            }
-
-            actions.setInsight(
-                {
-                    ...values.insight,
-                    filters: filters,
-                    query: query ?? undefined,
-                },
-                { overrideFilter: true, fromPersistentApi: false }
-            )
-
-            actions.insightLogicSaveAsNamingSuccess(name)
         },
         cancelChanges: () => {
-            const savedFilters = values.savedInsight.filters
+            const savedQuery = values.savedInsight.query
             const savedResult = values.savedInsight.result
-            actions.setQuery(savedFilters ? queryFromFilters(savedFilters) : null)
+            actions.setQuery(savedQuery || null)
             actions.setInsightData({ ...values.insightData, result: savedResult ? savedResult : null })
         },
     })),

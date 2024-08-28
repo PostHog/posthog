@@ -6,14 +6,18 @@ from typing import Any, Literal, Optional, Union
 
 import structlog
 from django.core.paginator import Paginator
+from django.core.exceptions import ObjectDoesNotExist
+
 from django.db import models
 from django.utils import timezone
 from django.conf import settings
 
 from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_tile import DashboardTile
+from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.user import User
 from posthog.models.utils import UUIDT, UUIDModel
+
 
 logger = structlog.get_logger(__name__)
 
@@ -83,6 +87,16 @@ class ActivityDetailEncoder(json.JSONEncoder):
         if isinstance(obj, Decimal):
             # more precision than we'll need but avoids rounding too unnecessarily
             return format(obj, ".6f").rstrip("0").rstrip(".")
+        if isinstance(obj, FeatureFlag):
+            return {
+                "id": obj.id,
+                "key": obj.key,
+                "name": obj.name,
+                "filters": obj.filters,
+                "team_id": obj.team_id,
+                "deleted": obj.deleted,
+                "active": obj.active,
+            }
 
         return json.JSONEncoder.default(self, obj)
 
@@ -115,7 +129,7 @@ class ActivityLog(UUIDModel):
     # e.g. FeatureFlags - this will often be the name of a model class
     scope = models.fields.CharField(max_length=79, null=False)
     detail = models.JSONField(encoder=ActivityDetailEncoder, null=True)
-    created_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=timezone.now)
 
 
 common_field_exclusions = [
@@ -232,18 +246,36 @@ def _read_through_relation(relation: models.Manager) -> list[Union[dict, str]]:
     return described_models
 
 
+def safely_get_field_value(instance: models.Model | None, field: str):
+    """Helper function to get the value of a field, handling related objects and exceptions."""
+    if instance is None:
+        return None
+    try:
+        value = getattr(instance, field, None)
+        if isinstance(value, models.Manager):
+            value = _read_through_relation(value)
+    # If the field is a related field and the related object has been deleted, this will raise an ObjectDoesNotExist
+    # exception. We catch this exception and return None, since the related object has been deleted, and we
+    # don't need any additional information about it other than the fact that it was deleted.
+    except ObjectDoesNotExist:
+        value = None
+    return value
+
+
 def changes_between(
     model_type: ActivityScope,
     previous: Optional[models.Model],
     current: Optional[models.Model],
 ) -> list[Change]:
     """
-    Identifies changes between two models by comparing fields
+    Identifies changes between two models by comparing fields.
+    Note that this method only really works for models that have a single instance
+    and not for models that have a many-to-many relationship with another model.
     """
     changes: list[Change] = []
 
     if previous is None and current is None:
-        # there are no changes between two things that don't exist
+        # There are no changes between two things that don't exist.
         return changes
 
     if previous is not None:
@@ -252,23 +284,18 @@ def changes_between(
         filtered_fields = [f.name for f in fields if f.name not in excluded_fields]
 
         for field in filtered_fields:
-            left = getattr(previous, field, None)
-            if isinstance(left, models.Manager):
-                left = _read_through_relation(left)
-
-            right = getattr(current, field, None)
-            if isinstance(right, models.Manager):
-                right = _read_through_relation(right)
+            left = safely_get_field_value(previous, field)
+            right = safely_get_field_value(current, field)
 
             if field == "tagged_items":
-                field = "tags"  # or the UI needs to be coupled to this internal backend naming
+                field = "tags"  # Or the UI needs to be coupled to this internal backend naming.
 
             if field == "dashboards" and "dashboard_tiles" in filtered_fields:
-                # only process dashboard_tiles when it is present. It supersedes dashboards
+                # Only process dashboard_tiles when it is present. It supersedes dashboards.
                 continue
 
             if model_type == "Insight" and field == "dashboard_tiles":
-                # the api exposes this as dashboards and that's what the activity describers expect
+                # The API exposes this as dashboards and that's what the activity describers expect.
                 field = "dashboards"
 
             if left is None and right is not None:
@@ -395,7 +422,7 @@ def log_activity(
         if settings.TEST:
             # Re-raise in tests, so that we can catch failures in test suites - but keep quiet in production,
             # as we currently don't treat activity logs as critical
-            raise e
+            raise
 
 
 @dataclasses.dataclass(frozen=True)

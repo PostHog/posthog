@@ -1,6 +1,6 @@
 import './EditSurvey.scss'
 
-import { LemonSelect } from '@posthog/lemon-ui'
+import { LemonDialog, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { truncate } from 'lib/utils'
@@ -17,7 +17,7 @@ export function QuestionBranchingInput({
     question: RatingSurveyQuestion | MultipleSurveyQuestion
 }): JSX.Element {
     const { survey, getBranchingDropdownValue } = useValues(surveyLogic)
-    const { setQuestionBranchingType } = useActions(surveyLogic)
+    const { setQuestionBranchingType, setSurveyValue } = useActions(surveyLogic)
 
     const availableNextQuestions = survey.questions
         .map((question, questionIndex) => ({
@@ -35,14 +35,41 @@ export function QuestionBranchingInput({
                 <LemonSelect
                     className="max-w-80 whitespace-nowrap"
                     value={branchingDropdownValue}
-                    data-attr={`branching-question-${questionIndex}`}
+                    data-attr={`survey-question-${questionIndex}-branching-select`}
                     onSelect={(type) => {
-                        let specificQuestionIndex
-                        if (type.startsWith(SurveyQuestionBranchingType.SpecificQuestion)) {
-                            specificQuestionIndex = parseInt(type.split(':')[1])
-                            type = SurveyQuestionBranchingType.SpecificQuestion
+                        const handleSelect = (): void => {
+                            let specificQuestionIndex
+                            if (type.startsWith(SurveyQuestionBranchingType.SpecificQuestion)) {
+                                specificQuestionIndex = parseInt(type.split(':')[1])
+                                type = SurveyQuestionBranchingType.SpecificQuestion
+                            }
+                            setQuestionBranchingType(questionIndex, type, specificQuestionIndex)
                         }
-                        setQuestionBranchingType(questionIndex, type, specificQuestionIndex)
+
+                        if (survey.appearance && survey.appearance.shuffleQuestions) {
+                            LemonDialog.open({
+                                title: 'Your survey has question shuffling enabled',
+                                description: (
+                                    <p className="py-2">
+                                        Adding branching logic will disable shuffling of questions. Are you sure you
+                                        want to continue?
+                                    </p>
+                                ),
+                                primaryButton: {
+                                    children: 'Continue',
+                                    status: 'danger',
+                                    onClick: () => {
+                                        setSurveyValue('appearance', { ...survey.appearance, shuffleQuestions: false })
+                                        handleSelect()
+                                    },
+                                },
+                                secondaryButton: {
+                                    children: 'Cancel',
+                                },
+                            })
+                        } else {
+                            handleSelect()
+                        }
                     }}
                     options={[
                         ...(questionIndex < survey.questions.length - 1
@@ -54,8 +81,8 @@ export function QuestionBranchingInput({
                               ]
                             : []),
                         {
-                            label: 'Confirmation message',
-                            value: SurveyQuestionBranchingType.ConfirmationMessage,
+                            label: survey.appearance?.displayThankYouMessage ? 'Confirmation message' : 'End',
+                            value: SurveyQuestionBranchingType.End,
                         },
                         ...(hasResponseBasedBranching
                             ? [
@@ -137,7 +164,7 @@ function QuestionResponseBasedBranchingInput({
                         <LemonSelect
                             className="w-full whitespace-nowrap"
                             value={getResponseBasedBranchingDropdownValue(questionIndex, question, value)}
-                            data-attr={`branching-question-${questionIndex}`}
+                            data-attr={`survey-question-${questionIndex}-branching-response_based-select-${i}`}
                             onSelect={(nextStep) => {
                                 let specificQuestionIndex
                                 if (nextStep.startsWith(SurveyQuestionBranchingType.SpecificQuestion)) {
@@ -162,10 +189,10 @@ function QuestionResponseBasedBranchingInput({
                                     : []),
                                 {
                                     label: 'Confirmation message',
-                                    value: SurveyQuestionBranchingType.ConfirmationMessage,
+                                    value: SurveyQuestionBranchingType.End,
                                 },
                                 ...availableNextQuestions.map((question) => ({
-                                    label: truncate(`${question.questionIndex + 1}. ${question.question}`, 20),
+                                    label: truncate(`${question.questionIndex + 1}. ${question.question}`, 28),
                                     value: `${SurveyQuestionBranchingType.SpecificQuestion}:${question.questionIndex}`,
                                 })),
                             ]}

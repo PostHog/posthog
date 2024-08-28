@@ -1,143 +1,612 @@
-import { printHogStringOutput } from './print'
+import { DateTime } from 'luxon'
 
-export const STL: Record<string, (args: any[], name: string, timeout: number) => any> = {
-    concat: (args) => {
-        return args.map((arg: any) => (arg === null ? '' : String(arg))).join('')
+import { isHogDate, isHogDateTime, isHogError, newHogError } from '../objects'
+import { md5Hex, sha256Hex, sha256HmacChainHex } from './crypto'
+import {
+    formatDateTime,
+    fromUnixTimestamp,
+    fromUnixTimestampMilli,
+    now,
+    toDate,
+    toDateTime,
+    toHogDate,
+    toHogDateTime,
+    toTimeZone,
+    toUnixTimestamp,
+    toUnixTimestampMilli,
+} from './date'
+import { printHogStringOutput } from './print'
+import { like } from '../utils'
+
+function STLToString(args: any[]): string {
+    if (isHogDate(args[0])) {
+        const month = args[0].month
+        const day = args[0].day
+        return `${args[0].year}-${month < 10 ? '0' : ''}${month}-${day < 10 ? '0' : ''}${day}`
+    }
+    if (isHogDateTime(args[0])) {
+        return DateTime.fromSeconds(args[0].dt, { zone: args[0].zone }).toISO()
+    }
+    return printHogStringOutput(args[0])
+}
+
+export interface STLFunction {
+    fn: (args: any[], name: string, timeout: number) => any
+    minArgs?: number
+    maxArgs?: number
+}
+
+export interface AsyncSTLFunction {
+    fn: (args: any[], name: string, timeout: number) => Promise<any>
+    minArgs?: number
+    maxArgs?: number
+}
+
+export const STL: Record<string, STLFunction> = {
+    concat: {
+        fn: (args) => {
+            return args.map((arg: any) => (arg === null ? '' : STLToString([arg]))).join('')
+        },
+        minArgs: 1,
+        maxArgs: undefined,
     },
-    match: (args) => {
-        const regex = new RegExp(args[1])
-        return regex.test(args[0])
+    match: {
+        fn: (args) => {
+            const regex = new RegExp(args[1])
+            return regex.test(args[0])
+        },
+        minArgs: 2,
+        maxArgs: 2,
     },
-    toString: (args: any[]) => {
-        return String(args[0])
+    like: { fn: ([str, pattern]) => like(str, pattern, false), minArgs: 2, maxArgs: 2 },
+    ilike: { fn: ([str, pattern]) => like(str, pattern, true), minArgs: 2, maxArgs: 2 },
+    notLike: { fn: ([str, pattern]) => !like(str, pattern, false), minArgs: 2, maxArgs: 2 },
+    notILike: { fn: ([str, pattern]) => !like(str, pattern, true), minArgs: 2, maxArgs: 2 },
+    toString: { fn: STLToString, minArgs: 1, maxArgs: 1 },
+    toUUID: {
+        fn: (args) => {
+            return String(args[0])
+        },
+        minArgs: 1,
+        maxArgs: 1,
     },
-    toUUID: (args) => {
-        return String(args[0])
+    toInt: {
+        fn: (args) => {
+            if (isHogDateTime(args[0])) {
+                return Math.floor(args[0].dt)
+            } else if (isHogDate(args[0])) {
+                const day = DateTime.fromObject({ year: args[0].year, month: args[0].month, day: args[0].day })
+                const epoch = DateTime.fromObject({ year: 1970, month: 1, day: 1 })
+                return Math.floor(day.diff(epoch, 'days').days)
+            }
+            return !isNaN(parseInt(args[0])) ? parseInt(args[0]) : null
+        },
+        minArgs: 1,
+        maxArgs: 1,
     },
-    toInt: (args) => {
-        return !isNaN(parseInt(args[0])) ? parseInt(args[0]) : null
+    toFloat: {
+        fn: (args) => {
+            if (isHogDateTime(args[0])) {
+                return args[0].dt
+            } else if (isHogDate(args[0])) {
+                const day = DateTime.fromObject({ year: args[0].year, month: args[0].month, day: args[0].day })
+                const epoch = DateTime.fromObject({ year: 1970, month: 1, day: 1 })
+                return Math.floor(day.diff(epoch, 'days').days)
+            }
+            return !isNaN(parseFloat(args[0])) ? parseFloat(args[0]) : null
+        },
+        minArgs: 1,
+        maxArgs: 1,
     },
-    toFloat: (args) => {
-        return !isNaN(parseFloat(args[0])) ? parseFloat(args[0]) : null
+    // ifNull is complied into JUMP instructions. Keeping the function here for backwards compatibility
+    ifNull: {
+        fn: (args) => {
+            return args[0] !== null ? args[0] : args[1]
+        },
+        minArgs: 2,
+        maxArgs: 2,
     },
-    ifNull: (args) => {
-        return args[0] !== null ? args[0] : args[1]
+    length: {
+        fn: (args) => {
+            return args[0].length
+        },
+        minArgs: 1,
+        maxArgs: 1,
     },
-    length: (args) => {
-        return args[0].length
-    },
-    empty: (args) => {
-        if (typeof args[0] === 'object') {
-            if (Array.isArray(args[0])) {
-                return args[0].length === 0
-            } else if (args[0] === null) {
-                return true
-            } else if (args[0] instanceof Map) {
-                return args[0].size === 0
-            } else {
+    empty: {
+        fn: (args) => {
+            if (typeof args[0] === 'object') {
+                if (Array.isArray(args[0])) {
+                    return args[0].length === 0
+                } else if (args[0] === null) {
+                    return true
+                } else if (args[0] instanceof Map) {
+                    return args[0].size === 0
+                }
                 return Object.keys(args[0]).length === 0
             }
-        }
-        return !args[0]
+            return !args[0]
+        },
+        minArgs: 1,
+        maxArgs: 1,
     },
-    notEmpty: (args) => {
-        return !STL.empty(args, 'empty', 0)
+    notEmpty: {
+        fn: (args) => {
+            return !STL.empty.fn(args, 'empty', 0)
+        },
+        minArgs: 1,
+        maxArgs: 1,
     },
-    tuple: (args) => {
-        const tuple = args.slice()
-        ;(tuple as any).__isHogTuple = true
-        return tuple
+    tuple: {
+        fn: (args) => {
+            const tuple = args.slice()
+            ;(tuple as any).__isHogTuple = true
+            return tuple
+        },
+        minArgs: 0,
+        maxArgs: undefined,
     },
-    lower: (args) => {
-        return args[0].toLowerCase()
+    lower: {
+        fn: (args) => {
+            return args[0].toLowerCase()
+        },
+        minArgs: 1,
+        maxArgs: 1,
     },
-    upper: (args) => {
-        return args[0].toUpperCase()
+    upper: {
+        fn: (args) => {
+            return args[0].toUpperCase()
+        },
+        minArgs: 1,
+        maxArgs: 1,
     },
-    reverse: (args) => {
-        return args[0].split('').reverse().join('')
+    reverse: {
+        fn: (args) => {
+            return args[0].split('').reverse().join('')
+        },
+        minArgs: 1,
+        maxArgs: 1,
     },
-    print: (args) => {
-        // eslint-disable-next-line no-console
-        console.log(...args.map(printHogStringOutput))
+    print: {
+        fn: (args) => {
+            // eslint-disable-next-line no-console
+            console.log(...args.map(printHogStringOutput))
+        },
+        minArgs: 0,
+        maxArgs: undefined,
     },
-    jsonParse: (args) => {
-        // Recursively convert objects to maps
-        function convert(x: any): any {
-            if (Array.isArray(x)) {
-                return x.map(convert)
-            } else if (typeof x === 'object' && x !== null) {
-                const map = new Map()
-                for (const key in x) {
-                    map.set(key, convert(x[key]))
+    jsonParse: {
+        fn: (args) => {
+            // Recursively convert objects to maps
+            function convert(x: any): any {
+                if (Array.isArray(x)) {
+                    return x.map(convert)
+                } else if (typeof x === 'object' && x !== null) {
+                    // DateTime and other objects will be sanitized and not converted to a map
+                    if (x.__hogDateTime__) {
+                        return toHogDateTime(x.dt, x.zone)
+                    } else if (x.__hogDate__) {
+                        return toHogDate(x.year, x.month, x.day)
+                    } else if (x.__hogError__) {
+                        return newHogError(x.type, x.message, x.payload)
+                    }
+                    // All other objects will
+                    const map = new Map()
+                    for (const key in x) {
+                        map.set(key, convert(x[key]))
+                    }
+                    return map
                 }
-                return map
+                return x
             }
-            return x
-        }
-        return convert(JSON.parse(args[0]))
+            return convert(JSON.parse(args[0]))
+        },
+        minArgs: 1,
+        maxArgs: 1,
     },
-    jsonStringify: (args) => {
-        // Recursively convert maps to objects
-        function convert(x: any): any {
-            if (x instanceof Map) {
-                const obj: Record<string, any> = {}
-                x.forEach((value, key) => {
-                    obj[key] = convert(value)
-                })
-                return obj
-            } else if (typeof x === 'object' && Array.isArray(x)) {
-                return x.map(convert)
-            } else if (typeof x === 'object' && x !== null) {
-                const obj: Record<string, any> = {}
-                for (const key in x) {
-                    obj[key] = convert(x[key])
+    jsonStringify: {
+        fn: (args) => {
+            // Recursively convert maps to objects
+            function convert(x: any, marked?: Set<any>): any {
+                if (!marked) {
+                    marked = new Set()
                 }
-                return obj
+                if (typeof x === 'object' && x !== null) {
+                    if (marked.has(x)) {
+                        return null
+                    }
+                    marked.add(x)
+                    try {
+                        if (x instanceof Map) {
+                            const obj: Record<string, any> = {}
+                            x.forEach((value, key) => {
+                                obj[convert(key, marked)] = convert(value, marked)
+                            })
+                            return obj
+                        }
+                        if (Array.isArray(x)) {
+                            return x.map((v) => convert(v, marked))
+                        }
+                        if (isHogDateTime(x) || isHogDate(x) || isHogError(x)) {
+                            return x
+                        }
+                        const obj: Record<string, any> = {}
+                        for (const key in x) {
+                            obj[key] = convert(x[key], marked)
+                        }
+                        return obj
+                    } finally {
+                        marked.delete(x)
+                    }
+                }
+                return x
             }
-            return x
-        }
-        if (args[1] && typeof args[1] === 'number' && args[1] > 0) {
-            return JSON.stringify(convert(args[0]), null, args[1])
-        }
-        return JSON.stringify(convert(args[0]))
+            if (args[1] && typeof args[1] === 'number' && args[1] > 0) {
+                return JSON.stringify(convert(args[0]), null, args[1])
+            }
+            return JSON.stringify(convert(args[0]))
+        },
+        minArgs: 1,
+        maxArgs: 1,
     },
-    base64Encode: (args) => {
-        return Buffer.from(args[0]).toString('base64')
+    base64Encode: {
+        fn: (args) => {
+            return Buffer.from(args[0]).toString('base64')
+        },
+        minArgs: 1,
+        maxArgs: 1,
     },
-    base64Decode: (args) => {
-        return Buffer.from(args[0], 'base64').toString()
-    },
-    tryBase64Decode: (args) => {
-        try {
+    base64Decode: {
+        fn: (args) => {
             return Buffer.from(args[0], 'base64').toString()
-        } catch (e) {
-            return ''
-        }
+        },
+        minArgs: 1,
+        maxArgs: 1,
     },
-    encodeURLComponent(args) {
-        return encodeURIComponent(args[0])
+    tryBase64Decode: {
+        fn: (args) => {
+            try {
+                return Buffer.from(args[0], 'base64').toString()
+            } catch (e) {
+                return ''
+            }
+        },
+        minArgs: 1,
+        maxArgs: 1,
     },
-    decodeURLComponent(args) {
-        return decodeURIComponent(args[0])
+    encodeURLComponent: {
+        fn: (args) => encodeURIComponent(args[0]),
+        minArgs: 1,
+        maxArgs: 1,
     },
-    replaceOne(args) {
-        return args[0].replace(args[1], args[2])
+    decodeURLComponent: {
+        fn: (args) => decodeURIComponent(args[0]),
+        minArgs: 1,
+        maxArgs: 1,
     },
-    replaceAll(args) {
-        return args[0].replaceAll(args[1], args[2])
+    replaceOne: {
+        fn: (args) => {
+            return args[0].replace(args[1], args[2])
+        },
+        minArgs: 3,
+        maxArgs: 3,
     },
-    generateUUIDv4() {
-        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
-            const r = (Math.random() * 16) | 0
-            const v = c === 'x' ? r : (r & 0x3) | 0x8
-            return v.toString(16)
-        })
+    replaceAll: {
+        fn: (args) => {
+            return args[0].replaceAll(args[1], args[2])
+        },
+        minArgs: 3,
+        maxArgs: 3,
+    },
+    trim: {
+        fn: ([str, char]) => {
+            if (char === null || char === undefined) {
+                char = ' '
+            }
+            if (char.length !== 1) {
+                return ''
+            }
+            let start = 0
+            while (str[start] === char) {
+                start++
+            }
+            let end = str.length
+            while (str[end - 1] === char) {
+                end--
+            }
+            if (start >= end) {
+                return ''
+            }
+            return str.slice(start, end)
+        },
+        minArgs: 1,
+        maxArgs: 2,
+    },
+    trimLeft: {
+        fn: ([str, char]) => {
+            if (char === null || char === undefined) {
+                char = ' '
+            }
+            if (char.length !== 1) {
+                return ''
+            }
+            let start = 0
+            while (str[start] === char) {
+                start++
+            }
+            return str.slice(start)
+        },
+        minArgs: 1,
+        maxArgs: 2,
+    },
+    trimRight: {
+        fn: ([str, char]) => {
+            if (char === null || char === undefined) {
+                char = ' '
+            }
+            if (char.length !== 1) {
+                return ''
+            }
+            let end = str.length
+            while (str[end - 1] === char) {
+                end--
+            }
+            return str.slice(0, end)
+        },
+        minArgs: 1,
+        maxArgs: 2,
+    },
+    splitByString: {
+        fn: ([separator, str, maxSplits = undefined]) => {
+            if (maxSplits === undefined || maxSplits === null) {
+                return str.split(separator)
+            }
+            return str.split(separator, maxSplits)
+        },
+        minArgs: 2,
+        maxArgs: 3,
+    },
+    generateUUIDv4: {
+        fn: () => {
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+                const r = (Math.random() * 16) | 0
+                const v = c === 'x' ? r : (r & 0x3) | 0x8
+                return v.toString(16)
+            })
+        },
+        minArgs: 0,
+        maxArgs: 0,
+    },
+    sha256Hex: {
+        fn: ([str]) => {
+            return sha256Hex(str)
+        },
+        minArgs: 1,
+        maxArgs: 1,
+    },
+    md5Hex: {
+        fn: ([str]) => {
+            return md5Hex(str)
+        },
+        minArgs: 1,
+        maxArgs: 1,
+    },
+    sha256HmacChainHex: {
+        fn: ([data]) => sha256HmacChainHex(data),
+        minArgs: 1,
+        maxArgs: 1,
+    },
+    keys: {
+        fn: ([obj]) => {
+            if (typeof obj === 'object') {
+                if (Array.isArray(obj)) {
+                    return Array.from(obj.keys())
+                } else if (obj instanceof Map) {
+                    return Array.from(obj.keys())
+                }
+                return Object.keys(obj)
+            }
+            return []
+        },
+        minArgs: 1,
+        maxArgs: 1,
+    },
+    values: {
+        fn: ([obj]) => {
+            if (typeof obj === 'object') {
+                if (Array.isArray(obj)) {
+                    return [...obj]
+                } else if (obj instanceof Map) {
+                    return Array.from(obj.values())
+                }
+                return Object.values(obj)
+            }
+            return []
+        },
+        minArgs: 1,
+        maxArgs: 1,
+    },
+    arrayPushBack: {
+        fn: ([arr, item]) => {
+            if (!Array.isArray(arr)) {
+                return [item]
+            }
+            return [...arr, item]
+        },
+        minArgs: 2,
+        maxArgs: 2,
+    },
+    arrayPushFront: {
+        fn: ([arr, item]) => {
+            if (!Array.isArray(arr)) {
+                return [item]
+            }
+            return [item, ...arr]
+        },
+        minArgs: 2,
+        maxArgs: 2,
+    },
+    arrayPopBack: {
+        fn: ([arr]) => {
+            if (!Array.isArray(arr)) {
+                return []
+            }
+            return arr.slice(0, arr.length - 1)
+        },
+        minArgs: 1,
+        maxArgs: 1,
+    },
+    arrayPopFront: {
+        fn: ([arr]) => {
+            if (!Array.isArray(arr)) {
+                return []
+            }
+            return arr.slice(1)
+        },
+        minArgs: 1,
+        maxArgs: 1,
+    },
+    arraySort: {
+        fn: ([arr]) => {
+            if (!Array.isArray(arr)) {
+                return []
+            }
+            return [...arr].sort()
+        },
+        minArgs: 1,
+        maxArgs: 1,
+    },
+    arrayReverse: {
+        fn: ([arr]) => {
+            if (!Array.isArray(arr)) {
+                return []
+            }
+            return [...arr].reverse()
+        },
+        minArgs: 1,
+        maxArgs: 1,
+    },
+    arrayReverseSort: {
+        fn: ([arr]) => {
+            if (!Array.isArray(arr)) {
+                return []
+            }
+            return [...arr].sort().reverse()
+        },
+        minArgs: 1,
+        maxArgs: 1,
+    },
+    arrayStringConcat: {
+        fn: ([arr, separator = '']) => {
+            if (!Array.isArray(arr)) {
+                return ''
+            }
+            return arr.join(separator)
+        },
+        minArgs: 1,
+        maxArgs: 2,
+    },
+    has: {
+        fn: ([arr, elem]) => {
+            if (!Array.isArray(arr) || arr.length === 0) {
+                return false
+            }
+            return arr.includes(elem)
+        },
+        minArgs: 2,
+        maxArgs: 2,
+    },
+    now: {
+        fn: () => {
+            return now()
+        },
+        minArgs: 0,
+        maxArgs: 0,
+    },
+    toUnixTimestamp: {
+        fn: (args) => {
+            return toUnixTimestamp(args[0], args[1])
+        },
+        minArgs: 1,
+        maxArgs: 2,
+    },
+    fromUnixTimestamp: {
+        fn: (args) => {
+            return fromUnixTimestamp(args[0])
+        },
+        minArgs: 1,
+        maxArgs: 1,
+    },
+    toUnixTimestampMilli: {
+        fn: (args) => {
+            return toUnixTimestampMilli(args[0], args[1])
+        },
+        minArgs: 1,
+        maxArgs: 2,
+    },
+    fromUnixTimestampMilli: {
+        fn: (args) => {
+            return fromUnixTimestampMilli(args[0])
+        },
+        minArgs: 1,
+        maxArgs: 1,
+    },
+    toTimeZone: {
+        fn: (args) => {
+            return toTimeZone(args[0], args[1])
+        },
+        minArgs: 2,
+        maxArgs: 2,
+    },
+    toDate: {
+        fn: (args) => {
+            return toDate(args[0])
+        },
+        minArgs: 1,
+        maxArgs: 1,
+    },
+    toDateTime: {
+        fn: (args) => {
+            return toDateTime(args[0], args[1])
+        },
+        minArgs: 1,
+        maxArgs: 2,
+    },
+    formatDateTime: {
+        fn: (args) => {
+            return formatDateTime(args[0], args[1], args[2])
+        },
+        minArgs: 2,
+        maxArgs: 3,
+    },
+    HogError: {
+        fn: (args) => newHogError(args[0], args[1], args[2]),
+        minArgs: 1,
+        maxArgs: 3,
+    },
+    Error: {
+        fn: (args, name) => newHogError(name, args[0], args[1]),
+        minArgs: 0,
+        maxArgs: 2,
+    },
+    RetryError: {
+        fn: (args, name) => newHogError(name, args[0], args[1]),
+        minArgs: 0,
+        maxArgs: 2,
+    },
+    NotImplementedError: {
+        fn: (args, name) => newHogError(name, args[0], args[1]),
+        minArgs: 0,
+        maxArgs: 2,
     },
 }
 
-export const ASYNC_STL: Record<string, (args: any[], name: string, timeout: number) => Promise<any>> = {
-    sleep: async (args) => {
-        await new Promise((resolve) => setTimeout(resolve, args[0] * 1000))
+export const ASYNC_STL: Record<string, AsyncSTLFunction> = {
+    sleep: {
+        fn: async (args) => {
+            await new Promise((resolve) => setTimeout(resolve, args[0] * 1000))
+        },
+        minArgs: 1,
+        maxArgs: 1,
     },
 }

@@ -3,6 +3,7 @@
 use std::default::Default;
 use std::net::SocketAddr;
 use std::num::NonZeroU32;
+use std::ops::Add;
 use std::str::FromStr;
 use std::string::ToString;
 use std::sync::{Arc, Once};
@@ -17,12 +18,15 @@ use rdkafka::config::{ClientConfig, FromClientConfig};
 use rdkafka::consumer::{BaseConsumer, Consumer};
 use rdkafka::util::Timeout;
 use rdkafka::{Message, TopicPartitionList};
+use redis::{Client, Commands};
+use time::OffsetDateTime;
 use tokio::net::TcpListener;
 use tokio::sync::Notify;
 use tokio::time::timeout;
 use tracing::{debug, warn};
 
-use capture::config::{Config, KafkaConfig};
+use capture::config::{CaptureMode, Config, KafkaConfig};
+use capture::limiters::billing::QuotaResource;
 use capture::server::serve;
 
 pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
@@ -37,16 +41,22 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
         kafka_producer_linger_ms: 0, // Send messages as soon as possible
         kafka_producer_queue_mib: 10,
         kafka_message_timeout_ms: 10000, // 10s, ACKs can be slow on low volumes, should be tuned
+        kafka_producer_message_max_bytes: 1000000, // 1MB, rdkafka default
         kafka_compression_codec: "none".to_string(),
         kafka_hosts: "kafka:9092".to_string(),
         kafka_topic: "events_plugin_ingestion".to_string(),
         kafka_historical_topic: "events_plugin_ingestion_historical".to_string(),
+        kafka_client_ingestion_warning_topic: "events_plugin_ingestion".to_string(),
+        kafka_exceptions_topic: "events_plugin_ingestion".to_string(),
+        kafka_heatmaps_topic: "events_plugin_ingestion".to_string(),
         kafka_tls: false,
     },
     otel_url: None,
     otel_sampling_rate: 0.0,
     otel_service_name: "capture-testing".to_string(),
     export_prometheus: false,
+    redis_key_prefix: None,
+    capture_mode: CaptureMode::Events,
 });
 
 static TRACING_INIT: Once = Once::new();
@@ -69,6 +79,12 @@ impl ServerHandle {
         config.kafka.kafka_historical_topic = historical.topic_name().to_string();
         Self::for_config(config).await
     }
+    pub async fn for_recordings(main: &EphemeralTopic) -> Self {
+        let mut config = DEFAULT_CONFIG.clone();
+        config.kafka.kafka_topic = main.topic_name().to_string();
+        config.capture_mode = CaptureMode::Recordings;
+        Self::for_config(config).await
+    }
     pub async fn for_config(config: Config) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -85,6 +101,26 @@ impl ServerHandle {
         let client = reqwest::Client::new();
         client
             .post(format!("http://{:?}/i/v0/e", self.addr))
+            .body(body)
+            .send()
+            .await
+            .expect("failed to send request")
+    }
+
+    pub async fn capture_to_batch<T: Into<reqwest::Body>>(&self, body: T) -> reqwest::Response {
+        let client = reqwest::Client::new();
+        client
+            .post(format!("http://{:?}/batch", self.addr))
+            .body(body)
+            .send()
+            .await
+            .expect("failed to send request")
+    }
+
+    pub async fn capture_recording<T: Into<reqwest::Body>>(&self, body: T) -> reqwest::Response {
+        let client = reqwest::Client::new();
+        client
+            .post(format!("http://{:?}/s/", self.addr))
             .body(body)
             .send()
             .await
@@ -174,6 +210,15 @@ impl EphemeralTopic {
         }
     }
 
+    pub(crate) fn assert_empty(&self) {
+        assert!(
+            self.consumer
+                .poll(Timeout::After(Duration::from_secs(1)))
+                .is_none(),
+            "topic holds more messages"
+        )
+    }
+
     pub fn topic_name(&self) -> &str {
         &self.topic_name
     }
@@ -204,6 +249,35 @@ async fn delete_topic(topic: String) {
         .delete_topics(&[&topic], &AdminOptions::default())
         .await
         .expect("failed to delete topic");
+}
+
+pub struct PrefixedRedis {
+    key_prefix: String,
+    client: Client,
+}
+
+impl PrefixedRedis {
+    pub async fn new() -> Self {
+        Self {
+            key_prefix: random_string("test", 8) + "/",
+            client: Client::open(DEFAULT_CONFIG.redis_url.clone())
+                .expect("failed to create redis client"),
+        }
+    }
+
+    pub fn key_prefix(&self) -> Option<String> {
+        Some(self.key_prefix.to_string())
+    }
+
+    pub fn add_billing_limit(&self, res: QuotaResource, token: &str, until: time::Duration) {
+        let key = format!("{}@posthog/quota-limits/{}", self.key_prefix, res.as_str());
+        let score = OffsetDateTime::now_utc().add(until).unix_timestamp();
+        self.client
+            .get_connection()
+            .expect("failed to get connection")
+            .zadd::<String, i64, &str, i64>(key, token, score)
+            .expect("failed to insert in redis");
+    }
 }
 
 pub fn random_string(prefix: &str, length: usize) -> String {

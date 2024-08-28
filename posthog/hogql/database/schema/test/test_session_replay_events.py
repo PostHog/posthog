@@ -8,6 +8,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 from posthog.models.event.sql import TRUNCATE_EVENTS_TABLE_SQL
+from posthog.models.utils import uuid7
 from posthog.schema import HogQLQueryModifiers
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
@@ -23,6 +24,10 @@ from posthog.test.base import (
 
 @freeze_time("2021-01-01T13:46:23")
 class TestFilterSessionReplaysBySessions(ClickhouseTestMixin, APIBaseTest):
+    session_with_one_hour = str(uuid7("2021-01-01T10"))
+    session_with_different_session_and_replay_duration = str(uuid7("2021-01-01T11"))
+    session_with_no_events = str(uuid7("2021-01-01T12"))
+
     def setUp(self):
         super().setUp()
 
@@ -33,21 +38,21 @@ class TestFilterSessionReplaysBySessions(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             team_id=self.team.pk,
             distinct_id="d1",
-            session_id="session_with_one_hour",
+            session_id=self.session_with_one_hour,
         )
 
         _create_event(
             event="$pageview",
             team=self.team,
             distinct_id="d1",
-            properties={"$current_url": "https://example.com", "$session_id": "session_with_one_hour"},
+            properties={"$current_url": "https://example.com", "$session_id": self.session_with_one_hour},
         )
 
         _create_event(
             event="$pageview",
             team=self.team,
             distinct_id="d1",
-            properties={"$current_url": "https://example.com", "$session_id": "session_with_one_hour"},
+            properties={"$current_url": "https://example.com", "$session_id": self.session_with_one_hour},
             timestamp=now() + timedelta(hours=1),
         )
 
@@ -55,7 +60,7 @@ class TestFilterSessionReplaysBySessions(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             team_id=self.team.pk,
             distinct_id="d1",
-            session_id="session_with_different_session_and_replay_duration",
+            session_id=self.session_with_different_session_and_replay_duration,
         )
 
         _create_event(
@@ -64,7 +69,7 @@ class TestFilterSessionReplaysBySessions(ClickhouseTestMixin, APIBaseTest):
             distinct_id="d1",
             properties={
                 "$current_url": "https://different.com",
-                "$session_id": "session_with_different_session_and_replay_duration",
+                "$session_id": self.session_with_different_session_and_replay_duration,
             },
         )
 
@@ -74,14 +79,14 @@ class TestFilterSessionReplaysBySessions(ClickhouseTestMixin, APIBaseTest):
             distinct_id="d1",
             properties={
                 "$current_url": "https://different.com",
-                "$session_id": "session_with_different_session_and_replay_duration",
+                "$session_id": self.session_with_different_session_and_replay_duration,
             },
             # timestamp is two hours in the future
             timestamp=now() + timedelta(hours=2),
         )
 
         produce_replay_summary(
-            team_id=self.team.pk, distinct_id="d1", session_id="session_with_no_events", log_messages=None
+            team_id=self.team.pk, distinct_id="d1", session_id=self.session_with_no_events, log_messages=None
         )
 
     @snapshot_clickhouse_queries
@@ -100,9 +105,9 @@ class TestFilterSessionReplaysBySessions(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert response.results == [
-            ("session_with_different_session_and_replay_duration",),
-            ("session_with_no_events",),
-            ("session_with_one_hour",),
+            (self.session_with_one_hour,),
+            (self.session_with_different_session_and_replay_duration,),
+            (self.session_with_no_events,),
         ]
 
     @snapshot_clickhouse_queries
@@ -122,7 +127,7 @@ class TestFilterSessionReplaysBySessions(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert response.results == [
-            ("session_with_different_session_and_replay_duration",),
+            (self.session_with_different_session_and_replay_duration,),
         ]
 
 

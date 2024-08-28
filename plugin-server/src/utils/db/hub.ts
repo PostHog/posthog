@@ -25,6 +25,7 @@ import {
 import { ActionManager } from '../../worker/ingestion/action-manager'
 import { ActionMatcher } from '../../worker/ingestion/action-matcher'
 import { AppMetrics } from '../../worker/ingestion/app-metrics'
+import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { OrganizationManager } from '../../worker/ingestion/organization-manager'
 import { EventsProcessor } from '../../worker/ingestion/process-event'
 import { TeamManager } from '../../worker/ingestion/team-manager'
@@ -150,6 +151,7 @@ export async function createHub(
 
     const actionManager = new ActionManager(postgres, serverConfig)
     const actionMatcher = new ActionMatcher(postgres, actionManager, teamManager)
+    const groupTypeManager = new GroupTypeManager(postgres, teamManager)
 
     const enqueuePluginJob = async (job: EnqueuedPluginJob) => {
         // NOTE: we use the producer directly here rather than using the wrapper
@@ -184,6 +186,7 @@ export async function createHub(
         kafkaProducer,
         enqueuePluginJob,
         objectStorage: objectStorage,
+        groupTypeManager,
 
         plugins: new Map(),
         pluginConfigs: new Map(),
@@ -202,8 +205,6 @@ export async function createHub(
         actionManager,
         conversionBufferEnabledTeams,
         pluginConfigsToSkipElementsParsing: buildIntegerMatcher(process.env.SKIP_ELEMENTS_PARSING_PLUGINS, true),
-        poeEmbraceJoinForTeams: buildIntegerMatcher(process.env.POE_EMBRACE_JOIN_FOR_TEAMS, true),
-        poeWritesExcludeTeams: buildIntegerMatcher(process.env.POE_WRITES_EXCLUDE_TEAMS, false),
         eventsToDropByToken: createEventsToDropByToken(process.env.DROP_EVENTS_BY_TOKEN_DISTINCT_ID),
     }
 
@@ -243,6 +244,7 @@ export type KafkaConfig = {
     KAFKA_SASL_USER?: string
     KAFKA_SASL_PASSWORD?: string
     KAFKA_CLIENT_RACK?: string
+    KAFKA_CLIENT_ID?: string
 }
 
 export function createKafkaClient({

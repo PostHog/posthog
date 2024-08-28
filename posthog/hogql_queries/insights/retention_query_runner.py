@@ -7,7 +7,6 @@ from typing import Any
 from typing import Optional
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
-from posthog.caching.utils import is_stale
 from posthog.constants import (
     TREND_FILTER_TYPE_EVENTS,
     RetentionQueryType,
@@ -352,11 +351,6 @@ class RetentionQueryRunner(QueryRunner):
             now=datetime.now(),
         )
 
-    def _is_stale(self, cached_result_package):
-        date_to = self.query_date_range.date_to()
-        interval = self.query_date_range.interval_name
-        return is_stale(self.team, date_to, interval, cached_result_package)
-
     def _refresh_frequency(self):
         date_to = self.query_date_range.date_to()
         date_from = self.query_date_range.date_from()
@@ -373,6 +367,16 @@ class RetentionQueryRunner(QueryRunner):
             refresh_frequency = REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
 
         return refresh_frequency
+
+    def get_date(self, first_interval):
+        date = self.query_date_range.date_from() + self.query_date_range.determine_time_delta(
+            first_interval, self.query_date_range.interval_name.title()
+        )
+        if self.query_date_range.interval_type == IntervalType.HOUR:
+            utfoffset = self.team.timezone_info.utcoffset(date)
+            if utfoffset is not None:
+                date = date + utfoffset
+        return date
 
     def calculate(self) -> RetentionQueryResponse:
         query = self.to_query()
@@ -394,7 +398,6 @@ class RetentionQueryRunner(QueryRunner):
             }
             for (breakdown_values, intervals_from_base, count) in response.results
         }
-
         results = [
             {
                 "values": [
@@ -402,12 +405,7 @@ class RetentionQueryRunner(QueryRunner):
                     for return_interval in range(self.query_date_range.total_intervals - first_interval)
                 ],
                 "label": f"{self.query_date_range.interval_name.title()} {first_interval}",
-                "date": (
-                    self.query_date_range.date_from()
-                    + self.query_date_range.determine_time_delta(
-                        first_interval, self.query_date_range.interval_name.title()
-                    )
-                ),
+                "date": self.get_date(first_interval),
             }
             for first_interval in range(self.query_date_range.total_intervals)
         ]

@@ -116,7 +116,7 @@ class Command(BaseCommand):
 
         if options.get("backfill_batch_export", False) and dry_run is False:
             client = sync_connect()
-            end_at = dt.datetime.now(dt.timezone.utc)
+            end_at = dt.datetime.now(dt.UTC)
             start_at = end_at - (dt.timedelta(hours=1) if interval == "hour" else dt.timedelta(days=1))
             backfill_export(
                 client,

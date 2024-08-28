@@ -100,7 +100,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         action = Action.objects.get(pk=response.json()["id"])
-        assert action.bytecode == ["_h", 32, "%/signup%", 32, "$current_url", 32, "properties", 1, 2, 17]
+        assert action.bytecode == ["_H", 1, 32, "%/signup%", 32, "$current_url", 32, "properties", 1, 2, 17]
 
     def test_cant_create_action_with_the_same_name(self, *args):
         original_action = Action.objects.create(name="user signed up", team=self.team)
@@ -136,9 +136,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         action = Action.objects.create(
             name="user signed up", team=self.team, steps_json=[{"event": "$autocapture", "text": "sign me up!"}]
         )
-        action.refresh_bytecode()
         action.save()
-        previous_bytecode = action.bytecode
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/actions/{action.pk}/",
@@ -197,8 +195,6 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         action.refresh_from_db()
         assert action.name == "user signed up 2"
-
-        assert previous_bytecode != action.bytecode
 
         # Assert analytics are sent
         patch_capture.assert_called_with(

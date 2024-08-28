@@ -1,3 +1,4 @@
+use metrics::gauge;
 use std::{collections::HashSet, ops::Sub, sync::Arc};
 
 use crate::redis::Client;
@@ -34,7 +35,7 @@ pub enum QuotaResource {
 }
 
 impl QuotaResource {
-    fn as_str(&self) -> &'static str {
+    pub fn as_str(&self) -> &'static str {
         match self {
             Self::Events => "events",
             Self::Recordings => "recordings",
@@ -52,6 +53,7 @@ pub enum LimiterError {
 pub struct BillingLimiter {
     limited: Arc<RwLock<HashSet<String>>>,
     redis: Arc<dyn Client + Send + Sync>,
+    redis_key_prefix: String,
     interval: Duration,
     updated: Arc<RwLock<OffsetDateTime>>,
 }
@@ -68,6 +70,7 @@ impl BillingLimiter {
     pub fn new(
         interval: Duration,
         redis: Arc<dyn Client + Send + Sync>,
+        redis_key_prefix: Option<String>,
     ) -> anyhow::Result<BillingLimiter> {
         let limited = Arc::new(RwLock::new(HashSet::new()));
 
@@ -80,22 +83,20 @@ impl BillingLimiter {
             limited,
             updated,
             redis,
+            redis_key_prefix: redis_key_prefix.unwrap_or_default(),
         })
     }
 
     #[instrument(skip_all)]
     async fn fetch_limited(
         client: &Arc<dyn Client + Send + Sync>,
-        resource: QuotaResource,
+        key_prefix: &str,
+        resource: &QuotaResource,
     ) -> anyhow::Result<Vec<String>> {
-        let now = time::OffsetDateTime::now_utc().unix_timestamp();
-
+        let now = OffsetDateTime::now_utc().unix_timestamp();
+        let key = format!("{key_prefix}{QUOTA_LIMITER_CACHE_KEY}{}", resource.as_str());
         client
-            .zrangebyscore(
-                format!("{QUOTA_LIMITER_CACHE_KEY}{}", resource.as_str()),
-                now.to_string(),
-                String::from("+Inf"),
-            )
+            .zrangebyscore(key, now.to_string(), String::from("+Inf"))
             .await
     }
 
@@ -130,12 +131,17 @@ impl BillingLimiter {
             // On prod atm we call this around 15 times per second at peak times, and it usually
             // completes in <1ms.
 
-            let set = Self::fetch_limited(&self.redis, resource).await;
+            let set = Self::fetch_limited(&self.redis, &self.redis_key_prefix, &resource).await;
 
             tracing::debug!("fetched set from redis, caching");
 
             if let Ok(set) = set {
                 let set = HashSet::from_iter(set.iter().cloned());
+                gauge!(
+                    "capture_billing_limits_loaded_tokens",
+                    "resource" => resource.as_str(),
+                )
+                .set(set.len() as f64);
 
                 let mut limited = self.limited.write().await;
                 *limited = set;
@@ -172,25 +178,51 @@ mod tests {
 
     #[tokio::test]
     async fn test_dynamic_limited() {
-        let client = MockRedisClient::new().zrangebyscore_ret(vec![String::from("banana")]);
+        let client = MockRedisClient::new()
+            .zrangebyscore_ret("@posthog/quota-limits/events", vec![String::from("banana")]);
         let client = Arc::new(client);
 
-        let limiter = BillingLimiter::new(Duration::microseconds(1), client)
+        let limiter = BillingLimiter::new(Duration::microseconds(1), client, None)
             .expect("Failed to create billing limiter");
 
-        assert_eq!(
-            limiter
-                .is_limited("idk it doesn't matter", QuotaResource::Events)
+        assert!(
+            !limiter
+                .is_limited("not_limited", QuotaResource::Events)
                 .await,
-            false
-        );
-
-        assert_eq!(
-            limiter
-                .is_limited("some_org_hit_limits", QuotaResource::Events)
-                .await,
-            false
         );
         assert!(limiter.is_limited("banana", QuotaResource::Events).await);
+    }
+
+    #[tokio::test]
+    async fn test_custom_key_prefix() {
+        let client = MockRedisClient::new().zrangebyscore_ret(
+            "prefix//@posthog/quota-limits/events",
+            vec![String::from("banana")],
+        );
+        let client = Arc::new(client);
+
+        // Default lookup without prefix fails
+        let limiter = BillingLimiter::new(Duration::microseconds(1), client.clone(), None)
+            .expect("Failed to create billing limiter");
+        assert!(!limiter.is_limited("banana", QuotaResource::Events).await);
+
+        // Limiter using the correct prefix
+        let prefixed_limiter = BillingLimiter::new(
+            Duration::microseconds(1),
+            client,
+            Some("prefix//".to_string()),
+        )
+        .expect("Failed to create billing limiter");
+
+        assert!(
+            !prefixed_limiter
+                .is_limited("not_limited", QuotaResource::Events)
+                .await,
+        );
+        assert!(
+            prefixed_limiter
+                .is_limited("banana", QuotaResource::Events)
+                .await
+        );
     }
 }

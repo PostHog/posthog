@@ -200,7 +200,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
         assert response.results[0][1] == [1, 0, 0, 0, 0, 0, 0]
 
     @snapshot_clickhouse_queries
-    def test_trends_property(self):
+    def test_trends_query_properties(self):
         table_name = self.create_parquet_file()
 
         trends_query = TrendsQuery(
@@ -223,7 +223,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
 
         assert response.columns is not None
         assert set(response.columns).issubset({"date", "total"})
-        assert response.results[0][1] == [1, 0, 0, 0, 0, 0, 0]
+        assert response.results[0][1] == [1, 1, 1, 1, 0, 0, 0]
 
     @snapshot_clickhouse_queries
     def test_trends_breakdown(self):
@@ -276,9 +276,9 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
                     id_field="id",
                     distinct_id_field="customer_email",
                     timestamp_field="created",
+                    properties=clean_entity_properties([{"key": "prop_1", "value": "a", "type": "data_warehouse"}]),
                 )
             ],
-            properties=clean_entity_properties([{"key": "prop_1", "value": "a", "type": "data_warehouse"}]),
             breakdownFilter=BreakdownFilter(breakdown_type=BreakdownType.DATA_WAREHOUSE, breakdown="prop_1"),
         )
 

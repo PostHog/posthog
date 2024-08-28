@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
 
-import { PipelineHogFunctionConfiguration } from './hogfunctions/PipelineHogFunctionConfiguration'
+import { HogFunctionConfiguration } from './hogfunctions/HogFunctionConfiguration'
 import { PipelineBatchExportConfiguration } from './PipelineBatchExportConfiguration'
 import { pipelineNodeLogic } from './pipelineNodeLogic'
 import { PipelinePluginConfiguration } from './PipelinePluginConfiguration'
@@ -17,7 +17,7 @@ export function PipelineNodeConfiguration(): JSX.Element {
     return (
         <div className="space-y-3">
             {node.backend === PipelineBackend.HogFunction ? (
-                <PipelineHogFunctionConfiguration id={node.id} />
+                <HogFunctionConfiguration id={node.id} />
             ) : node.backend === PipelineBackend.Plugin ? (
                 <PipelinePluginConfiguration stage={stage} pluginConfigId={node.id} />
             ) : (

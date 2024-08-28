@@ -6,7 +6,7 @@ name: Run Django tests
 inputs:
     python-version:
         required: true
-        description: Python version, e.g. 3.10.10
+        description: Python version, e.g. 3.11.9
     clickhouse-server-image:
         required: true
         description: ClickHouse server image tag, e.g. clickhouse/clickhouse-server:latest
@@ -78,6 +78,12 @@ runs:
               node-version: 18.12.1
               cache: pnpm
 
+        # tests would intermittently fail in GH actions
+        # with exit code 134 _after passing_ all tests
+        # this appears to fix it
+        # absolute wild tbh https://stackoverflow.com/a/75503402
+        - uses: tlambert03/setup-qt-libs@v1
+
         - name: Install plugin-transpiler
           shell: bash
           run: |
@@ -148,7 +154,6 @@ runs:
           if: ${{ inputs.segment == 'Core' }}
           env:
               PERSON_ON_EVENTS_V2_ENABLED: ${{ inputs.person-on-events }}
-              GROUPS_ON_EVENTS_ENABLED: ${{ inputs.person-on-events }}
           shell: bash
           run: | # async_migrations covered in ci-async-migrations.yml
               pytest ${{
@@ -181,6 +186,8 @@ runs:
           id: run-temporal-tests
           if: ${{ inputs.segment == 'Temporal' }}
           shell: bash
+          env:
+              AWS_S3_ALLOW_UNSAFE_RENAME: 'true'
           run: |
               pytest posthog/temporal -m "not async_migrations" \
                   --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
@@ -195,7 +202,7 @@ runs:
 
         - name: Upload updated timing data as artifacts
           uses: actions/upload-artifact@v4
-          if: ${{ inputs.person-on-events != 'true' && inputs.clickhouse-server-image == 'clickhouse/clickhouse-server:23.12.5.81-alpine' }}
+          if: ${{ inputs.person-on-events != 'true' && inputs.clickhouse-server-image == 'clickhouse/clickhouse-server:23.12.6.19-alpine' }}
           with:
               name: timing_data-${{ inputs.segment }}-${{ inputs.group }}
               path: .test_durations

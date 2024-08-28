@@ -75,24 +75,24 @@
                           FROM person_distinct_id2
                           WHERE equals(person_distinct_id2.team_id, 2)
                           GROUP BY person_distinct_id2.distinct_id
-                          HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+                          HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
                        WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC')))))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps,
                  prop
-        HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                      and isNull(max_steps)))
+        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                      and isNull(max(max_steps))))
      GROUP BY prop)
   GROUP BY final_prop
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
-                     max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288,
-                     max_bytes_before_external_group_by=23622320128
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=23622320128,
+                     allow_experimental_analyzer=1
   '''
 # ---
 # name: TestFunnelStrictStepsBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen_for_step
@@ -175,7 +175,7 @@
                           FROM person_distinct_id2
                           WHERE equals(person_distinct_id2.team_id, 2)
                           GROUP BY person_distinct_id2.distinct_id
-                          HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+                          HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
                        WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))))) ARRAY
                     JOIN prop_vals AS prop
                     WHERE ifNull(notEquals(prop, []), isNotNull(prop)
@@ -184,18 +184,18 @@
         GROUP BY aggregation_target,
                  steps,
                  prop
-        HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                      and isNull(max_steps)))
+        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                      and isNull(max(max_steps))))
      GROUP BY prop)
   GROUP BY final_prop
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
-                     max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288,
-                     max_bytes_before_external_group_by=23622320128
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=23622320128,
+                     allow_experimental_analyzer=1
   '''
 # ---
 # name: TestFunnelStrictStepsBreakdown.test_funnel_step_multiple_breakdown_snapshot
@@ -274,24 +274,24 @@
                           FROM person_distinct_id2
                           WHERE equals(person_distinct_id2.team_id, 2)
                           GROUP BY person_distinct_id2.distinct_id
-                          HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+                          HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
                        WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC')))))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps,
                  prop
-        HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                      and isNull(max_steps)))
+        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                      and isNull(max(max_steps))))
      GROUP BY prop)
   GROUP BY final_prop
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
-                     max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288,
-                     max_bytes_before_external_group_by=23622320128
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=23622320128,
+                     allow_experimental_analyzer=1
   '''
 # ---
 # name: TestStrictFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events
@@ -383,7 +383,7 @@
                               argMinIf(prop, timestamp, isNotNull(prop)) OVER (PARTITION BY aggregation_target) AS prop_vals
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -395,18 +395,18 @@
         GROUP BY aggregation_target,
                  steps,
                  prop
-        HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                      and isNull(max_steps)))
+        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                      and isNull(max(max_steps))))
      GROUP BY prop)
   GROUP BY final_prop
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
-                     max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288,
-                     max_bytes_before_external_group_by=23622320128
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=23622320128,
+                     allow_experimental_analyzer=1
   '''
 # ---
 # name: TestStrictFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events_poe_v2
@@ -498,7 +498,7 @@
                               argMinIf(prop, timestamp, isNotNull(prop)) OVER (PARTITION BY aggregation_target) AS prop_vals
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -510,18 +510,18 @@
         GROUP BY aggregation_target,
                  steps,
                  prop
-        HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                      and isNull(max_steps)))
+        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                      and isNull(max(max_steps))))
      GROUP BY prop)
   GROUP BY final_prop
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
-                     max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288,
-                     max_bytes_before_external_group_by=23622320128
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=23622320128,
+                     allow_experimental_analyzer=1
   '''
 # ---
 # name: TestStrictFunnelGroupBreakdown.test_funnel_breakdown_group
@@ -618,9 +618,9 @@
                           FROM person_distinct_id2
                           WHERE equals(person_distinct_id2.team_id, 2)
                           GROUP BY person_distinct_id2.distinct_id
-                          HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+                          HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -632,18 +632,18 @@
         GROUP BY aggregation_target,
                  steps,
                  prop
-        HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                      and isNull(max_steps)))
+        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                      and isNull(max(max_steps))))
      GROUP BY prop)
   GROUP BY final_prop
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
-                     max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288,
-                     max_bytes_before_external_group_by=23622320128
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=23622320128,
+                     allow_experimental_analyzer=1
   '''
 # ---
 # name: TestStrictFunnelGroupBreakdown.test_funnel_breakdown_group.1

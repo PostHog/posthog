@@ -12,19 +12,26 @@ declaration: varDecl | statement ;
 expression: columnExpr;
 
 varDecl: LET identifier ( COLON EQ_SINGLE expression )? ;
-identifierList: identifier (COMMA identifier)*;
+identifierList: identifier (COMMA identifier)* COMMA?;
 
 statement      : returnStmt
+               | throwStmt
+               | tryCatchStmt
                | ifStmt
                | whileStmt
+               | forInStmt
                | forStmt
                | funcStmt
                | varAssignment
+               | block
                | exprStmt
                | emptyStmt
-               | block ;
+               ;
 
 returnStmt     : RETURN expression? SEMICOLON?;
+throwStmt      : THROW expression? SEMICOLON?;
+catchBlock     : CATCH (LPAREN catchVar=identifier (COLON catchType=identifier)? RPAREN)? catchStmt=block;
+tryCatchStmt   : TRY tryStmt=block catchBlock* (FINALLY finallyStmt=block)?;
 ifStmt         : IF LPAREN expression RPAREN statement ( ELSE statement )? ;
 whileStmt      : WHILE LPAREN expression RPAREN statement SEMICOLON?;
 forStmt        : FOR LPAREN
@@ -32,6 +39,7 @@ forStmt        : FOR LPAREN
                  condition=expression? SEMICOLON
                  (incrementVarDeclr=varDecl | incrementVarAssignment=varAssignment | incrementExpression=expression)?
                  RPAREN statement SEMICOLON?;
+forInStmt      : FOR LPAREN LET identifier (COMMA identifier)? IN expression RPAREN statement SEMICOLON?;
 funcStmt       : FN identifier LPAREN identifierList? RPAREN block;
 varAssignment  : expression COLON EQ_SINGLE expression ;
 exprStmt       : expression SEMICOLON?;
@@ -39,7 +47,7 @@ emptyStmt      : SEMICOLON ;
 block          : LBRACE declaration* RBRACE ;
 
 kvPair: expression ':' expression ;
-kvPairList: kvPair (COMMA kvPair)* ;
+kvPairList: kvPair (COMMA kvPair)* COMMA?;
 
 
 // SELECT statement
@@ -128,12 +136,12 @@ winFrameBound: (CURRENT ROW | UNBOUNDED PRECEDING | UNBOUNDED FOLLOWING | number
 expr: columnExpr EOF;
 columnTypeExpr
     : identifier                                                                             # ColumnTypeExprSimple   // UInt64
-    | identifier LPAREN identifier columnTypeExpr (COMMA identifier columnTypeExpr)* RPAREN  # ColumnTypeExprNested   // Nested
-    | identifier LPAREN enumValue (COMMA enumValue)* RPAREN                                  # ColumnTypeExprEnum     // Enum
-    | identifier LPAREN columnTypeExpr (COMMA columnTypeExpr)* RPAREN                        # ColumnTypeExprComplex  // Array, Tuple
+    | identifier LPAREN identifier columnTypeExpr (COMMA identifier columnTypeExpr)* COMMA? RPAREN  # ColumnTypeExprNested   // Nested
+    | identifier LPAREN enumValue (COMMA enumValue)* COMMA? RPAREN                                  # ColumnTypeExprEnum     // Enum
+    | identifier LPAREN columnTypeExpr (COMMA columnTypeExpr)* COMMA? RPAREN                        # ColumnTypeExprComplex  // Array, Tuple
     | identifier LPAREN columnExprList? RPAREN                                               # ColumnTypeExprParam    // FixedString(N)
     ;
-columnExprList: columnExpr (COMMA columnExpr)*;
+columnExprList: columnExpr (COMMA columnExpr)* COMMA?;
 columnExpr
     : CASE caseExpr=columnExpr? (WHEN whenExpr=columnExpr THEN thenExpr=columnExpr)+ (ELSE elseExpr=columnExpr)? END          # ColumnExprCase
     | CAST LPAREN columnExpr AS columnTypeExpr RPAREN                                     # ColumnExprCast
@@ -143,9 +151,10 @@ columnExpr
     | SUBSTRING LPAREN columnExpr FROM columnExpr (FOR columnExpr)? RPAREN                # ColumnExprSubstring
     | TIMESTAMP STRING_LITERAL                                                            # ColumnExprTimestamp
     | TRIM LPAREN (BOTH | LEADING | TRAILING) string FROM columnExpr RPAREN               # ColumnExprTrim
-    | identifier (LPAREN columnExprList? RPAREN) (LPAREN DISTINCT? columnArgList? RPAREN)? OVER LPAREN windowExpr RPAREN # ColumnExprWinFunction
-    | identifier (LPAREN columnExprList? RPAREN) (LPAREN DISTINCT? columnArgList? RPAREN)? OVER identifier               # ColumnExprWinFunctionTarget
-    | identifier (LPAREN columnExprList? RPAREN)? LPAREN DISTINCT? columnArgList? RPAREN                              # ColumnExprFunction
+    | identifier (LPAREN columnExprs=columnExprList? RPAREN) (LPAREN DISTINCT? columnArgList=columnExprList? RPAREN)? OVER LPAREN windowExpr RPAREN # ColumnExprWinFunction
+    | identifier (LPAREN columnExprs=columnExprList? RPAREN) (LPAREN DISTINCT? columnArgList=columnExprList? RPAREN)? OVER identifier               # ColumnExprWinFunctionTarget
+    | identifier (LPAREN columnExprs=columnExprList? RPAREN)? LPAREN DISTINCT? columnArgList=columnExprList? RPAREN                                 # ColumnExprFunction
+    | columnExpr LPAREN columnExprList? RPAREN                                            # ColumnExprCall
     | hogqlxTagElement                                                                    # ColumnExprTagElement
     | templateString                                                                      # ColumnExprTemplateString
     | literal                                                                             # ColumnExprLiteral
@@ -154,6 +163,9 @@ columnExpr
     | columnExpr LBRACKET columnExpr RBRACKET                                             # ColumnExprArrayAccess
     | columnExpr DOT DECIMAL_LITERAL                                                      # ColumnExprTupleAccess
     | columnExpr DOT identifier                                                           # ColumnExprPropertyAccess
+    | columnExpr NULL_PROPERTY LBRACKET columnExpr RBRACKET                               # ColumnExprNullArrayAccess
+    | columnExpr NULL_PROPERTY DECIMAL_LITERAL                                            # ColumnExprNullTupleAccess
+    | columnExpr NULL_PROPERTY identifier                                                 # ColumnExprNullPropertyAccess
     | DASH columnExpr                                                                     # ColumnExprNegate
     | left=columnExpr ( operator=ASTERISK                                                 // *
                  | operator=SLASH                                                         // /
@@ -187,30 +199,29 @@ columnExpr
     // TODO(ilezhankin): `BETWEEN a AND b AND c` is parsed in a wrong way: `BETWEEN (a AND b) AND c`
     | columnExpr NOT? BETWEEN columnExpr AND columnExpr                                   # ColumnExprBetween
     | <assoc=right> columnExpr QUERY columnExpr COLON columnExpr                          # ColumnExprTernaryOp
-    | columnExpr (AS identifier | AS STRING_LITERAL)                              # ColumnExprAlias
-
+    | columnExpr (AS identifier | AS STRING_LITERAL)                                      # ColumnExprAlias
     | (tableIdentifier DOT)? ASTERISK                                                     # ColumnExprAsterisk  // single-column only
     | LPAREN selectUnionStmt RPAREN                                                       # ColumnExprSubquery  // single-column only
     | LPAREN columnExpr RPAREN                                                            # ColumnExprParens    // single-column only
     | LPAREN columnExprList RPAREN                                                        # ColumnExprTuple
     | LBRACKET columnExprList? RBRACKET                                                   # ColumnExprArray
-    | LBRACE (kvPairList)? RBRACE                                                         # ColumnExprDict // TODO: currently unsupported in C++
+    | LBRACE (kvPairList)? RBRACE                                                         # ColumnExprDict
+    | columnLambdaExpr                                                                    # ColumnExprLambda
     | columnIdentifier                                                                    # ColumnExprIdentifier
     ;
 
-columnArgList: columnArgExpr (COMMA columnArgExpr)*;
-columnArgExpr: columnLambdaExpr | columnExpr;
 columnLambdaExpr:
-    ( LPAREN identifier (COMMA identifier)* RPAREN
-    |        identifier (COMMA identifier)*
+    ( LPAREN identifier (COMMA identifier)* COMMA? RPAREN
+    |        identifier (COMMA identifier)* COMMA?
+    | LPAREN RPAREN
     )
-    ARROW columnExpr
+    ARROW (columnExpr | block)
     ;
 
 
 hogqlxTagElement
     : LT identifier hogqlxTagAttribute* SLASH GT                                        # HogqlxTagElementClosed
-    | LT identifier hogqlxTagAttribute* GT hogqlxTagElement? LT SLASH identifier GT     # HogqlxTagElementNested
+    | LT identifier hogqlxTagAttribute* GT (hogqlxTagElement | (LBRACE columnExpr RBRACE))? LT SLASH identifier GT     # HogqlxTagElementNested
     ;
 hogqlxTagAttribute
     :   identifier '=' string
@@ -218,7 +229,7 @@ hogqlxTagAttribute
     |   identifier
     ;
 
-withExprList: withExpr (COMMA withExpr)*;
+withExprList: withExpr (COMMA withExpr)* COMMA?;
 withExpr
     : identifier AS LPAREN selectUnionStmt RPAREN    # WithExprSubquery
     // NOTE: asterisk and subquery goes before |columnExpr| so that we can mark them as multi-column expressions.
@@ -242,7 +253,7 @@ tableExpr
     ;
 tableFunctionExpr: identifier LPAREN tableArgList? RPAREN;
 tableIdentifier: (databaseIdentifier DOT)? identifier;
-tableArgList: columnExpr (COMMA columnExpr)*;
+tableArgList: columnExpr (COMMA columnExpr)* COMMA?;
 
 // Databases
 
@@ -282,7 +293,7 @@ keywordForAlias
 alias: IDENTIFIER | keywordForAlias;  // |interval| can't be an alias, otherwise 'INTERVAL 1 SOMETHING' becomes ambiguous.
 identifier: IDENTIFIER | interval | keyword;
 enumValue: string EQ_SINGLE numberLiteral;
-placeholder: LBRACE identifier RBRACE;
+placeholder: LBRACE nestedIdentifier RBRACE;
 
 string: STRING_LITERAL | templateString;
 templateString : QUOTE_SINGLE_TEMPLATE stringContents* QUOTE_SINGLE ;

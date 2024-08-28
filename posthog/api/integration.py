@@ -1,14 +1,16 @@
 from typing import Any
 
+from django.http import HttpResponse
+from django.shortcuts import redirect
 from rest_framework import mixins, serializers, viewsets
-from rest_framework.decorators import action
+from posthog.api.utils import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.integration import Integration, OauthIntegration, SlackIntegration
 
 
 class IntegrationSerializer(serializers.ModelSerializer):
@@ -18,23 +20,20 @@ class IntegrationSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Integration
-        fields = [
-            "id",
-            "kind",
-            "config",
-            "created_at",
-            "created_by",
-            "errors",
-        ]
-        read_only_fields = ["id", "created_at", "created_by", "errors"]
+        fields = ["id", "kind", "config", "created_at", "created_by", "errors", "display_name"]
+        read_only_fields = ["id", "created_at", "created_by", "errors", "display_name"]
 
     def create(self, validated_data: Any) -> Any:
         request = self.context["request"]
         team_id = self.context["team_id"]
 
-        if validated_data["kind"] == "slack":
-            instance = SlackIntegration.integration_from_slack_response(team_id, request.user, validated_data["config"])
-
+        if validated_data["kind"] in OauthIntegration.supported_kinds:
+            try:
+                instance = OauthIntegration.integration_from_oauth_response(
+                    validated_data["kind"], team_id, request.user, validated_data["config"]
+                )
+            except NotImplementedError:
+                raise ValidationError("Kind not configured")
             return instance
 
         raise ValidationError("Kind not supported")
@@ -52,11 +51,25 @@ class IntegrationViewSet(
     queryset = Integration.objects.all()
     serializer_class = IntegrationSerializer
 
-    @action(methods=["GET"], detail=True, url_path="channels")
-    def content(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        instance = self.get_object()
+    @action(methods=["GET"], detail=False)
+    def authorize(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        kind = request.GET.get("kind")
+        next = request.GET.get("next", "")
 
+        if kind in OauthIntegration.supported_kinds:
+            try:
+                auth_url = OauthIntegration.authorize_url(kind, next=next)
+                return redirect(auth_url)
+            except NotImplementedError:
+                raise ValidationError("Kind not configured")
+
+        raise ValidationError("Kind not supported")
+
+    @action(methods=["GET"], detail=True, url_path="channels")
+    def channels(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = self.get_object()
         slack = SlackIntegration(instance)
+
         channels = [
             {
                 "id": channel["id"],

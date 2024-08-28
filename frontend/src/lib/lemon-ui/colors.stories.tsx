@@ -23,10 +23,8 @@ const colorGroups = {
     warning: ['warning-highlight', 'warning', 'warning-dark'],
     success: ['success-highlight', 'success-light', 'success', 'success-dark'],
     'primary-alt': ['primary-alt-highlight', 'primary-alt'],
-    'default (primary text)': ['default', 'default-dark'],
-    'muted (secondary text)': ['muted', 'muted-dark'],
-    'muted-alt ': ['muted-alt'],
-    border: ['border', 'border-light', 'border-bold', 'border-active'],
+    text: ['muted', 'default'],
+    border: ['border', 'border-light', 'border-bold'],
     light: ['white', 'light'],
 }
 
@@ -47,10 +45,7 @@ const preThousand = [
     'success-dark',
     'primary-alt-highlight',
     'primary-alt',
-    'default',
-    'default-dark',
     'muted',
-    'muted-dark',
     'muted-alt',
     'mark',
     'white',
@@ -60,7 +55,6 @@ const preThousand = [
     'border',
     'border-light',
     'border-bold',
-    'border-active',
     'transparent',
     'brand-blue',
     'brand-red',
@@ -71,17 +65,11 @@ const preThousand = [
 const threeThousand = [
     'text-3000',
     'muted-3000',
-    'trace-3000',
     'primary-3000',
-    'primary-3000-hover',
     'secondary-3000',
     'secondary-3000-hover',
     'accent-3000',
     'bg-3000',
-    'border-3000',
-    'border-bold-3000',
-    'glass-bg-3000',
-    'glass-border-3000',
 ]
 
 export function ColorPalette(): JSX.Element {

@@ -169,14 +169,14 @@ export const dashboard = {
         cy.get('[data-attr=insight-save-button]').contains('Save & add to dashboard').click()
         cy.wait('@postInsight')
     },
-    addPropertyFilter(type: string = 'Browser', value: string = 'Chrome'): void {
+    addPropertyFilter(type: string, value: string = 'Chrome'): void {
         cy.get('.PropertyFilterButton').should('have.length', 0)
         cy.get('[data-attr="property-filter-0"]').click()
         cy.get('[data-attr="taxonomic-filter-searchfield"]').click().type('Browser').wait(1000)
         cy.get('[data-attr="prop-filter-event_properties-0"]').click({ force: true }).wait(1000)
         cy.get('.LemonInput').type(value)
         cy.contains('.LemonButton__content', value).click({ force: true })
-        cy.get('button').contains('Apply and save dashboard').click()
+        cy.get('button').contains('Save').click()
     },
     addAnyFilter(): void {
         cy.get('.PropertyFilterButton').should('have.length', 0)
@@ -188,15 +188,19 @@ export const dashboard = {
         // click .dashboard to blur
         cy.get('.dashboard').click({ force: true })
         cy.get('.PropertyFilterButton').should('have.length', 1)
-        cy.get('button').contains('Apply and save dashboard').click()
+        cy.get('button').contains('Save').click()
     },
 }
 
-export function createInsight(insightName: string): void {
+export function createInsight(insightName: string): Cypress.Chainable<string> {
     savedInsights.createNewInsightOfType('TRENDS')
     insight.applyFilter()
     insight.editName(insightName)
     insight.save()
+    // return insight id from the url
+    return cy.url().then((url) => {
+        return url.split('/').at(-1)
+    })
 }
 
 export function duplicateDashboardFromMenu(duplicateTiles = false): void {

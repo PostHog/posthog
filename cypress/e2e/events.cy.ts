@@ -1,7 +1,5 @@
-import { dayjs } from 'lib/dayjs'
-
 const interceptPropertyDefinitions = (): void => {
-    cy.intercept('/api/event/values/?key=%24browser').as('getBrowserValues')
+    cy.intercept('/api/event/values?key=%24browser').as('getBrowserValues')
 
     cy.intercept('api/projects/@current/property_definitions/?limit=5000', {
         fixture: 'api/event/property_definitions',
@@ -72,7 +70,7 @@ describe('Events', () => {
         cy.get('[data-attr="new-prop-filter-EventPropertyFilters.0"]').click()
         cy.get('[data-attr=taxonomic-filter-searchfield]').click()
         cy.get('[data-attr=prop-filter-event_properties-0]').click()
-        cy.get('[data-attr=prop-val] .LemonInput').click({ force: true })
+        cy.get('[data-attr=prop-val]').click({ force: true })
         cy.wait('@getBrowserValues').then(() => {
             cy.get('[data-attr=prop-val-0]').click()
             cy.get('.DataTable').should('exist')

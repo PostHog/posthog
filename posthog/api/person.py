@@ -18,7 +18,7 @@ from django.shortcuts import get_object_or_404
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter
 from rest_framework import request, response, serializers, viewsets
-from rest_framework.decorators import action
+from posthog.api.utils import action
 from rest_framework.exceptions import MethodNotAllowed, NotFound, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.response import Response
@@ -58,7 +58,7 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.person.util import delete_person
 from posthog.queries.actor_base_query import (
     ActorBaseQuery,
-    get_people,
+    get_serialized_people,
 )
 from posthog.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
 from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
@@ -89,6 +89,7 @@ from posthog.utils import (
 from prometheus_client import Counter
 from posthog.metrics import LABEL_TEAM_ID
 from loginas.utils import is_impersonated_session
+import builtins
 
 DEFAULT_PAGE_LIMIT = 100
 # Sync with .../lib/constants.tsx and .../ingestion/hooks.ts
@@ -133,19 +134,23 @@ class PersonLimitOffsetPagination(LimitOffsetPagination):
 
 
 def get_person_name(team: Team, person: Person) -> str:
-    if display_name := get_person_display_name(person, team):
-        return display_name
-    if len(person.distinct_ids) > 0:
-        # Prefer non-UUID distinct IDs (presumably from user identification) over UUIDs
-        return sorted(person.distinct_ids, key=is_anonymous_id)[0]
-    return person.pk
+    return get_person_name_helper(person.pk, person.properties, person.distinct_ids, team)
 
 
-def get_person_display_name(person: Person, team: Team) -> str | None:
+def get_person_name_helper(
+    person_pk: int, person_properties: dict[str, str], distinct_ids: list[str], team: Team
+) -> str:
+    display_name = None
     for property in team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES:
-        if person.properties and person.properties.get(property):
-            return person.properties.get(property)
-    return None
+        if person_properties and person_properties.get(property):
+            display_name = person_properties.get(property)
+            break
+    if display_name:
+        return display_name
+    if len(distinct_ids) > 0:
+        # Prefer non-UUID distinct IDs (presumably from user identification) over UUIDs
+        return sorted(distinct_ids, key=is_anonymous_id)[0]
+    return str(person_pk)
 
 
 class PersonsThrottle(ClickHouseSustainedRateThrottle):
@@ -303,7 +308,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             workload=Workload.OFFLINE,  # this endpoint is only used by external API requests
         )
         actor_ids = [row[0] for row in raw_paginated_result]
-        _, serialized_actors = get_people(team, actor_ids)
+        serialized_actors = get_serialized_people(team, actor_ids)
         _should_paginate = len(actor_ids) >= filter.limit
 
         # If the undocumented include_total param is set to true, we'll return the total count of people
@@ -386,7 +391,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except Person.DoesNotExist:
             raise NotFound(detail="Person not found.")
 
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=False, required_scopes=["person:read"])
     def values(self, request: request.Request, **kwargs) -> response.Response:
         key = request.GET.get("key")
         value = request.GET.get("value")
@@ -425,11 +430,11 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     "team_id": self.team.id,
                 },
             )
-            raise e
+            raise
 
         return result
 
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["person:write"])
     def split(self, request: request.Request, pk=None, **kwargs) -> response.Response:
         person: Person = self.get_object()
         distinct_ids = person.distinct_ids
@@ -474,7 +479,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ),
         ]
     )
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["person:write"])
     def update_property(self, request: request.Request, pk=None, **kwargs) -> response.Response:
         if request.data.get("value") is None:
             return Response(
@@ -509,7 +514,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ),
         ]
     )
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["person:write"])
     def delete_property(self, request: request.Request, pk=None, **kwargs) -> response.Response:
         person: Person = get_pk_or_uuid(Person.objects.filter(team_id=self.team_id), pk).get()
 
@@ -562,7 +567,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return response.Response({"results": CohortSerializer(cohorts, many=True).data})
 
-    @action(methods=["GET"], url_path="activity", detail=False)
+    @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
     def all_activity(self, request: request.Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))
         page = int(request.query_params.get("page", "1"))
@@ -643,7 +648,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
     # PRAGMA: Methods for getting Persons via clickhouse queries
-    def _respond_with_cached_results(self, results_package: dict[str, tuple[List, Optional[str], Optional[str], int]]):  # noqa: UP006
+    def _respond_with_cached_results(
+        self, results_package: dict[str, tuple[builtins.list, Optional[str], Optional[str], int]]
+    ):  # noqa: UP006
         if not results_package:
             return response.Response(data=[])
 
@@ -913,4 +920,4 @@ def prepare_actor_query_filter(filter: T) -> T:
 
 
 class LegacyPersonViewSet(PersonViewSet):
-    derive_current_team_from_user_only = True
+    param_derived_from_user_current_team = "team_id"

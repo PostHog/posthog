@@ -13,11 +13,11 @@ from posthog.schema import PersonsOnEventsMode
 from posthog.hogql.database.s3_table import S3Table
 
 
-def resolve_property_types(node: ast.Expr, context: HogQLContext) -> ast.Expr:
+def build_property_swapper(node: ast.Expr, context: HogQLContext) -> None:
     from posthog.models import PropertyDefinition
 
     if not context or not context.team_id:
-        return node
+        return
 
     # find all properties
     property_finder = PropertyFinder(context)
@@ -61,14 +61,14 @@ def resolve_property_types(node: ast.Expr, context: HogQLContext) -> ast.Expr:
         )
 
     timezone = context.database.get_timezone() if context and context.database else "UTC"
-    property_swapper = PropertySwapper(
+    context.property_swapper = PropertySwapper(
         timezone=timezone,
         event_properties=event_properties,
         person_properties=person_properties,
         group_properties=group_properties,
         context=context,
+        setTimeZones=True,
     )
-    return property_swapper.visit(node)
 
 
 class PropertyFinder(TraversingVisitor):
@@ -122,6 +122,7 @@ class PropertySwapper(CloningVisitor):
         person_properties: dict[str, str],
         group_properties: dict[str, str],
         context: HogQLContext,
+        setTimeZones: bool,
     ):
         super().__init__(clear_types=False)
         self.timezone = timezone
@@ -129,10 +130,11 @@ class PropertySwapper(CloningVisitor):
         self.person_properties = person_properties
         self.group_properties = group_properties
         self.context = context
+        self.setTimeZones = setTimeZones
 
     def visit_field(self, node: ast.Field):
         if isinstance(node.type, ast.FieldType):
-            if isinstance(node.type.resolve_database_field(self.context), DateTimeDatabaseField):
+            if self.setTimeZones and isinstance(node.type.resolve_database_field(self.context), DateTimeDatabaseField):
                 return ast.Call(
                     name="toTimeZone",
                     args=[node, ast.Constant(value=self.timezone)],

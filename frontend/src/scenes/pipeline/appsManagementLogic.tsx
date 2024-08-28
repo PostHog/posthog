@@ -3,11 +3,11 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import posthog from 'posthog-js'
-import { canInstallPlugins } from 'scenes/plugins/access'
 import { userLogic } from 'scenes/userLogic'
 
 import { PluginInstallationType, PluginType } from '~/types'
 
+import { canInstallPlugins } from './access'
 import type { appsManagementLogicType } from './appsManagementLogicType'
 import { pipelineAccessLogic } from './pipelineAccessLogic'
 import { getInitialCode, SourcePluginKind } from './sourceAppInitialCode'
@@ -173,17 +173,33 @@ export const appsManagementLogic = kea<appsManagementLogicType>([
     }),
     selectors({
         canInstallPlugins: [(s) => [s.user], (user) => canInstallPlugins(user?.organization)],
-        globalPlugins: [(s) => [s.plugins], (plugins) => Object.values(plugins).filter((plugin) => plugin.is_global)],
-        localPlugins: [(s) => [s.plugins], (plugins) => Object.values(plugins).filter((plugin) => !plugin.is_global)],
-        missingGlobalPlugins: [
+        inlinePlugins: [
             (s) => [s.plugins],
+            (plugins) =>
+                Object.values(plugins).filter((plugin) => plugin.plugin_type === PluginInstallationType.Inline),
+        ],
+        appPlugins: [
+            (s) => [s.plugins],
+            (plugins) =>
+                Object.values(plugins).filter((plugin) => plugin.plugin_type !== PluginInstallationType.Inline),
+        ],
+        globalPlugins: [
+            (s) => [s.appPlugins],
+            (plugins) => Object.values(plugins).filter((plugin) => plugin.is_global),
+        ],
+        localPlugins: [
+            (s) => [s.appPlugins],
+            (plugins) => Object.values(plugins).filter((plugin) => !plugin.is_global),
+        ],
+        missingGlobalPlugins: [
+            (s) => [s.appPlugins],
             (plugins) => {
                 const existingUrls = new Set(Object.values(plugins).map((p) => p.url))
                 return Array.from(GLOBAL_PLUGINS).filter((url) => !existingUrls.has(url))
             },
         ],
         shouldBeGlobalPlugins: [
-            (s) => [s.plugins],
+            (s) => [s.appPlugins],
             (plugins) => {
                 return Object.values(plugins).filter(
                     (plugin) => plugin.url && GLOBAL_PLUGINS.has(plugin.url) && !plugin.is_global
@@ -191,7 +207,7 @@ export const appsManagementLogic = kea<appsManagementLogicType>([
             },
         ],
         shouldNotBeGlobalPlugins: [
-            (s) => [s.plugins],
+            (s) => [s.appPlugins],
             (plugins) => {
                 return Object.values(plugins).filter(
                     (plugin) => !(plugin.url && GLOBAL_PLUGINS.has(plugin.url)) && plugin.is_global
@@ -199,7 +215,7 @@ export const appsManagementLogic = kea<appsManagementLogicType>([
             },
         ],
         updatablePlugins: [
-            (s) => [s.plugins],
+            (s) => [s.appPlugins],
             (plugins) =>
                 Object.values(plugins).filter(
                     (plugin) => plugin.plugin_type !== PluginInstallationType.Source && !plugin.url?.startsWith('file:')

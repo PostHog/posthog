@@ -1,4 +1,6 @@
+from base64 import b64encode
 from django.conf import settings
+from django.core.cache import cache
 from django.http import HttpResponse
 import requests
 
@@ -14,25 +16,31 @@ class CDPIconsService:
         if not self.supported:
             return []
 
-        res = requests.get(
-            f"https://search.logo.dev/api/icons",
-            params={
-                "token": settings.LOGO_DEV_TOKEN,
-                "query": query,
-            },
-        )
-        data = res.json()
+        cache_key = f"@cdp/list_icons/{b64encode(query.encode()).decode()}"
+        data = cache.get(cache_key)
 
-        parsed = [
-            {
-                "id": item["domain"],
-                "name": item["name"],
-                "url": f"{icon_url_base}{item['domain']}",
-            }
-            for item in data
-        ]
+        if data is None:
+            res = requests.get(
+                f"https://search.logo.dev/api/icons",
+                params={
+                    "token": settings.LOGO_DEV_TOKEN,
+                    "query": query,
+                },
+            )
+            data = res.json() or []
 
-        return parsed
+            data = [
+                {
+                    "id": item["domain"],
+                    "name": item["name"],
+                    "url": f"{icon_url_base}{item['domain']}",
+                }
+                for item in res.json() or []
+            ]
+
+            cache.set(cache_key, data, 60 * 60 * 24)
+
+        return data
 
     def get_icon_http_response(self, id: str):
         if not self.supported:

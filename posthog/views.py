@@ -80,7 +80,11 @@ def stats(request):
 
 
 def robots_txt(request):
-    ROBOTS_TXT_CONTENT = "User-agent: *\nDisallow: /shared_dashboard/" if is_cloud() else "User-agent: *\nDisallow: /"
+    ROBOTS_TXT_CONTENT = (
+        "User-agent: *\nDisallow: /shared_dashboard/\nDisallow: /shared/"
+        if is_cloud()
+        else "User-agent: *\nDisallow: /"
+    )
     return HttpResponse(ROBOTS_TXT_CONTENT, content_type="text/plain")
 
 
@@ -97,6 +101,7 @@ def security_txt(request):
 def preflight_check(request: HttpRequest) -> JsonResponse:
     slack_client_id = SlackIntegration.slack_config().get("SLACK_APP_CLIENT_ID")
     hubspot_client_id = settings.HUBSPOT_APP_CLIENT_ID
+    salesforce_client_id = settings.SALESFORCE_CONSUMER_KEY
 
     response = {
         "django": True,
@@ -118,13 +123,19 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
             "available": bool(slack_client_id),
             "client_id": slack_client_id or None,
         },
-        "data_warehouse_integrations": {"hubspot": {"client_id": hubspot_client_id}},
+        "data_warehouse_integrations": {
+            "hubspot": {"client_id": hubspot_client_id},
+            "salesforce": {"client_id": salesforce_client_id},
+        },
         "object_storage": is_cloud() or is_object_storage_available(),
         "public_egress_ip_addresses": settings.PUBLIC_EGRESS_IP_ADDRESSES,
     }
 
     if settings.DEBUG or settings.E2E_TESTING:
         response["is_debug"] = True
+
+    if settings.DEV_DISABLE_NAVIGATION_HOOKS:
+        response["dev_disable_navigation_hooks"] = True
 
     if request.user.is_authenticated:
         response = {

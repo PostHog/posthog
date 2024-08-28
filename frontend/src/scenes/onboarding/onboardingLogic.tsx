@@ -26,6 +26,7 @@ export interface OnboardingLogicProps {
 export enum OnboardingStepKey {
     PRODUCT_INTRO = 'product_intro',
     INSTALL = 'install',
+    LINK_DATA = 'link_data',
     PLANS = 'plans',
     VERIFY = 'verify',
     PRODUCT_CONFIGURATION = 'configure',
@@ -44,6 +45,14 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
         iconColor: 'blue',
         url: urls.insights(),
         scene: Scene.SavedInsights,
+    },
+    [ProductKey.DATA_WAREHOUSE]: {
+        name: 'Data Warehouse',
+        icon: 'IconDatabase',
+        iconColor: 'salmon',
+        breadcrumbsName: 'Data Warehouse',
+        url: urls.dataWarehouse(),
+        scene: Scene.DataWarehouse,
     },
     [ProductKey.SESSION_REPLAY]: {
         name: 'Session Replay',

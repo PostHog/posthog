@@ -15,7 +15,7 @@ import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { BillingProductV2Type, BillingV2PlanType, BillingV2Type, ProductKey } from '~/types'
+import { BillingPlanType, BillingProductV2Type, BillingType, ProductKey } from '~/types'
 
 import type { billingLogicType } from './billingLogicType'
 
@@ -51,7 +51,7 @@ export interface BillingError {
     action: LemonButtonPropsBase
 }
 
-const parseBillingResponse = (data: Partial<BillingV2Type>): BillingV2Type => {
+const parseBillingResponse = (data: Partial<BillingType>): BillingType => {
     if (data.billing_period) {
         data.billing_period = {
             current_period_start: dayjs(data.billing_period.current_period_start),
@@ -72,7 +72,7 @@ const parseBillingResponse = (data: Partial<BillingV2Type>): BillingV2Type => {
         data.amount_off_expires_at = data.billing_period.current_period_end
     }
 
-    return data as BillingV2Type
+    return data as BillingType
 }
 
 export const billingLogic = kea<billingLogicType>([
@@ -83,7 +83,7 @@ export const billingLogic = kea<billingLogicType>([
         setShowLicenseDirectInput: (show: boolean) => ({ show }),
         reportBillingAlertShown: (alertConfig: BillingAlertConfig) => ({ alertConfig }),
         reportBillingAlertActionClicked: (alertConfig: BillingAlertConfig) => ({ alertConfig }),
-        reportBillingV2Shown: true,
+        reportBillingShown: true,
         registerInstrumentationProps: true,
         setRedirectPath: true,
         setIsOnboarding: true,
@@ -182,7 +182,7 @@ export const billingLogic = kea<billingLogicType>([
     }),
     loaders(({ actions, values }) => ({
         billing: [
-            null as BillingV2Type | null,
+            null as BillingType | null,
             {
                 loadBilling: async () => {
                     const response = await api.get('api/billing')
@@ -190,7 +190,7 @@ export const billingLogic = kea<billingLogicType>([
                     return parseBillingResponse(response)
                 },
 
-                updateBillingLimits: async (limits: { [key: string]: string | null }) => {
+                updateBillingLimits: async (limits: { [key: string]: number | null }) => {
                     const response = await api.update('api/billing', { custom_limits_usd: limits })
 
                     lemonToast.success('Billing limits updated')
@@ -198,11 +198,17 @@ export const billingLogic = kea<billingLogicType>([
                 },
 
                 deactivateProduct: async (key: string) => {
+                    // clear upgrade params from URL
+                    const currentURL = new URL(window.location.href)
+                    currentURL.searchParams.delete('upgraded')
+                    currentURL.searchParams.delete('products')
+                    router.actions.push(currentURL.pathname + currentURL.search)
+
                     actions.resetUnsubscribeError()
                     try {
                         const response = await api.getResponse('api/billing/deactivate?products=' + key)
                         const jsonRes = await getJSONOrNull(response)
-                        lemonToast.success('Product unsubscribed')
+                        lemonToast.success('You have been unsubscribed')
                         actions.reportProductUnsubscribed(key)
                         return parseBillingResponse(jsonRes)
                     } catch (error: any) {
@@ -298,19 +304,16 @@ export const billingLogic = kea<billingLogicType>([
         ],
         projectedTotalAmountUsdWithBillingLimits: [
             (s) => [s.billing],
-            (billing: BillingV2Type): number => {
+            (billing: BillingType): number => {
                 if (!billing) {
                     return 0
                 }
                 let projectedTotal = 0
                 for (const product of billing.products || []) {
-                    const billingLimit: string =
+                    const billingLimit =
                         billing?.custom_limits_usd?.[product.type] ||
-                        (product.usage_key ? billing?.custom_limits_usd?.[product.usage_key] || '0' : '0')
-                    projectedTotal += Math.min(
-                        parseFloat(product.projected_amount_usd || '0'),
-                        parseFloat(billingLimit)
-                    )
+                        (product.usage_key ? billing?.custom_limits_usd?.[product.usage_key] || 0 : 0)
+                    projectedTotal += Math.min(parseFloat(product.projected_amount_usd || '0'), billingLimit)
                 }
                 return projectedTotal
             },
@@ -340,7 +343,7 @@ export const billingLogic = kea<billingLogicType>([
         ],
         supportPlans: [
             (s) => [s.billing],
-            (billing: BillingV2Type): BillingV2PlanType[] => {
+            (billing: BillingType): BillingPlanType[] => {
                 const platformAndSupportProduct = billing?.products?.find(
                     (product) => product.type == ProductKey.PLATFORM_AND_SUPPORT
                 )
@@ -357,7 +360,7 @@ export const billingLogic = kea<billingLogicType>([
         ],
         hasSupportAddonPlan: [
             (s) => [s.billing],
-            (billing: BillingV2Type): boolean => {
+            (billing: BillingType): boolean => {
                 return !!billing?.products
                     ?.find((product) => product.type == ProductKey.PLATFORM_AND_SUPPORT)
                     ?.addons.find((addon) => addon.plans.find((plan) => plan.current_plan))
@@ -394,7 +397,7 @@ export const billingLogic = kea<billingLogicType>([
         },
     })),
     listeners(({ actions, values }) => ({
-        reportBillingV2Shown: () => {
+        reportBillingShown: () => {
             posthog.capture('billing v2 shown')
         },
         reportBillingAlertShown: ({ alertConfig }) => {
@@ -545,6 +548,13 @@ export const billingLogic = kea<billingLogicType>([
             if (_search.products) {
                 const products = _search.products.split(',')
                 actions.setScrollToProductKey(products[0])
+            }
+            if (_search.billing_error) {
+                actions.setBillingAlert({
+                    status: 'error',
+                    title: 'Error',
+                    message: _search.billing_error,
+                })
             }
             actions.setRedirectPath()
             actions.setIsOnboarding()

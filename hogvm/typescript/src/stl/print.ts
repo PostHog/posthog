@@ -1,3 +1,5 @@
+import { isHogCallable, isHogClosure, isHogDate, isHogDateTime, isHogError } from '../objects'
+
 const escapeCharsMap: Record<string, string> = {
     '\b': '\\b',
     '\f': '\\f',
@@ -39,34 +41,59 @@ export function escapeIdentifier(identifier: string | number): string {
         .join('')}\``
 }
 
-export function printHogValue(obj: any): string {
-    if (Array.isArray(obj)) {
-        if ((obj as any).__isHogTuple) {
-            if (obj.length < 2) {
-                return `tuple(${obj.map(printHogValue).join(', ')})`
-            }
-            return `(${obj.map(printHogValue).join(', ')})`
-        } else {
-            return `[${obj.map(printHogValue).join(', ')}]`
-        }
-    }
-    if (obj instanceof Map) {
-        return `{${Array.from(obj.entries())
-            .map(([key, value]) => `${printHogValue(key)}: ${printHogValue(value)}`)
-            .join(', ')}}`
+export function printHogValue(obj: any, marked: Set<any> | undefined = undefined): string {
+    if (!marked) {
+        marked = new Set()
     }
     if (typeof obj === 'object' && obj !== null) {
-        return `{${Object.entries(obj)
-            .map(([key, value]) => `${printHogValue(key)}: ${printHogValue(value)}`)
-            .join(', ')}}`
-    }
-    if (typeof obj === 'boolean') {
+        if (marked.has(obj) && !isHogDateTime(obj) && !isHogDate(obj) && !isHogError(obj)) {
+            return 'null'
+        }
+        marked.add(obj)
+        try {
+            if (Array.isArray(obj)) {
+                if ((obj as any).__isHogTuple) {
+                    if (obj.length < 2) {
+                        return `tuple(${obj.map((o) => printHogValue(o, marked)).join(', ')})`
+                    }
+                    return `(${obj.map((o) => printHogValue(o, marked)).join(', ')})`
+                }
+                return `[${obj.map((o) => printHogValue(o, marked)).join(', ')}]`
+            }
+            if (isHogDateTime(obj)) {
+                const millis = String(obj.dt)
+                return `DateTime(${millis}${millis.includes('.') ? '' : '.0'}, ${escapeString(obj.zone)})`
+            }
+            if (isHogDate(obj)) {
+                return `Date(${obj.year}, ${obj.month}, ${obj.day})`
+            }
+            if (isHogError(obj)) {
+                return `${String(obj.type)}(${escapeString(obj.message)}${
+                    obj.payload ? `, ${printHogValue(obj.payload, marked)}` : ''
+                })`
+            }
+            if (isHogClosure(obj)) {
+                return printHogValue(obj.callable, marked)
+            }
+            if (isHogCallable(obj)) {
+                return `fn<${escapeIdentifier(obj.name ?? 'lambda')}(${printHogValue(obj.argCount)})>`
+            }
+            if (obj instanceof Map) {
+                return `{${Array.from(obj.entries())
+                    .map(([key, value]) => `${printHogValue(key, marked)}: ${printHogValue(value, marked)}`)
+                    .join(', ')}}`
+            }
+            return `{${Object.entries(obj)
+                .map(([key, value]) => `${printHogValue(key, marked)}: ${printHogValue(value, marked)}`)
+                .join(', ')}}`
+        } finally {
+            marked.delete(obj)
+        }
+    } else if (typeof obj === 'boolean') {
         return obj ? 'true' : 'false'
-    }
-    if (obj === null) {
+    } else if (obj === null) {
         return 'null'
-    }
-    if (typeof obj === 'string') {
+    } else if (typeof obj === 'string') {
         return escapeString(obj)
     }
     return obj.toString()

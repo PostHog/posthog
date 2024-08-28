@@ -1,7 +1,8 @@
-from typing import cast
+from typing import cast, Optional, Self
 import posthoganalytics
 
-from posthog.hogql.ast import SelectQuery, And
+from posthog.hogql.ast import SelectQuery, And, CompareOperation, CompareOperationOp, Field, JoinExpr
+from posthog.hogql.base import Expr
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.argmax import argmax_select
@@ -21,6 +22,7 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.schema.util.where_clause_extractor import WhereClauseExtractor
 from posthog.hogql.database.schema.persons_pdi import PersonsPDITable, persons_pdi_join
 from posthog.hogql.errors import ResolutionError
+from posthog.hogql.visitor import clone_expr
 from posthog.models.organization import Organization
 from posthog.schema import PersonsArgMaxVersion
 
@@ -38,7 +40,13 @@ PERSONS_FIELDS: dict[str, FieldOrTable] = {
 }
 
 
-def select_from_persons_table(join_or_table: LazyJoinToAdd | LazyTableToAdd, context: HogQLContext, node: SelectQuery):
+def select_from_persons_table(
+    join_or_table: LazyJoinToAdd | LazyTableToAdd,
+    context: HogQLContext,
+    node: SelectQuery,
+    *,
+    filter: Optional[Expr] = None,
+):
     version = context.modifiers.personsArgMaxVersion
     if version == PersonsArgMaxVersion.AUTO:
         version = PersonsArgMaxVersion.V1
@@ -67,6 +75,8 @@ def select_from_persons_table(join_or_table: LazyJoinToAdd | LazyTableToAdd, con
             ),
         )
         select.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
+        if filter is not None:
+            cast(ast.SelectQuery, cast(ast.CompareOperation, select.where).right).where = filter
 
         for field_name, field_chain in join_or_table.fields_accessed.items():
             # We need to always select the 'id' field for the join constraint. The field name here is likely to
@@ -88,6 +98,11 @@ def select_from_persons_table(join_or_table: LazyJoinToAdd | LazyTableToAdd, con
             timestamp_field_to_clamp="created_at",
         )
         select.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
+        if filter is not None:
+            if select.where:
+                select.where = And(exprs=[select.where, filter])
+            else:
+                select.where = filter
 
     if context.modifiers.optimizeJoinedFilters:
         extractor = WhereClauseExtractor(context)
@@ -162,10 +177,55 @@ class RawPersonsTable(Table):
         return "raw_persons"
 
 
+# Persons is a lazy table that allows you to insert a where statement inside of the person subselect
+# It pulls any "persons.id in ()" statement inside of the argmax subselect
+# This is useful when executing a query for a large team.
 class PersonsTable(LazyTable):
     fields: dict[str, FieldOrTable] = PERSONS_FIELDS
+    filter: Optional[Expr] = None
+
+    @staticmethod
+    def _is_promotable_expr(expr, alias: Optional[str] = None):
+        return (
+            isinstance(expr, CompareOperation)
+            and expr.op == CompareOperationOp.In
+            and isinstance(expr.left, Field)
+            and expr.left.chain == [alias or "persons", "id"]
+        )
+
+    @staticmethod
+    def _partition_exprs(exprs, alias: Optional[str] = None):
+        not_promotable = []
+        promotable = []
+        for expr in exprs:
+            if PersonsTable._is_promotable_expr(expr, alias):
+                # Erase "persons" from the chain before bringing inside
+                expr.left = Field(chain=["id"])
+                promotable.append(expr)
+            else:
+                not_promotable.append(expr)
+
+        return promotable, not_promotable
+
+    # If the join has a clause we can bring inside the subselect, create a new table that represents that
+    def create_new_table_with_filter(self, join: JoinExpr) -> Self:
+        if join.constraint is not None and isinstance(join.constraint.expr, And):
+            exprs = cast(And, join.constraint.expr).exprs
+            promotable, not_promotable = PersonsTable._partition_exprs(exprs, join.alias)
+            if len(promotable) == 0:
+                return self
+            join.constraint.expr.exprs = not_promotable
+            p = self.model_copy()
+            if len(promotable) == 1:
+                p.filter = promotable[0]
+            elif len(promotable) > 1:
+                p.filter = And(exprs=promotable)
+            return p
+        return self
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context, node):
+        if self.filter is not None:
+            return select_from_persons_table(table_to_add, context, node, filter=clone_expr(self.filter, True))
         return select_from_persons_table(table_to_add, context, node)
 
     def to_printed_clickhouse(self, context):

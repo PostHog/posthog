@@ -1,26 +1,23 @@
 from abc import ABC, abstractmethod
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from enum import IntEnum
 from typing import Any, Generic, Optional, TypeVar, Union, cast, TypeGuard
-from zoneinfo import ZoneInfo
 
 import structlog
-from django.conf import settings
-from django.core.cache import cache
 from prometheus_client import Counter
 from pydantic import BaseModel, ConfigDict
-from sentry_sdk import capture_exception, push_scope
+from sentry_sdk import capture_exception, push_scope, set_tag, get_traceparent
 
-from posthog.cache_utils import OrjsonJsonSerializer
-from posthog.caching.utils import is_stale
-from posthog.clickhouse.client.execute_async import enqueue_process_query_task
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.caching.utils import is_stale, ThresholdMode, cache_target_age, last_refresh_from_cached_result
+from posthog.clickhouse.client.execute_async import enqueue_process_query_task, get_query_status, QueryNotFoundError
+from posthog.clickhouse.query_tagging import tag_queries, get_query_tag_value
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
 from posthog.hogql.timings import HogQLTimings
+from posthog.hogql_queries.query_cache import QueryCacheManager
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team, User
 from posthog.schema import (
@@ -53,9 +50,11 @@ from posthog.schema import (
     WebTopClicksQuery,
     QueryStatusResponse,
     GenericCachedQueryResponse,
+    QueryStatus,
+    SessionAttributionExplorerQuery,
 )
 from posthog.schema_helpers import to_dict, to_json
-from posthog.utils import generate_cache_key, get_from_dict_or_attr, get_safe_cache
+from posthog.utils import generate_cache_key, get_from_dict_or_attr
 
 logger = structlog.get_logger(__name__)
 
@@ -68,7 +67,7 @@ QUERY_CACHE_WRITE_COUNTER = Counter(
 QUERY_CACHE_HIT_COUNTER = Counter(
     "posthog_query_cache_hit_total",
     "Whether we could fetch the query from the cache or not.",
-    labelnames=[LABEL_TEAM_ID, "cache_hit"],
+    labelnames=[LABEL_TEAM_ID, "cache_hit", "trigger"],
 )
 
 EXTENDED_CACHE_AGE = timedelta(days=1)
@@ -104,6 +103,20 @@ def execution_mode_from_refresh(refresh_requested: bool | str | None) -> Executi
     return ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
 
 
+def shared_insights_execution_mode(execution_mode: ExecutionMode) -> ExecutionMode:
+    shared_mode_whitelist = {
+        # Cache only is default refresh mode - remap to async so shared insights stay fresh
+        ExecutionMode.CACHE_ONLY_NEVER_CALCULATE: ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
+        # Legacy refresh=true - but on shared insights, we don't give the ability to refresh at will
+        # TODO: Adjust once shared insights can poll for async query_status
+        ExecutionMode.CALCULATE_BLOCKING_ALWAYS: ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+        # Allow regular async
+        ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE: ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+        # - All others fall back to extended cache -
+    }
+    return shared_mode_whitelist.get(execution_mode, ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE)
+
+
 RunnableQueryNode = Union[
     TrendsQuery,
     FunnelsQuery,
@@ -123,6 +136,7 @@ RunnableQueryNode = Union[
     WebOverviewQuery,
     WebStatsTableQuery,
     WebTopClicksQuery,
+    SessionAttributionExplorerQuery,
 ]
 
 
@@ -273,27 +287,15 @@ def get_query_runner(
             limit_context=limit_context,
         )
     if kind == "WebOverviewQuery":
-        use_session_table = get_from_dict_or_attr(query, "useSessionsTable")
-        if use_session_table:
-            from .web_analytics.web_overview import WebOverviewQueryRunner
+        from .web_analytics.web_overview import WebOverviewQueryRunner
 
-            return WebOverviewQueryRunner(
-                query=query,
-                team=team,
-                timings=timings,
-                modifiers=modifiers,
-                limit_context=limit_context,
-            )
-        else:
-            from .web_analytics.web_overview_legacy import LegacyWebOverviewQueryRunner
-
-            return LegacyWebOverviewQueryRunner(
-                query=query,
-                team=team,
-                timings=timings,
-                modifiers=modifiers,
-                limit_context=limit_context,
-            )
+        return WebOverviewQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
     if kind == "WebTopClicksQuery":
         from .web_analytics.top_clicks import WebTopClicksQueryRunner
 
@@ -305,27 +307,37 @@ def get_query_runner(
             limit_context=limit_context,
         )
     if kind == "WebStatsTableQuery":
-        use_session_table = get_from_dict_or_attr(query, "useSessionsTable")
-        if use_session_table:
-            from .web_analytics.stats_table import WebStatsTableQueryRunner
+        from .web_analytics.stats_table import WebStatsTableQueryRunner
 
-            return WebStatsTableQueryRunner(
-                query=query,
-                team=team,
-                timings=timings,
-                modifiers=modifiers,
-                limit_context=limit_context,
-            )
-        else:
-            from .web_analytics.stats_table_legacy import LegacyWebStatsTableQueryRunner
+        return WebStatsTableQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
 
-            return LegacyWebStatsTableQueryRunner(
-                query=query,
-                team=team,
-                timings=timings,
-                modifiers=modifiers,
-                limit_context=limit_context,
-            )
+    if kind == "SessionAttributionExplorerQuery":
+        from .web_analytics.session_attribution_explorer_query_runner import SessionAttributionExplorerQueryRunner
+
+        return SessionAttributionExplorerQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "ErrorTrackingQuery":
+        from .error_tracking_query_runner import ErrorTrackingQueryRunner
+
+        return ErrorTrackingQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
 
     raise ValueError(f"Can't get a runner for an unknown query kind: {kind}")
 
@@ -344,7 +356,7 @@ def get_query_runner_or_none(
     except ValueError as e:
         if "Can't get a runner for an unknown" in str(e):
             return None
-        raise e
+        raise
 
 
 Q = TypeVar("Q", bound=RunnableQueryNode)
@@ -416,76 +428,102 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         raise NotImplementedError()
 
     def enqueue_async_calculation(
-        self, *, cache_key: str, refresh_requested: bool = False, user: Optional[User] = None
-    ) -> QueryStatusResponse:
-        query_status = enqueue_process_query_task(
+        self,
+        *,
+        cache_manager: QueryCacheManager,
+        refresh_requested: bool = False,
+        user: Optional[User] = None,
+    ) -> QueryStatus:
+        return enqueue_process_query_task(
             team=self.team,
-            user=user,
+            user_id=user.id if user else None,
+            insight_id=cache_manager.insight_id,
+            dashboard_id=cache_manager.dashboard_id,
             query_json=self.query.model_dump(),
-            query_id=self.query_id or cache_key,  # Use cache key as query ID to avoid duplicates
+            query_id=self.query_id or cache_manager.cache_key,  # Use cache key as query ID to avoid duplicates
             refresh_requested=refresh_requested,
         )
-        return QueryStatusResponse(query_status=query_status)
+
+    def get_async_query_status(self, *, cache_key: str) -> Optional[QueryStatus]:
+        try:
+            query_status = get_query_status(team_id=self.team.pk, query_id=self.query_id or cache_key)
+            if query_status.complete:
+                return None
+            return query_status
+
+        except QueryNotFoundError:
+            return None
+
+    def count_query_cache_hit(self, hit: str, trigger: str = "") -> None:
+        if (get_query_tag_value("trigger") or "").startswith("warming"):
+            # We don't want to count for cache hits caused by warming itself
+            return
+        QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit=hit, trigger=trigger).inc()
 
     def handle_cache_and_async_logic(
-        self, execution_mode: ExecutionMode, cache_key: str, user: Optional[User] = None
+        self, execution_mode: ExecutionMode, cache_manager: QueryCacheManager, user: Optional[User] = None
     ) -> Optional[CR | CacheMissResponse]:
         CachedResponse: type[CR] = self.cached_response_type
         cached_response: CR | CacheMissResponse
-        cached_response_candidate_bytes: Optional[bytes] = get_safe_cache(cache_key)
-        cached_response_candidate: Optional[dict] = (
-            OrjsonJsonSerializer({}).loads(cached_response_candidate_bytes) if cached_response_candidate_bytes else None
-        )
+        cached_response_candidate = cache_manager.get_cache_data()
+
         if self.is_cached_response(cached_response_candidate):
             cached_response_candidate["is_cached"] = True
             cached_response = CachedResponse(**cached_response_candidate)
         elif cached_response_candidate is None:
-            cached_response = CacheMissResponse(cache_key=cache_key)
+            cached_response = CacheMissResponse(cache_key=cache_manager.cache_key)
         else:
             # Whatever's in cache is malformed, so let's treat is as non-existent
-            cached_response = CacheMissResponse(cache_key=cache_key)
+            cached_response = CacheMissResponse(cache_key=cache_manager.cache_key)
             with push_scope() as scope:
-                scope.set_tag("cache_key", cache_key)
+                scope.set_tag("cache_key", cache_manager.cache_key)
                 capture_exception(
                     ValueError(f"Cached response is of unexpected type {type(cached_response)}, ignoring it")
                 )
 
         if self.is_cached_response(cached_response_candidate):
-            if not self._is_stale(cached_response):
-                QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="hit").inc()
+            assert isinstance(cached_response, CachedResponse)
+
+            if not self._is_stale(last_refresh=last_refresh_from_cached_result(cached_response)):
+                self.count_query_cache_hit(hit="hit", trigger=cached_response.calculation_trigger or "")
                 # We have a valid result that's fresh enough, let's return it
+                cached_response.query_status = self.get_async_query_status(cache_key=cache_manager.cache_key)
                 return cached_response
 
-            QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="stale").inc()
+            self.count_query_cache_hit(hit="stale", trigger=cached_response.calculation_trigger or "")
             # We have a stale result. If we aren't allowed to calculate, let's still return it
             # – otherwise let's proceed to calculation
             if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
+                cached_response.query_status = self.get_async_query_status(cache_key=cache_manager.cache_key)
                 return cached_response
             elif execution_mode == ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE:
                 # We're allowed to calculate, but we'll do it asynchronously and attach the query status
-                query_status_response = self.enqueue_async_calculation(cache_key=cache_key, user=user)
-                cached_response.query_status = query_status_response.query_status
+                cached_response.query_status = self.enqueue_async_calculation(
+                    cache_manager=cache_manager, user=user, refresh_requested=True
+                )
                 return cached_response
             elif execution_mode == ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE:
-                # We're allowed to calculate if the cache is older than 24 hours, but we'll do it asynchronously
+                # We're allowed to calculate if the lazy check fails, but we'll do it asynchronously
                 assert isinstance(cached_response, CachedResponse)
-                if datetime.now(timezone.utc) - cached_response.last_refresh > EXTENDED_CACHE_AGE:
-                    query_status_response = self.enqueue_async_calculation(cache_key=cache_key, user=user)
-                    cached_response.query_status = query_status_response.query_status
+                if self._is_stale(last_refresh=last_refresh_from_cached_result(cached_response), lazy=True):
+                    cached_response.query_status = self.enqueue_async_calculation(
+                        cache_manager=cache_manager, user=user
+                    )
+                cached_response.query_status = self.get_async_query_status(cache_key=cache_manager.cache_key)
                 return cached_response
         else:
-            QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="miss").inc()
+            self.count_query_cache_hit(hit="miss", trigger="")
             # We have no cached result. If we aren't allowed to calculate, let's return the cache miss
             # – otherwise let's proceed to calculation
             if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
+                cached_response.query_status = self.get_async_query_status(cache_key=cache_manager.cache_key)
                 return cached_response
             elif execution_mode in (
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
                 ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
             ):
                 # We're allowed to calculate, but we'll do it asynchronously
-                query_status_response = self.enqueue_async_calculation(cache_key=cache_key, user=user)
-                cached_response.query_status = query_status_response.query_status
+                cached_response.query_status = self.enqueue_async_calculation(cache_manager=cache_manager, user=user)
                 return cached_response
 
         # Nothing useful out of cache, nor async query status
@@ -496,37 +534,71 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
         user: Optional[User] = None,
         query_id: Optional[str] = None,
+        insight_id: Optional[int] = None,
+        dashboard_id: Optional[int] = None,
     ) -> CR | CacheMissResponse | QueryStatusResponse:
         cache_key = self.get_cache_key()
+
         tag_queries(cache_key=cache_key)
+        tag_queries(sentry_trace=get_traceparent())
+        set_tag("cache_key", cache_key)
+        set_tag("query_type", getattr(self.query, "kind", "Other"))
+        if insight_id:
+            tag_queries(insight_id=insight_id)
+            set_tag("insight_id", str(insight_id))
+        if dashboard_id:
+            tag_queries(dashboard_id=dashboard_id)
+            set_tag("dashboard_id", str(dashboard_id))
+
         self.query_id = query_id or self.query_id
         CachedResponse: type[CR] = self.cached_response_type
+        cache_manager = QueryCacheManager(
+            team_id=self.team.pk,
+            cache_key=cache_key,
+            insight_id=insight_id,
+            dashboard_id=dashboard_id,
+        )
 
         if execution_mode == ExecutionMode.CALCULATE_ASYNC_ALWAYS:
             # We should always kick off async calculation and disregard the cache
-            return self.enqueue_async_calculation(refresh_requested=True, cache_key=cache_key, user=user)
+            return QueryStatusResponse(
+                query_status=self.enqueue_async_calculation(
+                    refresh_requested=True, cache_manager=cache_manager, user=user
+                )
+            )
         elif execution_mode != ExecutionMode.CALCULATE_BLOCKING_ALWAYS:
             # Let's look in the cache first
-            results = self.handle_cache_and_async_logic(execution_mode=execution_mode, cache_key=cache_key, user=user)
+            results = self.handle_cache_and_async_logic(
+                execution_mode=execution_mode, cache_manager=cache_manager, user=user
+            )
             if results is not None:
                 return results
 
+        last_refresh = datetime.now(UTC)
+        target_age = self.cache_target_age(last_refresh=last_refresh)
         fresh_response_dict = {
             **self.calculate().model_dump(),
             "is_cached": False,
-            "last_refresh": datetime.now(timezone.utc),
-            "next_allowed_client_refresh": datetime.now(timezone.utc) + self._refresh_frequency(),
+            "last_refresh": last_refresh,
+            "next_allowed_client_refresh": last_refresh + self._refresh_frequency(),
             "cache_key": cache_key,
             "timezone": self.team.timezone,
+            "cache_target_age": target_age,
         }
+        if get_query_tag_value("trigger"):
+            fresh_response_dict["calculation_trigger"] = get_query_tag_value("trigger")
         fresh_response = CachedResponse(**fresh_response_dict)
 
         # Don't cache debug queries with errors and export queries
         has_error: Optional[list] = fresh_response_dict.get("error", None)
-        cache_ttl = self.cache_ttl()
-        if (has_error is None or len(has_error) == 0) and self.limit_context != LimitContext.EXPORT and cache_ttl > 0:
-            fresh_response_serialized = OrjsonJsonSerializer({}).dumps(fresh_response.model_dump())
-            cache.set(cache_key, fresh_response_serialized, cache_ttl)
+        if (has_error is None or len(has_error) == 0) and self.limit_context != LimitContext.EXPORT:
+            cache_manager.set_cache_data(
+                response=fresh_response_dict,
+                # This would be a possible place to decide to not ever keep this cache warm
+                # Example: Not for super quickly calculated insights
+                # Set target_age to None in that case
+                target_age=target_age,
+            )
             QUERY_CACHE_WRITE_COUNTER.labels(team_id=self.team.pk).inc()
 
         return fresh_response
@@ -535,7 +607,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         raise NotImplementedError()
 
-    def to_actors_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def to_actors_query(self, *args, **kwargs) -> ast.SelectQuery | ast.SelectUnionQuery:
         # TODO: add support for selecting and filtering by breakdowns
         raise NotImplementedError()
 
@@ -566,15 +638,23 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def get_cache_key(self) -> str:
         return generate_cache_key(f"query_{bytes.decode(to_json(self.get_cache_payload()))}")
 
-    def _is_stale(self, cached_result_package):
-        # Default is to have the result valid for at 1 minute
-        return is_stale(self.team, datetime.now(tz=ZoneInfo("UTC")), "minute", cached_result_package)
+    def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
+        if last_refresh is None:
+            return None
+        query_date_range = getattr(self, "query_date_range", None)
+        interval = query_date_range.interval_name if query_date_range else "minute"
+        mode = ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT
+        return cache_target_age(interval, last_refresh=last_refresh, mode=mode)
+
+    def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
+        query_date_range = getattr(self, "query_date_range", None)
+        date_to = query_date_range.date_to() if query_date_range else None
+        interval = query_date_range.interval_name if query_date_range else "minute"
+        mode = ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT
+        return is_stale(self.team, date_to=date_to, interval=interval, last_refresh=last_refresh, mode=mode)
 
     def _refresh_frequency(self) -> timedelta:
         return timedelta(minutes=1)
-
-    def cache_ttl(self) -> float:
-        return settings.CACHED_RESULTS_TTL
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
         """Irreversably update self.query with provided dashboard filters."""

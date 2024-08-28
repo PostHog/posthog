@@ -14,16 +14,27 @@ export interface ColumnMeta {
     align?: 'left' | 'right' | 'center'
 }
 
-export function renderColumnMeta(key: string, query: DataTableNode, context?: QueryContext): ColumnMeta {
+export function renderColumnMeta(key: string, query: DataTableNode, context?: QueryContext<DataTableNode>): ColumnMeta {
     let width: string | number | undefined
     let title: JSX.Element | string | undefined
     const queryFeatures = getQueryFeatures(query.source)
     let align: ColumnMeta['align']
 
-    if (isHogQLQuery(query.source)) {
+    const queryContextColumnName = key.startsWith('context.columns.') ? trimQuotes(key.substring(16)) : undefined
+    const queryContextColumn =
+        (queryContextColumnName ? context?.columns?.[queryContextColumnName] : undefined) ?? context?.columns?.[key]
+
+    if (queryContextColumnName && queryContextColumn && (queryContextColumn.title || queryContextColumn.renderTitle)) {
+        const Component = queryContextColumn.renderTitle
+        title = Component ? <Component columnName={queryContextColumnName} query={query} /> : queryContextColumn.title
+    } else if (isHogQLQuery(query.source)) {
         title = key
         if (title.startsWith('`') && title.endsWith('`')) {
             title = title.substring(1, title.length - 1)
+        }
+        if (title.startsWith("tuple('__hx_tag', '")) {
+            const tagName = title.substring(19, title.indexOf("'", 19))
+            title = tagName === '__hx_obj' ? 'Object' : '<' + tagName + ' />'
         }
     } else if (key === 'timestamp') {
         title = 'Time'
@@ -41,16 +52,6 @@ export function renderColumnMeta(key: string, query: DataTableNode, context?: Qu
                 disableIcon
             />
         )
-    } else if (key.startsWith('context.columns.')) {
-        const column = trimQuotes(key.substring(16))
-        const queryContextColumn = context?.columns?.[column]
-        const Component = queryContextColumn?.renderTitle
-        title = Component ? (
-            <Component columnName={column} query={query} />
-        ) : (
-            queryContextColumn?.title ?? column.replace('_', ' ')
-        )
-        align = queryContextColumn?.align
     } else if (key === 'person.$delete') {
         title = ''
         width = 0
@@ -62,14 +63,28 @@ export function renderColumnMeta(key: string, query: DataTableNode, context?: Qu
                 disableIcon
             />
         )
+    } else if (queryContextColumnName) {
+        title = queryContextColumnName.replace('_', ' ')
     } else {
         title = queryFeatures.has(QueryFeature.selectAndOrderByColumns) ? extractExpressionComment(key) : key
     }
 
-    const specifiedWidth = context?.columns?.[key]?.width
+    if (queryContextColumn?.align) {
+        align = queryContextColumn.align
+    }
 
-    if (specifiedWidth) {
-        width = specifiedWidth
+    if (queryContextColumn?.width) {
+        width = queryContextColumn.width
+    } else if (context?.columns?.[key]?.width) {
+        width = context.columns[key].width
+    }
+
+    if (queryContextColumnName && queryContextColumn && (queryContextColumn.title || queryContextColumn.renderTitle)) {
+        const Component = queryContextColumn.renderTitle
+        title = Component ? <Component columnName={queryContextColumnName} query={query} /> : queryContextColumn.title
+    } else if (context?.columns?.[key]?.title || context?.columns?.[key]?.renderTitle) {
+        const Component = context?.columns?.[key]?.renderTitle
+        title = Component ? <Component columnName={key} query={query} /> : context?.columns?.[key]?.title
     }
 
     if (queryFeatures.has(QueryFeature.selectAndOrderByColumns) && !query.allowSorting) {

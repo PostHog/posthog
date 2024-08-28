@@ -1,5 +1,6 @@
 import { urls } from 'scenes/urls'
-import { createInsight, insight, savedInsights } from '../productAnalytics'
+
+import { createInsight, savedInsights } from '../productAnalytics'
 import { randomString } from '../support/random'
 
 // For tests related to trends please check trendsElements.js
@@ -12,7 +13,7 @@ describe('Insights', () => {
     it('Saving an insight sets breadcrumbs', () => {
         createInsight('insight name')
 
-        cy.get('[data-attr=breadcrumb-organization]').should('contain', 'Hogflix')
+        cy.get('[data-attr=breadcrumb-organization]').should('contain', 'H') // "H" as the lettermark of "Hogflix"
         cy.get('[data-attr=breadcrumb-project]').should('contain', 'Hogflix Demo App')
         cy.get('[data-attr=breadcrumb-SavedInsights]').should('have.text', 'Product analytics')
         cy.get('[data-attr^="breadcrumb-Insight:"]').should('have.text', 'insight name')
@@ -112,15 +113,5 @@ describe('Insights', () => {
     it('Cannot see tags or description (non-FOSS feature)', () => {
         cy.get('.insight-description').should('not.exist')
         cy.get('[data-attr=insight-tags]').should('not.exist')
-    })
-
-    describe('view source', () => {
-        it('can open the query editor', () => {
-            insight.newInsight('TRENDS')
-            insight.save()
-            cy.get('[data-attr="more-button"]').click()
-            cy.get('[data-attr="show-insight-source"]').click()
-            cy.get('[data-attr="query-editor"]').should('exist')
-        })
     })
 })

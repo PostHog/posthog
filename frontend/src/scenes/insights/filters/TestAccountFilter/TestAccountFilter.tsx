@@ -33,7 +33,7 @@ export function TestAccountFilter({
             id="test-account-filter"
             bordered
             label={
-                <div className="flex items-center">
+                <div className="flex items-center whitespace-nowrap">
                     <span>Filter out internal and test users</span>
                     <LemonButton
                         icon={<IconGear />}

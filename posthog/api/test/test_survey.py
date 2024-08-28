@@ -1,19 +1,20 @@
 import re
 from datetime import datetime, timedelta
+from typing import Any
 from unittest.mock import ANY
 
 import pytest
 from django.core.cache import cache
 from django.test.client import Client
+
 from freezegun.api import freeze_time
 from posthog.api.survey import nh3_clean_with_allow_list
 from posthog.models.cohort.cohort import Cohort
 from nanoid import generate
-
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
-from posthog.models import FeatureFlag
+from posthog.models import FeatureFlag, Action
 
 from posthog.models.feedback.survey import Survey
 from posthog.test.base import (
@@ -337,7 +338,7 @@ class TestSurvey(APIBaseTest):
             format="json",
         ).json()
 
-        with self.assertNumQueries(14):
+        with self.assertNumQueries(16):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()
@@ -618,14 +619,14 @@ class TestSurvey(APIBaseTest):
         flagId = survey_with_targeting["targeting_flag"]["id"]
         assert FeatureFlag.objects.filter(id=flagId).exists()
 
-        updated_survey_deletes_targeting_flag = self.client.patch(
+        updated_survey_does_not_delete_targeting_flag = self.client.patch(
             f"/api/projects/{self.team.id}/surveys/{survey_with_targeting['id']}/",
             data={"start_date": "2023-04-01T12:00:10"},
         )
 
-        assert updated_survey_deletes_targeting_flag.status_code == status.HTTP_200_OK
-        assert updated_survey_deletes_targeting_flag.json()["name"] == "survey with targeting"
-        assert updated_survey_deletes_targeting_flag.json()["targeting_flag"] is not None
+        assert updated_survey_does_not_delete_targeting_flag.status_code == status.HTTP_200_OK
+        assert updated_survey_does_not_delete_targeting_flag.json()["name"] == "survey with targeting"
+        assert updated_survey_does_not_delete_targeting_flag.json()["targeting_flag"] is not None
 
         assert FeatureFlag.objects.filter(id=flagId).exists()
 
@@ -746,6 +747,34 @@ class TestSurvey(APIBaseTest):
         )
 
         assert updated_survey_deletes_targeting_flag.status_code == status.HTTP_200_OK
+
+    def test_survey_targeting_flag_numeric_validation(self):
+        survey_with_targeting = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "survey with numeric targeting",
+                "type": "popover",
+                "targeting_flag_filters": {
+                    "groups": [
+                        {
+                            "variant": None,
+                            "rollout_percentage": None,
+                            "properties": [
+                                {
+                                    "key": "$browser_version",
+                                    "value": "10",
+                                    "operator": "gt",
+                                    "type": "person",
+                                }
+                            ],
+                        }
+                    ]
+                },
+                "conditions": {"url": ""},
+            },
+            format="json",
+        )
+        assert survey_with_targeting.status_code == status.HTTP_201_CREATED
 
     def test_updating_survey_to_send_none_linked_flag_removes_linking(self):
         linked_flag = FeatureFlag.objects.create(team=self.team, key="early-access", created_by=self.user)
@@ -927,6 +956,16 @@ class TestSurvey(APIBaseTest):
         )
         assert FeatureFlag.objects.filter(id=survey.internal_targeting_flag.id).get().active is True
 
+    def test_options_unauthenticated(self):
+        unauthenticated_client = Client(enforce_csrf_checks=True)
+        unauthenticated_client.logout()
+        request_headers = {"HTTP_ACCESS_CONTROL_REQUEST_METHOD": "GET", "HTTP_ORIGIN": "*", "USER_AGENT": "Agent 008"}
+        response = unauthenticated_client.options(
+            "/api/surveys", data={}, follow=False, secure=False, headers={}, **request_headers
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["Access-Control-Allow-Origin"], "*")
+
     def test_can_list_surveys(self):
         self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
@@ -947,7 +986,6 @@ class TestSurvey(APIBaseTest):
         response_data = list.json()
         assert list.status_code == status.HTTP_200_OK, response_data
         survey = Survey.objects.get(team_id=self.team.id)
-
         assert response_data == {
             "count": 1,
             "next": None,
@@ -1008,7 +1046,7 @@ class TestSurvey(APIBaseTest):
                     "responses_limit": None,
                     "iteration_count": None,
                     "iteration_frequency_days": None,
-                    "iteration_start_dates": None,
+                    "iteration_start_dates": [],
                     "current_iteration": None,
                     "current_iteration_start_date": None,
                 }
@@ -1160,6 +1198,186 @@ class TestSurvey(APIBaseTest):
         self.team.refresh_from_db()
         assert self.team.surveys_opt_in is False
 
+    @freeze_time("2023-05-01 12:00:00")
+    def test_update_survey_targeting_flag_filters_records_activity(self):
+        linked_flag = FeatureFlag.objects.create(team=self.team, key="linked-flag", created_by=self.user)
+        targeting_flag = FeatureFlag.objects.create(team=self.team, key="targeting-flag", created_by=self.user)
+        internal_targeting_flag = FeatureFlag.objects.create(
+            team=self.team, key="custom-targeting-flag", created_by=self.user
+        )
+
+        survey_with_flags = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Survey 2",
+            type="popover",
+            linked_flag=linked_flag,
+            targeting_flag=targeting_flag,
+            internal_targeting_flag=internal_targeting_flag,
+            questions=[{"type": "open", "question": "What's a hedgehog?"}],
+        )
+
+        new_filters: dict[str, Any] = {
+            "targeting_flag_filters": {
+                "groups": [
+                    {"variant": None, "properties": [], "rollout_percentage": 69},
+                    {"variant": None, "properties": [], "rollout_percentage": 75},
+                ],
+                "payloads": {},
+                "multivariate": None,
+            }
+        }
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_with_flags.id}/",
+            data={"targeting_flag_filters": new_filters},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        expected_activity_log = [
+            {
+                "user": {"first_name": self.user.first_name, "email": self.user.email},
+                "activity": "updated",
+                "scope": "Survey",
+                "item_id": str(survey_with_flags.id),
+                "detail": {
+                    "changes": [
+                        {
+                            "type": "Survey",
+                            "action": "changed",
+                            "field": "targeting_flag_filters",
+                            "before": {},
+                            "after": new_filters,
+                        },
+                    ],
+                    "trigger": None,
+                    "name": "Survey 2",
+                    "short_id": None,
+                    "type": None,
+                },
+                "created_at": "2023-05-01T12:00:00Z",
+            }
+        ]
+
+        self._assert_survey_activity(expected_activity_log)
+
+    @freeze_time("2023-05-01 12:00:00")
+    def test_create_survey_records_activity(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "New Survey",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "What's your favorite feature?"}],
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        survey_id = response.json()["id"]
+
+        self._assert_survey_activity(
+            [
+                {
+                    "user": {"first_name": self.user.first_name, "email": self.user.email},
+                    "activity": "created",
+                    "scope": "Survey",
+                    "item_id": survey_id,
+                    "detail": {
+                        "changes": None,
+                        "trigger": None,
+                        "name": "New Survey",
+                        "short_id": None,
+                        "type": None,
+                    },
+                    "created_at": "2023-05-01T12:00:00Z",
+                }
+            ],
+        )
+
+    @freeze_time("2023-05-01 12:00:00")
+    def test_update_survey_records_activity(self):
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Original Survey",
+            type="popover",
+            questions=[{"type": "open", "question": "Initial question?"}],
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"name": "Updated Survey", "questions": [{"type": "open", "question": "Updated question?"}]},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self._assert_survey_activity(
+            [
+                {
+                    "user": {"first_name": self.user.first_name, "email": self.user.email},
+                    "activity": "updated",
+                    "scope": "Survey",
+                    "item_id": str(survey.id),
+                    "detail": {
+                        "changes": [
+                            {
+                                "type": "Survey",
+                                "action": "changed",
+                                "field": "name",
+                                "before": "Original Survey",
+                                "after": "Updated Survey",
+                            },
+                            {
+                                "type": "Survey",
+                                "action": "changed",
+                                "field": "questions",
+                                "before": [{"type": "open", "question": "Initial question?"}],
+                                "after": [{"type": "open", "question": "Updated question?"}],
+                            },
+                        ],
+                        "trigger": None,
+                        "name": "Updated Survey",
+                        "short_id": None,
+                        "type": None,
+                    },
+                    "created_at": "2023-05-01T12:00:00Z",
+                }
+            ],
+        )
+
+    @freeze_time("2023-05-01 12:00:00")
+    def test_delete_survey_records_activity(self):
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Survey to Delete",
+            type="popover",
+            questions=[{"type": "open", "question": "Question?"}],
+        )
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/surveys/{survey.id}/")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        self._assert_survey_activity(
+            [
+                {
+                    "user": {"first_name": self.user.first_name, "email": self.user.email},
+                    "activity": "deleted",
+                    "scope": "Survey",
+                    "item_id": str(survey.id),
+                    "detail": {
+                        "changes": None,
+                        "trigger": None,
+                        "name": "Survey to Delete",
+                        "short_id": None,
+                        "type": None,
+                    },
+                    "created_at": "2023-05-01T12:00:00Z",
+                }
+            ],
+        )
+
+    def _assert_survey_activity(self, expected):
+        activity = self.client.get(f"/api/projects/{self.team.id}/surveys/activity").json()
+        self.assertEqual(activity["results"], expected)
+
 
 class TestMultipleChoiceQuestions(APIBaseTest):
     def test_create_survey_has_open_choice(self):
@@ -1249,6 +1467,7 @@ class TestSurveyQuestionValidation(APIBaseTest):
                     "thankYouMessageHeader": "Thanks for your feedback!",
                     "thankYouMessageDescription": "<b>We'll use it to make notebooks better.<script>alert(0)</script>",
                     "shuffleQuestions": True,
+                    "surveyPopupDelaySeconds": 60,
                 },
             },
             format="json",
@@ -1271,6 +1490,7 @@ class TestSurveyQuestionValidation(APIBaseTest):
             "thankYouMessageHeader": "Thanks for your feedback!",
             "thankYouMessageDescription": "<b>We'll use it to make notebooks better.</b>",
             "shuffleQuestions": True,
+            "surveyPopupDelaySeconds": 60,
         }
         assert response_data["created_by"]["id"] == self.user.id
 
@@ -1585,6 +1805,27 @@ class TestSurveyQuestionValidation(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
         assert response_data["detail"] == "Question choices must be a list of strings"
 
+    def test_validate_malformed_question_choices_as_array_of_empty_strings(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks beta release survey",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "questions": [
+                    {
+                        "question": "this is my question",
+                        "type": "multiple_choice",
+                        "choices": ["", ""],
+                    }
+                ],
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+        assert response_data["detail"] == "Question choices cannot be empty"
+
 
 class TestSurveyQuestionValidationWithEnterpriseFeatures(APIBaseTest):
     def setUp(self):
@@ -1675,6 +1916,38 @@ class TestSurveyQuestionValidationWithEnterpriseFeatures(APIBaseTest):
         response_data = response.json()
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
         assert response_data["detail"] == "thankYouMessageDescriptionContentType must be one of ['text', 'html']"
+
+    def test_create_survey_with_survey_popup_delay(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks beta release survey",
+                "type": "popover",
+                "appearance": {
+                    "surveyPopupDelaySeconds": 6000,
+                },
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        assert response_data["appearance"]["surveyPopupDelaySeconds"] == 6000
+
+    def test_validate_survey_popup_delay(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks beta release survey",
+                "type": "popover",
+                "appearance": {
+                    "surveyPopupDelaySeconds": -100,
+                },
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+        assert response_data["detail"] == "Survey popup delay seconds must be a positive integer"
 
     def test_create_survey_with_valid_question_description_content_type_html(self):
         response = self.client.post(
@@ -1774,6 +2047,193 @@ class TestSurveyQuestionValidationWithEnterpriseFeatures(APIBaseTest):
         )
 
 
+class TestSurveyWithActions(APIBaseTest):
+    def test_cannot_use_actions_with_properties(self):
+        action = Action.objects.create(
+            team=self.team,
+            name="person subscribed",
+            steps_json=[
+                {
+                    "event": "$pageview",
+                    "url": "docs",
+                    "url_matching": "contains",
+                    "properties": {"type": "person", "key": "val"},
+                }
+            ],
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks beta release survey",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "conditions": {
+                    "actions": {"values": [{"name": "person subscribed", "id": action.id}]},
+                },
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "What's a survey?",
+                        "description": "This is a description",
+                        "descriptionContentType": "text",
+                    }
+                ],
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+        assert (
+            response.json()["detail"] == "Survey cannot be activated by an Action with property filters defined on it."
+        )
+
+    def test_can_set_associated_actions(self):
+        user_subscribed_action = Action.objects.create(
+            team=self.team,
+            name="user subscribed",
+            steps_json=[{"event": "$pageview", "url": "docs", "url_matching": "contains"}],
+        )
+
+        user_unsubscribed_action = Action.objects.create(
+            team=self.team,
+            name="user unsubscribed",
+            steps_json=[{"event": "$pageview", "url": "docs", "url_matching": "contains"}],
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks beta release survey",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "conditions": {
+                    "actions": {
+                        "values": [
+                            {"name": "user subscribed", "id": user_subscribed_action.id},
+                            {"name": "user unsubscribed", "id": user_unsubscribed_action.id},
+                        ]
+                    },
+                },
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "What's a survey?",
+                        "description": "This is a description",
+                        "descriptionContentType": "text",
+                    }
+                ],
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        survey = Survey.objects.get(id=response_data["id"])
+        assert survey is not None
+        assert len(survey.actions.all()) == 2
+        assert survey.actions.filter(name="user subscribed").exists()
+        assert survey.actions.filter(name="user unsubscribed").exists()
+
+    def test_can_remove_associated_actions(self):
+        user_subscribed_action = Action.objects.create(
+            team=self.team,
+            name="user subscribed",
+            steps_json=[{"event": "$pageview", "url": "docs", "url_matching": "contains"}],
+        )
+        Action.objects.create(
+            team=self.team,
+            name="user unsubscribed",
+            steps_json=[{"event": "$pageview", "url": "docs", "url_matching": "contains"}],
+        )
+
+        survey_with_actions = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="survey with actions",
+            type="popover",
+            questions=[{"type": "open", "question": "Why's a hedgehog?"}],
+        )
+        survey_with_actions.actions.set(Action.objects.filter(name__in=["user subscribed", "user unsubscribed"]))
+        survey_with_actions.save()
+        assert survey_with_actions.actions.filter(name="user unsubscribed").exists()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_with_actions.id}/",
+            data={
+                "name": "Notebooks beta release survey",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "conditions": {
+                    "actions": {"values": [{"name": "user subscribed", "id": user_subscribed_action.id}]},
+                },
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "What's a survey?",
+                        "description": "This is a description",
+                        "descriptionContentType": "text",
+                    }
+                ],
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_200_OK, response_data
+        survey = Survey.objects.get(id=response_data["id"])
+        assert survey is not None
+        assert len(survey.actions.all()) == 1
+        assert survey.actions.filter(name="user subscribed").exists()
+        assert not survey.actions.filter(name="user unsubscribed").exists()
+
+    def test_can_clear_associated_actions(self):
+        Action.objects.create(
+            team=self.team,
+            name="user subscribed",
+            steps_json=[{"event": "$pageview", "url": "docs", "url_matching": "contains"}],
+        )
+        Action.objects.create(
+            team=self.team,
+            name="user unsubscribed",
+            steps_json=[{"event": "$pageview", "url": "docs", "url_matching": "contains"}],
+        )
+
+        survey_with_actions = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="survey with actions",
+            type="popover",
+            questions=[{"type": "open", "question": "Why's a hedgehog?"}],
+        )
+        survey_with_actions.actions.set(Action.objects.filter(name__in=["user subscribed", "user unsubscribed"]))
+        survey_with_actions.save()
+        assert survey_with_actions.actions.filter(name="user subscribed").exists()
+        assert survey_with_actions.actions.filter(name="user unsubscribed").exists()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_with_actions.id}/",
+            data={
+                "name": "Notebooks beta release survey",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "conditions": {
+                    "actions": {"values": []},
+                },
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "What's a survey?",
+                        "description": "This is a description",
+                        "descriptionContentType": "text",
+                    }
+                ],
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_200_OK, response_data
+        survey = Survey.objects.get(id=response_data["id"])
+        assert survey is not None
+        assert len(survey.actions.all()) == 0
+
+
 class TestSurveysRecurringIterations(APIBaseTest):
     def _create_recurring_survey(self) -> Survey:
         random_id = generate("1234567890abcdef", 10)
@@ -1797,6 +2257,27 @@ class TestSurveysRecurringIterations(APIBaseTest):
         response_data = response.json()
         assert response_data["iteration_start_dates"] is None
         assert response_data["current_iteration"] is None
+        survey = Survey.objects.get(id=response_data["id"])
+        return survey
+
+    def _create_non_recurring_survey(self) -> Survey:
+        random_id = generate("1234567890abcdef", 10)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": f"Recurring NPS Survey {random_id}",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "What's a survey?",
+                    }
+                ],
+            },
+        )
+
+        response_data = response.json()
         survey = Survey.objects.get(id=response_data["id"])
         return survey
 
@@ -1913,6 +2394,41 @@ class TestSurveysRecurringIterations(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["detail"] == "Cannot change survey recurrence to 1, should be at least 2"
 
+    def test_can_handle_non_nil_current_iteration(self):
+        survey = self._create_non_recurring_survey()
+        survey.current_iteration = 2
+        survey.save()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "start_date": datetime.now() - timedelta(days=1),
+            },
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_guards_for_nil_iteration_count(self):
+        survey = self._create_recurring_survey()
+        survey.current_iteration = 2
+        survey.save()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "start_date": datetime.now() - timedelta(days=1),
+            },
+        )
+        assert response.status_code == status.HTTP_200_OK
+        survey.refresh_from_db()
+        self.assertIsNone(survey.current_iteration)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "start_date": datetime.now() - timedelta(days=1),
+                "iteration_count": 3,
+                "iteration_frequency_days": 30,
+            },
+        )
+        assert response.status_code == status.HTTP_200_OK
+
     def test_can_turn_off_recurring_schedule(self):
         survey = self._create_recurring_survey()
         response = self.client.patch(
@@ -1982,6 +2498,81 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
             REMOTE_ADDR=ip,
         )
 
+    def test_list_surveys_with_actions(self):
+        action = Action.objects.create(
+            team=self.team,
+            name="user subscribed",
+            steps_json=[{"event": "$pageview", "url": "docs", "url_matching": "contains"}],
+        )
+
+        survey_with_actions = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="survey with actions",
+            type="popover",
+            questions=[{"type": "open", "question": "Why's a hedgehog?"}],
+        )
+        survey_with_actions.actions.set(Action.objects.filter(name="user subscribed"))
+        survey_with_actions.save()
+        self.client.logout()
+
+        with self.assertNumQueries(3):
+            response = self._get_surveys()
+            assert response.status_code == status.HTTP_200_OK
+            assert response.get("access-control-allow-origin") == "http://127.0.0.1:8000"
+            self.assertListEqual(
+                response.json()["surveys"],
+                [
+                    {
+                        "id": str(survey_with_actions.id),
+                        "name": "survey with actions",
+                        "type": "popover",
+                        "questions": [{"type": "open", "question": "Why's a hedgehog?"}],
+                        "conditions": {
+                            "actions": {
+                                "values": [
+                                    {
+                                        "id": action.id,
+                                        "name": "user subscribed",
+                                        "description": "",
+                                        "post_to_slack": False,
+                                        "slack_message_format": "",
+                                        "steps": [
+                                            {
+                                                "event": "$pageview",
+                                                "properties": None,
+                                                "selector": None,
+                                                "tag_name": None,
+                                                "text": None,
+                                                "text_matching": None,
+                                                "href": None,
+                                                "href_matching": None,
+                                                "url": "docs",
+                                                "url_matching": "contains",
+                                            }
+                                        ],
+                                        "created_at": ANY,
+                                        "created_by": None,
+                                        "deleted": False,
+                                        "is_calculating": False,
+                                        "last_calculated_at": ANY,
+                                        "team_id": self.team.id,
+                                        "is_action": True,
+                                        "bytecode_error": None,
+                                        "tags": [],
+                                    }
+                                ]
+                            }
+                        },
+                        "appearance": None,
+                        "start_date": None,
+                        "end_date": None,
+                        "current_iteration": None,
+                        "current_iteration_start_date": None,
+                    }
+                ],
+            )
+
     @snapshot_postgres_queries
     def test_list_surveys(self):
         basic_survey = Survey.objects.create(
@@ -2007,46 +2598,80 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
             internal_targeting_flag=internal_targeting_flag,
             questions=[{"type": "open", "question": "What's a hedgehog?"}],
         )
+
         self.client.logout()
 
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(3):
             response = self._get_surveys()
             assert response.status_code == status.HTTP_200_OK
             assert response.get("access-control-allow-origin") == "http://127.0.0.1:8000"
-            self.assertListEqual(
-                response.json()["surveys"],
-                [
-                    {
-                        "id": str(basic_survey.id),
-                        "name": "Survey 1",
-                        "description": "",
-                        "type": "popover",
-                        "questions": [{"type": "open", "question": "What's a survey?"}],
-                        "conditions": None,
-                        "appearance": None,
-                        "start_date": None,
-                        "end_date": None,
-                        "current_iteration": None,
-                        "current_iteration_start_date": None,
-                    },
-                    {
-                        "id": str(survey_with_flags.id),
-                        "name": "Survey 2",
-                        "description": "",
-                        "type": "popover",
-                        "conditions": None,
-                        "appearance": None,
-                        "questions": [{"type": "open", "question": "What's a hedgehog?"}],
-                        "linked_flag_key": "linked-flag",
-                        "targeting_flag_key": "targeting-flag",
-                        "current_iteration": None,
-                        "current_iteration_start_date": None,
-                        "internal_targeting_flag_key": "custom-targeting-flag",
-                        "start_date": None,
-                        "end_date": None,
-                    },
-                ],
+            surveys = response.json()["surveys"]
+            self.assertIn(
+                {
+                    "id": str(survey_with_flags.id),
+                    "name": "Survey 2",
+                    "type": "popover",
+                    "conditions": None,
+                    "appearance": None,
+                    "questions": [{"type": "open", "question": "What's a hedgehog?"}],
+                    "linked_flag_key": "linked-flag",
+                    "targeting_flag_key": "targeting-flag",
+                    "current_iteration": None,
+                    "current_iteration_start_date": None,
+                    "internal_targeting_flag_key": "custom-targeting-flag",
+                    "start_date": None,
+                    "end_date": None,
+                },
+                surveys,
             )
+            self.assertIn(
+                {
+                    "id": str(basic_survey.id),
+                    "name": "Survey 1",
+                    "type": "popover",
+                    "questions": [{"type": "open", "question": "What's a survey?"}],
+                    "conditions": None,
+                    "appearance": None,
+                    "start_date": None,
+                    "end_date": None,
+                    "current_iteration": None,
+                    "current_iteration_start_date": None,
+                },
+                surveys,
+            )
+
+    def test_list_surveys_excludes_description(self):
+        Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Survey 1",
+            description="This description should not be returned",
+            type="popover",
+            questions=[{"type": "open", "question": "What's a survey?"}],
+        )
+        Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Survey 2",
+            description="Another description that should be excluded",
+            type="popover",
+            questions=[{"type": "open", "question": "What's a hedgehog?"}],
+        )
+        self.client.logout()
+
+        with self.assertNumQueries(3):
+            response = self._get_surveys()
+            assert response.status_code == status.HTTP_200_OK
+            assert response.get("access-control-allow-origin") == "http://127.0.0.1:8000"
+
+            surveys = response.json()["surveys"]
+            assert len(surveys) == 2
+
+            for survey in surveys:
+                assert "description" not in survey, f"Description field should not be present in survey: {survey}"
+
+            assert surveys[0]["name"] == "Survey 1"
+            assert surveys[1]["name"] == "Survey 2"
 
 
 class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
@@ -2060,7 +2685,7 @@ class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
         }
 
         earliest_survey = Survey.objects.create(team_id=self.team.id)
-        earliest_survey.created_at = datetime.now() - timedelta(days=101)
+        earliest_survey.start_date = datetime.now() - timedelta(days=101)
         earliest_survey.save()
 
         for survey_id, count in survey_counts.items():
@@ -2081,7 +2706,7 @@ class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     @freeze_time("2024-05-01 14:40:09")
-    def test_responses_count_only_after_first_survey_created(self):
+    def test_responses_count_only_after_first_survey_started(self):
         survey_counts = {
             "d63bb580-01af-4819-aae5-edcf7ef2044f": 3,
             "fe7c4b62-8fc9-401e-b483-e4ff98fd13d5": 6,
@@ -2094,7 +2719,7 @@ class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
         }
 
         earliest_survey = Survey.objects.create(team_id=self.team.id)
-        earliest_survey.created_at = datetime.now() - timedelta(days=6)
+        earliest_survey.start_date = datetime.now() - timedelta(days=6)
         earliest_survey.save()
 
         for survey_id, count in survey_counts.items():

@@ -28,7 +28,6 @@ const clickhouseEvent: RawClickHouseEvent = {
     person_id: 'F99FA0A1-E0C2-4CFE-A09A-4C3C4327A4CC',
     person_created_at: '2020-02-20 02:15:00' as ClickHouseTimestampSecondPrecision, // Match createEvent ts format
     person_properties: '{}',
-    group0_properties: JSON.stringify({ name: 'PostHog' }),
     person_mode: 'full',
 }
 
@@ -41,6 +40,30 @@ describe('eachMessageWebhooksHandlers', () => {
         console.warn = jest.fn() as any
         await resetTestDatabase()
 
+        await hub.db.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `UPDATE posthog_team SET slack_incoming_webhook = 'https://webhook.example.com/'`,
+            [],
+            'testTag'
+        )
+        await hub.db.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `
+            INSERT INTO posthog_group (team_id, group_key, group_type_index, group_properties, created_at, properties_last_updated_at, properties_last_operation, version)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            `,
+            [
+                2,
+                'org_posthog',
+                0,
+                JSON.stringify({ name: 'PostHog' }),
+                new Date().toISOString(),
+                JSON.stringify({}),
+                JSON.stringify({}),
+                1,
+            ],
+            'upsertGroup'
+        )
         await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,
             `UPDATE posthog_team SET slack_incoming_webhook = 'https://webhook.example.com/'`,
@@ -120,7 +143,8 @@ describe('eachMessageWebhooksHandlers', () => {
             actionMatcher,
             hookCannon,
             groupTypeManager,
-            organizationManager
+            organizationManager,
+            hub.postgres
         )
 
         // NOTE: really it would be nice to verify that fire has been called

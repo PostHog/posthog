@@ -3,16 +3,16 @@ import string
 import uuid
 from collections import defaultdict, namedtuple
 from contextlib import contextmanager
-from time import time
-from typing import TYPE_CHECKING, Any, Optional, TypeVar
+from time import time, time_ns
+from typing import TYPE_CHECKING, Any, Optional, TypeVar, Union
 from collections.abc import Callable, Iterator
-
 from django.db import IntegrityError, connections, models, transaction
 from django.db.backends.utils import CursorWrapper
 from django.db.backends.ddl_references import Statement
 from django.db.models.constraints import BaseConstraint
 from django.utils.text import slugify
 
+from posthog import datetime
 from posthog.constants import MAX_SLUG_LENGTH
 
 if TYPE_CHECKING:
@@ -24,7 +24,12 @@ BASE62 = string.digits + string.ascii_letters  # All lowercase ASCII letters + a
 
 
 class UUIDT(uuid.UUID):
-    """UUID (mostly) sortable by generation time.
+    """
+    Deprecated, you probably want to use UUIDv7 instead. As of May 2024 the latest RFC with the UUIv7 spec is at
+    Proposed Standard (see RFC9562 https://www.rfc-editor.org/rfc/rfc9562#name-uuid-version-7). This class was written
+    well before that, is still in use in PostHog, but should not be used for new columns / models / features / etc.
+
+    UUID (mostly) sortable by generation time.
 
     This doesn't adhere to any official UUID version spec, but it is superior as a primary key:
     to incremented integers (as they can reveal sensitive business information about usage volumes and patterns),
@@ -90,16 +95,67 @@ class UUIDT(uuid.UUID):
         return 0 <= int(hex, 16) < 1 << 128
 
 
+# Delete this when we can use the version from the stdlib directly, see https://github.com/python/cpython/issues/102461
+def uuid7(unix_ms_time: Optional[Union[int, str]] = None, random: Optional[Union["Random", int]] = None) -> uuid.UUID:
+    # timestamp part
+    unix_ms_time_int: int
+    if isinstance(unix_ms_time, str):
+        # parse the ISO format string, use the timestamp from that
+        date = datetime.datetime.fromisoformat(unix_ms_time)
+        unix_ms_time_int = int(date.timestamp() * 1000)
+    elif unix_ms_time is None:
+        # use the current system time
+        unix_ms_time_int = time_ns() // (10**6)
+    else:
+        # use the provided timestamp directly
+        unix_ms_time_int = unix_ms_time
+
+    # random part
+    if isinstance(random, int):
+        # use the integer directly as the random component
+        rand_a = random & 0x0FFF
+        rand_b = random >> 12 & 0x03FFFFFFFFFFFFFFF
+    elif random is not None:
+        # use the provided random generator
+        rand_a = random.getrandbits(12)
+        rand_b = random.getrandbits(56)
+    else:
+        # use the system random generator
+        rand_bytes = int.from_bytes(secrets.token_bytes(10), byteorder="little")
+        rand_a = rand_bytes & 0x0FFF
+        rand_b = (rand_bytes >> 12) & 0x03FFFFFFFFFFFFFFF
+
+    # fixed constants
+    ver = 7
+    var = 0b10
+
+    # construct the UUID int
+    uuid_int = (unix_ms_time_int & 0x0FFFFFFFFFFFF) << 80
+    uuid_int |= ver << 76
+    uuid_int |= rand_a << 64
+    uuid_int |= var << 62
+    uuid_int |= rand_b
+    return uuid.UUID(int=uuid_int)
+
+
 class CreatedMetaFields(models.Model):
-    created_by: models.ForeignKey = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
-    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        abstract = True
+
+
+class UpdatedMetaFields(models.Model):
+    updated_at = models.DateTimeField(auto_now=True, null=True, blank=True)
 
     class Meta:
         abstract = True
 
 
 class DeletedMetaFields(models.Model):
-    deleted: models.BooleanField = models.BooleanField(null=True, blank=True)
+    deleted = models.BooleanField(null=True, blank=True, default=False)
+    deleted_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         abstract = True
@@ -108,19 +164,19 @@ class DeletedMetaFields(models.Model):
 class UUIDModel(models.Model):
     """Base Django Model with default autoincremented ID field replaced with UUIDT."""
 
+    id = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
+
     class Meta:
         abstract = True
-
-    id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 
 
 class UUIDClassicModel(models.Model):
     """Base Django Model with default autoincremented ID field kept and a UUIDT field added."""
 
+    uuid = models.UUIDField(unique=True, default=UUIDT, editable=False)
+
     class Meta:
         abstract = True
-
-    uuid: models.UUIDField = models.UUIDField(unique=True, default=UUIDT, editable=False)
 
 
 def sane_repr(*attrs: str, include_id=True) -> Callable[[object], str]:

@@ -4,6 +4,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { humanFriendlyNumber } from 'lib/utils'
 import { useEffect, useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
@@ -36,7 +37,7 @@ const formatCount = (count: number, total: number): string => {
     if ((count / total) * 100 < 3) {
         return ''
     }
-    return `${count}`
+    return `${humanFriendlyNumber(count)}`
 }
 
 export function UsersCount({ surveyUserStats }: { surveyUserStats: SurveyUserStats }): JSX.Element {
@@ -48,12 +49,12 @@ export function UsersCount({ surveyUserStats }: { surveyUserStats: SurveyUserSta
     return (
         <div className="inline-flex mb-4">
             <div>
-                <div className="text-4xl font-bold">{total}</div>
+                <div className="text-4xl font-bold">{humanFriendlyNumber(total)}</div>
                 <div className="font-semibold text-muted-alt">{labelTotal}</div>
             </div>
             {sent > 0 && (
                 <div className="ml-10">
-                    <div className="text-4xl font-bold">{sent}</div>
+                    <div className="text-4xl font-bold">{humanFriendlyNumber(sent)}</div>
                     <div className="font-semibold text-muted-alt">{labelSent}</div>
                 </div>
             )}
@@ -301,7 +302,6 @@ export function NPSSurveyResultsBarChart({
                                     data-attr="survey-rating"
                                     type={GraphType.Line}
                                     hideAnnotations={false}
-                                    compare={false}
                                     formula="-"
                                     tooltip={{
                                         showHeader: true,

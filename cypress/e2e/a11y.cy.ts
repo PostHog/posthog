@@ -17,7 +17,7 @@ describe('a11y', () => {
         'activity',
         'datamanagement',
         'personsmanagement',
-        'apps',
+        'pipeline',
         'toolbarlaunch',
         'settings',
     ]

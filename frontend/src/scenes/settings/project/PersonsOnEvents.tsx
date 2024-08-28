@@ -1,3 +1,4 @@
+import { LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
@@ -9,39 +10,38 @@ import { HogQLQueryModifiers } from '~/queries/schema'
 
 type PoEMode = NonNullable<HogQLQueryModifiers['personsOnEventsMode']>
 
-const poeOptions: LemonRadioOption<PoEMode>[] = [
-    {
-        value: 'person_id_no_override_properties_on_events',
-        label: (
-            <>
-                <div>Use person ids and properties from the time of the event.</div>
-                <div className="text-muted">
-                    May show higher unique user counts due to not using latest person ids. You probably want one of the
-                    other options. Fastest queries.
-                </div>
-            </>
-        ),
-    },
+const POE_OPTIONS: LemonRadioOption<PoEMode>[] = [
     {
         value: 'person_id_override_properties_on_events',
         label: (
+            <span className="inline-flex items-center gap-1.5">
+                Use person properties from the time of the event<LemonTag>RECOMMENDED</LemonTag>
+            </span>
+        ),
+        description: (
             <>
-                <div>Use person properties from the time of the event.</div>
-                <div className="text-muted">
-                    Fast queries. If person property is updated, then query results on past data won't change.
-                </div>
+                Fast queries. If the person property is updated, query results on past data <em>won't</em> change.
             </>
         ),
     },
     {
         value: 'person_id_override_properties_joined',
-        label: (
+        label: 'Use person properties as of running the query',
+        description: (
             <>
-                <div>Use latest person properties.</div>
-                <div className="text-muted">
-                    Slower queries. If person property is updated, then query results on past data will change to
-                    reflect it.
-                </div>
+                Slower queries. If the person property is updated, query results on past data <em>will</em> change
+                accordingly.
+            </>
+        ),
+    },
+    {
+        value: 'person_id_no_override_properties_on_events',
+        label: 'Use person IDs and person properties from the time of the event',
+        description: (
+            <>
+                Fastest queries,{' '}
+                <span className="underline">but funnels and unique user counts will be inaccurate</span>. If the person
+                property is updated, query results on past data <em>won't</em> change.
             </>
         ),
     },
@@ -51,7 +51,7 @@ export function PersonsOnEvents(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { reportPoEModeUpdated } = useActions(eventUsageLogic)
     const { currentTeam } = useValues(teamLogic)
-    const savedPoEMode =
+    const savedPoEMode: PoEMode =
         currentTeam?.modifiers?.personsOnEventsMode ?? currentTeam?.default_modifiers?.personsOnEventsMode ?? 'disabled'
     const [poeMode, setPoeMode] = useState<PoEMode>(savedPoEMode)
 
@@ -62,8 +62,16 @@ export function PersonsOnEvents(): JSX.Element {
 
     return (
         <>
-            <p>Choose how to query your event data with person filters.</p>
-            <LemonRadio value={poeMode} onChange={setPoeMode} options={poeOptions} />
+            <p>
+                Choose the behavior of person property filters.{' '}
+                <Link
+                    to="https://posthog.com/docs/how-posthog-works/queries#filtering-on-person-properties"
+                    target="blank"
+                >
+                    Learn about the details in our docs.
+                </Link>
+            </p>
+            <LemonRadio value={poeMode} onChange={setPoeMode} options={POE_OPTIONS} />
             <div className="mt-4">
                 <LemonButton
                     type="primary"

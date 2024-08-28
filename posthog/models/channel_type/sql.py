@@ -1,6 +1,7 @@
 import json
 import os
 
+from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.table_engines import (
     MergeTreeEngine,
     ReplicationScheme,
@@ -50,13 +51,15 @@ def format_value(value):
         raise ValueError(f"Unknown value type {type(value)}")
 
 
-CHANNEL_DEFINITION_DATA_SQL = f"""
+CHANNEL_DEFINITION_DATA_SQL = (
+    lambda channel_definitions=CHANNEL_DEFINITIONS: f"""
 INSERT INTO channel_definition (domain, kind, domain_type, type_if_paid, type_if_organic) VALUES
 {
 ''',
-'''.join(f'({" ,".join(map(format_value, x))})' for x in CHANNEL_DEFINITIONS)},
+'''.join(f'({" ,".join(map(format_value, x[:5]))})' for x in channel_definitions)},
 ;
 """
+)
 
 # Use COMPLEX_KEY_HASHED, as we have a composite key
 CHANNEL_DEFINITION_DICTIONARY_SQL = f"""
@@ -76,3 +79,14 @@ LAYOUT(COMPLEX_KEY_HASHED())
 DROP_CHANNEL_DEFINITION_DICTIONARY_SQL = (
     f"DROP DICTIONARY IF EXISTS {CHANNEL_DEFINITION_DICTIONARY_NAME} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
 )
+
+SELECT_CHANNEL_DEFINITION_SQL = f"SELECT domain, kind, domain_type, type_if_paid, type_if_organic FROM {CHANNEL_DEFINITION_TABLE_NAME} ORDER BY domain, kind"
+
+
+# intended to by run in a migration with RunPython
+def add_missing_channel_types(_):
+    existing_rows = sync_execute(SELECT_CHANNEL_DEFINITION_SQL)
+    existing_domain_plus_sources = {(x[0], x[1]) for x in existing_rows}
+    new_channel_definitions = [x for x in CHANNEL_DEFINITIONS if (x[0], x[1]) not in existing_domain_plus_sources]
+    if new_channel_definitions:
+        sync_execute(CHANNEL_DEFINITION_DATA_SQL(channel_definitions=new_channel_definitions))

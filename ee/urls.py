@@ -6,7 +6,7 @@ from django.urls import include
 from django.urls.conf import path
 from rest_framework_extensions.routers import NestedRegistryItem
 
-from ee.api import integration, time_to_see_data
+from ee.api import integration
 from posthog.api.routing import DefaultRouterPlusPlus
 
 from .api import (
@@ -34,9 +34,7 @@ def extend_api_router(
     project_feature_flags_router: NestedRegistryItem,
 ) -> None:
     root_router.register(r"billing", billing.BillingViewset, "billing")
-    root_router.register(r"billing-v2", billing.BillingViewset, "billing")  # Legacy transition route
     root_router.register(r"license", license.LicenseViewSet)
-    root_router.register(r"time_to_see_data", time_to_see_data.TimeToSeeDataViewSet, "query_metrics")
     root_router.register(r"integrations", integration.PublicIntegrationViewSet)
     organization_roles_router = organizations_router.register(
         r"roles",
@@ -53,8 +51,8 @@ def extend_api_router(
     project_feature_flags_router.register(
         r"role_access",
         feature_flag_role_access.FeatureFlagRoleAccessViewSet,
-        "feature_flag_role_access",
-        ["team_id", "feature_flag_id"],
+        "project_feature_flag_role_access",
+        ["project_id", "feature_flag_id"],
     )
     organizations_router.register(
         r"resource_access",
@@ -62,26 +60,28 @@ def extend_api_router(
         "organization_resource_access",
         ["organization_id"],
     )
-    projects_router.register(r"hooks", hooks.HookViewSet, "project_hooks", ["team_id"])
+    projects_router.register(r"hooks", hooks.HookViewSet, "environment_hooks", ["team_id"])
     projects_router.register(
         r"explicit_members",
         explicit_team_member.ExplicitTeamMemberViewSet,
-        "project_explicit_members",
+        "environment_explicit_members",
         ["team_id"],
     )
     project_dashboards_router.register(
         r"collaborators",
         dashboard_collaborator.DashboardCollaboratorViewSet,
         "project_dashboard_collaborators",
-        ["team_id", "dashboard_id"],
+        ["project_id", "dashboard_id"],
     )
 
-    projects_router.register(r"subscriptions", subscription.SubscriptionViewSet, "subscriptions", ["team_id"])
+    projects_router.register(
+        r"subscriptions", subscription.SubscriptionViewSet, "environment_subscriptions", ["team_id"]
+    )
     projects_router.register(
         r"session_recording_playlists",
         session_recording_playlist.SessionRecordingPlaylistViewSet,
         "project_session_recording_playlists",
-        ["team_id"],
+        ["project_id"],
     )
 
 

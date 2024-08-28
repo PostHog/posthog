@@ -2,7 +2,7 @@ import './CardMeta.scss'
 
 import clsx from 'clsx'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { IconSubtitles, IconSubtitlesOff } from 'lib/lemon-ui/icons'
+import { IconRefresh, IconSubtitles, IconSubtitlesOff } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Transition } from 'react-transition-group'
@@ -22,6 +22,8 @@ export interface CardMetaProps extends Pick<React.HTMLAttributes<HTMLDivElement>
     showEditingControls?: boolean
     /** Whether the  controls for showing details should be enabled or not. */
     showDetailsControls?: boolean
+    refresh?: () => void
+    refreshDisabledReason?: string
     meta?: JSX.Element | null
     metaDetails?: JSX.Element | null
     moreButtons?: JSX.Element | null
@@ -33,6 +35,8 @@ export function CardMeta({
     ribbonColor,
     showEditingControls,
     showDetailsControls,
+    refresh,
+    refreshDisabledReason,
     meta,
     metaDetails,
     moreButtons,
@@ -71,9 +75,18 @@ export function CardMeta({
                                     icon={!areDetailsShown ? <IconSubtitles /> : <IconSubtitlesOff />}
                                     onClick={() => setAreDetailsShown((state) => !state)}
                                     size="small"
+                                    active={areDetailsShown}
                                 >
                                     {showDetailsButtonLabel && `${!areDetailsShown ? 'Show' : 'Hide'} details`}
                                 </LemonButton>
+                            )}
+                            {showEditingControls && refresh && (
+                                <LemonButton
+                                    icon={<IconRefresh />}
+                                    size="small"
+                                    onClick={() => refresh()}
+                                    disabledReason={refreshDisabledReason}
+                                />
                             )}
                             {samplingNotice ? samplingNotice : null}
                             {showEditingControls && <More overlay={moreButtons} />}

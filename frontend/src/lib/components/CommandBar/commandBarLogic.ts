@@ -54,7 +54,7 @@ export const commandBarLogic = kea<commandBarLogicType>([
             if (shouldIgnoreInput(event)) {
                 return
             }
-            if ((event.ctrlKey || event.metaKey) && event.key === 'k') {
+            if ((event.ctrlKey || event.metaKey) && (event.key === 'k' || event.key === 'K')) {
                 event.preventDefault()
                 if (event.shiftKey) {
                     // cmd+shift+k opens actions

@@ -1,5 +1,6 @@
 import { IconChevronDown, IconEllipsis } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useCallback, useState } from 'react'
 
 import { DatabaseSchemaTable } from '~/queries/schema'
@@ -13,10 +14,17 @@ export interface TreeRowProps {
     selected?: boolean
 }
 
-export function TreeRow({ item, selected }: TreeRowProps): JSX.Element {
+export function TreeRow({ item }: TreeRowProps): JSX.Element {
     return (
         <li>
-            <LemonButton size="xsmall" fullWidth active={selected} icon={item.icon ? <>{item.icon}</> : null}>
+            <LemonButton
+                onClick={() => {
+                    void copyToClipboard(item.name, item.name)
+                }}
+                size="xsmall"
+                fullWidth
+                icon={item.icon ? <>{item.icon}</> : null}
+            >
                 <span className="flex-1 flex justify-between">
                     <span className="truncate">{item.name}</span>
                     <span className="whitespace-nowrap">{item.type}</span>
@@ -90,6 +98,7 @@ export function TreeFolderRow({ item, depth, onClick, selectedRow, dropdownOverl
                         : undefined
                 }
                 icon={<IconChevronDown className={collapsed ? 'rotate-270' : undefined} />}
+                tooltip={name}
             >
                 {name}
             </LemonButton>

@@ -9,6 +9,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
 import { DashboardTemplateType, DashboardTemplateVariableType, DashboardTile, DashboardType, JsonType } from '~/types'
 
 import type { newDashboardLogicType } from './newDashboardLogicType'
@@ -141,7 +142,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                     )
                     actions.hideNewDashboardModal()
                     actions.resetNewDashboard()
-                    dashboardsModel.actions.addDashboardSuccess(result)
+                    dashboardsModel.actions.addDashboardSuccess(getQueryBasedDashboard(result)!)
                     actions.submitNewDashboardSuccessWithResult(result)
                     if (show) {
                         breakpoint()
@@ -188,7 +189,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                 )
                 actions.hideNewDashboardModal()
                 actions.resetNewDashboard()
-                dashboardsModel.actions.addDashboardSuccess(result)
+                dashboardsModel.actions.addDashboardSuccess(getQueryBasedDashboard(result)!)
                 actions.submitNewDashboardSuccessWithResult(result)
                 if (redirectAfterCreation) {
                     router.actions.push(urls.dashboard(result.id))

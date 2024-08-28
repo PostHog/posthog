@@ -13,11 +13,11 @@ from ..session_recordings.models.session_recording_playlist_item import (
 )
 from ..warehouse.models import DataWarehouseTable
 from ._deprecated_prompts import Prompt, PromptSequence, UserPromptState
-from .alert import Alert
 from .action import Action
 from .action.action_step import ActionStep
 from .activity_logging.activity_log import ActivityLog
 from .activity_logging.notification_viewed import NotificationViewed
+from .alert import AlertConfiguration
 from .annotation import Annotation
 from .async_deletion import AsyncDeletion, DeletionType
 from .async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
@@ -29,6 +29,7 @@ from .early_access_feature import EarlyAccessFeature
 from .element import Element
 from .element_group import ElementGroup
 from .entity import Entity
+from .error_tracking import ErrorTrackingGroup
 from .event.event import Event
 from .event_buffer import EventBuffer
 from .event_definition import EventDefinition
@@ -47,8 +48,9 @@ from .instance_setting import InstanceSetting
 from .integration import Integration
 from .messaging import MessagingRecord
 from .notebook import Notebook
-from .organization import Organization, OrganizationInvite, OrganizationMembership
+from .organization import Organization, OrganizationMembership
 from .organization_domain import OrganizationDomain
+from .organization_invite import OrganizationInvite
 from .person import Person, PersonDistinctId, PersonOverride, PersonOverrideMapping
 from .personal_api_key import PersonalAPIKey
 from .plugin import (
@@ -73,7 +75,7 @@ from .user import User, UserManager
 from .user_scene_personalisation import UserScenePersonalisation
 
 __all__ = [
-    "Alert",
+    "AlertConfiguration",
     "Action",
     "ActionStep",
     "ActivityLog",
@@ -94,6 +96,7 @@ __all__ = [
     "Element",
     "ElementGroup",
     "Entity",
+    "ErrorTrackingGroup",
     "Event",
     "EventBuffer",
     "EventDefinition",

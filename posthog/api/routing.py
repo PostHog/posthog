@@ -1,5 +1,6 @@
 from functools import cached_property, lru_cache
-from typing import TYPE_CHECKING, Any, Optional, cast
+from typing import TYPE_CHECKING, Any, Literal, Optional, cast
+from uuid import UUID
 
 from django.db.models.query import QuerySet
 from rest_framework.exceptions import AuthenticationFailed, NotFound, ValidationError
@@ -17,6 +18,7 @@ from posthog.auth import (
 )
 from posthog.models.organization import Organization
 from posthog.models.personal_api_key import APIScopeObjectOrNotSupported
+from posthog.models.project import Project
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.permissions import (
@@ -36,6 +38,32 @@ else:
 class DefaultRouterPlusPlus(ExtendedDefaultRouter):
     """DefaultRouter with optional trailing slash and drf-extensions nesting."""
 
+    # This is an override because of changes in djangorestframework 3.15, which is required for python 3.11
+    # changes taken from and explained here: https://github.com/nautobot/nautobot/pull/5546/files#diff-81850a2ccad5814aab4f477d447f85cc0a82e9c10fd88fd72327cda51a750471R30
+    def _register(self, prefix, viewset, basename=None):
+        """
+        Override DRF's BaseRouter.register() to bypass an unnecessary restriction added in version 3.15.0.
+        (Reference: https://github.com/encode/django-rest-framework/pull/8438)
+        """
+        if basename is None:
+            basename = self.get_default_basename(viewset)
+
+        # DRF:
+        # if self.is_already_registered(basename):
+        #     msg = (f'Router with basename "{basename}" is already registered. '
+        #            f'Please provide a unique basename for viewset "{viewset}"')
+        #     raise ImproperlyConfigured(msg)
+        #
+        # We bypass this because we have at least one use case (/api/extras/jobs/) where we are *intentionally*
+        # registering two viewsets with the same basename, but have carefully defined them so as not to conflict.
+
+        # resuming standard DRF code...
+        self.registry.append((prefix, viewset, basename))
+
+        # invalidate the urls cache
+        if hasattr(self, "_urls"):
+            del self._urls
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.trailing_slash = r"/?"
@@ -47,7 +75,7 @@ class DefaultRouterPlusPlus(ExtendedDefaultRouter):
 class TeamAndOrgViewSetMixin(_GenericViewSet):
     # This flag disables nested routing handling, reverting to the old request.user.team behavior
     # Allows for a smoother transition from the old flat API structure to the newer nested one
-    derive_current_team_from_user_only: bool = False
+    param_derived_from_user_current_team: Optional[Literal["team_id", "project_id"]] = None
 
     # Rewrite filter queries, so that for example foreign keys can be accessed
     # Example: {"team_id": "foo__team_id"} will make the viewset filtered by obj.foo.team_id instead of obj.team_id
@@ -100,7 +128,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         # override the entire method.
         permission_classes: list = [IsAuthenticated, APIScopePermission]
 
-        if self.is_team_view:
+        if self._is_team_view or self._is_project_view:
             permission_classes.append(TeamMemberAccessPermission)
         else:
             permission_classes.append(OrganizationMemberPermissions)
@@ -191,17 +219,23 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         return obj
 
     @property
-    def is_team_view(self):
-        # NOTE: We check the property first as it avoids any potential DB lookups via the parents_query_dict
-        return self.derive_current_team_from_user_only or "team_id" in self.parents_query_dict
+    def _is_team_view(self):
+        return self.param_derived_from_user_current_team == "team_id" or "team_id" in self.parent_query_kwargs
 
     @property
+    def _is_project_view(self):
+        return self.param_derived_from_user_current_team == "project_id" or "project_id" in self.parent_query_kwargs
+
+    @cached_property
     def team_id(self) -> int:
+        if self._is_project_view:
+            return self.project_id  # KLUDGE: This is just for the period of transition to project environments
+
         team_from_token = self._get_team_from_request()
         if team_from_token:
             return team_from_token.id
 
-        if self.derive_current_team_from_user_only:
+        if self.param_derived_from_user_current_team == "team_id":
             user = cast(User, self.request.user)
             team = user.team
             assert team is not None
@@ -215,7 +249,12 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         if team_from_token:
             return team_from_token
 
-        if self.derive_current_team_from_user_only:
+        if self._is_project_view:
+            return Team.objects.get(
+                id=self.project_id  # KLUDGE: This is just for the period of transition to project environments
+            )
+
+        if self.param_derived_from_user_current_team == "team_id":
             user = cast(User, self.request.user)
             team = user.team
             assert team is not None
@@ -223,15 +262,52 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         try:
             return Team.objects.get(id=self.team_id)
         except Team.DoesNotExist:
+            raise NotFound(
+                detail="Project not found."  # TODO: "Environment" instead of "Project" when project environments are rolled out
+            )
+
+    @cached_property
+    def project_id(self) -> int:
+        team_from_token = self._get_team_from_request()
+        if team_from_token:
+            assert team_from_token.project_id is not None
+            return team_from_token.project_id
+
+        if self.param_derived_from_user_current_team == "project_id":
+            user = cast(User, self.request.user)
+            team = user.team
+            assert team is not None
+            assert team.project_id is not None
+            return team.project_id
+
+        return self.parents_query_dict["project_id"]
+
+    @cached_property
+    def project(self) -> Project:
+        if self.param_derived_from_user_current_team == "project_id":
+            user = cast(User, self.request.user)
+            team = user.team
+            assert team is not None
+            return team.project
+        try:
+            return Project.objects.get(id=self.project_id)
+        except Project.DoesNotExist:
             raise NotFound(detail="Project not found.")
 
-    @property
+    @cached_property
     def organization_id(self) -> str:
         try:
             return self.parents_query_dict["organization_id"]
         except KeyError:
             user = cast(User, self.request.user)
-            current_organization_id = self.team.organization_id if self.is_team_view else user.current_organization_id
+            current_organization_id: Optional[UUID]
+            if self._is_team_view:
+                # TODO: self.team.project.organization_id when project environments are rolled out
+                current_organization_id = self.team.organization_id
+            if self._is_project_view:
+                current_organization_id = self.project.organization_id
+            else:
+                current_organization_id = user.current_organization_id
 
             if not current_organization_id:
                 raise NotFound("You need to belong to an organization.")
@@ -250,6 +326,12 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         for source, destination in self.filter_rewrite_rules.items():
             parents_query_dict[destination] = parents_query_dict[source]
             del parents_query_dict[source]
+
+        if "project_id" in parents_query_dict:
+            # KLUDGE: This rewrite can be removed once the relevant models get that field directly
+            parents_query_dict["team__project_id"] = self.team.project_id
+            del parents_query_dict["project_id"]
+
         if parents_query_dict:
             try:
                 return queryset.filter(**parents_query_dict)
@@ -259,19 +341,8 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             return queryset
 
     @cached_property
-    def parents_query_dict(self) -> dict[str, Any]:
-        # used to override the last visited project if there's a token in the request
-        team_from_request = self._get_team_from_request()
-
-        if self.derive_current_team_from_user_only:
-            if not self.request.user.is_authenticated:
-                raise AuthenticationFailed()
-            project = team_from_request or self.request.user.team
-            if project is None:
-                raise ValidationError("This endpoint requires a project.")
-            return {"team_id": project.id}
-        result = {}
-        # process URL parameters (here called kwargs), such as organization_id in /api/organizations/:organization_id/
+    def parent_query_kwargs(self) -> dict[str, Any]:
+        parent_query_kwargs: dict[str, str] = {}
         for kwarg_name, kwarg_value in self.kwargs.items():
             # drf-extensions nested parameters are prefixed
             if kwarg_name.startswith(extensions_api_settings.DEFAULT_PARENT_LOOKUP_KWARG_NAME_PREFIX):
@@ -280,26 +351,61 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
                     "",
                     1,
                 )
-                query_value = kwarg_value
-                if query_value == "@current":
-                    if not self.request.user.is_authenticated:
-                        raise AuthenticationFailed()
-                    if query_lookup == "team_id":
-                        project = self.request.user.team
-                        if project is None:
-                            raise NotFound("Project not found.")
-                        query_value = project.id
-                    elif query_lookup == "organization_id":
-                        organization = self.request.user.organization
-                        if organization is None:
-                            raise NotFound("Organization not found.")
-                        query_value = organization.id
-                elif query_lookup == "team_id":
-                    try:
-                        query_value = team_from_request.id if team_from_request else int(query_value)
-                    except ValueError:
-                        raise NotFound()
-                result[query_lookup] = query_value
+                parent_query_kwargs[query_lookup] = kwarg_value
+        return parent_query_kwargs
+
+    @cached_property
+    def parents_query_dict(self) -> dict[str, Any]:
+        # used to override the last visited project if there's a token in the request
+        team_from_request = self._get_team_from_request()
+
+        if self.param_derived_from_user_current_team:
+            if not self.request.user.is_authenticated:
+                raise AuthenticationFailed()
+            current_team = team_from_request or self.request.user.team
+            if current_team is None:
+                raise ValidationError("This endpoint requires the current project to be set on your account.")
+            if self.param_derived_from_user_current_team == "project_id":
+                return {"project_id": current_team.project_id}
+            else:
+                return {"team_id": current_team.id}
+
+        result = {}
+        # process URL parameters (here called kwargs), such as organization_id in /api/organizations/:organization_id/
+        for query_lookup, query_value in self.parent_query_kwargs.items():
+            if query_value == "@current":
+                if not self.request.user.is_authenticated:
+                    raise AuthenticationFailed()
+                if query_lookup == "team_id":
+                    current_team = self.request.user.team
+                    if current_team is None:
+                        raise NotFound(
+                            "Project not found."  # TODO: "Environment" instead of "Project" when project environments are rolled out
+                        )
+                    query_value = current_team.id
+                elif query_lookup == "project_id":
+                    current_team = self.request.user.team
+                    if current_team is None:
+                        raise NotFound("Project not found.")
+                    query_value = current_team.project_id
+                elif query_lookup == "organization_id":
+                    current_organization = self.request.user.organization
+                    if current_organization is None:
+                        raise NotFound("Organization not found.")
+                    query_value = current_organization.id
+            elif query_lookup == "team_id":
+                try:
+                    query_value = team_from_request.id if team_from_request else int(query_value)
+                except ValueError:
+                    raise NotFound("Project not found.")  # TODO: "Environment"
+            elif query_lookup == "project_id":
+                try:
+                    query_value = team_from_request.project_id if team_from_request else int(query_value)
+                except ValueError:
+                    raise NotFound("Project not found.")
+
+            result[query_lookup] = query_value
+
         return result
 
     def get_serializer_context(self) -> dict[str, Any]:
@@ -307,7 +413,11 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         serializer_context.update(self.parents_query_dict)
         # The below are lambdas for lazy evaluation (i.e. we only query Postgres for team/org if actually needed)
         serializer_context["get_team"] = lambda: self.team
+        serializer_context["get_project"] = lambda: self.project
         serializer_context["get_organization"] = lambda: self.organization
+        if "project_id" in serializer_context:
+            # KLUDGE: This alias can be removed once the relevant models get that field directly
+            serializer_context["team_id"] = serializer_context["project_id"]
         return serializer_context
 
     @lru_cache(maxsize=1)
@@ -327,36 +437,3 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
     @cached_property
     def user_permissions(self) -> "UserPermissions":
         return UserPermissions(user=cast(User, self.request.user), team=self.team)
-
-    # Stdout tracing to see what legacy endpoints (non-project-nested) are still requested by the frontend
-    # TODO: Delete below when no legacy endpoints are used anymore
-
-    # def create(self, *args, **kwargs):
-    #     super_cls = super()
-    #     if self.derive_current_team_from_user_only:
-    #         print(f"Legacy endpoint called – {super_cls.get_view_name()} (create)")
-    #     return super_cls.create(*args, **kwargs)
-
-    # def retrieve(self, *args, **kwargs):
-    #     super_cls = super()
-    #     if self.derive_current_team_from_user_only:
-    #         print(f"Legacy endpoint called – {super_cls.get_view_name()} (retrieve)")
-    #     return super_cls.retrieve(*args, **kwargs)
-
-    # def list(self, *args, **kwargs):
-    #     super_cls = super()
-    #     if self.derive_current_team_from_user_only:
-    #         print(f"Legacy endpoint called – {super_cls.get_view_name()} (list)")
-    #     return super_cls.list(*args, **kwargs)
-
-    # def update(self, *args, **kwargs):
-    #     super_cls = super()
-    #     if self.derive_current_team_from_user_only:
-    #         print(f"Legacy endpoint called – {super_cls.get_view_name()} (update)")
-    #     return super_cls.update(*args, **kwargs)
-
-    # def delete(self, *args, **kwargs):
-    #     super_cls = super()
-    #     if self.derive_current_team_from_user_only:
-    #         print(f"Legacy endpoint called – {super_cls.get_view_name()} (delete)")
-    #     return super_cls.delete(*args, **kwargs)

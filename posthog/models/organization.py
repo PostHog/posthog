@@ -1,4 +1,5 @@
 import sys
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Optional, TypedDict, Union
 
 import structlog
@@ -12,24 +13,22 @@ from django.utils import timezone
 from rest_framework import exceptions
 
 from posthog.cloud_utils import is_cloud
-from posthog.constants import MAX_SLUG_LENGTH, AvailableFeature
-from posthog.email import is_email_available
+from posthog.constants import INVITE_DAYS_VALIDITY, MAX_SLUG_LENGTH, AvailableFeature
 from posthog.models.utils import (
     LowercaseSlugField,
     UUIDModel,
     create_with_slug,
     sane_repr,
 )
-from posthog.plugins.reload import reset_available_product_features_cache_on_workers
-from posthog.utils import absolute_uri
+from posthog.plugins.plugin_server_api import (
+    reset_available_product_features_cache_on_workers,
+)
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
 
 
 logger = structlog.get_logger(__name__)
-
-INVITE_DAYS_VALIDITY = 3  # number of days for which team invites are valid
 
 
 class OrganizationUsageResource(TypedDict):
@@ -71,7 +70,7 @@ class OrganizationManager(models.Manager):
         """Instead of doing the legwork of creating an organization yourself, delegate the details with bootstrap."""
         from .project import Project  # Avoiding circular import
 
-        with transaction.atomic():
+        with transaction.atomic(using=self.db):
             organization = Organization.objects.create(**kwargs)
             _, team = Project.objects.create_with_team(organization=organization, team_fields=team_fields)
             organization_membership: Optional[OrganizationMembership] = None
@@ -113,28 +112,29 @@ class Organization(UUIDModel):
         # This includes installing plugins from the repository and managing plugin installations for all other orgs.
         ROOT = 9, "root"
 
-    members: models.ManyToManyField = models.ManyToManyField(
+    members = models.ManyToManyField(
         "posthog.User",
         through="posthog.OrganizationMembership",
         related_name="organizations",
         related_query_name="organization",
     )
-    name: models.CharField = models.CharField(max_length=64)
+    name = models.CharField(max_length=64)
     slug: LowercaseSlugField = LowercaseSlugField(unique=True, max_length=MAX_SLUG_LENGTH)
-    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
-    updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
-    plugins_access_level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
+    logo_media = models.ForeignKey("posthog.UploadedMedia", on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    plugins_access_level = models.PositiveSmallIntegerField(
         default=PluginsAccessLevel.CONFIG,
         choices=PluginsAccessLevel.choices,
     )
-    for_internal_metrics: models.BooleanField = models.BooleanField(default=False)
-    is_member_join_email_enabled: models.BooleanField = models.BooleanField(default=True)
-    enforce_2fa: models.BooleanField = models.BooleanField(null=True, blank=True)
+    for_internal_metrics = models.BooleanField(default=False)
+    is_member_join_email_enabled = models.BooleanField(default=True)
+    enforce_2fa = models.BooleanField(null=True, blank=True)
 
-    is_hipaa: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
+    is_hipaa = models.BooleanField(default=False, null=True, blank=True)
 
     ## Managed by Billing
-    customer_id: models.CharField = models.CharField(max_length=200, null=True, blank=True)
+    customer_id = models.CharField(max_length=200, null=True, blank=True)
     available_product_features = ArrayField(models.JSONField(blank=False), null=True, blank=True)
     # Managed by Billing, cached here for usage controls
     # Like {
@@ -143,14 +143,14 @@ class Organization(UUIDModel):
     #   'period': ['2021-01-01', '2021-01-31']
     # }
     # Also currently indicates if the organization is on billing V2 or not
-    usage: models.JSONField = models.JSONField(null=True, blank=True)
-    never_drop_data: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
+    usage = models.JSONField(null=True, blank=True)
+    never_drop_data = models.BooleanField(default=False, null=True, blank=True)
     # Scoring levels defined in billing::customer::TrustScores
-    customer_trust_scores: models.JSONField = models.JSONField(default=dict, null=True, blank=True)
+    customer_trust_scores = models.JSONField(default=dict, null=True, blank=True)
 
     # DEPRECATED attributes (should be removed on next major version)
-    setup_section_2_completed: models.BooleanField = models.BooleanField(default=True)
-    personalization: models.JSONField = models.JSONField(default=dict, null=False, blank=True)
+    setup_section_2_completed = models.BooleanField(default=True)
+    personalization = models.JSONField(default=dict, null=False, blank=True)
     domain_whitelist: ArrayField = ArrayField(
         models.CharField(max_length=256, blank=False), blank=True, default=list
     )  # DEPRECATED in favor of `OrganizationDomain` model; previously used to allow self-serve account creation based on social login (#5111)
@@ -220,7 +220,7 @@ class Organization(UUIDModel):
 
     @property
     def active_invites(self) -> QuerySet:
-        return self.invites.filter(created_at__gte=timezone.now() - timezone.timedelta(days=INVITE_DAYS_VALIDITY))
+        return self.invites.filter(created_at__gte=timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY))
 
     def get_analytics_metadata(self):
         return {
@@ -258,23 +258,21 @@ class OrganizationMembership(UUIDModel):
         ADMIN = 8, "administrator"
         OWNER = 15, "owner"
 
-    organization: models.ForeignKey = models.ForeignKey(
+    organization = models.ForeignKey(
         "posthog.Organization",
         on_delete=models.CASCADE,
         related_name="memberships",
         related_query_name="membership",
     )
-    user: models.ForeignKey = models.ForeignKey(
+    user = models.ForeignKey(
         "posthog.User",
         on_delete=models.CASCADE,
         related_name="organization_memberships",
         related_query_name="organization_membership",
     )
-    level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
-        default=Level.MEMBER, choices=Level.choices
-    )
-    joined_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
-    updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
+    level = models.PositiveSmallIntegerField(default=Level.MEMBER, choices=Level.choices)
+    joined_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         constraints = [
@@ -314,96 +312,6 @@ class OrganizationMembership(UUIDModel):
                 raise exceptions.PermissionDenied("You can only edit others with level lower or equal to you.")
 
     __repr__ = sane_repr("organization", "user", "level")
-
-
-class OrganizationInvite(UUIDModel):
-    organization: models.ForeignKey = models.ForeignKey(
-        "posthog.Organization",
-        on_delete=models.CASCADE,
-        related_name="invites",
-        related_query_name="invite",
-    )
-    target_email: models.EmailField = models.EmailField(null=True, db_index=True)
-    first_name: models.CharField = models.CharField(max_length=30, blank=True, default="")
-    created_by: models.ForeignKey = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        related_name="organization_invites",
-        related_query_name="organization_invite",
-        null=True,
-    )
-    emailing_attempt_made: models.BooleanField = models.BooleanField(default=False)
-    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
-    updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
-    message: models.TextField = models.TextField(blank=True, null=True)
-    level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
-        default=OrganizationMembership.Level.MEMBER, choices=OrganizationMembership.Level.choices
-    )
-
-    def validate(
-        self,
-        *,
-        user: Optional["User"] = None,
-        email: Optional[str] = None,
-        invite_email: Optional[str] = None,
-        request_path: Optional[str] = None,
-    ) -> None:
-        from .user import User
-
-        _email = email or getattr(user, "email", None)
-
-        if _email and _email != self.target_email:
-            raise exceptions.ValidationError(
-                "This invite is intended for another email address.",
-                code="invalid_recipient",
-            )
-
-        if self.is_expired():
-            raise exceptions.ValidationError(
-                "This invite has expired. Please ask your admin for a new one.",
-                code="expired",
-            )
-
-        if user is None and User.objects.filter(email=invite_email).exists():
-            raise exceptions.ValidationError(f"/login?next={request_path}", code="account_exists")
-
-        if OrganizationMembership.objects.filter(organization=self.organization, user=user).exists():
-            raise exceptions.ValidationError(
-                "You already are a member of this organization.",
-                code="user_already_member",
-            )
-
-        if OrganizationMembership.objects.filter(
-            organization=self.organization, user__email=self.target_email
-        ).exists():
-            raise exceptions.ValidationError(
-                "Another user with this email address already belongs to this organization.",
-                code="existing_email_address",
-            )
-
-    def use(self, user: "User", *, prevalidated: bool = False) -> None:
-        if not prevalidated:
-            self.validate(user=user)
-        user.join(organization=self.organization, level=self.level)
-        if is_email_available(with_absolute_urls=True) and self.organization.is_member_join_email_enabled:
-            from posthog.tasks.email import send_member_join
-
-            send_member_join.apply_async(
-                kwargs={
-                    "invitee_uuid": user.uuid,
-                    "organization_id": self.organization_id,
-                }
-            )
-        OrganizationInvite.objects.filter(target_email__iexact=self.target_email).delete()
-
-    def is_expired(self) -> bool:
-        """Check if invite is older than INVITE_DAYS_VALIDITY days."""
-        return self.created_at < timezone.now() - timezone.timedelta(INVITE_DAYS_VALIDITY)
-
-    def __str__(self):
-        return absolute_uri(f"/signup/{self.id}")
-
-    __repr__ = sane_repr("organization", "target_email", "created_by")
 
 
 @receiver(models.signals.pre_delete, sender=OrganizationMembership)

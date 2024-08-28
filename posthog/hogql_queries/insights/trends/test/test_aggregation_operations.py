@@ -1,12 +1,11 @@
 from datetime import datetime
-from typing import Literal, Union, cast
+from typing import Literal, Union
 
 import pytest
+
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
 from posthog.hogql_queries.insights.trends.aggregation_operations import (
     AggregationOperations,
-    QueryAlternator,
 )
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
@@ -19,48 +18,6 @@ from posthog.schema import (
 )
 
 
-class TestQueryAlternator:
-    def test_select(self):
-        query = parse_select("SELECT event from events")
-
-        query_modifier = QueryAlternator(query)
-        query_modifier.append_select(ast.Field(chain=["test"]))
-        query_modifier.build()
-
-        assert len(query.select) == 2
-        assert cast(ast.Field, query.select[1]).chain == ["test"]
-
-    def test_group_no_pre_existing(self):
-        query = parse_select("SELECT event from events")
-
-        query_modifier = QueryAlternator(query)
-        query_modifier.append_group_by(ast.Field(chain=["event"]))
-        query_modifier.build()
-
-        assert len(query.group_by) == 1
-        assert cast(ast.Field, query.group_by[0]).chain == ["event"]
-
-    def test_group_with_pre_existing(self):
-        query = parse_select("SELECT event from events GROUP BY uuid")
-
-        query_modifier = QueryAlternator(query)
-        query_modifier.append_group_by(ast.Field(chain=["event"]))
-        query_modifier.build()
-
-        assert len(query.group_by) == 2
-        assert cast(ast.Field, query.group_by[0]).chain == ["uuid"]
-        assert cast(ast.Field, query.group_by[1]).chain == ["event"]
-
-    def test_replace_select_from(self):
-        query = parse_select("SELECT event from events")
-
-        query_modifier = QueryAlternator(query)
-        query_modifier.replace_select_from(ast.JoinExpr(table=ast.Field(chain=["groups"])))
-        query_modifier.build()
-
-        assert query.select_from.table.chain == ["groups"]
-
-
 @pytest.mark.parametrize(
     "math,math_property",
     [
@@ -69,6 +26,7 @@ class TestQueryAlternator:
         [BaseMathType.WEEKLY_ACTIVE, None],
         [BaseMathType.MONTHLY_ACTIVE, None],
         [BaseMathType.UNIQUE_SESSION, None],
+        [BaseMathType.FIRST_TIME_FOR_USER, None],
         [PropertyMathType.AVG, "$browser"],
         [PropertyMathType.SUM, "$browser"],
         [PropertyMathType.MIN, "$browser"],
@@ -115,6 +73,7 @@ def test_all_cases_return(
         [BaseMathType.WEEKLY_ACTIVE, True],
         [BaseMathType.MONTHLY_ACTIVE, True],
         [BaseMathType.UNIQUE_SESSION, False],
+        [BaseMathType.FIRST_TIME_FOR_USER, True],
         [PropertyMathType.AVG, False],
         [PropertyMathType.SUM, False],
         [PropertyMathType.MIN, False],

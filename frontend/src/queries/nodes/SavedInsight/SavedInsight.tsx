@@ -27,10 +27,6 @@ export function SavedInsight({ query: propsQuery, context }: InsightProps): JSX.
         )
     }
 
-    if (!insight.filters) {
-        throw new Error('InsightNode expects an insight with filters')
-    }
-
     const query = { ...propsQuery, ...dataQuery, full: propsQuery.full }
 
     return <Query query={query} cachedResults={insight} context={{ ...context, insightProps }} />

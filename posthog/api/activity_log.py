@@ -4,7 +4,7 @@ from typing import Any, Optional
 from django.db.models import Q, QuerySet
 
 from rest_framework import serializers, status, viewsets, pagination, mixins
-from rest_framework.decorators import action
+from posthog.api.utils import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -180,11 +180,13 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
                 .values_list("item_id", flat=True)
             )
 
-            last_read_date = NotificationViewed.objects.filter(user=user).first()
+            last_read_date = (
+                NotificationViewed.objects.filter(user=user).values_list("last_viewed_activity_date", flat=True).first()
+            )
             last_read_filter = ""
 
             if last_read_date and params.get("unread") == "true":
-                last_read_filter = f"AND created_at > '{last_read_date.last_viewed_activity_date.isoformat()}'"
+                last_read_filter = f"AND created_at > '{last_read_date.isoformat()}'"
 
         with timer("query_for_candidate_ids"):
             # before we filter to include only the important changes,
@@ -252,9 +254,7 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
             )
 
             if last_read_date and params.get("unread") == "true":
-                other_peoples_changes = other_peoples_changes.filter(
-                    created_at__gt=last_read_date.last_viewed_activity_date
-                )
+                other_peoples_changes = other_peoples_changes.filter(created_at__gt=last_read_date)
 
         with timer("query_for_data"):
             page_of_data = other_peoples_changes[:10]
@@ -268,7 +268,7 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
             status=status.HTTP_200_OK,
             data={
                 "results": serialized_data,
-                "last_read": last_read_date.last_viewed_activity_date if last_read_date else None,
+                "last_read": last_read_date if last_read_date else None,
             },
         )
 

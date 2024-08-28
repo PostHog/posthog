@@ -619,6 +619,8 @@ export class SessionManager {
                       createdAt: this.flushBuffer.createdAt,
                   }
                 : null,
+            partition: this.partition,
+            destroying: this.destroying,
         }
     }
 }

@@ -13,6 +13,10 @@ jest.spyOn(Storage.prototype, 'getItem')
 
 const MOCK_INSIGHT_SHORT_ID = 'abcdef' as InsightShortId
 const MOCK_INSIGHT_NUMERIC_ID = 1
+const MOCK_INSIGHT_NUMERIC_ID_2 = 2
+const MOCK_DASHBOARD_ID = 1
+const MOCK_DASHBOARD_ID_2 = 2
+const MOCK_DASHBOARD_ID_3 = 2
 
 const BASE_MOCK_ANNOTATION: Pick<
     RawAnnotationType,
@@ -39,6 +43,7 @@ const MOCK_ANNOTATION_ORG_SCOPED: RawAnnotationType = {
     dashboard_item: null,
     insight_short_id: null,
     insight_name: null,
+    insight_derived_name: null,
     scope: AnnotationScope.Organization,
     ...BASE_MOCK_ANNOTATION,
 }
@@ -50,6 +55,7 @@ const MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3: RawAnnotationType = {
     dashboard_item: 3,
     insight_short_id: 'xxxxxx' as InsightShortId,
     insight_name: 'Clicks',
+    insight_derived_name: null,
     scope: AnnotationScope.Organization,
     ...BASE_MOCK_ANNOTATION,
 }
@@ -61,6 +67,7 @@ const MOCK_ANNOTATION_PROJECT_SCOPED: RawAnnotationType = {
     dashboard_item: null,
     insight_short_id: null,
     insight_name: null,
+    insight_derived_name: null,
     scope: AnnotationScope.Project,
     ...BASE_MOCK_ANNOTATION,
 }
@@ -72,6 +79,7 @@ const MOCK_ANNOTATION_INSIGHT_1_SCOPED: RawAnnotationType = {
     dashboard_item: 1,
     insight_short_id: MOCK_INSIGHT_SHORT_ID,
     insight_name: 'Pageviews',
+    insight_derived_name: 'Pageview count',
     scope: AnnotationScope.Insight,
     ...BASE_MOCK_ANNOTATION,
 }
@@ -83,6 +91,7 @@ const MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1: RawAnnotationType = {
     dashboard_item: MOCK_INSIGHT_NUMERIC_ID,
     insight_short_id: MOCK_INSIGHT_SHORT_ID,
     insight_name: 'Pageviews',
+    insight_derived_name: 'Pageview count',
     scope: AnnotationScope.Project,
     ...BASE_MOCK_ANNOTATION,
 }
@@ -94,6 +103,7 @@ const MOCK_ANNOTATION_INSIGHT_3_SCOPED: RawAnnotationType = {
     dashboard_item: 3,
     insight_short_id: 'xxxxxx' as InsightShortId,
     insight_name: 'Clicks',
+    insight_derived_name: null,
     scope: AnnotationScope.Insight,
     ...BASE_MOCK_ANNOTATION,
 }
@@ -104,7 +114,8 @@ const MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1: RawAnnotationType = {
     date_marker: '2022-08-17T04:00:00.000Z', // A week after MOCK_ANNOTATION_ORG_SCOPED
     dashboard_item: MOCK_INSIGHT_NUMERIC_ID,
     insight_short_id: MOCK_INSIGHT_SHORT_ID,
-    insight_name: 'Pageviews',
+    insight_name: null,
+    insight_derived_name: 'Pageview count',
     scope: AnnotationScope.Organization,
     ...BASE_MOCK_ANNOTATION,
 }
@@ -116,7 +127,47 @@ const MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3: RawAnnotationType = {
     dashboard_item: 3,
     insight_short_id: 'xxxxxx' as InsightShortId,
     insight_name: 'Clicks',
+    insight_derived_name: null,
     scope: AnnotationScope.Project,
+    ...BASE_MOCK_ANNOTATION,
+}
+/** ID 23 at 2022-08-10T04:00:00.000Z */
+const MOCK_ANNOTATION_DASHBOARD_SCOPED: RawAnnotationType = {
+    id: 23,
+    content: 'MOCK_ANNOTATION_DASHBOARD_SCOPED',
+    date_marker: '2022-08-10T04:00:00.000Z',
+    dashboard_id: MOCK_DASHBOARD_ID,
+    dashboard_item: MOCK_INSIGHT_NUMERIC_ID,
+    insight_short_id: null,
+    insight_name: null,
+    insight_derived_name: null,
+    scope: AnnotationScope.Dashboard,
+    ...BASE_MOCK_ANNOTATION,
+}
+/** ID 24 at 2022-08-10T04:00:00.000Z */
+const MOCK_ANNOTATION_DASHBOARD_SCOPED_2: RawAnnotationType = {
+    id: 24,
+    content: 'MOCK_ANNOTATION_DASHBOARD_SCOPED_2',
+    date_marker: '2022-08-10T04:00:00.000Z',
+    dashboard_id: MOCK_DASHBOARD_ID_2,
+    dashboard_item: MOCK_INSIGHT_NUMERIC_ID_2,
+    insight_short_id: null,
+    insight_name: null,
+    insight_derived_name: null,
+    scope: AnnotationScope.Dashboard,
+    ...BASE_MOCK_ANNOTATION,
+}
+/** ID 25 at 2022-08-10T04:00:00.000Z */
+const MOCK_ANNOTATION_DASHBOARD_SCOPED_3: RawAnnotationType = {
+    id: 25,
+    content: 'MOCK_ANNOTATION_DASHBOARD_SCOPED_3',
+    date_marker: '2022-08-10T04:00:00.000Z',
+    dashboard_id: MOCK_DASHBOARD_ID_3,
+    dashboard_item: MOCK_INSIGHT_NUMERIC_ID_2,
+    insight_short_id: null,
+    insight_name: null,
+    insight_derived_name: null,
+    scope: AnnotationScope.Dashboard,
     ...BASE_MOCK_ANNOTATION,
 }
 
@@ -125,9 +176,7 @@ function useInsightMocks(interval: string = 'day', timezone: string = 'UTC'): vo
         result: {},
         id: MOCK_INSIGHT_NUMERIC_ID,
         short_id: MOCK_INSIGHT_SHORT_ID,
-        filters: {
-            interval,
-        },
+        filters: { insight: 'TRENDS', interval },
         timezone,
     }
     useMocks({
@@ -161,6 +210,9 @@ function useAnnotationsMocks(): void {
                     MOCK_ANNOTATION_INSIGHT_3_SCOPED,
                     MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1,
                     MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3,
+                    MOCK_ANNOTATION_DASHBOARD_SCOPED,
+                    MOCK_ANNOTATION_DASHBOARD_SCOPED_2,
+                    MOCK_ANNOTATION_DASHBOARD_SCOPED_3,
                 ],
             },
             '/api/users/@me/': [200, {}],
@@ -188,6 +240,7 @@ describe('annotationsOverlayLogic', () => {
             insightNumericId: MOCK_INSIGHT_NUMERIC_ID,
             dates: [],
             ticks: [],
+            dashboardId: MOCK_DASHBOARD_ID,
         })
         logic.mount()
         await expectLogic(annotationsModel).toDispatchActions(['loadAnnotations'])
@@ -202,12 +255,16 @@ describe('annotationsOverlayLogic', () => {
                 insightNumericId: MOCK_INSIGHT_NUMERIC_ID,
                 dates: ['2022-01-01', '2023-01-01'],
                 ticks: [{ value: 0 }, { value: 1 }],
+                dashboardId: MOCK_DASHBOARD_ID,
             })
             logic.mount()
             await expectLogic(annotationsModel).toDispatchActions(['loadAnnotationsSuccess'])
-            await expectLogic(insightLogic({ dashboardItemId: MOCK_INSIGHT_SHORT_ID })).toDispatchActions([
-                'loadInsightSuccess',
-            ])
+            await expectLogic(
+                insightLogic({
+                    dashboardItemId: MOCK_INSIGHT_SHORT_ID,
+                    dashboardId: MOCK_DASHBOARD_ID,
+                })
+            ).toDispatchActions(['loadInsightSuccess'])
             await expectLogic(logic).toMatchValues({
                 relevantAnnotations: [
                     // The annotation scoped to insight 3 should be omitted
@@ -218,6 +275,74 @@ describe('annotationsOverlayLogic', () => {
                     MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1,
                     MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1,
                     MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3,
+                    MOCK_ANNOTATION_DASHBOARD_SCOPED,
+                ].map((annotation) => deserializeAnnotation(annotation, 'UTC')),
+            })
+        })
+
+        it('returns annotations scoped to the dashboard or matching insight', async () => {
+            useInsightMocks()
+
+            logic = annotationsOverlayLogic({
+                dashboardItemId: MOCK_INSIGHT_SHORT_ID,
+                insightNumericId: MOCK_INSIGHT_NUMERIC_ID,
+                dates: ['2022-01-01', '2023-01-01'],
+                ticks: [{ value: 0 }, { value: 1 }],
+                dashboardId: MOCK_DASHBOARD_ID,
+            })
+            logic.mount()
+            await expectLogic(annotationsModel).toDispatchActions(['loadAnnotationsSuccess'])
+            await expectLogic(
+                insightLogic({
+                    dashboardItemId: MOCK_INSIGHT_SHORT_ID,
+                    dashboardId: MOCK_DASHBOARD_ID,
+                })
+            ).toDispatchActions(['loadInsightSuccess'])
+            await expectLogic(logic).toMatchValues({
+                relevantAnnotations: [
+                    // The annotation scoped to insight 3 should be omitted
+                    MOCK_ANNOTATION_ORG_SCOPED,
+                    MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3,
+                    MOCK_ANNOTATION_PROJECT_SCOPED,
+                    MOCK_ANNOTATION_INSIGHT_1_SCOPED,
+                    MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1,
+                    MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1,
+                    MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3,
+                    MOCK_ANNOTATION_DASHBOARD_SCOPED,
+                ].map((annotation) => deserializeAnnotation(annotation, 'UTC')),
+            })
+        })
+
+        it("returns only annotations scoped to the dashboard when insight id doesn't match", async () => {
+            useInsightMocks()
+
+            logic = annotationsOverlayLogic({
+                dashboardItemId: MOCK_INSIGHT_SHORT_ID,
+                insightNumericId: MOCK_INSIGHT_NUMERIC_ID_2,
+                dates: ['2022-01-01', '2023-01-01'],
+                ticks: [{ value: 0 }, { value: 1 }],
+                dashboardId: MOCK_DASHBOARD_ID_2,
+            })
+            logic.mount()
+            await expectLogic(annotationsModel).toDispatchActions(['loadAnnotationsSuccess'])
+            await expectLogic(
+                insightLogic({
+                    dashboardItemId: MOCK_INSIGHT_SHORT_ID,
+                    dashboardId: MOCK_DASHBOARD_ID_2,
+                })
+            ).toDispatchActions(['loadInsightSuccess'])
+            await expectLogic(logic).toMatchValues({
+                relevantAnnotations: [
+                    MOCK_ANNOTATION_ORG_SCOPED,
+                    MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3,
+                    MOCK_ANNOTATION_PROJECT_SCOPED,
+                    MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1,
+                    MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1,
+                    MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3,
+                    // dashboard id matches
+                    MOCK_ANNOTATION_DASHBOARD_SCOPED_2,
+                    // insightNumericId == dashboard_item for 3
+                    MOCK_ANNOTATION_DASHBOARD_SCOPED_3,
                 ].map((annotation) => deserializeAnnotation(annotation, 'UTC')),
             })
         })
@@ -228,6 +353,7 @@ describe('annotationsOverlayLogic', () => {
             logic = annotationsOverlayLogic({
                 dashboardItemId: 'new',
                 insightNumericId: 'new',
+                dashboardId: 0,
                 dates: ['2022-01-01', '2023-01-01'],
                 ticks: [{ value: 0 }, { value: 1 }],
             })
@@ -254,6 +380,7 @@ describe('annotationsOverlayLogic', () => {
                 insightNumericId: 'new',
                 dates: ['2022-09-01', '2022-10-01'],
                 ticks: [{ value: 0 }, { value: 1 }],
+                dashboardId: MOCK_DASHBOARD_ID,
             })
             logic.mount()
             await expectLogic(annotationsModel).toDispatchActions(['loadAnnotationsSuccess'])
@@ -276,6 +403,7 @@ describe('annotationsOverlayLogic', () => {
                     '2022-08-10 04:00:00+0000': [
                         MOCK_ANNOTATION_ORG_SCOPED,
                         MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3,
+                        MOCK_ANNOTATION_DASHBOARD_SCOPED,
                     ].map((annotation) => deserializeAnnotation(annotation, 'UTC')),
                     '2022-08-10 04:01:00+0000': [MOCK_ANNOTATION_PROJECT_SCOPED].map((annotation) =>
                         deserializeAnnotation(annotation, 'UTC')
@@ -298,6 +426,7 @@ describe('annotationsOverlayLogic', () => {
                         MOCK_ANNOTATION_ORG_SCOPED,
                         MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3,
                         MOCK_ANNOTATION_PROJECT_SCOPED,
+                        MOCK_ANNOTATION_DASHBOARD_SCOPED,
                     ].map((annotation) => deserializeAnnotation(annotation, 'UTC')),
                     '2022-08-10 05:00:00+0000': [MOCK_ANNOTATION_INSIGHT_1_SCOPED].map((annotation) =>
                         deserializeAnnotation(annotation, 'UTC')
@@ -318,6 +447,7 @@ describe('annotationsOverlayLogic', () => {
                         MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3,
                         MOCK_ANNOTATION_PROJECT_SCOPED,
                         MOCK_ANNOTATION_INSIGHT_1_SCOPED,
+                        MOCK_ANNOTATION_DASHBOARD_SCOPED,
                     ].map((annotation) => deserializeAnnotation(annotation, 'UTC')),
                     '2022-08-11 00:00:00+0000': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1].map((annotation) =>
                         deserializeAnnotation(annotation, 'UTC')
@@ -336,6 +466,7 @@ describe('annotationsOverlayLogic', () => {
                         MOCK_ANNOTATION_PROJECT_SCOPED,
                         MOCK_ANNOTATION_INSIGHT_1_SCOPED,
                         MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1,
+                        MOCK_ANNOTATION_DASHBOARD_SCOPED,
                     ].map((annotation) => deserializeAnnotation(annotation, 'UTC')),
                     '2022-08-14 00:00:00+0000': [MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1].map((annotation) =>
                         deserializeAnnotation(annotation, 'UTC')
@@ -352,6 +483,7 @@ describe('annotationsOverlayLogic', () => {
                         MOCK_ANNOTATION_INSIGHT_1_SCOPED,
                         MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1,
                         MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1,
+                        MOCK_ANNOTATION_DASHBOARD_SCOPED,
                     ].map((annotation) => deserializeAnnotation(annotation, 'UTC')),
                     '2022-09-01 00:00:00+0000': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3].map((annotation) =>
                         deserializeAnnotation(annotation, 'UTC')
@@ -364,6 +496,7 @@ describe('annotationsOverlayLogic', () => {
                     '2022-08-09 21:00:00-0700': [
                         MOCK_ANNOTATION_ORG_SCOPED,
                         MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3,
+                        MOCK_ANNOTATION_DASHBOARD_SCOPED,
                     ].map((annotation) => deserializeAnnotation(annotation, 'America/Phoenix')),
                     '2022-08-09 21:01:00-0700': [MOCK_ANNOTATION_PROJECT_SCOPED].map((annotation) =>
                         deserializeAnnotation(annotation, 'America/Phoenix')
@@ -386,6 +519,7 @@ describe('annotationsOverlayLogic', () => {
                         MOCK_ANNOTATION_ORG_SCOPED,
                         MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3,
                         MOCK_ANNOTATION_PROJECT_SCOPED,
+                        MOCK_ANNOTATION_DASHBOARD_SCOPED,
                     ].map((annotation) => deserializeAnnotation(annotation, 'America/Phoenix')),
                     '2022-08-09 22:00:00-0700': [MOCK_ANNOTATION_INSIGHT_1_SCOPED].map((annotation) =>
                         deserializeAnnotation(annotation, 'America/Phoenix')
@@ -406,6 +540,7 @@ describe('annotationsOverlayLogic', () => {
                         MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3,
                         MOCK_ANNOTATION_PROJECT_SCOPED,
                         MOCK_ANNOTATION_INSIGHT_1_SCOPED,
+                        MOCK_ANNOTATION_DASHBOARD_SCOPED,
                     ].map((annotation) => deserializeAnnotation(annotation, 'America/Phoenix')),
                     '2022-08-10 00:00:00-0700': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1].map((annotation) =>
                         deserializeAnnotation(annotation, 'America/Phoenix')
@@ -424,6 +559,7 @@ describe('annotationsOverlayLogic', () => {
                         MOCK_ANNOTATION_PROJECT_SCOPED,
                         MOCK_ANNOTATION_INSIGHT_1_SCOPED,
                         MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1,
+                        MOCK_ANNOTATION_DASHBOARD_SCOPED,
                     ].map((annotation) => deserializeAnnotation(annotation, 'America/Phoenix')),
                     '2022-08-14 00:00:00-0700': [MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1].map((annotation) =>
                         deserializeAnnotation(annotation, 'America/Phoenix')
@@ -440,6 +576,7 @@ describe('annotationsOverlayLogic', () => {
                         MOCK_ANNOTATION_INSIGHT_1_SCOPED,
                         MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1,
                         MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1,
+                        MOCK_ANNOTATION_DASHBOARD_SCOPED,
                     ].map((annotation) => deserializeAnnotation(annotation, 'America/Phoenix')),
                     '2022-09-01 00:00:00-0700': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3].map((annotation) =>
                         deserializeAnnotation(annotation, 'America/Phoenix')
@@ -452,6 +589,7 @@ describe('annotationsOverlayLogic', () => {
                     '2022-08-10 07:00:00+0300': [
                         MOCK_ANNOTATION_ORG_SCOPED,
                         MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3,
+                        MOCK_ANNOTATION_DASHBOARD_SCOPED,
                     ].map((annotation) => deserializeAnnotation(annotation, 'Europe/Moscow')),
                     '2022-08-10 07:01:00+0300': [MOCK_ANNOTATION_PROJECT_SCOPED].map((annotation) =>
                         deserializeAnnotation(annotation, 'Europe/Moscow')
@@ -474,6 +612,7 @@ describe('annotationsOverlayLogic', () => {
                         MOCK_ANNOTATION_ORG_SCOPED,
                         MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3,
                         MOCK_ANNOTATION_PROJECT_SCOPED,
+                        MOCK_ANNOTATION_DASHBOARD_SCOPED,
                     ].map((annotation) => deserializeAnnotation(annotation, 'Europe/Moscow')),
                     '2022-08-10 08:00:00+0300': [MOCK_ANNOTATION_INSIGHT_1_SCOPED].map((annotation) =>
                         deserializeAnnotation(annotation, 'Europe/Moscow')
@@ -494,6 +633,7 @@ describe('annotationsOverlayLogic', () => {
                         MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3,
                         MOCK_ANNOTATION_PROJECT_SCOPED,
                         MOCK_ANNOTATION_INSIGHT_1_SCOPED,
+                        MOCK_ANNOTATION_DASHBOARD_SCOPED,
                     ].map((annotation) => deserializeAnnotation(annotation, 'Europe/Moscow')),
                     '2022-08-11 00:00:00+0300': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1].map((annotation) =>
                         deserializeAnnotation(annotation, 'Europe/Moscow')
@@ -512,6 +652,7 @@ describe('annotationsOverlayLogic', () => {
                         MOCK_ANNOTATION_PROJECT_SCOPED,
                         MOCK_ANNOTATION_INSIGHT_1_SCOPED,
                         MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1,
+                        MOCK_ANNOTATION_DASHBOARD_SCOPED,
                     ].map((annotation) => deserializeAnnotation(annotation, 'Europe/Moscow')),
                     '2022-08-14 00:00:00+0300': [MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1].map((annotation) =>
                         deserializeAnnotation(annotation, 'Europe/Moscow')
@@ -528,6 +669,7 @@ describe('annotationsOverlayLogic', () => {
                         MOCK_ANNOTATION_INSIGHT_1_SCOPED,
                         MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1,
                         MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1,
+                        MOCK_ANNOTATION_DASHBOARD_SCOPED,
                     ].map((annotation) => deserializeAnnotation(annotation, 'Europe/Moscow')),
                     '2022-09-01 00:00:00+0300': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3].map((annotation) =>
                         deserializeAnnotation(annotation, 'Europe/Moscow')
@@ -548,14 +690,15 @@ describe('annotationsOverlayLogic', () => {
                     logic = annotationsOverlayLogic({
                         dashboardItemId: MOCK_INSIGHT_SHORT_ID,
                         insightNumericId: MOCK_INSIGHT_NUMERIC_ID,
+                        dashboardId: MOCK_DASHBOARD_ID,
                         dates: ['2022-01-01', '2023-01-01'],
                         ticks: [{ value: 0 }, { value: 1 }],
                     })
                     logic.mount()
                     await expectLogic(annotationsModel).toDispatchActions(['loadAnnotationsSuccess'])
-                    await expectLogic(insightLogic({ dashboardItemId: MOCK_INSIGHT_SHORT_ID })).toDispatchActions([
-                        'loadInsightSuccess',
-                    ])
+                    await expectLogic(
+                        insightLogic({ dashboardItemId: MOCK_INSIGHT_SHORT_ID, dashboardId: MOCK_DASHBOARD_ID })
+                    ).toDispatchActions(['loadInsightSuccess'])
                     await expectLogic(logic).toMatchValues({
                         groupedAnnotations: expectedGrouping,
                     })
@@ -574,12 +717,13 @@ describe('annotationsOverlayLogic', () => {
                     { value: 0 },
                     { value: 2 }, // This indicates that the ratio of ticks to points is 1:2
                 ],
+                dashboardId: MOCK_DASHBOARD_ID,
             })
             logic.mount()
             await expectLogic(annotationsModel).toDispatchActions(['loadAnnotationsSuccess'])
-            await expectLogic(insightLogic({ dashboardItemId: MOCK_INSIGHT_SHORT_ID })).toDispatchActions([
-                'loadInsightSuccess',
-            ])
+            await expectLogic(
+                insightLogic({ dashboardItemId: MOCK_INSIGHT_SHORT_ID, dashboardId: MOCK_DASHBOARD_ID })
+            ).toDispatchActions(['loadInsightSuccess'])
             await expectLogic(logic).toMatchValues({
                 groupedAnnotations: {
                     '2022-08-10 00:00:00+0000': [
@@ -589,6 +733,7 @@ describe('annotationsOverlayLogic', () => {
                         MOCK_ANNOTATION_INSIGHT_1_SCOPED,
                         // This one would normally go into 2022-08-11
                         MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1,
+                        MOCK_ANNOTATION_DASHBOARD_SCOPED,
                     ].map((annotation) => deserializeAnnotation(annotation, MOCK_DEFAULT_TEAM.timezone)),
                 },
             })
@@ -607,12 +752,13 @@ describe('annotationsOverlayLogic', () => {
                     { value: 0 },
                     { value: 2 }, // This indicates that the ratio of ticks to points is 1:2
                 ],
+                dashboardId: MOCK_DASHBOARD_ID,
             })
             logic.mount()
             await expectLogic(annotationsModel).toDispatchActions(['loadAnnotationsSuccess'])
-            await expectLogic(insightLogic({ dashboardItemId: MOCK_INSIGHT_SHORT_ID })).toDispatchActions([
-                'loadInsightSuccess',
-            ])
+            await expectLogic(
+                insightLogic({ dashboardItemId: MOCK_INSIGHT_SHORT_ID, dashboardId: MOCK_DASHBOARD_ID })
+            ).toDispatchActions(['loadInsightSuccess'])
             await expectLogic(logic).toMatchValues({
                 groupedAnnotations: {
                     '2022-08-10 00:00:00+0530': [
@@ -622,6 +768,7 @@ describe('annotationsOverlayLogic', () => {
                         MOCK_ANNOTATION_INSIGHT_1_SCOPED,
                         // This one would normally go into 2022-08-11
                         MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1,
+                        MOCK_ANNOTATION_DASHBOARD_SCOPED,
                     ].map((annotation) => deserializeAnnotation(annotation, 'Asia/Colombo')),
                 },
             })
@@ -638,12 +785,13 @@ describe('annotationsOverlayLogic', () => {
                     { value: 0 },
                     { value: 2 }, // This indicates that the ratio of ticks to points is 1:2
                 ],
+                dashboardId: MOCK_DASHBOARD_ID,
             })
             logic.mount()
             await expectLogic(annotationsModel).toDispatchActions(['loadAnnotationsSuccess'])
-            await expectLogic(insightLogic({ dashboardItemId: MOCK_INSIGHT_SHORT_ID })).toDispatchActions([
-                'loadInsightSuccess',
-            ])
+            await expectLogic(
+                insightLogic({ dashboardItemId: MOCK_INSIGHT_SHORT_ID, dashboardId: MOCK_DASHBOARD_ID })
+            ).toDispatchActions(['loadInsightSuccess'])
             await expectLogic(logic).toMatchValues({
                 groupedAnnotations: {
                     '2022-08-10 04:00:00+0000': [
@@ -652,6 +800,7 @@ describe('annotationsOverlayLogic', () => {
                         MOCK_ANNOTATION_PROJECT_SCOPED,
                         // This one would normally go into 2022-08-10 05:00
                         MOCK_ANNOTATION_INSIGHT_1_SCOPED,
+                        MOCK_ANNOTATION_DASHBOARD_SCOPED,
                     ].map((annotation) => deserializeAnnotation(annotation, MOCK_DEFAULT_TEAM.timezone)),
                 },
             })
@@ -670,12 +819,13 @@ describe('annotationsOverlayLogic', () => {
                     { value: 0 },
                     { value: 2 }, // This indicates that the ratio of ticks to points is 1:2
                 ],
+                dashboardId: MOCK_DASHBOARD_ID,
             })
             logic.mount()
             await expectLogic(annotationsModel).toDispatchActions(['loadAnnotationsSuccess'])
-            await expectLogic(insightLogic({ dashboardItemId: MOCK_INSIGHT_SHORT_ID })).toDispatchActions([
-                'loadInsightSuccess',
-            ])
+            await expectLogic(
+                insightLogic({ dashboardItemId: MOCK_INSIGHT_SHORT_ID, dashboardId: MOCK_DASHBOARD_ID })
+            ).toDispatchActions(['loadInsightSuccess'])
             await expectLogic(logic).toMatchValues({
                 groupedAnnotations: {
                     '2022-08-10 09:00:00+0530': [
@@ -684,6 +834,7 @@ describe('annotationsOverlayLogic', () => {
                         MOCK_ANNOTATION_PROJECT_SCOPED,
                         // This one would normally go into 2022-08-10 09:00
                         MOCK_ANNOTATION_INSIGHT_1_SCOPED,
+                        MOCK_ANNOTATION_DASHBOARD_SCOPED,
                     ].map((annotation) => deserializeAnnotation(annotation, 'Asia/Colombo')),
                 },
             })

@@ -68,6 +68,12 @@ def create_channel_type_expr(
             args=[ast.Call(name="nullIf", args=[expr, ast.Constant(value="")]), ast.Constant(value="null")],
         )
 
+    def wrap_with_lower(expr: ast.Expr) -> ast.Expr:
+        return ast.Call(
+            name="lower",
+            args=[expr],
+        )
+
     # This logic is referenced in our docs https://posthog.com/docs/data/channel-type, be sure to update both if you
     # update either.
     return parse_expr(
@@ -84,13 +90,13 @@ multiIf(
     ),
     coalesce(
         hogql_lookupPaidSourceType({source}),
-        hogql_lookupPaidDomainType({referring_domain}),
         if(
             match({campaign}, '^(.*(([^a-df-z]|^)shop|shopping).*)$'),
             'Paid Shopping',
             NULL
         ),
         hogql_lookupPaidMediumType({medium}),
+        hogql_lookupPaidSourceType({referring_domain}),
         multiIf (
             {gad_source} = '1',
             'Paid Search',
@@ -105,19 +111,19 @@ multiIf(
     (
         {referring_domain} = '$direct'
         AND ({medium} IS NULL)
-        AND ({source} IS NULL OR {source} IN ('(direct)', 'direct'))
+        AND ({source} IS NULL OR {source} IN ('(direct)', 'direct', '$direct'))
     ),
     'Direct',
 
     coalesce(
         hogql_lookupOrganicSourceType({source}),
-        hogql_lookupOrganicDomainType({referring_domain}),
         if(
             match({campaign}, '^(.*(([^a-df-z]|^)shop|shopping).*)$'),
             'Organic Shopping',
             NULL
         ),
         hogql_lookupOrganicMediumType({medium}),
+        hogql_lookupOrganicSourceType({referring_domain}),
         multiIf(
             match({campaign}, '^(.*video.*)$'),
             'Organic Video',
@@ -125,15 +131,21 @@ multiIf(
             match({medium}, 'push$'),
             'Push',
 
+            {referring_domain} == '$direct',
+            'Direct',
+
+            {referring_domain} IS NOT NULL,
+            'Referral',
+
             'Unknown'
         )
     )
 )""",
         start=None,
         placeholders={
-            "campaign": wrap_with_null_if_empty(campaign),
-            "medium": wrap_with_null_if_empty(medium),
-            "source": wrap_with_null_if_empty(source),
+            "campaign": wrap_with_lower(wrap_with_null_if_empty(campaign)),
+            "medium": wrap_with_lower(wrap_with_null_if_empty(medium)),
+            "source": wrap_with_lower(wrap_with_null_if_empty(source)),
             "referring_domain": referring_domain,
             "gclid": wrap_with_null_if_empty(gclid),
             "gad_source": wrap_with_null_if_empty(gad_source),
@@ -144,11 +156,13 @@ multiIf(
 POSSIBLE_CHANNEL_TYPES = [
     "Cross Network",
     "Paid Search",
+    "Paid Social",
     "Paid Video",
     "Paid Shopping",
-    "Paid Other",
+    "Paid Unknown",
     "Direct",
     "Organic Search",
+    "Organic Social",
     "Organic Video",
     "Organic Shopping",
     "Push",
@@ -157,5 +171,5 @@ POSSIBLE_CHANNEL_TYPES = [
     "Email",
     "Referral",
     "Affiliate",
-    "Other",
+    "Unknown",
 ]

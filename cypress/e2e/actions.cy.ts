@@ -1,5 +1,5 @@
 const createAction = (actionName: string): void => {
-    cy.get('[data-attr=create-action]').click()
+    cy.get('[data-attr=create-action]').first().click()
     cy.get('.LemonButton').should('contain', 'From event or pageview')
     cy.get('[data-attr=new-action-pageview]').click({ force: true })
     cy.get('input[name="item-name-large"]').should('exist')

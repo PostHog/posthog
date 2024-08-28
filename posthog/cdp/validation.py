@@ -3,14 +3,30 @@ from typing import Any, Optional
 from rest_framework import serializers
 
 from posthog.hogql.bytecode import create_bytecode
-from posthog.hogql.parser import parse_program
-from posthog.models.hog_functions.utils import generate_template_bytecode
+from posthog.hogql.parser import parse_program, parse_string_template
 
 logger = logging.getLogger(__name__)
 
 
+def generate_template_bytecode(obj: Any) -> Any:
+    """
+    Clones an object, compiling any string values to bytecode templates
+    """
+
+    if isinstance(obj, dict):
+        return {key: generate_template_bytecode(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        return [generate_template_bytecode(item) for item in obj]
+    elif isinstance(obj, str):
+        return create_bytecode(parse_string_template(obj))
+    else:
+        return obj
+
+
 class InputsSchemaItemSerializer(serializers.Serializer):
-    type = serializers.ChoiceField(choices=["string", "boolean", "dictionary", "choice", "json"])
+    type = serializers.ChoiceField(
+        choices=["string", "boolean", "dictionary", "choice", "json", "integration", "integration_field", "email"]
+    )
     key = serializers.CharField()
     label = serializers.CharField(required=False)  # type: ignore
     choices = serializers.ListField(child=serializers.DictField(), required=False)
@@ -18,6 +34,9 @@ class InputsSchemaItemSerializer(serializers.Serializer):
     default = serializers.JSONField(required=False)
     secret = serializers.BooleanField(default=False)
     description = serializers.CharField(required=False)
+    integration = serializers.CharField(required=False)
+    integration_key = serializers.CharField(required=False)
+    integration_field = serializers.ChoiceField(choices=["slack_channel"], required=False)
 
     # TODO Validate choices if type=choice
 
@@ -38,30 +57,45 @@ class InputsItemSerializer(serializers.Serializer):
         schema = self.context["schema"]
         value = attrs.get("value")
 
-        if schema.get("required") and not value:
-            raise serializers.ValidationError("This field is required.")
+        name: str = schema["key"]
+        item_type = schema["type"]
+
+        if schema.get("required") and (value is None or value == ""):
+            raise serializers.ValidationError({"inputs": {name: f"This field is required."}})
 
         if not value:
             return attrs
 
-        name: str = schema["key"]
-        item_type = schema["type"]
-        value = attrs["value"]
-
         # Validate each type
         if item_type == "string":
             if not isinstance(value, str):
-                raise serializers.ValidationError("Value must be a string.")
+                raise serializers.ValidationError({"inputs": {name: f"Value must be a string."}})
         elif item_type == "boolean":
             if not isinstance(value, bool):
-                raise serializers.ValidationError("Value must be a boolean.")
+                raise serializers.ValidationError({"inputs": {name: f"Value must be a boolean."}})
         elif item_type == "dictionary":
             if not isinstance(value, dict):
-                raise serializers.ValidationError("Value must be a dictionary.")
+                raise serializers.ValidationError({"inputs": {name: f"Value must be a dictionary."}})
+        elif item_type == "integration":
+            if not isinstance(value, int):
+                raise serializers.ValidationError({"inputs": {name: f"Value must be an Integration ID."}})
+        elif item_type == "email":
+            if not isinstance(value, dict):
+                raise serializers.ValidationError({"inputs": {name: f"Value must be an Integration ID."}})
+            for key in ["from", "to", "subject"]:
+                if not value.get(key):
+                    raise serializers.ValidationError({"inputs": {name: f"Missing value for '{key}'."}})
+
+            if not value.get("text") and not value.get("html"):
+                raise serializers.ValidationError({"inputs": {name: f"Either 'text' or 'html' is required."}})
 
         try:
             if value:
-                if item_type in ["string", "dictionary", "json"]:
+                if item_type in ["string", "dictionary", "json", "email"]:
+                    if item_type == "email" and isinstance(value, dict):
+                        # We want to exclude the "design" property
+                        value = {key: value[key] for key in value if key != "design"}
+
                     attrs["bytecode"] = generate_template_bytecode(value)
         except Exception as e:
             raise serializers.ValidationError({"inputs": {name: f"Invalid template: {str(e)}"}})
@@ -89,8 +123,7 @@ def validate_inputs(inputs_schema: list, inputs: dict) -> dict:
         serializer = InputsItemSerializer(data=value, context={"schema": schema})
 
         if not serializer.is_valid():
-            first_error = next(iter(serializer.errors.values()))[0]
-            raise serializers.ValidationError({"inputs": {schema["key"]: first_error}})
+            raise serializers.ValidationError(serializer.errors)
 
         validated_inputs[schema["key"]] = serializer.validated_data
 
@@ -101,6 +134,7 @@ def compile_hog(hog: str, supported_functions: Optional[set[str]] = None) -> lis
     # Attempt to compile the hog
     try:
         program = parse_program(hog)
-        return create_bytecode(program, supported_functions=supported_functions or {"fetch"})
-    except Exception:
+        return create_bytecode(program, supported_functions=supported_functions or {"fetch", "postHogCapture"})
+    except Exception as e:
+        logger.error(f"Failed to compile hog {e}", exc_info=True)
         raise serializers.ValidationError({"hog": "Hog code has errors."})

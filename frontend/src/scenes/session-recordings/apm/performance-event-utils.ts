@@ -1,5 +1,5 @@
 import { eventWithTime } from '@rrweb/types'
-import { getSeriesColor } from 'lib/colors'
+import { getSeriesBackgroundColor, getSeriesColor } from 'lib/colors'
 import { humanizeBytes } from 'lib/utils'
 import { CapturedNetworkRequest } from 'posthog-js'
 
@@ -181,19 +181,19 @@ export const initiatorToAssetTypeMapping: Record<string, AssetType> = {
 export function assetTypeToColor(type: AssetType): string {
     switch (type) {
         case 'CSS':
-            return getSeriesColor(14, null, true)
+            return getSeriesBackgroundColor(14)
         case 'JS':
-            return getSeriesColor(15, null, true)
+            return getSeriesBackgroundColor(15)
         case 'Fetch':
-            return getSeriesColor(17, null, true)
+            return getSeriesBackgroundColor(17)
         case 'Image':
-            return getSeriesColor(22, null, true)
+            return getSeriesBackgroundColor(22)
         case 'Link':
-            return getSeriesColor(27, null, true)
+            return getSeriesBackgroundColor(27)
         case 'XHR':
-            return getSeriesColor(16, null, true)
+            return getSeriesBackgroundColor(16)
         case 'HTML':
-            return getSeriesColor(13, null, true)
+            return getSeriesBackgroundColor(13)
     }
 }
 
@@ -222,7 +222,7 @@ export function mapRRWebNetworkRequest(
     return data as PerformanceEvent
 }
 
-export function matchNetworkEvents(snapshotsByWindowId: Record<string, eventWithTime[]>): PerformanceEvent[] {
+export function getPerformanceEvents(snapshotsByWindowId: Record<string, eventWithTime[]>): PerformanceEvent[] {
     // we only support rrweb/network@1 events or posthog/network@1 events in any one recording
     // apart from during testing, where we might have both
     // if we have both, we only display posthog/network@1 events

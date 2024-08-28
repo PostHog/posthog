@@ -1,8 +1,8 @@
 import { dayjs } from 'lib/dayjs'
 
-import { BillingV2Type } from '~/types'
+import { BillingType } from '~/types'
 
-export const billingJson: BillingV2Type = {
+export const billingJson: BillingType = {
     customer_id: 'cus_Pg7PIL8MsKi6bx',
     deactivated: false,
     has_active_subscription: true,
@@ -1454,7 +1454,7 @@ export const billingJson: BillingV2Type = {
             screenshot_url: 'https://posthog.com/images/products/feature-flags/screenshot-feature-flags.png',
             icon_key: 'IconToggle',
             docs_url: 'https://posthog.com/docs/feature-flags',
-            subscribed: false,
+            subscribed: true,
             plans: [
                 {
                     plan_key: 'free-20230117',
@@ -1809,7 +1809,17 @@ export const billingJson: BillingV2Type = {
             ],
             type: 'feature_flags',
             free_allocation: 1000000,
-            tiers: null,
+            tiers: [
+                {
+                    flat_amount_usd: '0',
+                    unit_amount_usd: '0',
+                    up_to: null,
+                    current_amount_usd: '0.00',
+                    current_usage: 0,
+                    projected_usage: null,
+                    projected_amount_usd: null,
+                },
+            ],
             tiered: true,
             unit_amount_usd: null,
             current_amount_usd_before_addons: null,
@@ -2011,7 +2021,7 @@ export const billingJson: BillingV2Type = {
             screenshot_url: 'https://posthog.com/images/products/surveys/screenshot-surveys.png',
             icon_key: 'IconMessage',
             docs_url: 'https://posthog.com/docs/surveys',
-            subscribed: false,
+            subscribed: true,
             plans: [
                 {
                     plan_key: 'free-20230928',
@@ -2272,7 +2282,17 @@ export const billingJson: BillingV2Type = {
             ],
             type: 'surveys',
             free_allocation: 250,
-            tiers: null,
+            tiers: [
+                {
+                    flat_amount_usd: '0',
+                    unit_amount_usd: '0',
+                    up_to: null,
+                    current_amount_usd: '0.00',
+                    current_usage: 0,
+                    projected_usage: null,
+                    projected_amount_usd: null,
+                },
+            ],
             tiered: true,
             unit_amount_usd: null,
             current_amount_usd_before_addons: null,
@@ -2649,7 +2669,7 @@ export const billingJson: BillingV2Type = {
             screenshot_url: null,
             icon_key: 'IconStack',
             docs_url: 'https://posthog.com/docs',
-            subscribed: null,
+            subscribed: true,
             plans: [
                 {
                     plan_key: 'free-20230117',
@@ -2820,194 +2840,6 @@ export const billingJson: BillingV2Type = {
                     included_if: 'has_subscription',
                     contact_support: null,
                     unit_amount_usd: null,
-                },
-                {
-                    plan_key: 'teams-20240208',
-                    product_key: 'platform_and_support',
-                    name: 'Teams',
-                    description: 'SSO, permission management, and support.',
-                    image_url: 'https://posthog.com/images/product/product-icons/platform.svg',
-                    docs_url: 'https://posthog.com/docs',
-                    note: null,
-                    unit: null,
-                    flat_rate: false,
-                    free_allocation: null,
-                    features: [
-                        {
-                            key: 'tracked_users',
-                            name: 'Tracked users',
-                            description: 'Track users across devices and sessions.',
-                            unit: null,
-                            limit: null,
-                            note: 'Unlimited',
-                        },
-                        {
-                            key: 'team_members',
-                            name: 'Team members',
-                            description: "PostHog doesn't charge per seat add your entire team!",
-                            unit: null,
-                            limit: null,
-                            note: 'Unlimited',
-                        },
-                        {
-                            key: 'organizations_projects',
-                            name: 'Projects',
-                            description:
-                                'Create silos of data within PostHog. All data belongs to a single project and all queries are project-specific.',
-                            unit: null,
-                            limit: null,
-                            note: 'Unlimited',
-                        },
-                        {
-                            key: 'api_access',
-                            name: 'API access',
-                            description: 'Access your data via our developer-friendly API.',
-                            unit: null,
-                            limit: null,
-                            note: null,
-                        },
-                        {
-                            key: 'social_sso',
-                            name: 'SSO via Google, Github, or Gitlab',
-                            description: 'Log in to PostHog with your Google, Github, or Gitlab account.',
-                            unit: null,
-                            limit: null,
-                            note: null,
-                        },
-                        {
-                            key: 'sso_enforcement',
-                            name: 'Enforce SSO login',
-                            description:
-                                'Users can only sign up and log in to your PostHog organization with your specified SSO provider.',
-                            unit: null,
-                            limit: null,
-                            note: null,
-                        },
-                        {
-                            key: '2fa',
-                            name: '2FA',
-                            description: 'Secure your PostHog account with two-factor authentication.',
-                            unit: null,
-                            limit: null,
-                            note: null,
-                        },
-                        {
-                            key: '2fa_enforcement',
-                            name: 'Enforce 2FA',
-                            description: 'Require all users in your organization to enable two-factor authentication.',
-                            unit: null,
-                            limit: null,
-                            note: null,
-                        },
-                        {
-                            key: 'community_support',
-                            name: 'Community support',
-                            description: 'Get help from other users and PostHog team members in our Community forums.',
-                            unit: null,
-                            limit: null,
-                            note: null,
-                        },
-                        {
-                            key: 'email_support',
-                            name: 'Email support',
-                            description:
-                                'Get help directly from our product engineers via email. No wading through multiple support people before you get help.',
-                            unit: null,
-                            limit: null,
-                            note: null,
-                        },
-                        {
-                            key: 'dedicated_support',
-                            name: 'Dedicated account manager',
-                            description:
-                                'Work with a dedicated account manager via Slack or email to help you get the most out of PostHog.',
-                            unit: null,
-                            limit: null,
-                            note: '$2k+/month spend',
-                        },
-                        {
-                            key: 'priority_support',
-                            name: 'Priority support',
-                            description: 'Get help from our team faster than other customers.',
-                            unit: null,
-                            limit: null,
-                            note: null,
-                        },
-                        {
-                            key: 'white_labelling',
-                            name: 'White labeling',
-                            description:
-                                'Use your own branding on surveys, shared dashboards, shared insights, and more.',
-                            unit: null,
-                            limit: null,
-                            note: null,
-                        },
-                        {
-                            key: 'project_based_permissioning',
-                            name: 'Project permissions',
-                            description: 'Restrict access to data within the organization to only those who need it.',
-                            unit: null,
-                            limit: null,
-                            note: null,
-                        },
-                        {
-                            key: 'advanced_permissions',
-                            name: 'Advanced permissions',
-                            description:
-                                'Control who can access and modify data and features within your organization.',
-                            unit: null,
-                            limit: null,
-                            note: 'Project-based only',
-                        },
-                        {
-                            key: 'audit_logs',
-                            name: 'Audit logs',
-                            description:
-                                'See who in your organization has accessed or modified entities within PostHog.',
-                            unit: null,
-                            limit: null,
-                            note: 'Basic',
-                        },
-                        {
-                            key: 'security_assessment',
-                            name: 'Security assessment',
-                            description: 'Security assessment',
-                            unit: null,
-                            limit: null,
-                            note: null,
-                        },
-                        {
-                            key: 'hipaa_baa',
-                            name: 'HIPAA BAA',
-                            description:
-                                'Get a signed HIPAA Business Associate Agreement (BAA) to use PostHog in a HIPAA-compliant manner.',
-                            unit: null,
-                            limit: null,
-                            note: null,
-                        },
-                        {
-                            key: 'ingestion_taxonomy',
-                            name: 'Ingestion taxonomy',
-                            description:
-                                'Mark events as verified or unverified to help you understand the quality of your data.',
-                            unit: null,
-                            limit: null,
-                            note: null,
-                        },
-                        {
-                            key: 'tagging',
-                            name: 'Dashboard tags',
-                            description: 'Organize dashboards with tags.',
-                            unit: null,
-                            limit: null,
-                            note: null,
-                        },
-                    ],
-                    tiers: [],
-                    current_plan: false,
-                    included_if: null,
-                    contact_support: null,
-                    unit_amount_usd: '450.00',
                 },
                 {
                     plan_key: 'enterprise-20240208',
@@ -3835,4 +3667,5 @@ export const billingJson: BillingV2Type = {
     custom_limits_usd: {},
     stripe_portal_url:
         'https://billing.stripe.com/p/session/test_YWNjdF8xSElNRERFdUlhdFJYU2R6LF9QaEVJR3VyemlvMDZzRzdiQXZrc1AxSjNXZk1BellP0100ZsforDQG',
+    subscription_level: 'paid',
 }

@@ -12,7 +12,7 @@ export interface SeriesDatum {
     id: number // determines order that series will be displayed in
     dataIndex: number
     datasetIndex: number
-    breakdown_value?: string | number
+    breakdown_value?: string | number | string[]
     compare_label?: CompareLabelType
     action?: ActionFilter
     label?: string
@@ -122,8 +122,11 @@ export function invertDataSource(
         if (pillValues.length > 0) {
             datumTitle = (
                 <>
-                    {pillValues.map((pill) => (
-                        <span key={pill}>{midEllipsis(pill, 60)}</span>
+                    {pillValues.map((pill, index) => (
+                        <>
+                            <span key={pill}>{midEllipsis(pill, 60)}</span>
+                            {index < pillValues.length - 1 && ' '}
+                        </>
                     ))}
                 </>
             )

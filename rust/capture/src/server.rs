@@ -24,8 +24,12 @@ where
     let redis_client =
         Arc::new(RedisClient::new(config.redis_url).expect("failed to create redis client"));
 
-    let billing = BillingLimiter::new(Duration::seconds(5), redis_client.clone())
-        .expect("failed to create billing limiter");
+    let billing = BillingLimiter::new(
+        Duration::seconds(5),
+        redis_client.clone(),
+        config.redis_key_prefix,
+    )
+    .expect("failed to create billing limiter");
 
     let app = if config.print_sink {
         // Print sink is only used for local debug, don't allow a container with it to run on prod
@@ -42,6 +46,7 @@ where
             redis_client,
             billing,
             config.export_prometheus,
+            config.capture_mode,
         )
     } else {
         let sink_liveness = liveness
@@ -82,6 +87,7 @@ where
             redis_client,
             billing,
             config.export_prometheus,
+            config.capture_mode,
         )
     };
 

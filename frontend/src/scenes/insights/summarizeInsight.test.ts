@@ -19,7 +19,6 @@ import {
     PathsQuery,
     RetentionQuery,
     StickinessQuery,
-    TimeToSeeDataWaterfallNode,
     TrendsQuery,
 } from '~/queries/schema'
 import {
@@ -538,36 +537,6 @@ describe('summarizing insights', () => {
             expect(result).toEqual('timestamp from events')
         })
 
-        it('summarizes time to see data sessions listing', () => {
-            const query: DataTableNode = {
-                kind: NodeKind.DataTableNode,
-                columns: ['session_id', 'session_start', 'session_end', 'duration_ms'],
-                source: {
-                    kind: NodeKind.TimeToSeeDataSessionsQuery,
-                },
-            }
-
-            const result = summarizeInsight(query, summaryContext)
-
-            expect(result).toEqual('session_id, session_start, session_end, duration_ms from time to see data stats')
-        })
-
-        it('summarizes a single time to see data sessions listing', () => {
-            const query: TimeToSeeDataWaterfallNode = {
-                kind: NodeKind.TimeToSeeDataSessionsWaterfallNode,
-                source: {
-                    kind: NodeKind.TimeToSeeDataQuery,
-                    sessionId: 'complete_me',
-                    sessionStart: 'iso_date',
-                    sessionEnd: 'iso_date',
-                },
-            }
-
-            const result = summarizeInsight(query, summaryContext)
-
-            expect(result).toEqual('Time to see data in session complete_me')
-        })
-
         it('summarizes a count table', () => {
             const query: DataTableNode = {
                 kind: NodeKind.DataTableNode,
@@ -608,6 +577,45 @@ describe('summarizing insights', () => {
             const result = summarizeInsight(query, summaryContext)
 
             expect(result).toEqual('person, id, created_at, person.$delete from persons')
+        })
+
+        it('summarizes a Trends insight with multiple breakdowns', () => {
+            const query: TrendsQuery = {
+                kind: NodeKind.TrendsQuery,
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: '$pageview',
+                        name: '$pageview',
+                        math: BaseMathType.UniqueUsers,
+                    },
+                ],
+                breakdownFilter: {
+                    breakdowns: [
+                        {
+                            type: 'event',
+                            property: '$browser',
+                        },
+                        {
+                            type: 'person',
+                            property: 'custom_prop',
+                        },
+                        {
+                            type: 'session',
+                            property: '$session_duration',
+                        },
+                    ],
+                },
+            }
+
+            const result = summarizeInsight(
+                { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
+                summaryContext
+            )
+
+            expect(result).toEqual(
+                "Pageview unique users by event's Browser, person's custom_prop, session's Session duration"
+            )
         })
     })
 })

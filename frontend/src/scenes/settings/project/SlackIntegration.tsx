@@ -1,33 +1,68 @@
 import { IconTrash } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import api from 'lib/api'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
-import { IconSlack } from 'lib/lemon-ui/icons'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { useState } from 'react'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { getSlackAppManifest, integrationsLogic } from './integrationsLogic'
+// Modified version of https://app.slack.com/app-settings/TSS5W8YQZ/A03KWE2FJJ2/app-manifest to match current instance
+const getSlackAppManifest = (): any => ({
+    display_information: {
+        name: 'PostHog',
+        description: 'Product Insights right where you need them',
+        background_color: '#f54e00',
+    },
+    features: {
+        app_home: {
+            home_tab_enabled: false,
+            messages_tab_enabled: false,
+            messages_tab_read_only_enabled: true,
+        },
+        bot_user: {
+            display_name: 'PostHog',
+            always_online: false,
+        },
+        unfurl_domains: [window.location.hostname],
+    },
+    oauth_config: {
+        redirect_urls: [`${window.location.origin.replace('http://', 'https://')}/integrations/slack/callback`],
+        scopes: {
+            bot: ['channels:read', 'chat:write', 'groups:read', 'links:read', 'links:write'],
+        },
+    },
+    settings: {
+        event_subscriptions: {
+            request_url: `${window.location.origin.replace('http://', 'https://')}/api/integrations/slack/events`,
+            bot_events: ['link_shared'],
+        },
+        org_deploy_enabled: false,
+        socket_mode_enabled: false,
+        token_rotation_enabled: false,
+    },
+})
 
 export function SlackIntegration(): JSX.Element {
-    const { slackIntegration, addToSlackButtonUrl } = useValues(integrationsLogic)
+    const { slackIntegrations, slackAvailable } = useValues(integrationsLogic)
     const { deleteIntegration } = useActions(integrationsLogic)
     const [showSlackInstructions, setShowSlackInstructions] = useState(false)
     const { user } = useValues(userLogic)
 
-    const onDeleteClick = (): void => {
+    const onDeleteClick = (id: number): void => {
         LemonDialog.open({
             title: `Do you want to disconnect from Slack?`,
             description:
-                'This cannot be undone. PostHog resources configured to use Slack will remain but will stop working.',
+                'This cannot be undone. PostHog resources configured to use this Slack workspace will remain but will stop working.',
             primaryButton: {
                 children: 'Yes, disconnect',
                 status: 'danger',
                 onClick: () => {
-                    if (slackIntegration?.id) {
-                        deleteIntegration(slackIntegration.id)
+                    if (id) {
+                        deleteIntegration(id)
                     }
                 },
             },
@@ -49,79 +84,75 @@ export function SlackIntegration(): JSX.Element {
                 .
             </p>
 
-            <div>
-                {slackIntegration ? (
-                    <div className="rounded border flex justify-between items-center p-2 bg-bg-light">
-                        <div className="flex items-center gap-4 ml-2">
-                            <IconSlack />
-                            <div>
-                                <div>
-                                    Connected to <strong>{slackIntegration.config.team.name}</strong> workspace
-                                </div>
-                                {slackIntegration.created_by ? (
-                                    <UserActivityIndicator
-                                        at={slackIntegration.created_at}
-                                        by={slackIntegration.created_by}
-                                        prefix="Updated"
-                                        className="text-muted"
-                                    />
-                                ) : null}
-                            </div>
-                        </div>
-
-                        <LemonButton type="secondary" status="danger" onClick={onDeleteClick} icon={<IconTrash />}>
-                            Disconnect
-                        </LemonButton>
-                    </div>
-                ) : addToSlackButtonUrl() ? (
-                    <Link to={addToSlackButtonUrl() || ''}>
-                        <img
-                            alt="Add to Slack"
-                            height="40"
-                            width="139"
-                            src="https://platform.slack-edge.com/img/add_to_slack.png"
-                            srcSet="https://platform.slack-edge.com/img/add_to_slack.png 1x, https://platform.slack-edge.com/img/add_to_slack@2x.png 2x"
-                        />
-                    </Link>
-                ) : user?.is_staff ? (
-                    !showSlackInstructions ? (
-                        <>
-                            <LemonButton type="secondary" onClick={() => setShowSlackInstructions(true)}>
-                                Show Instructions
+            <div className="space-y-2">
+                {slackIntegrations?.map((integration) => (
+                    <IntegrationView
+                        key={integration.id}
+                        integration={integration}
+                        suffix={
+                            <LemonButton
+                                type="secondary"
+                                status="danger"
+                                onClick={() => onDeleteClick(integration.id)}
+                                icon={<IconTrash />}
+                            >
+                                Disconnect
                             </LemonButton>
-                        </>
-                    ) : (
-                        <>
-                            <h5>To get started</h5>
-                            <p>
-                                <ol>
-                                    <li>Copy the below Slack App Template</li>
-                                    <li>
-                                        Go to{' '}
-                                        <Link to="https://api.slack.com/apps" target="_blank">
-                                            Slack Apps
-                                        </Link>
-                                    </li>
-                                    <li>Create an App using the provided template</li>
-                                    <li>
-                                        <Link to={urls.instanceSettings()}>Go to Instance Settings</Link> and update the{' '}
-                                        <code>"SLACK_"</code> properties using the values from the{' '}
-                                        <b>App Credentials</b> section of your Slack Apps
-                                    </li>
-                                </ol>
+                        }
+                    />
+                ))}
 
-                                <CodeSnippet language={Language.JSON}>
-                                    {JSON.stringify(getSlackAppManifest(), null, 2)}
-                                </CodeSnippet>
-                            </p>
-                        </>
-                    )
-                ) : (
-                    <p className="text-muted">
-                        This PostHog instance is not configured for Slack. Please contact the instance owner to
-                        configure it.
-                    </p>
-                )}
+                <div>
+                    {slackAvailable ? (
+                        <Link to={api.integrations.authorizeUrl({ kind: 'slack' })} disableClientSideRouting>
+                            <img
+                                alt="Connect to Slack workspace"
+                                height="40"
+                                width="139"
+                                src="https://platform.slack-edge.com/img/add_to_slack.png"
+                                srcSet="https://platform.slack-edge.com/img/add_to_slack.png 1x, https://platform.slack-edge.com/img/add_to_slack@2x.png 2x"
+                            />
+                        </Link>
+                    ) : user?.is_staff ? (
+                        !showSlackInstructions ? (
+                            <>
+                                <LemonButton type="secondary" onClick={() => setShowSlackInstructions(true)}>
+                                    Show Instructions
+                                </LemonButton>
+                            </>
+                        ) : (
+                            <>
+                                <h5>To get started</h5>
+                                <p>
+                                    <ol>
+                                        <li>Copy the below Slack App Template</li>
+                                        <li>
+                                            Go to{' '}
+                                            <Link to="https://api.slack.com/apps" target="_blank">
+                                                Slack Apps
+                                            </Link>
+                                        </li>
+                                        <li>Create an App using the provided template</li>
+                                        <li>
+                                            <Link to={urls.instanceSettings()}>Go to Instance Settings</Link> and update
+                                            the <code>"SLACK_"</code> properties using the values from the{' '}
+                                            <b>App Credentials</b> section of your Slack Apps
+                                        </li>
+                                    </ol>
+
+                                    <CodeSnippet language={Language.JSON}>
+                                        {JSON.stringify(getSlackAppManifest(), null, 2)}
+                                    </CodeSnippet>
+                                </p>
+                            </>
+                        )
+                    ) : (
+                        <p className="text-muted">
+                            This PostHog instance is not configured for Slack. Please contact the instance owner to
+                            configure it.
+                        </p>
+                    )}
+                </div>
             </div>
         </div>
     )

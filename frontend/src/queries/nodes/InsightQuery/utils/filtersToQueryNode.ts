@@ -27,6 +27,7 @@ import {
     InsightQueryNode,
     InsightsQueryBase,
     LifecycleFilter,
+    MathType,
     NodeKind,
     PathsFilter,
     RetentionFilter,
@@ -63,7 +64,7 @@ import {
 
 import { cleanEntityProperties, cleanGlobalProperties } from './cleanProperties'
 
-const reverseInsightMap: Record<
+const insightTypeToNodeKind: Record<
     Exclude<InsightType, InsightType.JSON | InsightType.SQL | InsightType.HOG>,
     InsightNodeKind
 > = {
@@ -82,6 +83,8 @@ const actorsOnlyMathTypes = [
     GroupMathType.UniqueGroup,
     HogQLMathType.HogQL,
 ]
+
+const funnelsMathTypes = [BaseMathType.FirstTimeForUser]
 
 type FilterTypeActionsAndEvents = {
     events?: ActionFilter[]
@@ -121,6 +124,13 @@ export const legacyEntityToNode = (
             shared = {
                 ...shared,
                 math: BaseMathType.UniqueUsers,
+            }
+        } else if (mathAvailability === MathAvailability.FunnelsOnly) {
+            if (funnelsMathTypes.includes(entity.math as any)) {
+                shared = {
+                    ...shared,
+                    math: entity.math as MathType,
+                }
             }
         } else {
             shared = {
@@ -178,7 +188,13 @@ export const actionsAndEventsToSeries = (
     return series
 }
 
-export const cleanHiddenLegendIndexes = (
+/**
+ * Converts `hidden_legend_keys` in trends and stickiness insights to an array of hidden indexes.
+ * Example: `{1: true, 2: false}` will become `[1]`.
+ *
+ * Note: `hidden_legend_keys` in funnel insights follow a different format.
+ */
+export const hiddenLegendKeysToIndexes = (
     hidden_legend_keys: Record<string, boolean | undefined> | undefined
 ): number[] | undefined => {
     return hidden_legend_keys
@@ -188,7 +204,16 @@ export const cleanHiddenLegendIndexes = (
         : undefined
 }
 
-export const cleanHiddenLegendSeries = (
+/**
+ * Converts `hidden_legend_keys` in funnel insights to an array of hidden breakdowns.
+ * Example: `{Chrome: true, Firefox: false}` will become: `["Chrome"]`.
+ *
+ * Also handles pre-#12123 legacy format.
+ * Example: {`events/$pageview/0/Baseline`: true} will become `['Baseline']`.
+ *
+ * Note: `hidden_legend_keys` in trends and stickiness insights follow a different format.
+ */
+export const hiddenLegendKeysToBreakdowns = (
     hidden_legend_keys: Record<string, boolean | undefined> | undefined
 ): string[] | undefined => {
     return hidden_legend_keys
@@ -197,6 +222,7 @@ export const cleanHiddenLegendSeries = (
               .map(([k]) => k)
         : undefined
 }
+
 export const sanitizeRetentionEntity = (entity: RetentionEntity | undefined): RetentionEntity | undefined => {
     if (!entity) {
         return undefined
@@ -244,7 +270,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
     }
 
     const query: InsightsQueryBase<AnalyticsQueryResponseBase<unknown>> = {
-        kind: reverseInsightMap[filters.insight],
+        kind: insightTypeToNodeKind[filters.insight],
         properties: cleanGlobalProperties(filters.properties),
         filterTestAccounts: filters.filter_test_accounts,
     }
@@ -267,6 +293,8 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             includeMath = MathAvailability.All
         } else if (isStickinessQuery(query)) {
             includeMath = MathAvailability.ActorsOnly
+        } else if (isFunnelsQuery(query)) {
+            includeMath = MathAvailability.FunnelsOnly
         }
 
         const { events, actions, data_warehouse } = filters
@@ -280,22 +308,34 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
 
     // breakdown
     if (isInsightQueryWithBreakdown(query)) {
-        /* handle multi-breakdowns */
         // not undefined or null
         if (filters.breakdowns != null) {
-            if (filters.breakdowns.length === 1) {
-                filters.breakdown_type = filters.breakdowns[0].type
-                filters.breakdown = filters.breakdowns[0].property as string
-            } else {
-                captureException(
-                    'Could not convert multi-breakdown property `breakdowns` - found more than one breakdown'
-                )
+            /* handle multi-breakdowns for funnels */
+            if (isFunnelsFilter(filters)) {
+                if (filters.breakdowns.length === 1) {
+                    filters.breakdown_type = filters.breakdowns[0].type || 'event'
+                    filters.breakdown = filters.breakdowns[0].property as string
+                } else {
+                    captureException(
+                        'Could not convert multi-breakdown property `breakdowns` - found more than one breakdown'
+                    )
+                }
             }
-        }
 
-        /* handle missing breakdown_type */
-        // check for undefined and null values
-        if (filters.breakdown != null && filters.breakdown_type == null) {
+            /* handle multi-breakdowns for trends */
+            if (isTrendsFilter(filters)) {
+                filters.breakdowns = filters.breakdowns.map((b) => ({
+                    ...b,
+                    // Compatibility with legacy funnel breakdowns when someone switches a view from funnels to trends
+                    type: b.type || filters.breakdown_type || 'event',
+                }))
+            }
+        } else if (
+            /* handle missing breakdown_type */
+            // check for undefined and null values
+            filters.breakdown != null &&
+            filters.breakdown_type == null
+        ) {
             filters.breakdown_type = 'event'
         }
 
@@ -351,7 +391,7 @@ export const trendsFilterToQuery = (filters: Partial<TrendsFilterType>): TrendsF
     return objectCleanWithEmpty({
         smoothingIntervals: filters.smoothing_intervals,
         showLegend: filters.show_legend,
-        hidden_legend_indexes: cleanHiddenLegendIndexes(filters.hidden_legend_keys),
+        hiddenLegendIndexes: hiddenLegendKeysToIndexes(filters.hidden_legend_keys),
         aggregationAxisFormat: filters.aggregation_axis_format,
         aggregationAxisPrefix: filters.aggregation_axis_prefix,
         aggregationAxisPostfix: filters.aggregation_axis_postfix,
@@ -361,6 +401,7 @@ export const trendsFilterToQuery = (filters: Partial<TrendsFilterType>): TrendsF
         showValuesOnSeries: filters.show_values_on_series,
         showPercentStackView: filters.show_percent_stack_view,
         showLabelsOnSeries: filters.show_labels_on_series,
+        yAxisScaleType: filters.y_axis_scale_type,
     })
 }
 
@@ -381,7 +422,7 @@ export const funnelsFilterToQuery = (filters: Partial<FunnelsFilterType>): Funne
                 ? filters.exclusions.map((entity) => exlusionEntityToNode(entity))
                 : undefined,
         layout: filters.layout,
-        hidden_legend_breakdowns: cleanHiddenLegendSeries(filters.hidden_legend_keys),
+        hiddenLegendBreakdowns: hiddenLegendKeysToBreakdowns(filters.hidden_legend_keys),
         funnelAggregateByHogQL: filters.funnel_aggregate_by_hogql,
     })
 }
@@ -395,6 +436,7 @@ export const retentionFilterToQuery = (filters: Partial<RetentionFilterType>): R
         targetEntity: sanitizeRetentionEntity(filters.target_entity),
         period: filters.period,
         showMean: filters.show_mean,
+        cumulative: filters.cumulative,
     })
     // TODO: query.aggregation_group_type_index
 }
@@ -432,7 +474,7 @@ export const stickinessFilterToQuery = (filters: Record<string, any>): Stickines
     return objectCleanWithEmpty({
         display: filters.display,
         showLegend: filters.show_legend,
-        hidden_legend_indexes: cleanHiddenLegendIndexes(filters.hidden_legend_keys),
+        hiddenLegendIndexes: hiddenLegendKeysToIndexes(filters.hidden_legend_keys),
         showValuesOnSeries: filters.show_values_on_series,
     })
 }

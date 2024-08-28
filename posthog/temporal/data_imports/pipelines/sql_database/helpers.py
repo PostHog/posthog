@@ -51,10 +51,10 @@ class TableLoader:
         last_value_func = self.incremental.last_value_func
         if last_value_func is max:  # Query ordered and filtered according to last_value function
             order_by = self.cursor_column.asc()  # type: ignore
-            filter_op = operator.ge
+            filter_op = operator.gt
         elif last_value_func is min:
             order_by = self.cursor_column.desc()  # type: ignore
-            filter_op = operator.le
+            filter_op = operator.lt
         else:  # Custom last_value, load everything and let incremental handle filtering
             return query
         query = query.order_by(order_by)
@@ -89,6 +89,8 @@ def table_rows(
     Returns:
         Iterable[DltResource]: A list of DLT resources for each table to be loaded.
     """
+    yield dlt.mark.materialize_table_schema()  # type: ignore
+
     loader = TableLoader(engine, table, incremental=incremental, chunk_size=chunk_size)
     yield from loader.load_rows()
 
@@ -104,7 +106,15 @@ def engine_from_credentials(credentials: Union[ConnectionStringCredentials, Engi
 
 
 def get_primary_key(table: Table) -> list[str]:
-    return [c.name for c in table.primary_key]
+    primary_keys = [c.name for c in table.primary_key]
+    if len(primary_keys) > 0:
+        return primary_keys
+
+    column_names = [c.name for c in table.columns]
+    if "id" in column_names:
+        return ["id"]
+
+    return []
 
 
 @configspec

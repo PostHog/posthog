@@ -80,6 +80,7 @@ class TeamAdmin(admin.ModelAdmin):
                     "anonymize_ips",
                     "autocapture_opt_out",
                     "autocapture_exceptions_opt_in",
+                    "autocapture_web_vitals_opt_in",
                     "session_recording_opt_in",
                     "capture_console_log_opt_in",
                     "capture_performance_opt_in",

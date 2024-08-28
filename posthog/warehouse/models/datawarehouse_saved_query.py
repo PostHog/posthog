@@ -1,14 +1,20 @@
 import re
-from sentry_sdk import capture_exception
 from django.core.exceptions import ValidationError
 from django.db import models
+from typing import Optional, Any
 
 from posthog.hogql.database.database import Database
-from posthog.hogql.database.models import SavedQuery
+from posthog.hogql.database.models import SavedQuery, FieldOrTable
 from posthog.hogql import ast
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDModel
-from posthog.warehouse.models.util import remove_named_tuples
+from posthog.warehouse.models.util import (
+    remove_named_tuples,
+    CLICKHOUSE_HOGQL_MAPPING,
+    clean_type,
+    STR_TO_HOGQL_MAPPING,
+)
+from posthog.schema import HogQLQueryModifiers
 
 
 def validate_saved_query_name(value):
@@ -31,18 +37,16 @@ def validate_saved_query_name(value):
 
 
 class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
-    name: models.CharField = models.CharField(max_length=128, validators=[validate_saved_query_name])
-    team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
-    columns: models.JSONField = models.JSONField(
+    name = models.CharField(max_length=128, validators=[validate_saved_query_name])
+    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    columns = models.JSONField(
         default=dict,
         null=True,
         blank=True,
         help_text="Dict of all columns with ClickHouse type (including Nullable())",
     )
-    external_tables: models.JSONField = models.JSONField(
-        default=list, null=True, blank=True, help_text="List of all external tables"
-    )
-    query: models.JSONField = models.JSONField(default=dict, null=True, blank=True, help_text="HogQL query")
+    external_tables = models.JSONField(default=list, null=True, blank=True, help_text="List of all external tables")
+    query = models.JSONField(default=dict, null=True, blank=True, help_text="HogQL query")
 
     class Meta:
         constraints = [
@@ -52,13 +56,37 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             )
         ]
 
-    def get_columns(self) -> dict[str, str]:
+    def get_columns(self) -> dict[str, dict[str, Any]]:
         from posthog.api.services.query import process_query_dict
         from posthog.hogql_queries.query_runner import ExecutionMode
 
         response = process_query_dict(self.team, self.query, execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
-        types = getattr(response, "types", {})
-        return dict(types)
+        result = getattr(response, "types", [])
+
+        if result is None or isinstance(result, int):
+            raise Exception("No columns types provided by clickhouse in get_columns")
+
+        columns = {
+            str(item[0]): {
+                "hogql": CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
+                "clickhouse": item[1],
+                "valid": True,
+            }
+            for item in result
+        }
+
+        return columns
+
+    def get_clickhouse_column_type(self, column_name: str) -> Optional[str]:
+        clickhouse_type = self.columns.get(column_name, None)
+
+        if isinstance(clickhouse_type, dict) and self.columns[column_name].get("clickhouse"):
+            clickhouse_type = self.columns[column_name].get("clickhouse")
+
+            if clickhouse_type.startswith("Nullable("):
+                clickhouse_type = clickhouse_type.replace("Nullable(", "")[:-1]
+
+        return clickhouse_type
 
     @property
     def s3_tables(self):
@@ -83,26 +111,43 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
 
         return list(table_collector.tables)
 
-    def hogql_definition(self) -> SavedQuery:
+    def hogql_definition(self, modifiers: Optional[HogQLQueryModifiers] = None) -> SavedQuery:
         from posthog.warehouse.models.table import CLICKHOUSE_HOGQL_MAPPING
 
         columns = self.columns or {}
 
-        fields = {}
+        fields: dict[str, FieldOrTable] = {}
+        structure = []
         for column, type in columns.items():
-            if type.startswith("Nullable("):
-                type = type.replace("Nullable(", "")[:-1]
+            # Support for 'old' style columns
+            if isinstance(type, str):
+                clickhouse_type = type
+            else:
+                clickhouse_type = type["clickhouse"]
+
+            if clickhouse_type.startswith("Nullable("):
+                clickhouse_type = clickhouse_type.replace("Nullable(", "")[:-1]
 
             # TODO: remove when addressed https://github.com/ClickHouse/ClickHouse/issues/37594
-            if type.startswith("Array("):
-                type = remove_named_tuples(type)
+            if clickhouse_type.startswith("Array("):
+                clickhouse_type = remove_named_tuples(clickhouse_type)
 
-            type = type.partition("(")[0]
-            try:
-                type = CLICKHOUSE_HOGQL_MAPPING[type]
-                fields[column] = type(name=column)
-            except KeyError as e:
-                capture_exception(e)
+            if isinstance(type, dict):
+                column_invalid = not type.get("valid", True)
+            else:
+                column_invalid = False
+
+            if not column_invalid or (modifiers is not None and modifiers.s3TableUseInvalidColumns):
+                structure.append(f"`{column}` {clickhouse_type}")
+
+            # Support for 'old' style columns
+            if isinstance(type, str):
+                hogql_type_str = clickhouse_type.partition("(")[0]
+                hogql_type = CLICKHOUSE_HOGQL_MAPPING[hogql_type_str]
+            else:
+                hogql_type = STR_TO_HOGQL_MAPPING[type["hogql"]]
+
+            fields[column] = hogql_type(name=column)
 
         return SavedQuery(
             name=self.name,

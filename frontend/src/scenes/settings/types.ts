@@ -59,9 +59,11 @@ export type SettingId =
     | 'authorized-toolbar-urls'
     | 'integration-webhooks'
     | 'integration-slack'
+    | 'integration-other'
     | 'integration-ip-allowlist'
     | 'project-rbac'
     | 'project-delete'
+    | 'organization-logo'
     | 'organization-display-name'
     | 'invites'
     | 'members'
@@ -82,6 +84,8 @@ export type SettingId =
     | 'hedgehog-mode'
     | 'persons-join-mode'
     | 'bounce-rate-page-view-mode'
+    | 'session-table-version'
+    | 'web-vitals-autocapture'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 

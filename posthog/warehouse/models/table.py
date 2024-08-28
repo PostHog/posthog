@@ -1,4 +1,4 @@
-import re
+from datetime import datetime
 from typing import Optional, TypeAlias
 from django.db import models
 
@@ -6,22 +6,15 @@ from posthog.client import sync_execute
 from posthog.errors import wrap_query_error
 from posthog.hogql import ast
 from posthog.hogql.database.models import (
-    BooleanDatabaseField,
-    DateDatabaseField,
-    DateTimeDatabaseField,
     FieldOrTable,
-    FloatDatabaseField,
-    IntegerDatabaseField,
-    StringArrayDatabaseField,
-    StringDatabaseField,
-    StringJSONDatabaseField,
 )
-from posthog.hogql.database.s3_table import S3Table
+from posthog.hogql.database.s3_table import S3Table, build_function_call
 from posthog.models.team import Team
 from posthog.models.utils import (
     CreatedMetaFields,
     DeletedMetaFields,
     UUIDModel,
+    UpdatedMetaFields,
     sane_repr,
 )
 from posthog.schema import DatabaseSerializedFieldType, HogQLQueryModifiers
@@ -32,6 +25,7 @@ from .credential import DataWarehouseCredential
 from uuid import UUID
 from sentry_sdk import capture_exception
 from posthog.warehouse.util import database_sync_to_async
+from posthog.warehouse.models.util import CLICKHOUSE_HOGQL_MAPPING, clean_type, STR_TO_HOGQL_MAPPING
 from .external_table_definitions import external_tables
 
 SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING: dict[DatabaseSerializedFieldType, str] = {
@@ -43,44 +37,6 @@ SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING: dict[DatabaseSerializedFieldType, str] =
     DatabaseSerializedFieldType.BOOLEAN: "Bool",
     DatabaseSerializedFieldType.ARRAY: "Array",
     DatabaseSerializedFieldType.JSON: "Map",
-}
-
-CLICKHOUSE_HOGQL_MAPPING = {
-    "UUID": StringDatabaseField,
-    "String": StringDatabaseField,
-    "DateTime64": DateTimeDatabaseField,
-    "DateTime32": DateTimeDatabaseField,
-    "DateTime": DateTimeDatabaseField,
-    "Date": DateDatabaseField,
-    "Date32": DateDatabaseField,
-    "UInt8": IntegerDatabaseField,
-    "UInt16": IntegerDatabaseField,
-    "UInt32": IntegerDatabaseField,
-    "UInt64": IntegerDatabaseField,
-    "Float8": FloatDatabaseField,
-    "Float16": FloatDatabaseField,
-    "Float32": FloatDatabaseField,
-    "Float64": FloatDatabaseField,
-    "Int8": IntegerDatabaseField,
-    "Int16": IntegerDatabaseField,
-    "Int32": IntegerDatabaseField,
-    "Int64": IntegerDatabaseField,
-    "Tuple": StringJSONDatabaseField,
-    "Array": StringArrayDatabaseField,
-    "Map": StringJSONDatabaseField,
-    "Bool": BooleanDatabaseField,
-    "Decimal": FloatDatabaseField,
-}
-
-STR_TO_HOGQL_MAPPING = {
-    "BooleanDatabaseField": BooleanDatabaseField,
-    "DateDatabaseField": DateDatabaseField,
-    "DateTimeDatabaseField": DateTimeDatabaseField,
-    "IntegerDatabaseField": IntegerDatabaseField,
-    "FloatDatabaseField": FloatDatabaseField,
-    "StringArrayDatabaseField": StringArrayDatabaseField,
-    "StringDatabaseField": StringDatabaseField,
-    "StringJSONDatabaseField": StringJSONDatabaseField,
 }
 
 ExtractErrors = {
@@ -101,38 +57,59 @@ ExtractErrors = {
 DataWarehouseTableColumns: TypeAlias = dict[str, dict[str, str | bool]] | dict[str, str]
 
 
-class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
+class DataWarehouseTableManager(models.Manager):
+    def get_queryset(self):
+        return (
+            super()
+            .get_queryset()
+            .select_related("created_by", "external_data_source")
+            .prefetch_related("externaldataschema_set")
+        )
+
+
+class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, DeletedMetaFields):
+    # loading external_data_source and credentials is easily N+1,
+    # so we have a custom object manager meaning people can't forget to load them
+    # this also means we _always_ have two joins whenever we load tables
+    objects = DataWarehouseTableManager()
+
     class TableFormat(models.TextChoices):
         CSV = "CSV", "CSV"
         CSVWithNames = "CSVWithNames", "CSVWithNames"
         Parquet = "Parquet", "Parquet"
         JSON = "JSONEachRow", "JSON"
+        Delta = "Delta", "Delta"
+        DeltaS3Wrapper = "DeltaS3Wrapper", "DeltaS3Wrapper"
 
-    name: models.CharField = models.CharField(max_length=128)
-    format: models.CharField = models.CharField(max_length=128, choices=TableFormat.choices)
-    team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
+    name = models.CharField(max_length=128)
+    format = models.CharField(max_length=128, choices=TableFormat.choices)
+    team = models.ForeignKey(Team, on_delete=models.CASCADE)
 
-    url_pattern: models.CharField = models.CharField(max_length=500)
-    credential: models.ForeignKey = models.ForeignKey(
-        DataWarehouseCredential, on_delete=models.CASCADE, null=True, blank=True
-    )
+    url_pattern = models.CharField(max_length=500)
+    credential = models.ForeignKey(DataWarehouseCredential, on_delete=models.CASCADE, null=True, blank=True)
 
-    external_data_source: models.ForeignKey = models.ForeignKey(
-        "ExternalDataSource", on_delete=models.CASCADE, null=True, blank=True
-    )
+    external_data_source = models.ForeignKey("ExternalDataSource", on_delete=models.CASCADE, null=True, blank=True)
 
-    columns: models.JSONField = models.JSONField(
+    columns = models.JSONField(
         default=dict,
         null=True,
         blank=True,
         help_text="Dict of all columns with Clickhouse type (including Nullable())",
     )
 
-    row_count: models.IntegerField = models.IntegerField(
-        null=True, help_text="How many rows are currently synced in this table"
-    )
+    row_count = models.IntegerField(null=True, help_text="How many rows are currently synced in this table")
 
     __repr__ = sane_repr("name")
+
+    def soft_delete(self):
+        from posthog.warehouse.models.join import DataWarehouseJoin
+
+        DataWarehouseJoin.objects.filter(source_table_name=self.name).delete()
+        DataWarehouseJoin.objects.filter(joining_table_name=self.name).delete()
+
+        self.deleted = True
+        self.deleted_at = datetime.now()
+        self.save()
 
     def table_name_without_prefix(self) -> str:
         if self.external_data_source is not None and self.external_data_source.prefix is not None:
@@ -160,39 +137,29 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
 
     def get_columns(self, safe_expose_ch_error=True) -> DataWarehouseTableColumns:
         try:
+            s3_table_func = build_function_call(
+                url=self.url_pattern,
+                format=self.format,
+                access_key=self.credential.access_key,
+                access_secret=self.credential.access_secret,
+            )
+
             result = sync_execute(
-                """DESCRIBE TABLE (
-                SELECT * FROM
-                    s3(%(url_pattern)s, %(access_key)s, %(access_secret)s, %(format)s)
-                LIMIT 1
-            )""",
-                {
-                    "url_pattern": self.url_pattern,
-                    "access_key": self.credential.access_key,
-                    "access_secret": self.credential.access_secret,
-                    "format": self.format,
-                },
+                f"""DESCRIBE TABLE (
+                    SELECT *
+                    FROM {s3_table_func}
+                    LIMIT 1
+                )"""
             )
         except Exception as err:
             capture_exception(err)
             if safe_expose_ch_error:
                 self._safe_expose_ch_error(err)
             else:
-                raise err
+                raise
 
         if result is None or isinstance(result, int):
             raise Exception("No columns types provided by clickhouse in get_columns")
-
-        def clean_type(column_type: str) -> str:
-            if column_type.startswith("Nullable("):
-                column_type = column_type.replace("Nullable(", "")[:-1]
-
-            if column_type.startswith("Array("):
-                column_type = remove_named_tuples(column_type)
-
-            column_type = re.sub(r"\(.+\)+", "", column_type)
-
-            return column_type
 
         columns = {
             str(item[0]): {
@@ -207,22 +174,22 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
 
     def get_count(self, safe_expose_ch_error=True) -> int:
         try:
+            s3_table_func = build_function_call(
+                url=self.url_pattern,
+                format=self.format,
+                access_key=self.credential.access_key,
+                access_secret=self.credential.access_secret,
+            )
+
             result = sync_execute(
-                """SELECT count() FROM
-                s3(%(url_pattern)s, %(access_key)s, %(access_secret)s, %(format)s)""",
-                {
-                    "url_pattern": self.url_pattern,
-                    "access_key": self.credential.access_key,
-                    "access_secret": self.credential.access_secret,
-                    "format": self.format,
-                },
+                f"SELECT count() FROM {s3_table_func}",
             )
         except Exception as err:
             capture_exception(err)
             if safe_expose_ch_error:
                 self._safe_expose_ch_error(err)
             else:
-                raise err
+                raise
 
         return result[0][0]
 
@@ -238,8 +205,11 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             else:
                 clickhouse_type = type["clickhouse"]
 
+            is_nullable = False
+
             if clickhouse_type.startswith("Nullable("):
                 clickhouse_type = clickhouse_type.replace("Nullable(", "")[:-1]
+                is_nullable = True
 
             # TODO: remove when addressed https://github.com/ClickHouse/ClickHouse/issues/37594
             if clickhouse_type.startswith("Array("):
@@ -251,7 +221,10 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
                 column_invalid = False
 
             if not column_invalid or (modifiers is not None and modifiers.s3TableUseInvalidColumns):
-                structure.append(f"`{column}` {clickhouse_type}")
+                if is_nullable:
+                    structure.append(f"`{column}` Nullable({clickhouse_type})")
+                else:
+                    structure.append(f"`{column}` {clickhouse_type}")
 
             # Support for 'old' style columns
             if isinstance(type, str):
@@ -260,7 +233,7 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             else:
                 hogql_type = STR_TO_HOGQL_MAPPING[type["hogql"]]
 
-            fields[column] = hogql_type(name=column)
+            fields[column] = hogql_type(name=column, nullable=is_nullable)
 
         # Replace fields with any redefined fields if they exist
         external_table_fields = external_tables.get(self.table_name_without_prefix())

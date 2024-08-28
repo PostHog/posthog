@@ -42,32 +42,30 @@ describe('Experiments', () => {
             .type('test-variant-2')
             .should('have.value', 'test-variant-2')
 
-        // Select goal type
-        cy.get('[data-attr="experiment-goal-type-select"]').click()
-        cy.get('.Popover__content').contains('Trend').should('be.visible')
-        cy.get('.Popover__content').contains('Conversion funnel').should('be.visible')
+        // Continue to step 2
+        cy.get('[data-attr="continue-experiment-creation"]').click()
 
-        // Add secondary metric
-        const secondaryMetricName = `Secondary metric ${Math.floor(Math.random() * 10000000)}`
-        cy.get('[data-attr="add-secondary-metric-btn"]').click()
-        cy.get('[data-attr=secondary-metric-name]')
-            .click()
-            .type(secondaryMetricName)
-            .should('have.value', secondaryMetricName)
-        cy.get('[data-attr="metrics-selector"]').click()
-        cy.get('.Popover__content').contains('Funnels').should('be.visible')
-        cy.get('.Popover__content').contains('Trends').should('be.visible')
-        cy.get('[data-attr="create-annotation-submit"]').click()
-        cy.contains(secondaryMetricName).should('exist')
+        // Goal type selection is visible
+        cy.get('[data-attr="experiment-goal-type-select"]')
+            .should('be.visible')
+            .within(() => {
+                cy.contains('Conversion funnel').should('be.visible')
+                cy.contains('Trend').should('be.visible')
+            })
 
-        // Edit minimum acceptable improvement
-        cy.get('input[data-attr="min-acceptable-improvement"]').type('{selectall}20').should('have.value', '20')
+        // Goal input is visible
+        cy.get('[data-attr="experiment-goal-input"]')
+            .should('be.visible')
+            .within(() => {
+                cy.get('li.ActionFilterRow').should('exist')
+                cy.get('button').contains('Add funnel step').should('exist')
+            })
 
         // Save experiment
         cy.get('[data-attr="save-experiment"]').first().click()
     })
 
-    const createExperimentInNewUi = () => {
+    const createExperimentInNewUi = (): void => {
         cy.intercept('**/decide/*', (req) =>
             req.reply(
                 decideResponse({
@@ -118,6 +116,11 @@ describe('Experiments', () => {
         cy.get('[data-attr="experiment-start-date"]').contains('a few seconds ago').should('be.visible')
 
         cy.get('[data-attr="stop-experiment"]').first().click()
+        // Wait for the dialog to appear and click the confirmation button
+        cy.get('.LemonModal__layout').should('be.visible')
+        cy.contains('Stop this experiment?').should('be.visible')
+        cy.get('.LemonModal__footer').contains('button', 'Stop').click()
+        // Wait for the dialog to disappear
         cy.get('[data-attr="experiment-creation-date"]').should('not.exist')
         cy.get('[data-attr="experiment-start-date"]').contains('a few seconds ago').should('be.visible')
         cy.get('[data-attr="experiment-end-date"]').contains('a few seconds ago').should('be.visible')

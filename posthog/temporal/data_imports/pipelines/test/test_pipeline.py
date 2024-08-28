@@ -45,8 +45,8 @@ class TestDataImportPipeline(APIBaseTest):
                 source_id=source.pk,
                 run_id=str(job.pk),
                 schema_id=schema.pk,
-                dataset_name=job.folder_path,
-                job_type="Stripe",
+                dataset_name=job.folder_path(),
+                job_type=ExternalDataSource.Type.STRIPE,
                 team_id=self.team.pk,
             ),
             source=stripe_source(
@@ -59,6 +59,7 @@ class TestDataImportPipeline(APIBaseTest):
             ),
             logger=structlog.get_logger(),
             incremental=incremental,
+            reset_pipeline=False,
         )
 
         return pipeline
@@ -76,6 +77,7 @@ class TestDataImportPipeline(APIBaseTest):
             patch(
                 "posthog.temporal.data_imports.pipelines.pipeline.validate_schema_and_update_table"
             ) as mock_validate_schema_and_update_table,
+            patch("posthog.temporal.data_imports.pipelines.pipeline.get_delta_tables"),
         ):
             pipeline = await self._create_pipeline("Customer", False)
             res = await pipeline.run()
@@ -96,6 +98,7 @@ class TestDataImportPipeline(APIBaseTest):
             patch(
                 "posthog.temporal.data_imports.pipelines.pipeline.validate_schema_and_update_table"
             ) as mock_validate_schema_and_update_table,
+            patch("posthog.temporal.data_imports.pipelines.pipeline.get_delta_tables"),
         ):
             pipeline = await self._create_pipeline("Customer", True)
             res = await pipeline.run()

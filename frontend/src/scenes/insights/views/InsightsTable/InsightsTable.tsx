@@ -1,7 +1,7 @@
 import './InsightsTable.scss'
 
 import { useActions, useValues } from 'kea'
-import { getSeriesColor } from 'lib/colors'
+import { getTrendLikeSeriesColor } from 'lib/colors'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { compare as compareFn } from 'natural-orderby'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -17,25 +17,39 @@ import { ChartDisplayType, ItemMode } from '~/types'
 import { entityFilterLogic } from '../../filters/ActionFilter/entityFilterLogic'
 import { countryCodeToName } from '../WorldMap'
 import { AggregationColumnItem, AggregationColumnTitle } from './columns/AggregationColumn'
-import { BreakdownColumnItem, BreakdownColumnTitle } from './columns/BreakdownColumn'
+import { BreakdownColumnItem, BreakdownColumnTitle, MultipleBreakdownColumnTitle } from './columns/BreakdownColumn'
 import { SeriesCheckColumnItem, SeriesCheckColumnTitle } from './columns/SeriesCheckColumn'
 import { SeriesColumnItem } from './columns/SeriesColumn'
 import { ValueColumnItem, ValueColumnTitle } from './columns/ValueColumn'
 import { WorldMapColumnItem, WorldMapColumnTitle } from './columns/WorldMapColumn'
 import { AggregationType, insightsTableDataLogic } from './insightsTableDataLogic'
-import { CalcColumnState } from './insightsTableLogic'
+
+export type CalcColumnState = 'total' | 'average' | 'median'
 
 export interface InsightsTableProps {
-    /** Whether this is just a legend instead of standalone insight viz. Default: false. */
-    isLegend?: boolean
-    /** Whether this is table is embedded in another card or whether it should be a card of its own. Default: false. */
-    embedded?: boolean
     /** Key for the entityFilterLogic */
     filterKey: string
+    /**
+     * Whether this is just a legend instead of standalone insight viz.
+     * @default false
+     */
+    isLegend?: boolean
+    /**
+     * Whether this is table is embedded in another card or whether it should be a card of its own.
+     * @default false
+     */
+    embedded?: boolean
+    /** @default false */
     canEditSeriesNameInline?: boolean
-    /** (Un)checking series updates the insight via the API, so it should be disabled if updates aren't desired. */
+    /**
+     * (Un)checking series updates the insight via the API, so it should be disabled if updates aren't desired.
+     *  @default true
+     */
     canCheckUncheckSeries?: boolean
-    /* whether this table is below another insight or the insight is in table view */
+    /**
+     * Whether this table is below another insight or the insight is in table view.
+     * @default false
+     */
     isMainInsightView?: boolean
 }
 
@@ -48,8 +62,7 @@ export function InsightsTable({
     isMainInsightView = false,
 }: InsightsTableProps): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
-    const { insightProps, isInDashboardContext, insight, hiddenLegendKeys } = useValues(insightLogic)
-    const { toggleVisibility } = useActions(insightLogic)
+    const { insightProps, isInDashboardContext, insight } = useValues(insightLogic)
     const {
         insightDataLoading,
         indexedResults,
@@ -61,7 +74,9 @@ export function InsightsTable({
         breakdownFilter,
         trendsFilter,
         isSingleSeries,
+        hiddenLegendIndexes,
     } = useValues(trendsDataLogic(insightProps))
+    const { toggleHiddenLegendIndex, updateHiddenLegendIndexes } = useActions(trendsDataLogic(insightProps))
     const { aggregation, allowAggregation } = useValues(insightsTableDataLogic(insightProps))
     const { setAggregationType } = useActions(insightsTableDataLogic(insightProps))
 
@@ -90,8 +105,8 @@ export function InsightsTable({
                     <SeriesCheckColumnTitle
                         indexedResults={indexedResults}
                         canCheckUncheckSeries={canCheckUncheckSeries}
-                        hiddenLegendKeys={hiddenLegendKeys}
-                        toggleVisibility={toggleVisibility}
+                        hiddenLegendIndexes={hiddenLegendIndexes}
+                        updateHiddenLegendIndexes={updateHiddenLegendIndexes}
                     />
                 )}
                 <span>Series</span>
@@ -103,7 +118,6 @@ export function InsightsTable({
                     item={item}
                     indexedResults={indexedResults}
                     canEditSeriesNameInline={canEditSeriesNameInline}
-                    compare={!!compareFilter?.compare}
                     handleEditClick={handleSeriesEditClick}
                     hasMultipleSeries={!isSingleSeries}
                 />
@@ -112,8 +126,8 @@ export function InsightsTable({
                 <SeriesCheckColumnItem
                     item={item}
                     canCheckUncheckSeries={canCheckUncheckSeries}
-                    hiddenLegendKeys={hiddenLegendKeys}
-                    toggleVisibility={toggleVisibility}
+                    hiddenLegendIndexes={hiddenLegendIndexes}
+                    toggleHiddenLegendIndex={toggleHiddenLegendIndex}
                     label={<div className="ml-2 font-normal">{label}</div>}
                 />
             ) : (
@@ -139,7 +153,7 @@ export function InsightsTable({
                     item={item}
                     canCheckUncheckSeries={canCheckUncheckSeries}
                     isMainInsightView={isMainInsightView}
-                    toggleVisibility={toggleVisibility}
+                    toggleHiddenLegendIndex={toggleHiddenLegendIndex}
                     formatItemBreakdownLabel={formatItemBreakdownLabel}
                 />
             ),
@@ -153,6 +167,7 @@ export function InsightsTable({
                 return compareFn()(labelA, labelB)
             },
         })
+
         if (isTrends && display === ChartDisplayType.WorldMap) {
             columns.push({
                 title: <WorldMapColumnTitle />,
@@ -165,6 +180,44 @@ export function InsightsTable({
                 },
             })
         }
+    } else if (breakdownFilter?.breakdowns) {
+        breakdownFilter.breakdowns.forEach((breakdown, index) => {
+            const formatItemBreakdownLabel = (item: IndexedTrendResult): string =>
+                formatBreakdownLabel(
+                    Array.isArray(item.breakdown_value) ? item.breakdown_value[index] : item.breakdown_value,
+                    breakdownFilter,
+                    cohorts,
+                    formatPropertyValueForDisplay,
+                    index
+                )
+
+            columns.push({
+                title: <MultipleBreakdownColumnTitle>{breakdown.property?.toString()}</MultipleBreakdownColumnTitle>,
+                render: (_, item) => (
+                    <BreakdownColumnItem
+                        item={item}
+                        canCheckUncheckSeries={canCheckUncheckSeries}
+                        isMainInsightView={isMainInsightView}
+                        toggleHiddenLegendIndex={toggleHiddenLegendIndex}
+                        formatItemBreakdownLabel={formatItemBreakdownLabel}
+                    />
+                ),
+                key: `breakdown-${breakdown.property?.toString() || index}`,
+                sorter: (a, b) => {
+                    const leftValue = Array.isArray(a.breakdown_value) ? a.breakdown_value[index] : a.breakdown_value
+                    const rightValue = Array.isArray(b.breakdown_value) ? b.breakdown_value[index] : b.breakdown_value
+
+                    if (typeof leftValue === 'number' && typeof rightValue === 'number') {
+                        return leftValue - rightValue
+                    }
+
+                    const labelA = formatItemBreakdownLabel(a)
+                    const labelB = formatItemBreakdownLabel(b)
+
+                    return compareFn()(labelA, labelB)
+                },
+            })
+        })
     }
 
     if (allowAggregation) {
@@ -218,7 +271,9 @@ export function InsightsTable({
         <LemonTable
             id={isInDashboardContext ? insight.short_id : undefined}
             dataSource={
-                isLegend || isMainInsightView ? indexedResults : indexedResults.filter((r) => !hiddenLegendKeys?.[r.id])
+                isLegend || isMainInsightView
+                    ? indexedResults
+                    : indexedResults.filter((r) => !hiddenLegendIndexes?.includes(r.id))
             }
             embedded={embedded}
             columns={columns}
@@ -227,7 +282,12 @@ export function InsightsTable({
             emptyState="No insight results"
             data-attr="insights-table-graph"
             useURLForSorting={insightMode !== ItemMode.Edit}
-            rowRibbonColor={isLegend ? (item) => getSeriesColor(item.seriesIndex, !!compareFilter?.compare) : undefined}
+            rowRibbonColor={
+                isLegend
+                    ? (item) =>
+                          getTrendLikeSeriesColor(item.colorIndex, !!item.compare && item.compare_label === 'previous')
+                    : undefined
+            }
             firstColumnSticky
             maxHeaderWidth="20rem"
         />

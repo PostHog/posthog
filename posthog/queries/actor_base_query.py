@@ -13,6 +13,8 @@ from django.db.models import OuterRef, Subquery
 from django.db.models.query import Prefetch, QuerySet
 
 from posthog.constants import INSIGHT_FUNNELS, INSIGHT_PATHS, INSIGHT_TRENDS
+from posthog.hogql_queries.actor_strategies import PersonStrategy
+from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.models import Entity, Filter, PersonDistinctId, SessionRecording, Team
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.retention_filter import RetentionFilter
@@ -20,6 +22,7 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.group import Group
 from posthog.models.person import Person
 from posthog.queries.insight import insight_sync_execute
+from posthog.schema import ActorsQuery
 
 
 class EventInfoForRecording(TypedDict):
@@ -286,6 +289,36 @@ def get_people(
         .only("id", "is_identified", "created_at", "properties", "uuid")
     )
     return persons, serialize_people(team, persons, value_per_actor_id)
+
+
+# A faster get_people if you don't need the Person objects
+def get_serialized_people(
+    team: Team, people_ids: list[Any], value_per_actor_id: Optional[dict[str, float]] = None, distinct_id_limit=1000
+) -> list[SerializedPerson]:
+    persons_dict = PersonStrategy(team, ActorsQuery(), HogQLHasMorePaginator()).get_actors(
+        people_ids, order_by="created_at DESC, uuid"
+    )
+    from posthog.api.person import get_person_name_helper
+
+    return [
+        SerializedPerson(
+            type="person",
+            id=uuid,
+            uuid=uuid,
+            created_at=person_dict["created_at"],
+            properties=person_dict["properties"],
+            is_identified=person_dict["is_identified"],
+            name=get_person_name_helper(
+                person_dict["id"], person_dict["properties"], person_dict["distinct_ids"], team
+            ),
+            distinct_ids=person_dict["distinct_ids"]
+            if distinct_id_limit is None
+            else person_dict["distinct_ids"][:distinct_id_limit],
+            matched_recordings=[],
+            value_at_data_point=value_per_actor_id[str(uuid)] if value_per_actor_id else None,
+        )
+        for uuid, person_dict in persons_dict.items()
+    ]
 
 
 def serialize_people(

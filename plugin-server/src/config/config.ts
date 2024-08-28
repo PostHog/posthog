@@ -46,6 +46,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_SASL_MECHANISM: undefined,
         KAFKA_SASL_USER: undefined,
         KAFKA_SASL_PASSWORD: undefined,
+        KAFKA_CLIENT_ID: undefined,
         KAFKA_CLIENT_RACK: undefined,
         KAFKA_CONSUMPTION_MAX_BYTES: 10_485_760, // Default value for kafkajs
         KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION: 1_048_576, // Default value for kafkajs, must be bigger than message size
@@ -58,6 +59,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS: 30_000,
         KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS: 300_000,
         KAFKA_TOPIC_CREATION_TIMEOUT_MS: isDevEnv() ? 30_000 : 5_000, // rdkafka default is 5s, increased in devenv to resist to slow kafka
+        KAFKA_TOPIC_METADATA_REFRESH_INTERVAL_MS: undefined,
         KAFKA_FLUSH_FREQUENCY_MS: isTestEnv() ? 5 : 500,
         APP_METRICS_FLUSH_FREQUENCY_MS: isTestEnv() ? 5 : 20_000,
         APP_METRICS_FLUSH_MAX_QUEUE_SIZE: isTestEnv() ? 5 : 1000,
@@ -119,6 +121,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password',
         OBJECT_STORAGE_BUCKET: 'posthog',
         PLUGIN_SERVER_MODE: null,
+        PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE: null,
         PLUGIN_LOAD_SEQUENTIALLY: false,
         KAFKAJS_LOG_LEVEL: 'WARN',
         APP_METRICS_GATHERED_FOR_ALL: isDevEnv() ? true : false,
@@ -128,14 +131,12 @@ export function getDefaultConfig(): PluginsServerConfig {
         EXTERNAL_REQUEST_TIMEOUT_MS: 10 * 1000, // 10 seconds
         DROP_EVENTS_BY_TOKEN_DISTINCT_ID: '',
         DROP_EVENTS_BY_TOKEN: '',
-        POE_EMBRACE_JOIN_FOR_TEAMS: '',
-        POE_WRITES_ENABLED_MAX_TEAM_ID: 0,
-        POE_WRITES_EXCLUDE_TEAMS: '',
         PIPELINE_STEP_STALLED_LOG_TIMEOUT: 30,
         RELOAD_PLUGIN_JITTER_MAX_MS: 60000,
         RUSTY_HOOK_FOR_TEAMS: '',
         RUSTY_HOOK_ROLLOUT_PERCENTAGE: 0,
         RUSTY_HOOK_URL: '',
+        HOG_HOOK_URL: '',
         CAPTURE_CONFIG_REDIS_HOST: null,
 
         STARTUP_PROFILE_DURATION_SECONDS: 300, // 5 minutes
@@ -148,6 +149,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL: undefined,
         SESSION_RECORDING_KAFKA_BATCH_SIZE: 500,
         SESSION_RECORDING_KAFKA_QUEUE_SIZE: 1500,
+        // if not set we'll use the plugin server default value
+        SESSION_RECORDING_KAFKA_QUEUE_SIZE_KB: undefined,
 
         SESSION_RECORDING_LOCAL_DIRECTORY: '.tmp/sessions',
         // NOTE: 10 minutes
@@ -163,13 +166,34 @@ export function getDefaultConfig(): PluginsServerConfig {
         POSTHOG_SESSION_RECORDING_REDIS_PORT: undefined,
         SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED: true,
         SESSION_RECORDING_REPLAY_EVENTS_INGESTION_ENABLED: true,
-        SESSION_RECORDING_DEBUG_PARTITION: undefined,
+        SESSION_RECORDING_DEBUG_PARTITION: '',
         SESSION_RECORDING_KAFKA_DEBUG: undefined,
         SESSION_RECORDING_MAX_PARALLEL_FLUSHES: 10,
         SESSION_RECORDING_OVERFLOW_ENABLED: false,
         SESSION_RECORDING_OVERFLOW_BUCKET_REPLENISH_RATE: 5_000_000, // 5MB/second uncompressed, sustained
         SESSION_RECORDING_OVERFLOW_BUCKET_CAPACITY: 200_000_000, // 200MB burst
         SESSION_RECORDING_OVERFLOW_MIN_PER_BATCH: 1_000_000, // All sessions consume at least 1MB/batch, to penalise poor batching
+        SESSION_RECORDING_KAFKA_CONSUMPTION_STATISTICS_EVENT_INTERVAL_MS: 0, // 0 disables stats collection
+        SESSION_RECORDING_KAFKA_FETCH_MIN_BYTES: 1_048_576, // 1MB
+        // CDP
+        CDP_WATCHER_COST_ERROR: 100,
+        CDP_WATCHER_COST_TIMING: 20,
+        CDP_WATCHER_COST_TIMING_LOWER_MS: 100,
+        CDP_WATCHER_COST_TIMING_UPPER_MS: 5000,
+        CDP_WATCHER_THRESHOLD_DEGRADED: 0.8,
+        CDP_WATCHER_BUCKET_SIZE: 10000,
+        CDP_WATCHER_DISABLED_TEMPORARY_TTL: 60 * 10, // 5 minutes
+        CDP_WATCHER_TTL: 60 * 60 * 24, // This is really long as it is essentially only important to make sure the key is eventually deleted
+        CDP_WATCHER_REFILL_RATE: 10,
+        CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT: 3,
+        CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS: '',
+        CDP_ASYNC_FUNCTIONS_CYCLOTRON_TEAMS: '',
+        CDP_REDIS_PASSWORD: '',
+        CDP_REDIS_HOST: '',
+        CDP_REDIS_PORT: 6479,
+
+        // Cyclotron
+        CYCLOTRON_DATABASE_URL: '',
     }
 }
 

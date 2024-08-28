@@ -22,6 +22,17 @@ export enum TimestampFormat {
     Device = 'device',
 }
 
+export enum InspectorStacking {
+    Vertical = 'vertical',
+    Horizontal = 'horizontal',
+}
+
+export enum PlaybackViewMode {
+    Playback = 'playback',
+    Inspector = 'inspector',
+    Waterfall = 'waterfall',
+}
+
 const MiniFilters: SharedListMiniFilter[] = [
     {
         tab: SessionRecordingPlayerTab.ALL,
@@ -188,9 +199,12 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setSearchQuery: (search: string) => ({ search }),
         setDurationTypeToShow: (type: DurationType) => ({ type }),
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
-        setPrefersAdvancedFilters: (prefersAdvancedFilters: boolean) => ({ prefersAdvancedFilters }),
         setQuickFilterProperties: (properties: string[]) => ({ properties }),
         setTimestampFormat: (format: TimestampFormat) => ({ format }),
+        setPreferredInspectorStacking: (stacking: InspectorStacking) => ({ stacking }),
+        setPlaybackViewMode: (mode: PlaybackViewMode) => ({ mode }),
+        setShowMouseTail: (showMouseTail: boolean) => ({ showMouseTail }),
+        setShowSeekbarTicks: (show: boolean) => ({ show }),
     }),
     connect({
         values: [teamLogic, ['currentTeam']],
@@ -205,17 +219,22 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
                 setShowFilters: (_, { showFilters }) => showFilters,
             },
         ],
-        prefersAdvancedFilters: [
-            true,
+        preferredInspectorStacking: [
+            InspectorStacking.Horizontal as InspectorStacking,
+            { persist: true },
             {
-                persist: true,
+                setPreferredInspectorStacking: (_, { stacking }) => stacking,
             },
+        ],
+        playbackViewMode: [
+            PlaybackViewMode.Playback as PlaybackViewMode,
+            { persist: true },
             {
-                setPrefersAdvancedFilters: (_, { prefersAdvancedFilters }) => prefersAdvancedFilters,
+                setPlaybackViewMode: (_, { mode }) => mode,
             },
         ],
         quickFilterProperties: [
-            ['$geoip_country_name', ...(values.currentTeam?.person_display_name_properties || [])] as string[],
+            [...(values.currentTeam?.person_display_name_properties || [])] as string[],
             {
                 persist: true,
             },
@@ -270,6 +289,20 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             { persist: true },
             {
                 setHideViewedRecordings: (_, { hideViewedRecordings }) => hideViewedRecordings,
+            },
+        ],
+        showMouseTail: [
+            true,
+            { persist: true },
+            {
+                setShowMouseTail: (_, { showMouseTail }) => showMouseTail,
+            },
+        ],
+        showSeekbarTicks: [
+            true,
+            { persist: true },
+            {
+                setShowSeekbarTicks: (_, { show }) => show,
             },
         ],
 

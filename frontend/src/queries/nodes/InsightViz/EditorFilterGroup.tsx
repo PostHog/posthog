@@ -8,11 +8,10 @@ import { slugify } from 'lib/utils'
 import { Fragment, useState } from 'react'
 
 import { InsightQueryNode } from '~/queries/schema'
-import type { InsightEditorFilterGroup, InsightLogicProps, InsightModel } from '~/types'
+import type { InsightEditorFilterGroup, InsightLogicProps } from '~/types'
 
 export interface EditorFilterGroupProps {
     editorFilterGroup: InsightEditorFilterGroup
-    insight: Partial<InsightModel>
     insightProps: InsightLogicProps
     query: InsightQueryNode
 }

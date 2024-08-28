@@ -58,7 +58,7 @@ def publish_subscription(team_id: str, session_id: str) -> None:
             },
             tags={"team_id": team_id, "session_id": session_id},
         )
-        raise e
+        raise
 
 
 def get_realtime_snapshots(team_id: str, session_id: str, attempt_count=0) -> Optional[list[str]]:
@@ -112,4 +112,4 @@ def get_realtime_snapshots(team_id: str, session_id: str, attempt_count=0) -> Op
             },
             tags={"team_id": team_id, "session_id": session_id},
         )
-        raise e
+        raise

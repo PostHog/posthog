@@ -1,15 +1,21 @@
 import { BounceRatePageViewModeSetting } from 'scenes/settings/project/BounceRatePageViewMode'
 import { PersonsJoinMode } from 'scenes/settings/project/PersonsJoinMode'
 import { PersonsOnEvents } from 'scenes/settings/project/PersonsOnEvents'
+import { SessionsTableVersion } from 'scenes/settings/project/SessionsTableVersion'
 
 import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
 import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
 import { OrganizationEmailPreferences } from './organization/OrgEmailPreferences'
+import { OrganizationLogo } from './organization/OrgLogo'
 import { PermissionsGrid } from './organization/Permissions/PermissionsGrid'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
-import { AutocaptureSettings, ExceptionAutocaptureSettings } from './project/AutocaptureSettings'
+import {
+    AutocaptureSettings,
+    ExceptionAutocaptureSettings,
+    WebVitalsAutocaptureSettings,
+} from './project/AutocaptureSettings'
 import { CorrelationConfig } from './project/CorrelationConfig'
 import { DataAttributes } from './project/DataAttributes'
 import { GroupAnalyticsConfig } from './project/GroupAnalyticsConfig'
@@ -17,6 +23,7 @@ import { HeatmapsSettings } from './project/HeatmapsSettings'
 import { IPAllowListInfo } from './project/IPAllowListInfo'
 import { IPCapture } from './project/IPCapture'
 import { ManagedReverseProxy } from './project/ManagedReverseProxy'
+import { OtherIntegrations } from './project/OtherIntegrations'
 import { PathCleaningFiltersConfig } from './project/PathCleaningFiltersConfig'
 import { PersonDisplayNameProperties } from './project/PersonDisplayNameProperties'
 import { ProjectAccessControl } from './project/ProjectAccessControl'
@@ -102,6 +109,11 @@ export const SettingsMap: SettingSection[] = [
                 flag: 'EXCEPTION_AUTOCAPTURE',
             },
             {
+                id: 'web-vitals-autocapture',
+                title: 'Web vitals autocapture',
+                component: <WebVitalsAutocaptureSettings />,
+            },
+            {
                 id: 'autocapture-data-attributes',
                 title: 'Data attributes',
                 component: <DataAttributes />,
@@ -166,6 +178,12 @@ export const SettingsMap: SettingSection[] = [
                 title: 'Bounce rate page view mode',
                 component: <BounceRatePageViewModeSetting />,
                 flag: 'SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE',
+            },
+            {
+                id: 'session-table-version',
+                title: 'Sessions Table Version',
+                component: <SessionsTableVersion />,
+                flag: 'SETTINGS_SESSION_TABLE_VERSION',
             },
         ],
     },
@@ -244,6 +262,11 @@ export const SettingsMap: SettingSection[] = [
                 component: <SlackIntegration />,
             },
             {
+                id: 'integration-other',
+                title: 'Other integrations',
+                component: <OtherIntegrations />,
+            },
+            {
                 id: 'integration-ip-allowlist',
                 title: 'Static IP addresses',
                 component: <IPAllowListInfo />,
@@ -285,6 +308,11 @@ export const SettingsMap: SettingSection[] = [
                 id: 'organization-display-name',
                 title: 'Display name',
                 component: <OrganizationDisplayName />,
+            },
+            {
+                id: 'organization-logo',
+                title: 'Logo',
+                component: <OrganizationLogo />,
             },
         ],
     },

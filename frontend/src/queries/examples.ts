@@ -9,6 +9,7 @@ import {
     FunnelsQuery,
     HogQLQuery,
     HogQuery,
+    InsightVizNode,
     LifecycleQuery,
     Node,
     NodeKind,
@@ -16,9 +17,6 @@ import {
     PersonsNode,
     RetentionQuery,
     StickinessQuery,
-    TimeToSeeDataJSONNode,
-    TimeToSeeDataSessionsQuery,
-    TimeToSeeDataWaterfallNode,
     TrendsQuery,
 } from '~/queries/schema'
 import {
@@ -157,7 +155,6 @@ const series: (EventsNode | ActionsNode)[] = [
                 value: 2,
             },
         ],
-        limit: 100, // TODO - can't find a use for `limits` in insights/trends
     },
     // {
     //     kind: NodeKind.ActionsNode,
@@ -253,49 +250,6 @@ const InsightLifecycleQuery: LifecycleQuery = {
     series, // TODO: Visualization only supports one event or action
 }
 
-const TimeToSeeDataSessionsTable: DataTableNode = {
-    kind: NodeKind.DataTableNode,
-    columns: [
-        'session_id',
-        'session_start',
-        'session_end',
-        'duration_ms',
-        'team_events_last_month',
-        'events_count',
-        'interactions_count',
-        'total_interaction_time_to_see_data_ms',
-        'frustrating_interactions_count',
-        'user.email',
-    ],
-    source: {
-        kind: NodeKind.TimeToSeeDataSessionsQuery,
-    },
-}
-
-const TimeToSeeDataSessionsJSON: TimeToSeeDataSessionsQuery = {
-    kind: NodeKind.TimeToSeeDataSessionsQuery,
-}
-
-const TimeToSeeDataJSON: TimeToSeeDataJSONNode = {
-    kind: NodeKind.TimeToSeeDataSessionsJSONNode,
-    source: {
-        kind: NodeKind.TimeToSeeDataQuery,
-        sessionId: 'complete_me',
-        sessionStart: 'iso_date',
-        sessionEnd: 'iso_date',
-    },
-}
-
-const TimeToSeeDataWaterfall: TimeToSeeDataWaterfallNode = {
-    kind: NodeKind.TimeToSeeDataSessionsWaterfallNode,
-    source: {
-        kind: NodeKind.TimeToSeeDataQuery,
-        sessionId: 'complete_me',
-        sessionStart: 'iso_date',
-        sessionEnd: 'iso_date',
-    },
-}
-
 const HogQLRaw: HogQLQuery = {
     kind: NodeKind.HogQLQuery,
     query: `   select event,
@@ -333,6 +287,20 @@ limit 100`,
     },
 }
 
+const HogQLForDataWarehouse: HogQLQuery = {
+    kind: NodeKind.HogQLQuery,
+    query: `select toDate(timestamp) as timestamp, count()
+from events
+group by timestamp
+limit 100`,
+    explain: true,
+}
+
+const DataWarehouse: DataVisualizationNode = {
+    kind: NodeKind.DataVisualizationNode,
+    source: HogQLForDataWarehouse,
+}
+
 const HogQLTable: DataTableNode = {
     kind: NodeKind.DataTableNode,
     full: true,
@@ -342,6 +310,29 @@ const HogQLTable: DataTableNode = {
 const DataVisualization: DataVisualizationNode = {
     kind: NodeKind.DataVisualizationNode,
     source: HogQLForDataVisualization,
+    tableSettings: {
+        columns: [
+            {
+                column: 'timestamp',
+                settings: {
+                    formatting: {
+                        prefix: '',
+                        suffix: '',
+                    },
+                },
+            },
+            {
+                column: 'count()',
+                settings: {
+                    formatting: {
+                        prefix: '',
+                        suffix: '',
+                    },
+                },
+            },
+        ],
+    },
+    chartSettings: { goalLines: undefined },
 }
 
 const Hog: HogQuery = {
@@ -372,11 +363,26 @@ export const queryExamples: Record<string, Node> = {
     PersonsTable,
     PersonsTableFull,
     InsightTrendsQuery,
+    InsightTrends: { kind: NodeKind.InsightVizNode, source: InsightTrendsQuery } as InsightVizNode<TrendsQuery>,
     InsightFunnelsQuery,
+    InsightFunnels: { kind: NodeKind.InsightVizNode, source: InsightFunnelsQuery } as InsightVizNode<FunnelsQuery>,
     InsightRetentionQuery,
+    InsightRetention: {
+        kind: NodeKind.InsightVizNode,
+        source: InsightRetentionQuery,
+    } as InsightVizNode<RetentionQuery>,
     InsightPathsQuery,
+    InsightPaths: { kind: NodeKind.InsightVizNode, source: InsightPathsQuery } as InsightVizNode<PathsQuery>,
     InsightStickinessQuery,
+    InsightStickiness: {
+        kind: NodeKind.InsightVizNode,
+        source: InsightStickinessQuery,
+    } as InsightVizNode<StickinessQuery>,
     InsightLifecycleQuery,
+    InsightLifecycle: {
+        kind: NodeKind.InsightVizNode,
+        source: InsightLifecycleQuery,
+    } as InsightVizNode<LifecycleQuery>,
 }
 
 export const stringifiedQueryExamples: Record<string, string> = Object.fromEntries(
@@ -385,15 +391,12 @@ export const stringifiedQueryExamples: Record<string, string> = Object.fromEntri
 
 export const examples: Record<string, Node> = {
     ...queryExamples,
-    TimeToSeeDataSessionsTable,
-    TimeToSeeDataSessionsJSON,
-    TimeToSeeDataWaterfall,
-    TimeToSeeDataJSON,
     HogQLRaw,
     HogQLTable,
     DataVisualization,
     Hog,
     Hoggonacci,
+    DataWarehouse,
 }
 
 export const stringifiedExamples: Record<string, string> = Object.fromEntries(

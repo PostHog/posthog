@@ -13,18 +13,18 @@ export const CorsPlugin: ReplayPlugin & {
     _replaceFontCssUrls: (value: string | null): string | null => {
         return (
             value?.replace(
-                /url\("(https:\/\/\S*(?:.eot|.woff2|.ttf|.woff)\S*)"\)/gi,
+                /url\("(https:\/\/\S*(?:\.eot|\.woff2|\.ttf|\.woff)\S*)"\)/gi,
                 `url("${PROXY_URL}/proxy?url=$1")`
             ) || null
         )
     },
 
     _replaceFontUrl: (value: string): string => {
-        return value.replace(/^(https:\/\/\S*(?:.eot|.woff2|.ttf|.woff)\S*)$/i, `${PROXY_URL}/proxy?url=$1`)
+        return value.replace(/^(https:\/\/\S*(?:\.eot|\.woff2|\.ttf|\.woff)\S*)$/i, `${PROXY_URL}/proxy?url=$1`)
     },
 
     _replaceJSUrl: (value: string): string => {
-        return value.replace(/^(https:\/\/\S*(?:.js)\S*)$/i, `${PROXY_URL}/proxy?url=$1`)
+        return value.replace(/^(https:\/\/\S*(?:\.js)\S*)$/i, `${PROXY_URL}/proxy?url=$1`)
     },
 
     onBuild: (node) => {

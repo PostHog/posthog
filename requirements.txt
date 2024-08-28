@@ -34,13 +34,8 @@ asn1crypto==1.5.1
     # via snowflake-connector-python
 astunparse==1.6.3
     # via dlt
-async-generator==1.10
-    # via
-    #   trio
-    #   trio-websocket
 async-timeout==4.0.2
     # via
-    #   aiohttp
     #   aiokafka
     #   redis
 attrs==23.2.0
@@ -50,6 +45,7 @@ attrs==23.2.0
     #   outcome
     #   referencing
     #   trio
+    #   zeep
 backoff==2.2.1
     # via posthoganalytics
 bcrypt==4.1.3
@@ -84,7 +80,7 @@ certifi==2019.11.28
     #   sentry-sdk
     #   snowflake-connector-python
     #   urllib3
-cffi==1.14.5
+cffi==1.16.0
     # via
     #   cryptography
     #   pynacl
@@ -113,11 +109,12 @@ clickhouse-driver==0.2.7
     #   sentry-sdk
 clickhouse-pool==0.5.3
     # via -r requirements.in
-cryptography==37.0.2
+cryptography==39.0.2
     # via
     #   -r requirements.in
     #   django-fernet-encrypted-fields
     #   paramiko
+    #   pyjwt
     #   pyopenssl
     #   snowflake-connector-python
     #   social-auth-core
@@ -132,11 +129,13 @@ defusedxml==0.6.0
     # via
     #   python3-openid
     #   social-auth-core
+deltalake==0.18.2
+    # via dlt
 distro==1.9.0
     # via openai
 dj-database-url==0.5.0
     # via -r requirements.in
-django==4.2.11
+django==4.2.15
     # via
     #   -r requirements.in
     #   django-axes
@@ -195,7 +194,7 @@ django-structlog==2.1.3
     # via -r requirements.in
 django-two-factor-auth==1.14.0
     # via -r requirements.in
-djangorestframework==3.14.0
+djangorestframework==3.15.1
     # via
     #   -r requirements.in
     #   djangorestframework-csv
@@ -207,7 +206,7 @@ djangorestframework-csv==2.1.1
     # via -r requirements.in
 djangorestframework-dataclasses==1.2.0
     # via -r requirements.in
-dlt==0.4.12
+dlt==0.5.3
     # via -r requirements.in
 dnspython==2.2.1
     # via -r requirements.in
@@ -219,11 +218,9 @@ drf-spectacular==0.27.1
     # via -r requirements.in
 et-xmlfile==1.1.0
     # via openpyxl
-exceptiongroup==1.2.1
-    # via anyio
 filelock==3.12.0
     # via snowflake-connector-python
-frozenlist==1.3.0
+frozenlist==1.4.1
     # via
     #   aiohttp
     #   aiosignal
@@ -261,6 +258,8 @@ googleapis-common-protos==1.60.0
     # via
     #   google-api-core
     #   grpcio-status
+greenlet==3.0.3
+    # via sqlalchemy
 grpcio==1.57.0
     # via
     #   google-api-core
@@ -276,7 +275,7 @@ h11==0.13.0
     #   wsproto
 hexbytes==1.0.0
     # via dlt
-hogql-parser==1.0.14
+hogql-parser==1.0.38
     # via -r requirements.in
 httpcore==1.0.2
     # via httpx
@@ -300,7 +299,9 @@ inflection==0.5.1
 iso8601==0.1.12
     # via infi-clickhouse-orm
 isodate==0.6.1
-    # via python3-saml
+    # via
+    #   python3-saml
+    #   zeep
 jmespath==1.0.0
     # via
     #   boto3
@@ -323,9 +324,11 @@ kombu==5.3.2
     #   celery
 lxml==4.9.4
     # via
+    #   -r requirements.in
     #   python3-saml
     #   toronado
     #   xmlsec
+    #   zeep
 lzstring==1.0.4
     # via -r requirements.in
 makefun==1.15.2
@@ -337,7 +340,9 @@ mimesis==5.2.1
 monotonic==1.5
     # via posthoganalytics
 more-itertools==9.0.0
-    # via -r requirements.in
+    # via
+    #   -r requirements.in
+    #   simple-salesforce
 multidict==6.0.2
     # via
     #   aiohttp
@@ -369,7 +374,7 @@ orjson==3.9.10
     # via
     #   -r requirements.in
     #   dlt
-outcome==1.1.0
+outcome==1.3.0.post0
     # via trio
 packaging==23.1
     # via
@@ -386,6 +391,8 @@ paramiko==3.4.0
     #   sshtunnel
 pathvalidate==3.2.0
     # via dlt
+pdpyras==5.2.0
+    # via -r requirements.in
 pendulum==2.1.2
     # via dlt
 phonenumberslite==8.13.6
@@ -393,7 +400,9 @@ phonenumberslite==8.13.6
 pillow==10.2.0
     # via -r requirements.in
 platformdirs==3.11.0
-    # via snowflake-connector-python
+    # via
+    #   snowflake-connector-python
+    #   zeep
 ply==3.11
     # via jsonpath-ng
 posthoganalytics==3.5.0
@@ -412,16 +421,21 @@ protobuf==4.22.1
     #   grpcio-status
     #   proto-plus
     #   temporalio
-psycopg==3.1.18
+psycopg==3.1.20
     # via -r requirements.in
-psycopg-binary==3.1.18
+psycopg-binary==3.1.20
     # via psycopg
 psycopg2-binary==2.9.7
     # via -r requirements.in
 py==1.11.0
     # via retry
-pyarrow==15.0.0
-    # via -r requirements.in
+pyarrow==17.0.0
+    # via
+    #   -r requirements.in
+    #   deltalake
+    #   dlt
+pyarrow-hotfix==0.6
+    # via deltalake
 pyasn1==0.5.0
     # via
     #   pyasn1-modules
@@ -439,11 +453,18 @@ pydantic-core==2.14.6
 pyjwt==2.4.0
     # via
     #   -r requirements.in
+    #   simple-salesforce
     #   snowflake-connector-python
     #   social-auth-core
+pymssql==2.3.0
+    # via -r requirements.in
+pymysql==1.1.1
+    # via -r requirements.in
 pynacl==1.5.0
     # via paramiko
-pyopenssl==22.0.0
+pyodbc==5.1.0
+    # via -r requirements.in
+pyopenssl==23.0.0
     # via
     #   snowflake-connector-python
     #   urllib3
@@ -461,7 +482,6 @@ python-dateutil==2.8.2
     #   pandas
     #   pendulum
     #   posthoganalytics
-    #   temporalio
 python-dotenv==0.21.0
     # via webdriver-manager
 python-statsd==2.1.0
@@ -474,12 +494,12 @@ pytz==2023.3
     # via
     #   -r requirements.in
     #   clickhouse-driver
-    #   djangorestframework
     #   dlt
     #   infi-clickhouse-orm
     #   pandas
     #   snowflake-connector-python
     #   tzlocal
+    #   zeep
 pytzdata==2020.1
     # via pendulum
 pyyaml==6.0.1
@@ -507,15 +527,24 @@ requests==2.32.0
     #   google-api-core
     #   google-cloud-bigquery
     #   infi-clickhouse-orm
+    #   pdpyras
     #   posthoganalytics
+    #   requests-file
     #   requests-oauthlib
+    #   requests-toolbelt
+    #   simple-salesforce
     #   snowflake-connector-python
     #   social-auth-core
     #   stripe
     #   tiktoken
     #   webdriver-manager
+    #   zeep
+requests-file==2.1.0
+    # via zeep
 requests-oauthlib==1.3.0
     # via social-auth-core
+requests-toolbelt==1.0.0
+    # via zeep
 requirements-parser==0.5.0
     # via dlt
 retry==0.9.2
@@ -530,7 +559,7 @@ s3fs==2023.10.0
     # via -r requirements.in
 s3transfer==0.6.0
     # via boto3
-scikit-learn==1.4.0
+scikit-learn==1.5.0
     # via -r requirements.in
 scipy==1.12.0
     # via scikit-learn
@@ -542,11 +571,13 @@ semver==3.0.2
     # via dlt
 sentry-sdk==1.44.1
     # via -r requirements.in
-setuptools==70.0.0
+setuptools==72.1.0
     # via
     #   dlt
     #   gunicorn
     #   infi-clickhouse-orm
+simple-salesforce==1.12.6
+    # via -r requirements.in
 simplejson==3.19.2
     # via dlt
 six==1.16.0
@@ -561,7 +592,7 @@ slack-sdk==3.17.1
     # via -r requirements.in
 smmap==5.0.1
     # via gitdb
-sniffio==1.2.0
+sniffio==1.3.1
     # via
     #   anyio
     #   httpx
@@ -571,7 +602,7 @@ snowflake-connector-python==3.6.0
     # via
     #   -r requirements.in
     #   snowflake-sqlalchemy
-snowflake-sqlalchemy==1.5.3
+snowflake-sqlalchemy==1.6.1
     # via -r requirements.in
 social-auth-app-django==5.0.0
     # via -r requirements.in
@@ -583,7 +614,7 @@ sortedcontainers==2.4.0
     # via
     #   snowflake-connector-python
     #   trio
-sqlalchemy==1.4.52
+sqlalchemy==2.0.31
     # via
     #   -r requirements.in
     #   snowflake-sqlalchemy
@@ -595,13 +626,13 @@ sshtunnel==0.4.0
     # via -r requirements.in
 statshog==1.0.6
     # via -r requirements.in
-stripe==7.4.0
+stripe==10.3.0
     # via -r requirements.in
 structlog==23.2.0
     # via
     #   -r requirements.in
     #   django-structlog
-temporalio==1.4.0
+temporalio==1.6.0
     # via -r requirements.in
 tenacity==8.2.3
     # via
@@ -623,27 +654,27 @@ toronado==0.1.0
     # via -r requirements.in
 tqdm==4.64.1
     # via openai
-trio==0.20.0
+trio==0.26.0
     # via
     #   selenium
     #   trio-websocket
-trio-websocket==0.9.2
+trio-websocket==0.11.1
     # via selenium
 types-protobuf==4.22.0.0
     # via temporalio
 types-setuptools==69.0.0.0
     # via requirements-parser
-typing-extensions==4.7.1
+typing-extensions==4.12.2
     # via
-    #   anyio
-    #   asgiref
     #   dlt
     #   openai
     #   psycopg
     #   pydantic
     #   pydantic-core
     #   qrcode
+    #   simple-salesforce
     #   snowflake-connector-python
+    #   sqlalchemy
     #   stripe
     #   temporalio
 tzdata==2023.3
@@ -663,6 +694,7 @@ urllib3==1.26.18
     #   django-revproxy
     #   geoip2
     #   google-auth
+    #   pdpyras
     #   requests
     #   selenium
     #   sentry-sdk
@@ -683,12 +715,16 @@ whitenoise==6.5.0
     # via -r requirements.in
 wrapt==1.15.0
     # via aiobotocore
-wsproto==1.1.0
+wsproto==1.2.0
     # via trio-websocket
 xmlsec==1.3.13
-    # via python3-saml
-yarl==1.7.2
+    # via
+    #   -r requirements.in
+    #   python3-saml
+yarl==1.9.4
     # via aiohttp
+zeep==4.2.1
+    # via simple-salesforce
 zstd==1.5.5.1
     # via -r requirements.in
 zxcvbn==4.4.28

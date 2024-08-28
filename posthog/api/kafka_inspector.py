@@ -2,7 +2,7 @@ from typing import Union
 
 from kafka import TopicPartition
 from rest_framework import serializers, viewsets
-from rest_framework.decorators import action
+from posthog.api.utils import action
 from rest_framework.response import Response
 
 from posthog.kafka_client.client import build_kafka_consumer

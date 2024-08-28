@@ -1,4 +1,4 @@
-from typing import Any, cast
+from typing import Any, Optional, cast
 
 from rest_framework import (
     exceptions,
@@ -9,20 +9,23 @@ from rest_framework import (
     status,
     viewsets,
 )
-from rest_framework.decorators import action
+from posthog.api.utils import action
 
+from ee.models.explicit_team_membership import ExplicitTeamMembership
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.email import is_email_available
 from posthog.event_usage import report_bulk_invited, report_team_member_invited
 from posthog.models import OrganizationInvite, OrganizationMembership
 from posthog.models.organization import Organization
+from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.tasks.email import send_invite
 
 
 class OrganizationInviteSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
+    send_email = serializers.BooleanField(write_only=True, default=True)
 
     class Meta:
         model = OrganizationInvite
@@ -37,6 +40,8 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "message",
+            "private_project_access",
+            "send_email",
         ]
         read_only_fields = [
             "id",
@@ -50,18 +55,56 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         local_part, domain = email.split("@")
         return f"{local_part}@{domain.lower()}"
 
+    def validate_private_project_access(
+        self, private_project_access: Optional[list[dict[str, Any]]]
+    ) -> Optional[list[dict[str, Any]]]:
+        team_error = "Team does not exist on this organization, or it is private and you do not have access to it."
+        if not private_project_access:
+            return None
+        for item in private_project_access:
+            # if the project is private, if user is not an admin of the team, they can't invite to it
+            organization: Organization = Organization.objects.get(id=self.context["organization_id"])
+            if not organization:
+                raise exceptions.ValidationError("Organization not found.")
+            teams = organization.teams.all()
+            try:
+                team: Team = teams.get(id=item["id"])
+            except Team.DoesNotExist:
+                raise exceptions.ValidationError(
+                    team_error,
+                )
+            is_private = team.access_control
+            if not is_private:
+                continue
+            try:
+                explicit_team_membership: ExplicitTeamMembership = ExplicitTeamMembership.objects.get(
+                    team_id=item["id"],
+                    parent_membership__user=self.context["request"].user,
+                )
+            except ExplicitTeamMembership.DoesNotExist:
+                raise exceptions.ValidationError(
+                    team_error,
+                )
+            if explicit_team_membership.level < item["level"]:
+                raise exceptions.ValidationError(
+                    "You cannot invite to a private project with a higher level than your own.",
+                )
+
+        return private_project_access
+
     def create(self, validated_data: dict[str, Any], *args: Any, **kwargs: Any) -> OrganizationInvite:
         if OrganizationMembership.objects.filter(
             organization_id=self.context["organization_id"],
             user__email=validated_data["target_email"],
         ).exists():
             raise exceptions.ValidationError("A user with this email address already belongs to the organization.")
+        send_email = validated_data.pop("send_email", True)
         invite: OrganizationInvite = OrganizationInvite.objects.create(
             organization_id=self.context["organization_id"],
             created_by=self.context["request"].user,
             **validated_data,
         )
-        if is_email_available(with_absolute_urls=True):
+        if is_email_available(with_absolute_urls=True) and send_email:
             invite.emailing_attempt_made = True
             send_invite(invite_id=invite.id)
             invite.save()

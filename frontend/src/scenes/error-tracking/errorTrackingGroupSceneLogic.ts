@@ -1,20 +1,37 @@
-import { afterMount, connect, kea, path, props, selectors } from 'kea'
+import { actions, afterMount, connect, kea, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb, EventType } from '~/types'
+import { ErrorTrackingGroup } from '~/queries/schema'
+import { Breadcrumb } from '~/types'
 
 import type { errorTrackingGroupSceneLogicType } from './errorTrackingGroupSceneLogicType'
 import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingGroupQuery } from './queries'
 
 export interface ErrorTrackingGroupSceneLogicProps {
-    id: string
+    fingerprint: string[]
 }
 
-export type ExceptionEventType = Pick<EventType, 'properties' | 'timestamp' | 'person'>
+export enum ErrorGroupTab {
+    Overview = 'overview',
+    Breakdowns = 'breakdowns',
+}
+
+export type ErrorTrackingGroupEvent = {
+    uuid: string
+    properties: string
+    timestamp: string
+    person: {
+        distinct_id: string
+        uuid?: string
+        created_at?: string
+        properties?: Record<string, any>
+    }
+}
 
 export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType>([
     path((key) => ['scenes', 'error-tracking', 'errorTrackingGroupSceneLogic', key]),
@@ -24,25 +41,36 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
         values: [errorTrackingLogic, ['dateRange', 'filterTestAccounts', 'filterGroup']],
     }),
 
-    loaders(({ props, values }) => ({
-        events: [
-            [] as ExceptionEventType[],
+    actions({
+        setErrorGroupTab: (tab: ErrorGroupTab) => ({ tab }),
+    }),
+
+    reducers(() => ({
+        errorGroupTab: [
+            ErrorGroupTab.Overview as ErrorGroupTab,
             {
-                loadEvents: async () => {
+                setErrorGroupTab: (_, { tab }) => tab,
+            },
+        ],
+    })),
+
+    loaders(({ props, values }) => ({
+        group: [
+            null as ErrorTrackingGroup | null,
+            {
+                loadGroup: async () => {
                     const response = await api.query(
                         errorTrackingGroupQuery({
-                            group: props.id,
+                            fingerprint: props.fingerprint,
                             dateRange: values.dateRange,
                             filterTestAccounts: values.filterTestAccounts,
                             filterGroup: values.filterGroup,
                         })
                     )
 
-                    return response.results.map((r) => ({
-                        properties: JSON.parse(r[0]),
-                        timestamp: r[1],
-                        person: r[2],
-                    }))
+                    // ErrorTrackingQuery returns a list of groups
+                    // when a fingerprint is supplied there will only be a single group
+                    return response.results[0]
                 },
             },
         ],
@@ -50,8 +78,9 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
 
     selectors({
         breadcrumbs: [
-            (_, p) => [p.id],
-            (id): Breadcrumb[] => {
+            (s) => [s.group],
+            (group): Breadcrumb[] => {
+                const exceptionType = group?.exception_type || 'Unknown Type'
                 return [
                     {
                         key: Scene.ErrorTracking,
@@ -59,15 +88,37 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
                         path: urls.errorTracking(),
                     },
                     {
-                        key: [Scene.ErrorTrackingGroup, id],
-                        name: id,
+                        key: [Scene.ErrorTrackingGroup, exceptionType],
+                        name: exceptionType,
                     },
                 ]
             },
         ],
+
+        events: [(s) => [s.group], (group) => (group?.events || []) as ErrorTrackingGroupEvent[]],
     }),
 
+    actionToUrl(({ values }) => ({
+        setErrorGroupTab: () => {
+            const searchParams = router.values.searchParams
+
+            if (values.errorGroupTab != ErrorGroupTab.Overview) {
+                searchParams['tab'] = values.errorGroupTab
+            }
+
+            return [router.values.location.pathname, searchParams]
+        },
+    })),
+
+    urlToAction(({ actions }) => ({
+        [urls.errorTrackingGroup('*')]: (_, searchParams) => {
+            if (searchParams.tab) {
+                actions.setErrorGroupTab(searchParams.tab)
+            }
+        },
+    })),
+
     afterMount(({ actions }) => {
-        actions.loadEvents()
+        actions.loadGroup()
     }),
 ])

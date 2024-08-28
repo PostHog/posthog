@@ -10,13 +10,19 @@ import { Counter } from 'prom-client'
 import v8Profiler from 'v8-profiler-next'
 
 import { getPluginServerCapabilities } from '../capabilities'
-import { CdpFunctionCallbackConsumer, CdpProcessedEventsConsumer } from '../cdp/cdp-processed-events-consumer'
+import { CdpApi } from '../cdp/cdp-api'
+import {
+    CdpCyclotronWorker,
+    CdpFunctionCallbackConsumer,
+    CdpOverflowConsumer,
+    CdpProcessedEventsConsumer,
+} from '../cdp/cdp-consumers'
 import { defaultConfig, sessionRecordingConsumerConfig } from '../config/config'
 import { Hub, PluginServerCapabilities, PluginsServerConfig } from '../types'
 import { createHub, createKafkaClient, createKafkaProducerWrapper } from '../utils/db/hub'
 import { PostgresRouter } from '../utils/db/postgres'
 import { cancelAllScheduledJobs } from '../utils/node-schedule'
-import { PeriodicTask } from '../utils/periodic-task'
+import { posthog } from '../utils/posthog'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
 import { createRedisClient, delay } from '../utils/utils'
@@ -25,16 +31,21 @@ import { ActionMatcher } from '../worker/ingestion/action-matcher'
 import { AppMetrics } from '../worker/ingestion/app-metrics'
 import { GroupTypeManager } from '../worker/ingestion/group-type-manager'
 import { OrganizationManager } from '../worker/ingestion/organization-manager'
-import { DeferredPersonOverrideWorker, FlatPersonOverrideWriter } from '../worker/ingestion/person-state'
 import { TeamManager } from '../worker/ingestion/team-manager'
 import Piscina, { makePiscina as defaultMakePiscina } from '../worker/piscina'
 import { RustyHook } from '../worker/rusty-hook'
+import { syncInlinePlugins } from '../worker/vm/inline/inline'
 import { GraphileWorker } from './graphile-worker/graphile-worker'
 import { loadPluginSchedule } from './graphile-worker/schedule'
 import { startGraphileWorker } from './graphile-worker/worker-setup'
 import { startAnalyticsEventsIngestionConsumer } from './ingestion-queues/analytics-events-ingestion-consumer'
 import { startAnalyticsEventsIngestionHistoricalConsumer } from './ingestion-queues/analytics-events-ingestion-historical-consumer'
 import { startAnalyticsEventsIngestionOverflowConsumer } from './ingestion-queues/analytics-events-ingestion-overflow-consumer'
+import {
+    PIPELINES,
+    PipelineType,
+    startEventsIngestionPipelineConsumer,
+} from './ingestion-queues/events-ingestion-consumer'
 import { startJobsConsumer } from './ingestion-queues/jobs-consumer'
 import { IngestionConsumer, KafkaJSIngestionConsumer } from './ingestion-queues/kafka-queue'
 import {
@@ -43,7 +54,7 @@ import {
 } from './ingestion-queues/on-event-handler-consumer'
 import { startScheduledTasksConsumer } from './ingestion-queues/scheduled-tasks-consumer'
 import { SessionRecordingIngester } from './ingestion-queues/session-recording/session-recordings-consumer'
-import { setupCommonRoutes } from './services/http-server'
+import { expressApp, setupCommonRoutes } from './services/http-server'
 import { getObjectStorage } from './services/object_storage'
 
 CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
@@ -103,6 +114,7 @@ export async function startPluginsServer(
     let analyticsEventsIngestionConsumer: IngestionConsumer | undefined
     let analyticsEventsIngestionOverflowConsumer: IngestionConsumer | undefined
     let analyticsEventsIngestionHistoricalConsumer: IngestionConsumer | undefined
+    let eventsIngestionConsumer: Map<string, IngestionConsumer> | undefined
     let onEventHandlerConsumer: KafkaJSIngestionConsumer | undefined
     let stopWebhooksHandlerConsumer: () => Promise<void> | undefined
 
@@ -117,8 +129,6 @@ export async function startPluginsServer(
     let stopSessionRecordingBlobOverflowConsumer: (() => void) | undefined
     let jobsConsumer: Consumer | undefined
     let schedulerTasksConsumer: Consumer | undefined
-
-    let personOverridesPeriodicTask: PeriodicTask | undefined
 
     let httpServer: Server | undefined // server
 
@@ -152,6 +162,7 @@ export async function startPluginsServer(
             analyticsEventsIngestionConsumer?.stop(),
             analyticsEventsIngestionOverflowConsumer?.stop(),
             analyticsEventsIngestionHistoricalConsumer?.stop(),
+            ...Array.from(eventsIngestionConsumer?.values() || []).map((consumer) => consumer.stop()),
             onEventHandlerConsumer?.stop(),
             stopWebhooksHandlerConsumer?.(),
             bufferConsumer?.disconnect(),
@@ -159,8 +170,8 @@ export async function startPluginsServer(
             stopSessionRecordingBlobConsumer?.(),
             stopSessionRecordingBlobOverflowConsumer?.(),
             schedulerTasksConsumer?.disconnect(),
-            personOverridesPeriodicTask?.stop(),
             ...shutdownCallbacks.map((cb) => cb()),
+            posthog.shutdownAsync(),
         ])
 
         if (piscina) {
@@ -338,6 +349,36 @@ export async function startPluginsServer(
             healthChecks['analytics-ingestion-historical'] = isAnalyticsEventsIngestionHistoricalHealthy
         }
 
+        if (capabilities.eventsIngestionPipelines) {
+            async function start(pipelineKey: string, pipeline: PipelineType) {
+                ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, capabilities)
+                serverInstance = serverInstance ? serverInstance : { hub }
+                piscina = piscina ?? (await makePiscina(serverConfig, hub))
+                const { queue, isHealthy: isHealthy } = await startEventsIngestionPipelineConsumer({
+                    hub: hub,
+                    pipeline: pipeline,
+                })
+
+                eventsIngestionConsumer = eventsIngestionConsumer ?? new Map<string, IngestionConsumer>()
+                eventsIngestionConsumer.set(pipelineKey, queue)
+                shutdownOnConsumerExit(eventsIngestionConsumer.get(pipelineKey)!.consumer!)
+                healthChecks[`events-ingestion-pipeline-${pipelineKey}`] = isHealthy
+            }
+            if (serverConfig.PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE === null) {
+                for (const pipelineKey in PIPELINES) {
+                    await start(pipelineKey, PIPELINES[pipelineKey])
+                }
+            } else {
+                // Validate we have a valid pipeline
+                const pipelineKey = serverConfig.PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE
+                if (pipelineKey === null || !PIPELINES[pipelineKey]) {
+                    throw new Error(`Invalid events ingestion pipeline: ${pipelineKey}`)
+                }
+                const pipeline: PipelineType = PIPELINES[pipelineKey]
+                await start(pipelineKey, pipeline)
+            }
+        }
+
         if (capabilities.ingestionOverflow) {
             ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, capabilities)
             serverInstance = serverInstance ? serverInstance : { hub }
@@ -404,6 +445,13 @@ export async function startPluginsServer(
             stopWebhooksHandlerConsumer = webhooksStopConsumer
 
             healthChecks['webhooks-ingestion'] = isWebhooksIngestionHealthy
+        }
+
+        if (capabilities.syncInlinePlugins) {
+            ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, capabilities)
+            serverInstance = serverInstance ? serverInstance : { hub }
+
+            await syncInlinePlugins(hub)
         }
 
         if (hub && serverInstance) {
@@ -493,48 +541,50 @@ export async function startPluginsServer(
 
         if (capabilities.cdpProcessedEvents) {
             ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, capabilities)
-            const consumer = new CdpProcessedEventsConsumer(serverConfig, hub)
+            const consumer = new CdpProcessedEventsConsumer(hub)
             await consumer.start()
 
-            if (consumer.batchConsumer) {
-                shutdownOnConsumerExit(consumer.batchConsumer)
-            }
-
-            shutdownCallbacks.push(async () => {
-                await consumer.stop()
-            })
+            shutdownOnConsumerExit(consumer.batchConsumer!)
+            shutdownCallbacks.push(async () => await consumer.stop())
             healthChecks['cdp-processed-events'] = () => consumer.isHealthy() ?? false
         }
 
         if (capabilities.cdpFunctionCallbacks) {
             ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, capabilities)
-            const consumer = new CdpFunctionCallbackConsumer(serverConfig, hub)
+            const consumer = new CdpFunctionCallbackConsumer(hub)
             await consumer.start()
 
-            if (consumer.batchConsumer) {
-                shutdownOnConsumerExit(consumer.batchConsumer)
-            }
+            shutdownOnConsumerExit(consumer.batchConsumer!)
 
-            shutdownCallbacks.push(async () => {
-                await consumer.stop()
-            })
+            shutdownCallbacks.push(async () => await consumer.stop())
             healthChecks['cdp-function-callbacks'] = () => consumer.isHealthy() ?? false
+
+            // NOTE: The function callback service is more idle so can handle http requests as well
+            if (capabilities.http) {
+                const api = new CdpApi(hub, consumer)
+                expressApp.use('/', api.router())
+            }
         }
 
-        if (capabilities.personOverrides) {
-            const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
-            const kafkaProducer = hub?.kafkaProducer ?? (await createKafkaProducerWrapper(serverConfig))
+        if (capabilities.cdpFunctionOverflow) {
+            ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, capabilities)
+            const consumer = new CdpOverflowConsumer(hub)
+            await consumer.start()
 
-            personOverridesPeriodicTask = new DeferredPersonOverrideWorker(
-                postgres,
-                kafkaProducer,
-                new FlatPersonOverrideWriter(postgres)
-            ).runTask(5000)
-            personOverridesPeriodicTask.promise.catch(async () => {
-                status.error('⚠️', 'Person override worker task crashed! Requesting shutdown...')
-                await closeJobs()
-                process.exit(1)
-            })
+            shutdownOnConsumerExit(consumer.batchConsumer!)
+            shutdownCallbacks.push(async () => await consumer.stop())
+            healthChecks['cdp-overflow'] = () => consumer.isHealthy() ?? false
+        }
+
+        if (capabilities.cdpCyclotronWorker) {
+            ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, capabilities)
+            if (hub.CYCLOTRON_DATABASE_URL) {
+                const worker = new CdpCyclotronWorker(hub)
+                await worker.start()
+            } else {
+                // This is a temporary solution until we *require* Cyclotron to be configured.
+                status.warn('💥', 'CYCLOTRON_DATABASE_URL is not set, not running Cyclotron worker')
+            }
         }
 
         if (capabilities.http) {

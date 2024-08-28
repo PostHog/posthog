@@ -3,7 +3,7 @@ from django.db import transaction
 from django.db.models import QuerySet
 
 from rest_framework import exceptions, serializers, viewsets, pagination
-from rest_framework.decorators import action
+from posthog.api.utils import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -11,11 +11,13 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer
 from posthog.models.comment import Comment
 
 
 class CommentSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
+    deleted = ClassicBehaviorBooleanFieldSerializer()
 
     class Meta:
         model = Comment

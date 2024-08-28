@@ -22,7 +22,6 @@ from posthog.models.property.util import (
     parse_prop_grouped_clauses,
 )
 from posthog.models.team import Team
-from posthog.models.team.team import groups_on_events_querying_enabled
 from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
 from posthog.queries.groups_join_query import GroupsJoinQuery
 from posthog.queries.insight import insight_sync_execute
@@ -95,8 +94,7 @@ def get_breakdown_prop_values(
         outer_properties: Optional[PropertyGroup] = props_to_filter
         person_id_joined_alias = "e.person_id"
 
-        if not groups_on_events_querying_enabled():
-            groups_join_clause, groups_join_params = GroupsJoinQuery(filter, team.pk, column_optimizer).get_join_query()
+        groups_join_clause, groups_join_params = GroupsJoinQuery(filter, team.pk, column_optimizer).get_join_query()
     else:
         outer_properties = (
             column_optimizer.property_optimizer.parse_property_groups(props_to_filter).outer

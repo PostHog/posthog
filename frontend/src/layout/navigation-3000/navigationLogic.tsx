@@ -399,7 +399,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                           },
                           {
                               identifier: Scene.PersonsManagement,
-                              label: 'People',
+                              label: 'People and groups',
                               icon: <IconPeople />,
                               logic: isUsingSidebar ? personsAndGroupsSidebarLogic : undefined,
                               to: isUsingSidebar ? undefined : urls.persons(),
@@ -436,15 +436,12 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                 identifier: Scene.Insight,
                             },
                         },
-                        featureFlags[FEATURE_FLAGS.WEB_ANALYTICS]
-                            ? {
-                                  identifier: Scene.WebAnalytics,
-                                  label: 'Web analytics',
-                                  icon: <IconPieChart />,
-                                  to: isUsingSidebar ? undefined : urls.webAnalytics(),
-                                  tag: 'beta' as const,
-                              }
-                            : null,
+                        {
+                            identifier: Scene.WebAnalytics,
+                            label: 'Web analytics',
+                            icon: <IconPieChart />,
+                            to: isUsingSidebar ? undefined : urls.webAnalytics(),
+                        },
                         {
                             identifier: Scene.Replay,
                             label: 'Session replay',
@@ -457,6 +454,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   label: 'Error tracking',
                                   icon: <IconWarning />,
                                   to: urls.errorTracking(),
+                                  tag: 'alpha' as const,
                               }
                             : null,
                         featureFlags[FEATURE_FLAGS.HEATMAPS_UI]
@@ -496,30 +494,19 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   to: urls.earlyAccessFeatures(),
                               }
                             : null,
+                        {
+                            identifier: Scene.DataWarehouse,
+                            label: 'Data warehouse',
+                            icon: <IconServer />,
+                            to: isUsingSidebar ? undefined : urls.dataWarehouse(),
+                        },
                         hasOnboardedAnyProduct
                             ? {
-                                  identifier: Scene.DataWarehouse,
-                                  label: 'Data warehouse',
-                                  icon: <IconServer />,
-                                  to: urls.dataWarehouse(),
-                                  featureFlag: FEATURE_FLAGS.DATA_WAREHOUSE,
-                                  tag: 'beta' as const,
+                                  identifier: Scene.Pipeline,
+                                  label: 'Data pipeline',
+                                  icon: <IconDecisionTree />,
+                                  to: urls.pipeline(),
                               }
-                            : null,
-                        hasOnboardedAnyProduct
-                            ? featureFlags[FEATURE_FLAGS.PIPELINE_UI]
-                                ? {
-                                      identifier: Scene.Pipeline,
-                                      label: 'Data pipeline',
-                                      icon: <IconDecisionTree />,
-                                      to: urls.pipeline(),
-                                  }
-                                : {
-                                      identifier: Scene.Apps,
-                                      label: 'Data pipeline',
-                                      icon: <IconDecisionTree />,
-                                      to: urls.projectApps(),
-                                  }
                             : null,
                     ].filter(isNotNil),
                 ]

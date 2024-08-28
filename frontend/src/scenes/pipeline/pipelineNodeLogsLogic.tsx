@@ -7,22 +7,15 @@ import { dayjs } from 'lib/dayjs'
 import { pipelineNodeLogic, PipelineNodeLogicProps } from 'scenes/pipeline/pipelineNodeLogic'
 
 import api from '~/lib/api'
-import { BatchExportLogEntry, PluginLogEntry } from '~/types'
+import { LogEntry, LogEntryLevel, LogEntryRequestParams } from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import type { pipelineNodeLogsLogicType } from './pipelineNodeLogsLogicType'
 import { PipelineBackend } from './types'
-import { LogLevelDisplay, logLevelsToTypeFilters, LogTypeDisplay } from './utils'
+import { LogLevelDisplay } from './utils'
 
-export type LogEntry = BatchExportLogEntry | PluginLogEntry
-
-export enum PipelineLogLevel {
-    Debug = 'DEBUG',
-    Log = 'LOG',
-    Info = 'INFO',
-    Warning = 'WARNING',
-    Error = 'ERROR',
-}
+export const ALL_LOG_LEVELS: LogEntryLevel[] = ['DEBUG', 'LOG', 'INFO', 'WARNING', 'ERROR']
+export const DEFAULT_LOG_LEVELS: LogEntryLevel[] = ['LOG', 'INFO', 'WARNING', 'ERROR']
 
 export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
     props({} as PipelineNodeLogicProps), // TODO: Remove `stage` from props, it isn't needed here for anything
@@ -32,7 +25,7 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
         values: [teamLogic(), ['currentTeamId'], pipelineNodeLogic(props), ['node']],
     })),
     actions({
-        setSelectedLogLevels: (levels: PipelineLogLevel[]) => ({
+        setSelectedLogLevels: (levels: LogEntryLevel[]) => ({
             levels,
         }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
@@ -40,33 +33,30 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
         clearBackgroundLogs: true,
         markLogsEnd: true,
     }),
-    loaders(({ props: { id }, values, actions, cache }) => ({
+    loaders(({ values, actions, cache }) => ({
         logs: [
             [] as LogEntry[],
             {
                 loadLogs: async () => {
-                    let results: LogEntry[]
-                    if (values.node.backend === PipelineBackend.BatchExport) {
-                        results = await api.batchExportLogs.search(
-                            values.node.id,
-                            values.searchTerm,
-                            values.selectedLogLevels
-                        )
-                    } else if (values.node.backend === PipelineBackend.HogFunction) {
-                        const res = await api.hogFunctions.searchLogs(values.node.id, {
-                            search: values.searchTerm,
-                            levels: values.selectedLogLevels,
-                            limit: LOGS_PORTION_LIMIT,
-                            instance_id: values.instanceId,
-                        })
+                    let results: LogEntry[] = []
+                    const logParams: LogEntryRequestParams = {
+                        search: values.searchTerm,
+                        level: values.selectedLogLevelsForAPI.join(','),
+                        limit: LOGS_PORTION_LIMIT,
+                        instance_id: values.instanceId ?? undefined,
+                    }
 
+                    if (values.node.backend === PipelineBackend.BatchExport) {
+                        const res = await api.batchExports.logs(values.node.id, logParams)
                         results = res.results
+                    } else if (values.node.backend === PipelineBackend.HogFunction) {
+                        const res = await api.hogFunctions.logs(values.node.id, logParams)
+                        results = res.results
+                    } else if (values.node.backend === PipelineBackend.ManagedSource) {
+                        // handled in data warehouse specific component
+                        return []
                     } else {
-                        results = await api.pluginLogs.search(
-                            values.node.id,
-                            values.searchTerm,
-                            logLevelsToTypeFilters(values.selectedLogLevels)
-                        )
+                        results = await api.pluginConfigs.logs(values.node.id, logParams)
                     }
 
                     if (!cache.pollingInterval) {
@@ -77,30 +67,24 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                 },
                 loadMoreLogs: async () => {
                     let results: LogEntry[]
+                    const logParams: LogEntryRequestParams = {
+                        search: values.searchTerm,
+                        level: values.selectedLogLevels.join(','),
+                        limit: LOGS_PORTION_LIMIT,
+                        before: values.trailingEntry?.timestamp,
+                        instance_id: values.instanceId ?? undefined,
+                    }
                     if (values.node.backend === PipelineBackend.BatchExport) {
-                        results = await api.batchExportLogs.search(
-                            id as string,
-                            values.searchTerm,
-                            values.selectedLogLevels,
-                            values.trailingEntry as BatchExportLogEntry | null
-                        )
-                    } else if (values.node.backend === PipelineBackend.HogFunction) {
-                        const res = await api.hogFunctions.searchLogs(values.node.id, {
-                            search: values.searchTerm,
-                            levels: values.selectedLogLevels,
-                            limit: LOGS_PORTION_LIMIT,
-                            before: values.trailingEntry?.timestamp,
-                            instance_id: values.instanceId,
-                        })
-
+                        const res = await api.batchExports.logs(values.node.id, logParams)
                         results = res.results
+                    } else if (values.node.backend === PipelineBackend.HogFunction) {
+                        const res = await api.hogFunctions.logs(values.node.id, logParams)
+                        results = res.results
+                    } else if (values.node.backend === PipelineBackend.ManagedSource) {
+                        // handled in data warehouse specific component
+                        return []
                     } else {
-                        results = await api.pluginLogs.search(
-                            id as number,
-                            values.searchTerm,
-                            logLevelsToTypeFilters(values.selectedLogLevels),
-                            values.trailingEntry as PluginLogEntry | null
-                        )
+                        results = await api.pluginConfigs.logs(values.node.id, logParams)
                     }
 
                     if (results.length < LOGS_PORTION_LIMIT) {
@@ -126,32 +110,25 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                     }
 
                     let results: LogEntry[]
-                    if (values.node.backend === PipelineBackend.BatchExport) {
-                        results = await api.batchExportLogs.search(
-                            id as string,
-                            values.searchTerm,
-                            values.selectedLogLevels,
-                            null,
-                            values.leadingEntry as BatchExportLogEntry | null
-                        )
-                    } else if (values.node.backend === PipelineBackend.HogFunction) {
-                        const res = await api.hogFunctions.searchLogs(values.node.id, {
-                            search: values.searchTerm,
-                            levels: values.selectedLogLevels,
-                            limit: LOGS_PORTION_LIMIT,
-                            after: values.leadingEntry?.timestamp,
-                            instance_id: values.instanceId,
-                        })
+                    const logParams: LogEntryRequestParams = {
+                        search: values.searchTerm,
+                        level: values.selectedLogLevels.join(','),
+                        limit: LOGS_PORTION_LIMIT,
+                        after: values.leadingEntry?.timestamp,
+                        instance_id: values.instanceId ?? undefined,
+                    }
 
+                    if (values.node.backend === PipelineBackend.BatchExport) {
+                        const res = await api.batchExports.logs(values.node.id, logParams)
                         results = res.results
+                    } else if (values.node.backend === PipelineBackend.HogFunction) {
+                        const res = await api.hogFunctions.logs(values.node.id, logParams)
+                        results = res.results
+                    } else if (values.node.backend === PipelineBackend.ManagedSource) {
+                        // handled in data warehouse specific component
+                        return []
                     } else {
-                        results = await api.pluginLogs.search(
-                            id as number,
-                            values.searchTerm,
-                            logLevelsToTypeFilters(values.selectedLogLevels),
-                            null,
-                            values.leadingEntry as PluginLogEntry | null
-                        )
+                        results = await api.pluginConfigs.logs(values.node.id, logParams)
                     }
 
                     return [...results, ...values.backgroundLogs]
@@ -161,7 +138,7 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
     })),
     reducers({
         selectedLogLevels: [
-            Object.values(PipelineLogLevel).filter((level) => level !== 'DEBUG'),
+            DEFAULT_LOG_LEVELS,
             {
                 setSelectedLogLevels: (_, { levels }) => levels,
             },
@@ -192,7 +169,7 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
             },
         ],
     }),
-    selectors(({ actions }) => ({
+    selectors(({ actions, values }) => ({
         leadingEntry: [
             (s) => [s.logs, s.backgroundLogs],
             (logs: LogEntry[], backgroundLogs: LogEntry[]): LogEntry | null => {
@@ -237,26 +214,19 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                                 : node.backend == PipelineBackend.BatchExport
                                 ? 'Run Id'
                                 : 'Source',
-                        dataIndex:
-                            node.backend == PipelineBackend.HogFunction
-                                ? 'instance_id'
-                                : node.backend == PipelineBackend.BatchExport
-                                ? 'run_id'
-                                : 'source',
-                        key:
-                            node.backend == PipelineBackend.HogFunction
-                                ? 'instance_id'
-                                : node.backend == PipelineBackend.BatchExport
-                                ? 'run_id'
-                                : 'source',
-
+                        dataIndex: 'instance_id',
+                        key: 'instance_id',
                         render: (instanceId: string) => (
                             <code className="whitespace-nowrap">
-                                {node.backend === PipelineBackend.HogFunction ? (
+                                {node.backend !== PipelineBackend.Plugin ? (
                                     <Link
                                         subtle
                                         onClick={() => {
-                                            actions.setInstanceId(instanceId)
+                                            if (values.instanceId === instanceId) {
+                                                actions.setInstanceId(null)
+                                            } else {
+                                                actions.setInstanceId(instanceId)
+                                            }
                                         }}
                                     >
                                         {instanceId}
@@ -270,24 +240,9 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                     {
                         width: 100,
                         title: 'Level',
-                        key:
-                            node.backend == PipelineBackend.HogFunction
-                                ? 'level'
-                                : node.backend == PipelineBackend.BatchExport
-                                ? 'level'
-                                : 'type',
-                        dataIndex:
-                            node.backend == PipelineBackend.HogFunction
-                                ? 'level'
-                                : node.backend == PipelineBackend.BatchExport
-                                ? 'level'
-                                : 'type',
-                        render:
-                            node.backend == PipelineBackend.HogFunction
-                                ? LogLevelDisplay
-                                : node.backend == PipelineBackend.BatchExport
-                                ? LogLevelDisplay
-                                : LogTypeDisplay,
+                        key: 'level',
+                        dataIndex: 'level',
+                        render: LogLevelDisplay,
                     },
                     {
                         title: 'Message',
@@ -296,6 +251,20 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                         render: (message: string) => <code className="whitespace-pre-wrap">{message}</code>,
                     },
                 ] as LemonTableColumns<LogEntry>
+            },
+        ],
+
+        selectedLogLevelsForAPI: [
+            (s) => [s.selectedLogLevels],
+            (logLevels): LogEntryLevel[] => {
+                const uniqueLevels = new Set(logLevels)
+                if (uniqueLevels.has('WARN')) {
+                    uniqueLevels.add('WARNING')
+                }
+                if (uniqueLevels.has('WARNING')) {
+                    uniqueLevels.add('WARN')
+                }
+                return Array.from(uniqueLevels)
             },
         ],
     })),

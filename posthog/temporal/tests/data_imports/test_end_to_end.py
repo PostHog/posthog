@@ -1,10 +1,14 @@
 from typing import Any, Optional
 from unittest import mock
+import aioboto3
+import functools
 import uuid
 from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.test import override_settings
 import pytest
+import pytest_asyncio
+import psycopg
 from posthog.hogql.query import execute_hogql_query
 from posthog.models.team.team import Team
 from posthog.temporal.data_imports import ACTIVITIES
@@ -22,9 +26,59 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
 from posthog.warehouse.models.external_data_job import get_latest_run_if_exists
 from dlt.sources.helpers.rest_client.client import RESTClient
+from dlt.common.configuration.specs.aws_credentials import AwsCredentials
 
 
 BUCKET_NAME = "test-pipeline"
+SESSION = aioboto3.Session()
+create_test_client = functools.partial(SESSION.client, endpoint_url=settings.OBJECT_STORAGE_ENDPOINT)
+
+
+@pytest.fixture
+def postgres_config():
+    return {
+        "user": settings.PG_USER,
+        "password": settings.PG_PASSWORD,
+        "database": "external_data_database",
+        "schema": "external_data_schema",
+        "host": settings.PG_HOST,
+        "port": int(settings.PG_PORT),
+    }
+
+
+@pytest_asyncio.fixture
+async def postgres_connection(postgres_config, setup_postgres_test_db):
+    connection = await psycopg.AsyncConnection.connect(
+        user=postgres_config["user"],
+        password=postgres_config["password"],
+        dbname=postgres_config["database"],
+        host=postgres_config["host"],
+        port=postgres_config["port"],
+    )
+
+    yield connection
+
+    await connection.close()
+
+
+@pytest_asyncio.fixture
+async def minio_client():
+    """Manage an S3 client to interact with a MinIO bucket.
+
+    Yields the client after creating a bucket. Upon resuming, we delete
+    the contents and the bucket itself.
+    """
+    async with create_test_client(
+        "s3",
+        aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+    ) as minio_client:
+        try:
+            await minio_client.head_bucket(Bucket=BUCKET_NAME)
+        except:
+            await minio_client.create_bucket(Bucket=BUCKET_NAME)
+
+        yield minio_client
 
 
 async def _run(
@@ -53,6 +107,28 @@ async def _run(
         external_data_schema_id=schema.id,
     )
 
+    await _execute_run(workflow_id, inputs, mock_data_response)
+
+    run = await get_latest_run_if_exists(team_id=team.pk, pipeline_id=source.pk)
+
+    assert run is not None
+    assert run.status == ExternalDataJob.Status.COMPLETED
+
+    res = await sync_to_async(execute_hogql_query)(f"SELECT * FROM {table_name}", team)
+    assert len(res.results) == 1
+
+    for name, field in external_tables.get(table_name, {}).items():
+        if field.hidden:
+            continue
+        assert name in (res.columns or [])
+
+    await sync_to_async(source.refresh_from_db)()
+    assert source.job_inputs.get("reset_pipeline", None) is None
+
+    return workflow_id, inputs
+
+
+async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, mock_data_response):
     def mock_paginate(
         class_self,
         path: str = "",
@@ -66,14 +142,37 @@ async def _run(
     ):
         return iter(mock_data_response)
 
+    def mock_to_session_credentials(class_self):
+        return {
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "aws_session_token": None,
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
+    def mock_to_object_store_rs_credentials(class_self):
+        return {
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "region": "us-east-1",
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
     with (
         mock.patch.object(RESTClient, "paginate", mock_paginate),
         override_settings(
             BUCKET_URL=f"s3://{BUCKET_NAME}",
             AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
             AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            AIRBYTE_BUCKET_REGION="us-east-1",
             AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
         ),
+        mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
+        mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials),
     ):
         async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
             async with Worker(
@@ -90,19 +189,6 @@ async def _run(
                     task_queue=DATA_WAREHOUSE_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
-
-    run = await get_latest_run_if_exists(team_id=team.pk, pipeline_id=source.pk)
-
-    assert run is not None
-    assert run.status == ExternalDataJob.Status.COMPLETED
-
-    res = await sync_to_async(execute_hogql_query)(f"SELECT * FROM {table_name}", team)
-    assert len(res.results) == 1
-
-    for name, field in external_tables.get(table_name, {}).items():
-        if field.hidden:
-            continue
-        assert name in (res.columns or [])
 
 
 @pytest.mark.django_db(transaction=True)
@@ -347,3 +433,130 @@ async def test_zendesk_ticket_metric_events(team, zendesk_ticket_metric_events):
         },
         mock_data_response=zendesk_ticket_metric_events["ticket_metric_events"],
     )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_reset_pipeline(team, stripe_balance_transaction):
+    await _run(
+        team=team,
+        schema_name="BalanceTransaction",
+        table_name="stripe_balancetransaction",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id", "reset_pipeline": "True"},
+        mock_data_response=stripe_balance_transaction["data"],
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_make_sure_deletions_occur(team, stripe_balance_transaction):
+    workflow_id, inputs = await _run(
+        team=team,
+        schema_name="BalanceTransaction",
+        table_name="stripe_balancetransaction",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        mock_data_response=stripe_balance_transaction["data"],
+    )
+
+    @sync_to_async
+    def get_jobs():
+        job_ids = (
+            ExternalDataJob.objects.filter(
+                team_id=team.pk,
+                pipeline_id=inputs.external_data_source_id,
+            )
+            .order_by("-created_at")
+            .values_list("id", flat=True)
+        )
+
+        return [str(job_id) for job_id in job_ids]
+
+    with mock.patch("posthog.warehouse.models.external_data_job.get_s3_client") as mock_s3_client:
+        s3_client_mock = mock.Mock()
+        mock_s3_client.return_value = s3_client_mock
+
+        await _execute_run(workflow_id, inputs, stripe_balance_transaction["data"])
+        await _execute_run(workflow_id, inputs, stripe_balance_transaction["data"])
+
+        job_ids = await get_jobs()
+        latest_job = job_ids[0]
+        assert s3_client_mock.exists.call_count == 3
+
+        for call in s3_client_mock.exists.call_args_list:
+            assert latest_job not in call[0][0]
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_postgres_binary_columns(team, postgres_config, postgres_connection):
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.binary_col_test (id integer, binary_column bytea)".format(
+            schema=postgres_config["schema"]
+        )
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.binary_col_test (id, binary_column) VALUES (1, '\x48656C6C6F')".format(
+            schema=postgres_config["schema"]
+        )
+    )
+    await postgres_connection.commit()
+
+    await _run(
+        team=team,
+        schema_name="binary_col_test",
+        table_name="postgres_binary_col_test",
+        source_type="Postgres",
+        job_inputs={
+            "host": postgres_config["host"],
+            "port": postgres_config["port"],
+            "database": postgres_config["database"],
+            "user": postgres_config["user"],
+            "password": postgres_config["password"],
+            "schema": postgres_config["schema"],
+            "ssh_tunnel_enabled": "False",
+        },
+        mock_data_response=[],
+    )
+
+    res = await sync_to_async(execute_hogql_query)(f"SELECT * FROM postgres_binary_col_test", team)
+    columns = res.columns
+
+    assert columns is not None
+    assert len(columns) == 3
+    assert columns[0] == "id"
+    assert columns[1] == "_dlt_id"
+    assert columns[2] == "_dlt_load_id"
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_delta_wrapper_files(team, stripe_balance_transaction, minio_client):
+    workflow_id, inputs = await _run(
+        team=team,
+        schema_name="BalanceTransaction",
+        table_name="stripe_balancetransaction",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        mock_data_response=stripe_balance_transaction["data"],
+    )
+
+    @sync_to_async
+    def get_jobs():
+        jobs = ExternalDataJob.objects.filter(
+            team_id=team.pk,
+            pipeline_id=inputs.external_data_source_id,
+        ).order_by("-created_at")
+
+        return list(jobs)
+
+    jobs = await get_jobs()
+    latest_job = jobs[0]
+    folder_path = await sync_to_async(latest_job.folder_path)()
+
+    s3_objects = await minio_client.list_objects_v2(
+        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query/"
+    )
+
+    assert len(s3_objects["Contents"]) != 0

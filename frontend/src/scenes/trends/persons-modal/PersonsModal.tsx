@@ -162,17 +162,37 @@ export function PersonsModal({
                     ) : null}
 
                     {query &&
-                        cleanedInsightActorsQueryOptions(insightActorsQueryOptions).map(([key, options]) => (
-                            <div key={key}>
-                                <LemonSelect
-                                    fullWidth
-                                    className="mb-2"
-                                    value={query?.[key] ?? null}
-                                    onChange={(v) => updateActorsQuery({ [key]: v })}
-                                    options={options}
-                                />
-                            </div>
-                        ))}
+                        cleanedInsightActorsQueryOptions(insightActorsQueryOptions, query).map(([key, options]) =>
+                            key === 'breakdowns' ? (
+                                options.map(({ values }, index) => (
+                                    <div key={`${key}_${index}`}>
+                                        <LemonSelect
+                                            fullWidth
+                                            className="mb-2"
+                                            value={query?.breakdown?.[index] ?? null}
+                                            onChange={(v) => {
+                                                const breakdown = Array.isArray(query.breakdown)
+                                                    ? [...query.breakdown]
+                                                    : []
+                                                breakdown[index] = v
+                                                updateActorsQuery({ breakdown })
+                                            }}
+                                            options={values}
+                                        />
+                                    </div>
+                                ))
+                            ) : (
+                                <div key={key}>
+                                    <LemonSelect
+                                        fullWidth
+                                        className="mb-2"
+                                        value={query?.[key] ?? null}
+                                        onChange={(v) => updateActorsQuery({ [key]: v })}
+                                        options={options}
+                                    />
+                                </div>
+                            )
+                        )}
 
                     <div className="flex items-center gap-2 text-muted">
                         {actorsResponseLoading ? (

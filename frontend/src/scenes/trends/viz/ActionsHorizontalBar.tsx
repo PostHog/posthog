@@ -23,7 +23,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
     const { cohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
-    const { insightProps, hiddenLegendKeys } = useValues(insightLogic)
+    const { insightProps } = useValues(insightLogic)
     const {
         indexedResults,
         labelGroupType,
@@ -33,6 +33,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
         isDataWarehouseSeries,
         querySource,
         breakdownFilter,
+        hiddenLegendIndexes,
     } = useValues(trendsDataLogic(insightProps))
 
     function updateData(): void {
@@ -47,12 +48,22 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
                 personsValues: _data.map((item) => item.persons),
                 breakdownValues: _data.map((item) => item.breakdown_value),
                 breakdownLabels: _data.map((item) => {
-                    return formatBreakdownLabel(
+                    const itemLabel = item.action
+                        ? item.action.custom_name ?? item.action.name ?? item.action.id
+                        : item.label
+
+                    if (!item.breakdown_value) {
+                        return itemLabel
+                    }
+
+                    const breakdownLabel = formatBreakdownLabel(
                         item.breakdown_value,
                         breakdownFilter,
                         cohorts,
                         formatPropertyValueForDisplay
                     )
+
+                    return `${itemLabel} - ${breakdownLabel}`
                 }),
                 compareLabels: _data.map((item) => item.compare_label),
                 backgroundColor: colorList,
@@ -82,7 +93,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
             labelGroupType={labelGroupType}
             datasets={data}
             labels={data[0].labels}
-            hiddenLegendKeys={hiddenLegendKeys}
+            hiddenLegendIndexes={hiddenLegendIndexes}
             showPersonsModal={showPersonsModal}
             trendsFilter={trendsFilter}
             formula={formula}

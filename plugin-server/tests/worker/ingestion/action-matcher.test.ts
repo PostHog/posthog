@@ -8,9 +8,6 @@ import {
     Hub,
     ISOTimestamp,
     Person,
-    PluginConfigFilterActions,
-    PluginConfigFilterEvents,
-    PluginConfigFilters,
     PostIngestionEvent,
     PropertyOperator,
     RawAction,
@@ -741,7 +738,7 @@ describe('ActionMatcher', () => {
                 null,
                 true,
                 new UUIDT().toString(),
-                ['random']
+                [{ distinctId: 'random' }]
             )
 
             const cohortPerson = await hub.db.createPerson(
@@ -753,7 +750,7 @@ describe('ActionMatcher', () => {
                 null,
                 true,
                 new UUIDT().toString(),
-                ['cohort']
+                [{ distinctId: 'cohort' }]
             )
             await hub.db.addPersonToCohort(testCohort.id, cohortPerson.id, testCohort.version)
 
@@ -1333,186 +1330,6 @@ describe('ActionMatcher', () => {
             await hub.db.addPersonToCohort(cohort2.id, person.id, null)
             expect(await actionMatcher.doesPersonBelongToCohort(cohort2.id, person.uuid, person.team_id)).toEqual(true)
         })
-    })
-})
-
-describe('ActionMatcher.checkFilters', () => {
-    const mockTeamManager = {
-        fetchTeam: jest.fn(() =>
-            Promise.resolve({
-                test_account_filters: [
-                    {
-                        key: '$host',
-                        type: 'event',
-                        value: '^(localhost|127\\.0\\.0\\.1)($|:)',
-                        operator: 'not_regex',
-                    },
-                ],
-            })
-        ),
-    }
-    const mockActionManager = {
-        getTeamActions: jest.fn(
-            (): Record<number, Partial<Action>> => ({
-                1: {
-                    id: 1,
-                    name: 'my-action',
-                    deleted: false,
-                    steps: [
-                        {
-                            event: '$pageview',
-                            tag_name: null,
-                            text: null,
-                            text_matching: null,
-                            href: null,
-                            href_matching: null,
-                            selector: null,
-                            url: null,
-                            url_matching: null,
-                            properties: null,
-                        },
-                    ],
-                },
-            })
-        ),
-    }
-    const actionMatcher = new ActionMatcher({} as any, mockActionManager as any, mockTeamManager as any)
-
-    const f = (
-        partials: Partial<PluginConfigFilterEvents | PluginConfigFilterActions>[],
-        filterTestAccounts = false
-    ): PluginConfigFilters => {
-        const events = partials
-            .filter((x) => !x.type || x.type === 'events')
-            .map((x) => x as Partial<PluginConfigFilterEvents>)
-        const actions = partials.filter((x) => x.type === 'actions').map((x) => x as Partial<PluginConfigFilterActions>)
-        return {
-            events: events.map((x) => ({
-                id: '0',
-                type: 'events',
-                name: '$pageview',
-                order: 0,
-                properties: [],
-                ...x,
-            })),
-            actions: actions.map((x) => ({
-                id: '0',
-                type: 'actions',
-                name: 'my-action',
-                order: 0,
-                properties: [],
-                ...x,
-            })),
-            filter_test_accounts: filterTestAccounts,
-        }
-    }
-
-    const testCases: [Partial<PostIngestionEvent>, PluginConfigFilters, boolean][] = [
-        // No filters should be true
-        [{ event: '$pageview' }, f([]), true],
-        [{ event: '$pageview' }, f([{ name: null }]), true],
-        [{ event: '$pageview' }, f([{ name: '$pageview' }]), true],
-        [{ event: '$not-pageview' }, f([{ name: '$pageview' }]), false],
-        [{ event: '$pageview', properties: { $current_url: 'https://posthog.com' } }, f([{ name: '$pageview' }]), true],
-        [
-            { event: '$pageview', properties: { $current_url: 'https://posthog.com' } },
-            f([
-                {
-                    name: '$pageview',
-                    properties: [
-                        {
-                            key: '$current_url',
-                            type: 'event',
-                            value: ['https://posthog.com'],
-                            operator: PropertyOperator.Exact,
-                        },
-                    ],
-                },
-            ]),
-            true,
-        ],
-        [
-            { event: '$pageview', properties: { $current_url: 'https://posthog.com' } },
-            f([
-                {
-                    name: '$pageview',
-                    properties: [
-                        {
-                            key: '$current_url',
-                            type: 'event',
-                            value: ['posthog.com'],
-                            operator: PropertyOperator.IContains,
-                        },
-                    ],
-                },
-            ]),
-            true,
-        ],
-        [
-            { event: '$pageview', properties: { $current_url: 'https://posthog.com' } },
-            f([
-                {
-                    name: '$pageview',
-                    properties: [
-                        {
-                            key: '$current_url',
-                            type: 'event',
-                            value: ['not-posthog.com'],
-                            operator: PropertyOperator.IContains,
-                        },
-                    ],
-                },
-            ]),
-            false,
-        ],
-        [
-            { event: '$pageview', properties: { $current_url: 'https://posthog.com' } },
-            f([
-                {
-                    name: '$pageview',
-                    properties: [
-                        {
-                            key: '$current_url',
-                            type: 'event',
-                            value: ['not-posthog.com', 'posthog.com'],
-                            operator: PropertyOperator.IContains,
-                        },
-                    ],
-                },
-            ]),
-            true,
-        ],
-
-        [{ event: '$pageview' }, f([{ type: 'actions', id: '1' }]), true],
-        [{ event: '$not-pageview' }, f([{ type: 'actions', id: '1' }]), false],
-        [
-            { event: '$pageview' },
-            f([
-                {
-                    type: 'actions',
-                    id: '1',
-                    properties: [
-                        {
-                            key: '$current_url',
-                            type: 'event',
-                            value: ['not-correct'],
-                            operator: PropertyOperator.Exact,
-                        },
-                    ],
-                },
-            ]),
-            false,
-        ],
-        [{ event: '$not-pageview' }, f([{ type: 'actions', id: '1' }, { name: '$not-pageview' }]), true],
-        // test internal filters
-        [{ event: '$pageview', properties: { $host: 'localhost:8000' } }, f([], true), false],
-        [{ event: '$pageview', properties: { $host: 'posthog.com' } }, f([], true), true],
-    ]
-
-    it.each(testCases)('should correctly match filters %o %o', async (partialEvent, filters, expectation) => {
-        const event = createTestEvent(partialEvent)
-
-        expect(await actionMatcher.checkFilters(event, filters)).toEqual(expectation)
     })
 })
 
