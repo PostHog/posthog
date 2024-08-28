@@ -145,7 +145,8 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                     )
                     actions.hideNewDashboardModal()
                     actions.resetNewDashboard()
-                    dashboardsModel.actions.addDashboardSuccess(getQueryBasedDashboard(result))
+                    const queryBasedDashboard = getQueryBasedDashboard(result)
+                    queryBasedDashboard && dashboardsModel.actions.addDashboardSuccess(queryBasedDashboard)
                     actions.submitNewDashboardSuccessWithResult(result)
                     if (show) {
                         breakpoint()
@@ -192,7 +193,8 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                 )
                 actions.hideNewDashboardModal()
                 actions.resetNewDashboard()
-                dashboardsModel.actions.addDashboardSuccess(getQueryBasedDashboard(result))
+                const queryBasedDashboard = getQueryBasedDashboard(result)
+                queryBasedDashboard && dashboardsModel.actions.addDashboardSuccess(queryBasedDashboard)
                 actions.submitNewDashboardSuccessWithResult(result, variables)
                 if (redirectAfterCreation) {
                     router.actions.push(urls.dashboard(result.id))
