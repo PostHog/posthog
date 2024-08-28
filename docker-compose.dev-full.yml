@@ -47,7 +47,7 @@ services:
             - ./docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
             - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
             - ./docker/clickhouse/users-dev.xml:/etc/clickhouse-server/users.xml
-            - ./docker/clickhouse/test_function.xml:/etc/clickhouse-server/test_function.xml
+            - ./docker/clickhouse/user_defined_functions.xml:/etc/clickhouse-server/user_defined_functions.xml
             - ./posthog/users_scripts:/var/lib/clickhouse/user_scripts
         depends_on:
             - kafka

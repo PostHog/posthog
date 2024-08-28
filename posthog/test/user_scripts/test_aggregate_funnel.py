@@ -1,6 +1,6 @@
 from typing import Any
 
-from posthog.users_scripts.aggregate_funnel import parse_user_aggregation_with_conversion_window_and_breakdown
+from posthog.users_scripts.aggregate_funnel import calculate_funnel_from_user_events
 
 
 def test():
@@ -11,7 +11,7 @@ def test():
     ]
 
     for x in y:
-        parse_user_aggregation_with_conversion_window_and_breakdown(3, 1209600, "first_touch", "strict", [""], x)
+        calculate_funnel_from_user_events(3, 1209600, "first_touch", "strict", [""], x)
 
 
 def test2():
@@ -4203,4 +4203,4 @@ def test2():
         ],
     ]
     for b in a:
-        parse_user_aggregation_with_conversion_window_and_breakdown(6, 1123200, "first_touch", "ordered", [[]], b)
+        calculate_funnel_from_user_events(6, 1123200, "first_touch", "ordered", [[]], b)

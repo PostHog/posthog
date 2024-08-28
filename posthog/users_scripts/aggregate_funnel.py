@@ -27,13 +27,13 @@ class EnteredTimestamp:
 
 # each one can be multiple steps here
 # it only matters when they entered the funnel - you can propagate the time from the previous step when you update
-# This function is defined for Clickhouse in test_function.xml along with types
+# This function is defined for Clickhouse in user_defined_functions.xml along with types
 # num_steps is the total number of steps in the funnel
 # conversion_window_limit is in seconds
 # events is a array of tuples of (timestamp, breakdown, [steps])
 # steps is an array of integers which represent the steps that this event qualifies for. it looks like [1,3,5,6].
 # negative integers represent an exclusion on that step. each event is either all exclusions or all steps.
-def parse_user_aggregation_with_conversion_window_and_breakdown(
+def calculate_funnel_from_user_events(
     num_steps: int,
     conversion_window_limit_seconds: int,
     breakdown_attribution_type: str,
@@ -140,5 +140,5 @@ def parse_user_aggregation_with_conversion_window_and_breakdown(
 
 if __name__ == "__main__":
     for line in sys.stdin:
-        parse_user_aggregation_with_conversion_window_and_breakdown(*parse_args(line))
+        calculate_funnel_from_user_events(*parse_args(line))
         sys.stdout.flush()
