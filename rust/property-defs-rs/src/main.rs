@@ -66,6 +66,7 @@ async fn spawn_producer_loop(
     consumer: Arc<StreamConsumer>,
     channel: mpsc::Sender<Update>,
     cache: Arc<Cache<Update, ()>>,
+    skip_threshold: usize,
 ) {
     loop {
         let message = consumer
@@ -77,7 +78,7 @@ async fn spawn_producer_loop(
             continue;
         };
 
-        let updates = event.into_updates();
+        let updates = event.into_updates(skip_threshold);
 
         metrics::counter!(EVENTS_RECEIVED).increment(1);
         metrics::counter!(UPDATES_SEEN).increment(updates.len() as u64);
@@ -136,6 +137,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             consumer.clone(),
             tx.clone(),
             cache.clone(),
+            config.update_count_skip_threshold,
         ));
     }
 

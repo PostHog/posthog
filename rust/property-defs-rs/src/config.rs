@@ -40,6 +40,10 @@ pub struct Config {
     #[envconfig(default = "100")]
     pub channel_slots_per_worker: usize,
 
+    // If an event has some ridiculous number of updates, we skip it
+    #[envconfig(default = "10000")]
+    pub update_count_skip_threshold: usize,
+
     #[envconfig(from = "BIND_HOST", default = "::")]
     pub host: String,
 
