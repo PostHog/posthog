@@ -1,7 +1,6 @@
 import * as Sentry from '@sentry/node'
 import fs from 'fs'
 import { Server } from 'http'
-import { BatchConsumer } from 'kafka/batch-consumer'
 import { CompressionCodecs, CompressionTypes, KafkaJSProtocolError } from 'kafkajs'
 // @ts-expect-error no type definitions
 import SnappyCodec from 'kafkajs-snappy'
@@ -209,12 +208,6 @@ export async function startPluginsServer(
 
         return serverInstance.hub
     }
-
-    // A collection of healthchecks that should be used to validate the
-    // health of the plugin-server. These are used by the /_health endpoint
-    // to determine if we should trigger a restart of the pod. These should
-    // be super lightweight and ideally not do any IO.
-    const healthChecks: { [service: string]: () => Promise<boolean> | boolean } = {}
 
     // Creating a dedicated single-connection redis client to this Redis, as it's not relevant for hobby
     // and cloud deploys don't have concurrent uses. We should abstract multi-Redis into a router util.
@@ -499,7 +492,7 @@ export async function startPluginsServer(
         }
 
         if (capabilities.http) {
-            const app = setupCommonRoutes(healthChecks)
+            const app = setupCommonRoutes(services)
 
             httpServer = app.listen(serverConfig.HTTP_SERVER_PORT, () => {
                 status.info('🩺', `Status server listening on port ${serverConfig.HTTP_SERVER_PORT}`)
@@ -520,7 +513,7 @@ export async function startPluginsServer(
             })
         })
 
-        return serverInstance ?? { stop: closeJobs }
+        return serverInstance
     } catch (error) {
         Sentry.captureException(error)
         status.error('💥', 'Launchpad failure!', { error: error.stack ?? error })

@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express'
 import { DateTime } from 'luxon'
 import * as prometheus from 'prom-client'
+import { PluginServerService } from 'types'
 
 import { status } from '../../utils/status'
 import { delay } from '../../utils/utils'
@@ -13,11 +14,9 @@ export const expressApp: express.Application = express()
 
 expressApp.use(express.json())
 
-export function setupCommonRoutes(healthChecks: {
-    [service: string]: () => Promise<boolean> | boolean
-}): express.Application {
-    expressApp.get('/_health', buildGetHealth(healthChecks))
-    expressApp.get('/_ready', buildGetHealth(healthChecks))
+export function setupCommonRoutes(services: Pick<PluginServerService, 'id' | 'healthcheck'>[]): express.Application {
+    expressApp.get('/_health', buildGetHealth(services))
+    expressApp.get('/_ready', buildGetHealth(services))
     expressApp.get('/_metrics', getMetrics)
     expressApp.get('/metrics', getMetrics)
     expressApp.get('/_profile/:type', getProfileByType)
@@ -26,7 +25,7 @@ export function setupCommonRoutes(healthChecks: {
 }
 
 const buildGetHealth =
-    (healthChecks: { [service: string]: () => Promise<boolean> | boolean }) => async (req: Request, res: Response) => {
+    (services: Pick<PluginServerService, 'id' | 'healthcheck'>[]) => async (req: Request, res: Response) => {
         // Check that all health checks pass. Note that a failure of these
         // _may_ result in the process being terminated by e.g. Kubernetes
         // so the stakes are high.
@@ -56,11 +55,11 @@ const buildGetHealth =
             // assume that all promises have resolved. If there was a
             // rejected promise, the http server should catch it and return
             // a 500 status code.
-            Object.entries(healthChecks).map(async ([service, check]) => {
+            services.map(async (service) => {
                 try {
-                    return { service, status: (await check()) ? 'ok' : 'error' }
+                    return { service: service.id, status: (await service.healthcheck()) ? 'ok' : 'error' }
                 } catch (error) {
-                    return { service, status: 'error', error: error.message }
+                    return { service: service.id, status: 'error', error: error.message }
                 }
             })
         )
