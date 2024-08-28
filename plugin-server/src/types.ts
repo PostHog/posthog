@@ -13,6 +13,7 @@ import {
 } from '@posthog/plugin-scaffold'
 import { Pool as GenericPool } from 'generic-pool'
 import { Redis } from 'ioredis'
+import { BatchConsumer } from 'kafka/batch-consumer'
 import { Kafka } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { Job } from 'node-schedule'
@@ -95,6 +96,13 @@ export const stringToPluginServerMode = Object.fromEntries(
         PluginServerMode[key as keyof typeof PluginServerMode],
     ])
 ) as Record<string, PluginServerMode>
+
+export type PluginServerService = {
+    id: string
+    onShutdown: () => Promise<any>
+    healthcheck: () => boolean | Promise<boolean>
+    batchConsumer?: BatchConsumer
+}
 
 export type CdpConfig = {
     CDP_WATCHER_COST_ERROR: number // The max cost of an erroring function

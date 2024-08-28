@@ -1,7 +1,7 @@
 import { Consumer, Kafka } from 'kafkajs'
 
 import { KAFKA_EVENTS_JSON, prefix as KAFKA_PREFIX } from '../../config/kafka-topics'
-import { Hub, PluginsServerConfig } from '../../types'
+import { Hub, PluginServerService, PluginsServerConfig } from '../../types'
 import { PostgresRouter } from '../../utils/db/postgres'
 import { status } from '../../utils/status'
 import { ActionManager } from '../../worker/ingestion/action-manager'
@@ -20,7 +20,7 @@ export const startAsyncOnEventHandlerConsumer = async ({
     hub, // TODO: remove needing to pass in the whole hub and be more selective on dependency injection.
 }: {
     hub: Hub
-}) => {
+}): Promise<PluginServerService> => {
     /*
         Consumes analytics events from the Kafka topic `clickhouse_events_json`
         and processes any onEvent plugin handlers configured for the team.
@@ -35,9 +35,11 @@ export const startAsyncOnEventHandlerConsumer = async ({
     await hub.actionManager.start()
     await queue.start()
 
-    const isHealthy = makeHealthCheck(queue.consumer, queue.sessionTimeout)
-
-    return { queue, isHealthy: () => isHealthy() }
+    return {
+        id: 'on-event-ingestion',
+        healthcheck: makeHealthCheck(queue.consumer, queue.sessionTimeout),
+        onShutdown: async () => await queue.stop(),
+    }
 }
 
 export const startAsyncWebhooksHandlerConsumer = async ({
@@ -62,7 +64,7 @@ export const startAsyncWebhooksHandlerConsumer = async ({
     groupTypeManager: GroupTypeManager
     actionMatcher: ActionMatcher
     actionManager: ActionManager
-}) => {
+}): Promise<PluginServerService> => {
     /*
         Consumes analytics events from the Kafka topic `clickhouse_events_json`
         and processes any onEvent plugin handlers configured for the team.
@@ -106,24 +108,28 @@ export const startAsyncWebhooksHandlerConsumer = async ({
             ),
     })
 
-    const isHealthy = makeHealthCheck(consumer, serverConfig.KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS)
+    const onShutdown = async () => {
+        await actionManager.stop()
+        try {
+            await consumer.stop()
+        } catch (e) {
+            status.error('🚨', 'Error stopping consumer', e)
+        }
+        try {
+            await consumer.disconnect()
+        } catch (e) {
+            status.error('🚨', 'Error disconnecting consumer', e)
+        }
+    }
 
     return {
-        stop: async () => {
-            await actionManager.stop()
-            try {
-                await consumer.stop()
-            } catch (e) {
-                status.error('🚨', 'Error stopping consumer', e)
-            }
-            try {
-                await consumer.disconnect()
-            } catch (e) {
-                status.error('🚨', 'Error disconnecting consumer', e)
-            }
-        },
-        isHealthy,
+        id: 'webhooks-ingestion',
+        healthcheck: makeHealthCheck(consumer, serverConfig.KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS),
+        onShutdown,
     }
+
+    // shutdownCallbacks.push(async () => await stop())
+    // healthChecks['webhooks-ingestion'] = isHealthy
 }
 
 export const buildOnEventIngestionConsumer = ({ hub }: { hub: Hub }) => {

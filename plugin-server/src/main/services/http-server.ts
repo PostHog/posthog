@@ -1,6 +1,5 @@
 import express, { Request, Response } from 'express'
 import { DateTime } from 'luxon'
-import { IngestionConsumer, KafkaJSIngestionConsumer } from 'main/ingestion-queues/kafka-queue'
 import * as prometheus from 'prom-client'
 
 import { status } from '../../utils/status'
@@ -14,12 +13,11 @@ export const expressApp: express.Application = express()
 
 expressApp.use(express.json())
 
-export function setupCommonRoutes(
-    healthChecks: { [service: string]: () => Promise<boolean> | boolean },
-    analyticsEventsIngestionConsumer?: KafkaJSIngestionConsumer | IngestionConsumer
-): express.Application {
+export function setupCommonRoutes(healthChecks: {
+    [service: string]: () => Promise<boolean> | boolean
+}): express.Application {
     expressApp.get('/_health', buildGetHealth(healthChecks))
-    expressApp.get('/_ready', buildGetReady(analyticsEventsIngestionConsumer))
+    expressApp.get('/_ready', buildGetHealth(healthChecks))
     expressApp.get('/_metrics', getMetrics)
     expressApp.get('/metrics', getMetrics)
     expressApp.get('/_profile/:type', getProfileByType)
@@ -78,27 +76,6 @@ const buildGetHealth =
         }
 
         return res.status(statusCode).json({ status: statusCode === 200 ? 'ok' : 'error', checks: checkResultsMapping })
-    }
-
-const buildGetReady =
-    (analyticsEventsIngestionConsumer?: KafkaJSIngestionConsumer | IngestionConsumer) =>
-    (req: Request, res: Response) => {
-        // Check that, if the server should have a kafka queue,
-        // the Kafka consumer is ready to consume messages
-        if (!analyticsEventsIngestionConsumer || analyticsEventsIngestionConsumer.consumerReady) {
-            status.info('💚', 'Server readiness check succeeded')
-            const responseBody = {
-                status: 'ok',
-            }
-            res.statusCode = 200
-            return res.status(200).json(responseBody)
-        }
-
-        status.info('💔', 'Server readiness check failed')
-        const responseBody = {
-            status: 'error',
-        }
-        return res.status(503).json(responseBody)
     }
 
 const getMetrics = async (req: Request, res: Response) => {

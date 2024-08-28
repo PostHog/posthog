@@ -233,6 +233,21 @@ export async function createHub(
     return [hub as Hub, closeHub]
 }
 
+export const closeHub = async (hub: Hub): Promise<void> => {
+    if (!isTestEnv()) {
+        await hub.appMetrics?.flush()
+    }
+    await Promise.allSettled([hub.kafkaProducer.disconnect(), hub.redisPool.drain(), hub.postgres?.end()])
+    await hub.redisPool.clear()
+
+    if (isTestEnv()) {
+        // Break circular references to allow the hub to be GCed when running unit tests
+        // TODO: change these structs to not directly reference the hub
+        ;(hub as any).eventsProcessor = undefined
+        ;(hub as any).appMetrics = undefined
+    }
+}
+
 export type KafkaConfig = {
     KAFKA_HOSTS: string
     KAFKAJS_LOG_LEVEL: keyof typeof KAFKAJS_LOG_LEVEL_MAPPING
