@@ -41,10 +41,12 @@ def check_synced_row_limits() -> None:
 @shared_task(ignore_result=True)
 def check_synced_row_limits_of_team(team_id: int) -> None:
     logger.info("Checking synced row limits of team", team_id=team_id)
+    team_model = Team.objects.get(pk=team_id)
 
     from ee.billing.quota_limiting import list_limited_team_attributes, QuotaResource, QuotaLimitingCaches
 
-    limited_teams_rows_synced = list_limited_team_attributes(
+    # TODO: temp workaround. Should use team ids directly instead of tokens
+    limited_team_tokens_rows_synced = list_limited_team_attributes(
         QuotaResource.ROWS_SYNCED, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
     )
 
@@ -59,7 +61,7 @@ def check_synced_row_limits_of_team(team_id: int) -> None:
     ]
     total_rows_synced = sum(rows_synced_list)
 
-    if team_id in limited_teams_rows_synced or total_rows_synced > MONTHLY_LIMIT:
+    if team_model.api_token in limited_team_tokens_rows_synced or total_rows_synced > MONTHLY_LIMIT:
         running_jobs = ExternalDataJob.objects.filter(team_id=team_id, status=ExternalDataJob.Status.RUNNING)
         for job in running_jobs:
             try:

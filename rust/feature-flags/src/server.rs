@@ -6,6 +6,7 @@ use tokio::net::TcpListener;
 
 use crate::config::Config;
 use crate::database::PgClient;
+use crate::geoip::GeoIpClient;
 use crate::redis::RedisClient;
 use crate::router;
 
@@ -29,8 +30,16 @@ where
         }
     };
 
+    let geoip_service = match GeoIpClient::new(&config) {
+        Ok(service) => Arc::new(service),
+        Err(e) => {
+            tracing::error!("Failed to create GeoIP service: {}", e);
+            return;
+        }
+    };
+
     // You can decide which client to pass to the router, or pass both if needed
-    let app = router::router(redis_client, read_postgres_client);
+    let app = router::router(redis_client, read_postgres_client, geoip_service);
 
     tracing::info!("listening on {:?}", listener.local_addr().unwrap());
     axum::serve(

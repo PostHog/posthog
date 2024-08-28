@@ -1,4 +1,3 @@
-import { convertJSToHog } from '@posthog/hogvm'
 import express from 'express'
 import { DateTime } from 'luxon'
 
@@ -147,7 +146,7 @@ export class CdpApi {
                     })
 
                     // Add the state, simulating what executeAsyncResponse would do
-                    invocation.vmState!.stack.push(convertJSToHog({ status: 200, body: {} }))
+                    invocation.vmState!.stack.push({ status: 200, body: {} })
                 } else {
                     const asyncInvocationRequest: HogFunctionInvocationAsyncRequest = {
                         state: '', // WE don't care about the state for this level of testing
@@ -166,7 +165,7 @@ export class CdpApi {
                             message: 'Failed to execute async function',
                         })
                     }
-                    invocation.vmState!.stack.push(convertJSToHog(asyncRes?.asyncFunctionResponse.response ?? null))
+                    invocation.vmState!.stack.push(asyncRes?.asyncFunctionResponse.response ?? null)
                 }
 
                 logs.push(...response.logs)
