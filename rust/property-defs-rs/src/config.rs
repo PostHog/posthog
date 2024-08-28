@@ -37,6 +37,11 @@ pub struct Config {
     #[envconfig(default = "100000")]
     pub cache_capacity: usize,
 
+    // Each worker thread internally batches up to this number, then de-dupes
+    // across this batch before releasing to the main thread
+    #[envconfig(default = "50000")]
+    pub compaction_batch_size: usize,
+
     #[envconfig(default = "100")]
     pub channel_slots_per_worker: usize,
 
