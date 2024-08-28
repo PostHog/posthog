@@ -23,6 +23,7 @@ import { BillingCTAHero } from './BillingCTAHero'
 import { billingLogic } from './billingLogic'
 import { BillingProduct } from './BillingProduct'
 import { UnsubscribeCard } from './UnsubscribeCard'
+import { AnnualCreditModal } from './AnnualCreditModal'
 
 export const scene: SceneExport = {
     component: Billing,
@@ -39,8 +40,10 @@ export function Billing(): JSX.Element {
         over20kAnnual,
         isAnnualPlan,
         billingError,
+        selfServeCreditEligibility,
+        isAnnualCreditModalOpen,
     } = useValues(billingLogic)
-    const { reportBillingShown } = useActions(billingLogic)
+    const { reportBillingShown, showAnnualCreditModal } = useActions(billingLogic)
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
 
@@ -125,6 +128,17 @@ export function Billing(): JSX.Element {
                     <BillingCTAHero product={platformAndSupportProduct} />
                 </div>
             )}
+            {selfServeCreditEligibility.eligible && (
+                <div className="mb-6">
+                    <LemonBanner type="success" className="mb-2">
+                        You are eligible for a self-serve annual credit.
+                    </LemonBanner>
+                    <LemonButton type="secondary" onClick={() => showAnnualCreditModal(true)}>
+                        Apply for self-serve annual credit
+                    </LemonButton>
+                </div>
+            )}
+            {isAnnualCreditModalOpen && <AnnualCreditModal />}
 
             <div
                 className={clsx('flex justify-between', {

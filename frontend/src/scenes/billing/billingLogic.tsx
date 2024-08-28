@@ -1,4 +1,4 @@
-import { lemonToast, Link } from '@posthog/lemon-ui'
+import { LemonDialog, lemonToast, Link } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
@@ -91,6 +91,7 @@ export const billingLogic = kea<billingLogicType>([
         setUnsubscribeError: (error: null | UnsubscribeError) => ({ error }),
         resetUnsubscribeError: true,
         setBillingAlert: (billingAlert: BillingAlertConfig | null) => ({ billingAlert }),
+        showAnnualCreditModal: (isOpen: boolean) => ({ isOpen }),
     }),
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags'], preflightLogic, ['preflight']],
@@ -177,6 +178,12 @@ export const billingLogic = kea<billingLogicType>([
                     const periodEnd = dayjs(billing.billing_period.current_period_end)
                     return periodEnd.diff(periodStart, 'second')
                 },
+            },
+        ],
+        isAnnualCreditModalOpen: [
+            false,
+            {
+                showAnnualCreditModal: (_, { isOpen }) => isOpen,
             },
         ],
     }),
@@ -283,6 +290,18 @@ export const billingLogic = kea<billingLogicType>([
                         console.error(error)
                     }
                     return null
+                },
+            },
+        ],
+        selfServeCreditEligibility: [
+            {
+                eligible: false,
+                estimated_credit_amount_usd: 0,
+            },
+            {
+                loadSelfServeCreditEligible: async () => {
+                    const response = await api.get('api/billing/credits/eligibility')
+                    return response
                 },
             },
         ],
@@ -394,6 +413,53 @@ export const billingLogic = kea<billingLogicType>([
                     throw e
                 }
             },
+        },
+        selfServeCreditForm: {
+            defaults: {
+                creditInput: '',
+                sendInvoice: false,
+            },
+            submit: async ({ creditInput, sendInvoice }) => {
+                console.log('creditInput', creditInput)
+                console.log('sendInvoice', sendInvoice)
+
+                // TODO(@zach): add a check they haven't already purchased credits
+                const response = await api.create('api/billing/credits/purchase', {
+                    annual_amount_usd: +creditInput,
+                    send_invoice: sendInvoice,
+                })
+
+                console.log('response', response)
+
+                actions.showAnnualCreditModal(false)
+
+                LemonDialog.open({
+                    title: 'Your credit purchase has been submitted',
+                    width: 536,
+                    content: (
+                        sendInvoice ? (
+                            <>
+                                {/* Note(@zach): add email input for a custom email on the invoice */}
+                                <p className="mb-4">The invoice for your credits has been created and it will be emailed to the email on file.</p>
+                                <p>Once the invoice is paid we will apply the credits to your account. Until the invoice is paid you will be charged for usage on as normal</p>
+                            </>
+    
+                        ) : (
+                            <>
+                                {/* Note(@zach): add email for when credits are applied */}
+                                <p>
+                                    Your card will be charged in the next 3 hours and the credits will be applied to your account. Please make sure your card on file is up to date. You will receive an email when the credits are applied.
+                                </p>
+                            </>
+                        )
+                    ),
+                })
+            },
+            errors: ({ creditInput }) => ({
+                creditInput: !creditInput 
+                    ? 'Please enter the amount' 
+                    : +creditInput < 500 ? 'Please enter an amount greater than $500' : undefined,
+            }),
         },
     })),
     listeners(({ actions, values }) => ({
@@ -536,6 +602,7 @@ export const billingLogic = kea<billingLogicType>([
     afterMount(({ actions }) => {
         actions.loadBilling()
         actions.getInvoices()
+        actions.loadSelfServeCreditEligible()
     }),
     urlToAction(({ actions }) => ({
         // IMPORTANT: This needs to be above the "*" so it takes precedence
