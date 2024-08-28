@@ -28,3 +28,15 @@ let noArg := () -> {
     print('cow')
 }
 noArg()
+
+print('-------- lambdas survive json --------')
+
+print(b)
+print(replaceAll(jsonStringify(b), ' ', ''))
+
+let c := jsonParse(jsonStringify(b))
+print(c)
+
+print(b(2))
+print(c(2))
+

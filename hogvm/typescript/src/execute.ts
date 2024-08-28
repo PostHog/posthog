@@ -13,6 +13,7 @@ import {
 } from './objects'
 import { Operation } from './operation'
 import { ASYNC_STL, STL } from './stl/stl'
+import _BYTECODE_STL from './stl/stl.json'
 import {
     calculateCost,
     convertHogToJS,
@@ -23,6 +24,8 @@ import {
     setNestedValue,
     UncaughtHogVMException,
 } from './utils'
+
+const BYTECODE_STL: Record<string, [string[], any[]]> = _BYTECODE_STL as any
 
 const DEFAULT_MAX_ASYNC_STEPS = 100
 const DEFAULT_MAX_MEMORY = 64 * 1024 * 1024 // 64 MB
@@ -37,7 +40,7 @@ export interface VMState {
     /** Values hoisted from the stack */
     upvalues: HogUpValue[]
     /** Call stack of the VM */
-    callStack: CallFrame[] // [number, number, number][]
+    callStack: CallFrame[]
     /** Throw stack of the VM */
     throwStack: ThrowFrame[]
     /** Declared functions of the VM (deprecated) */
@@ -155,6 +158,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
     if (callStack.length === 0) {
         callStack.push({
             ip: bytecode[0] === '_H' ? 2 : 1,
+            chunk: 'root',
             stackStart: 0,
             argCount: 0,
             closure: newHogClosure(
@@ -163,6 +167,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                     argCount: 0,
                     upvalueCount: 0,
                     ip: 1,
+                    chunk: 'root',
                 })
             ),
         } satisfies CallFrame)
@@ -208,10 +213,11 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
     }
 
     function next(): any {
-        if (frame.ip >= bytecode!.length - 1) {
+        const bc = frame.chunk === 'root' || !frame.chunk ? bytecode : BYTECODE_STL[frame.chunk][1]
+        if (frame.ip >= bc!.length - 1) {
             throw new HogVMException('Unexpected end of bytecode')
         }
-        return bytecode![++frame.ip]
+        return bc![++frame.ip]
     }
 
     function checkTimeout(): void {
@@ -255,12 +261,16 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
         return createdUpValue
     }
 
-    while (frame.ip < bytecode.length) {
+    while (true) {
+        const bc = frame.chunk === 'root' || !frame.chunk ? bytecode : BYTECODE_STL[frame.chunk][1]
+        if (frame.ip >= bc.length) {
+            break
+        }
         ops += 1
         if ((ops & 127) === 0) {
             checkTimeout()
         }
-        switch (bytecode[frame.ip]) {
+        switch (bc[frame.ip]) {
             case null:
                 break
             case Operation.STRING:
@@ -391,6 +401,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                                 argCount: 0, // TODO
                                 upvalueCount: 0,
                                 ip: -1,
+                                chunk: 'async',
                             })
                         )
                     )
@@ -402,6 +413,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                                 argCount: ASYNC_STL[chain[0]].maxArgs ?? 0,
                                 upvalueCount: 0,
                                 ip: -1,
+                                chunk: 'async',
                             })
                         )
                     )
@@ -413,6 +425,19 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                                 argCount: STL[chain[0]].maxArgs ?? 0,
                                 upvalueCount: 0,
                                 ip: -1,
+                                chunk: 'stl',
+                            })
+                        )
+                    )
+                } else if (chain.length == 1 && chain[0] in BYTECODE_STL && Object.hasOwn(BYTECODE_STL, chain[0])) {
+                    pushStack(
+                        newHogClosure(
+                            newHogCallable('stl', {
+                                name: chain[0],
+                                argCount: BYTECODE_STL[chain[0]][0].length,
+                                upvalueCount: 0,
+                                ip: 0,
+                                chunk: chain[0],
                             })
                         )
                     )
@@ -519,6 +544,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                     argCount,
                     upvalueCount,
                     ip: frame.ip + 1,
+                    chunk: frame.chunk,
                 })
                 pushStack(callable)
                 frame.ip += bodyLength
@@ -595,6 +621,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                     }
                     frame = {
                         ip: funcIp,
+                        chunk: 'root',
                         stackStart: stack.length - argLen,
                         argCount: argLen,
                         closure: newHogClosure(
@@ -603,6 +630,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                                 argCount: argLen,
                                 upvalueCount: 0,
                                 ip: -1,
+                                chunk: 'stl',
                             })
                         ),
                     } satisfies CallFrame
@@ -616,14 +644,13 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                         throw new HogVMException('Too many arguments')
                     }
 
-                    const args =
-                        version === 0
-                            ? Array(temp)
-                                  .fill(null)
-                                  .map(() => popStack())
-                            : stackKeepFirstElements(stack.length - temp)
-
                     if (options?.functions && Object.hasOwn(options.functions, name) && options.functions[name]) {
+                        const args =
+                            version === 0
+                                ? Array(temp)
+                                      .fill(null)
+                                      .map(() => popStack())
+                                : stackKeepFirstElements(stack.length - temp)
                         pushStack(convertJSToHog(options.functions[name](...args.map(convertHogToJS))))
                     } else if (
                         name !== 'toString' &&
@@ -635,6 +662,13 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                         if (asyncSteps >= maxAsyncSteps) {
                             throw new HogVMException(`Exceeded maximum number of async steps: ${maxAsyncSteps}`)
                         }
+
+                        const args =
+                            version === 0
+                                ? Array(temp)
+                                      .fill(null)
+                                      .map(() => popStack())
+                                : stackKeepFirstElements(stack.length - temp)
 
                         frame.ip += 1 // resume at the next address after async returns
 
@@ -660,7 +694,36 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                             },
                         } satisfies ExecResult
                     } else if (name in STL) {
+                        const args =
+                            version === 0
+                                ? Array(temp)
+                                      .fill(null)
+                                      .map(() => popStack())
+                                : stackKeepFirstElements(stack.length - temp)
                         pushStack(STL[name].fn(args, name, timeout))
+                    } else if (name in BYTECODE_STL) {
+                        const argNames = BYTECODE_STL[name][0]
+                        if (argNames.length !== temp) {
+                            throw new HogVMException(`Function ${name} requires exactly ${argNames.length} arguments`)
+                        }
+                        frame.ip += 1 // advance for when we return
+                        frame = {
+                            ip: 0,
+                            chunk: name,
+                            stackStart: stack.length - temp,
+                            argCount: temp,
+                            closure: newHogClosure(
+                                newHogCallable('stl', {
+                                    name,
+                                    argCount: temp,
+                                    upvalueCount: 0,
+                                    ip: 0,
+                                    chunk: name,
+                                })
+                            ),
+                        } satisfies CallFrame
+                        callStack.push(frame)
+                        continue // resume the loop without incrementing frame.ip
                     } else {
                         throw new HogVMException(`Unsupported function call: ${name}`)
                     }
@@ -696,6 +759,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                     frame.ip += 1 // advance for when we return
                     frame = {
                         ip: closure.callable.ip,
+                        chunk: 'root',
                         stackStart: stack.length - closure.callable.argCount,
                         argCount: closure.callable.argCount,
                         closure,
@@ -795,7 +859,9 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 }
             }
             default:
-                throw new HogVMException(`Unexpected node while running bytecode: ${bytecode[frame.ip]}`)
+                throw new HogVMException(
+                    `Unexpected node while running bytecode in chunk "${frame.chunk}": ${bc[frame.ip]}`
+                )
         }
 
         // use "continue" to skip incrementing frame.ip each iteration

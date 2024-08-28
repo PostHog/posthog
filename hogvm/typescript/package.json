@@ -7,7 +7,8 @@
     "packageManager": "pnpm@8.3.1",
     "scripts": {
         "test": "jest --runInBand --forceExit",
-        "build": "pnpm clean && pnpm compile",
+        "build": "pnpm clean && pnpm build:stl && pnpm compile",
+        "build:stl": "cd ../.. && python3 -m hogvm.stl.compile && cp hogvm/stl/dist/stl.json hogvm/typescript/src/stl/stl.json",
         "clean": "rm -rf dist/*",
         "compile": "tsc -p tsconfig.build.json",
         "check": "tsc -p tsconfig.build.json --noEmit",
