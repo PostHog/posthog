@@ -12,8 +12,8 @@ import {
     ThrowFrame,
 } from './objects'
 import { Operation } from './operation'
+import { BYTECODE_STL } from './stl/bytecode'
 import { ASYNC_STL, STL } from './stl/stl'
-import _BYTECODE_STL from './stl/stl.json'
 import {
     calculateCost,
     convertHogToJS,
@@ -24,8 +24,6 @@ import {
     setNestedValue,
     UncaughtHogVMException,
 } from './utils'
-
-const BYTECODE_STL: Record<string, [string[], any[]]> = _BYTECODE_STL as any
 
 const DEFAULT_MAX_ASYNC_STEPS = 100
 const DEFAULT_MAX_MEMORY = 64 * 1024 * 1024 // 64 MB
