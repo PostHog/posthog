@@ -7,28 +7,30 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
         : null
     const sharedCapabilities = !isTestEnv() ? { http: true } : {}
 
+    if (!mode) {
+        return {
+            mmdb: true,
+            ingestion: true,
+            ingestionOverflow: true,
+            ingestionHistorical: true,
+            pluginScheduledTasks: true,
+            processPluginJobs: true,
+            processAsyncOnEventHandlers: true,
+            processAsyncWebhooksHandlers: true,
+            sessionRecordingBlobIngestion: true,
+            sessionRecordingBlobOverflowIngestion: config.SESSION_RECORDING_OVERFLOW_ENABLED,
+            appManagementSingleton: true,
+            preflightSchedules: true,
+            cdpProcessedEvents: true,
+            cdpFunctionCallbacks: true,
+            cdpFunctionOverflow: true,
+            cdpCyclotronWorker: true,
+            syncInlinePlugins: true,
+            ...sharedCapabilities,
+        }
+    }
+
     switch (mode) {
-        case null:
-            return {
-                mmdb: true,
-                ingestion: true,
-                ingestionOverflow: true,
-                ingestionHistorical: true,
-                pluginScheduledTasks: true,
-                processPluginJobs: true,
-                processAsyncOnEventHandlers: true,
-                processAsyncWebhooksHandlers: true,
-                sessionRecordingBlobIngestion: true,
-                sessionRecordingBlobOverflowIngestion: config.SESSION_RECORDING_OVERFLOW_ENABLED,
-                appManagementSingleton: true,
-                preflightSchedules: true,
-                cdpProcessedEvents: true,
-                cdpFunctionCallbacks: true,
-                cdpFunctionOverflow: true,
-                cdpCyclotronWorker: true,
-                syncInlinePlugins: true,
-                ...sharedCapabilities,
-            }
         case PluginServerMode.ingestion:
             // NOTE: this mode will be removed in the future and replaced with
             // `analytics-ingestion` and `recordings-ingestion` modes.
@@ -107,5 +109,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 cdpCyclotronWorker: true,
                 ...sharedCapabilities,
             }
+        default:
+            throw new Error(`Unknown plugin server mode: ${mode}`)
     }
 }
