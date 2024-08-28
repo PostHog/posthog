@@ -97,10 +97,10 @@ async fn spawn_producer_loop(
                     sent.insert(update.clone());
                     match channel.try_send(update) {
                         Ok(_) => {}
-                        Err(TrySendError::Full(_)) => {
+                        Err(TrySendError::Full(update)) => {
                             warn!("Worker blocked");
                             metrics::counter!(WORKER_BLOCKED).increment(1);
-                            tokio::time::sleep(Duration::from_secs(1)).await;
+                            channel.send(update).await.unwrap();
                         }
                         Err(e) => {
                             warn!("Coordinator send failed: {:?}", e);
