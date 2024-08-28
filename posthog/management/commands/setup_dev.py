@@ -106,10 +106,10 @@ class Command(BaseCommand):
                     saml_x509_cert=settings.E2E_SAML_X509_CERT,
                 )
                 print(
-                    "DEBUG: len(domain) is ",
-                    len(domain.saml_x509_cert),
+                    "DEBUG: last 6 characters of (saml_x509_cert) is ",
+                    domain.saml_x509_cert[-6:],
                     "\n\tsettings.E2E_SAML_X509_CERT is ",
-                    len(settings.E2E_SAML_X509_CERT),
+                    settings.E2E_SAML_X509_CERT[-6:],
                 )  # noqa T201
             else:
                 print("Warning: Not all required SAML settings are set. Skipping OrganizationDomain creation.")  # noqa T201
