@@ -144,21 +144,7 @@ export function SummaryTable(): JSX.Element {
             title: (
                 <div className="inline-flex items-center space-x-1">
                     <div className="">Credible interval (95%)</div>
-                    <Tooltip
-                        title={
-                            <div className="space-y-2">
-                                <div>
-                                    A credible interval represents a range within which we believe the true difference
-                                    in the mean between the test variant and the control lies, with 95% probability.
-                                </div>
-                                <div>
-                                    In this context, the interval is expressed as a percentage change, indicating how
-                                    much higher or lower the mean of the test variant could be compared to the control,
-                                    based on the observed data and our prior beliefs.
-                                </div>
-                            </div>
-                        }
-                    >
+                    <Tooltip title="A credible interval estimates the percentage change in the mean, indicating with 95% probability how much higher or lower the test variant's mean is compared to the control.">
                         <IconInfo className="text-muted-alt text-base" />
                     </Tooltip>
                 </div>
@@ -181,8 +167,10 @@ export function SummaryTable(): JSX.Element {
                 ) as TrendExperimentVariant
                 const controlMean = controlVariant.count / controlVariant.absolute_exposure
 
-                const lowerBound = (credibleInterval[0] - controlMean) * 100
-                const upperBound = (credibleInterval[1] - controlMean) * 100
+                // Calculate the percentage difference between the credible interval bounds of the variant and the control's mean.
+                // This represents the range in which the true percentage change relative to the control is likely to fall.
+                const lowerBound = ((credibleInterval[0] - controlMean) / controlMean) * 100
+                const upperBound = ((credibleInterval[1] - controlMean) / controlMean) * 100
 
                 return (
                     <div className="font-semibold">{`[${lowerBound > 0 ? '+' : ''}${lowerBound.toFixed(2)}%, ${
@@ -228,7 +216,7 @@ export function SummaryTable(): JSX.Element {
                         return <>—</>
                     }
 
-                    const delta = variantConversionRate - controlConversionRate
+                    const delta = ((variantConversionRate - controlConversionRate) / controlConversionRate) * 100
 
                     return (
                         <div
@@ -242,12 +230,16 @@ export function SummaryTable(): JSX.Element {
                 title: (
                     <div className="inline-flex items-center space-x-1">
                         <div className="">Credible interval (95%)</div>
-                        <Tooltip title="A credible interval represents a range within which we believe the true parameter value lies with a certain probability (often 95%), based on the posterior distribution derived from the observed data and our prior beliefs.">
+                        <Tooltip title="A credible interval estimates the percentage change in the conversion rate, indicating with 95% probability how much higher or lower the test variant's conversion rate is compared to the control.">
                             <IconInfo className="text-muted-alt text-base" />
                         </Tooltip>
                     </div>
                 ),
                 render: function Key(_, item): JSX.Element {
+                    if (item.key === 'control') {
+                        return <em>Baseline</em>
+                    }
+
                     const credibleInterval = (experimentResults as _FunnelExperimentResults)?.credible_intervals?.[
                         item.key
                     ]
@@ -255,10 +247,26 @@ export function SummaryTable(): JSX.Element {
                         return <>—</>
                     }
 
-                    const lowerBound = (credibleInterval[0] * 100).toFixed(2)
-                    const upperBound = (credibleInterval[1] * 100).toFixed(2)
+                    const controlVariant = (experimentResults.variants as FunnelExperimentVariant[]).find(
+                        ({ key }) => key === 'control'
+                    ) as FunnelExperimentVariant
+                    const controlConversionRate =
+                        controlVariant.success_count / (controlVariant.success_count + controlVariant.failure_count)
 
-                    return <div className="font-semibold">{`[${lowerBound}%, ${upperBound}%]`}</div>
+                    if (!controlConversionRate) {
+                        return <>—</>
+                    }
+
+                    // Calculate the percentage difference between the credible interval bounds of the variant and the control's conversion rate.
+                    // This represents the range in which the true percentage change relative to the control is likely to fall.
+                    const lowerBound = ((credibleInterval[0] - controlConversionRate) / controlConversionRate) * 100
+                    const upperBound = ((credibleInterval[1] - controlConversionRate) / controlConversionRate) * 100
+
+                    return (
+                        <div className="font-semibold">{`[${lowerBound > 0 ? '+' : ''}${lowerBound.toFixed(2)}%, ${
+                            upperBound > 0 ? '+' : ''
+                        }${upperBound.toFixed(2)}%]`}</div>
+                    )
                 },
             })
     }
