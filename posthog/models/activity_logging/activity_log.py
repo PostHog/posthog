@@ -3,6 +3,7 @@ import json
 from datetime import datetime
 from decimal import Decimal
 from typing import Any, Literal, Optional, Union
+from uuid import UUID
 
 import structlog
 from django.core.paginator import Paginator
@@ -368,10 +369,10 @@ def dict_changes_between(
 
 def log_activity(
     *,
-    organization_id: Optional[UUIDT],
+    organization_id: Optional[UUID],
     team_id: int,
     user: Optional[User],
-    item_id: Optional[Union[int, str, UUIDT]],
+    item_id: Optional[Union[int, str, UUID]],
     scope: str,
     activity: str,
     detail: Detail,

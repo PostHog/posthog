@@ -14,7 +14,7 @@ from posthog.models.user import User
 from posthog.test.base import FuzzyInt
 
 
-def team_enterprise_api_test_factory():
+def team_enterprise_api_test_factory():  # type: ignore
     class TestTeamEnterpriseAPI(APILicensedTest):
         CLASS_DATA_LEVEL_SETUP = False
 

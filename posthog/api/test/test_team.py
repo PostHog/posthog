@@ -1104,5 +1104,5 @@ def create_team(organization: Organization, name: str = "Test team", timezone: s
     )
 
 
-class TestTeamAPI(team_api_test_factory()):
+class TestTeamAPI(team_api_test_factory()):  # type: ignore
     pass
