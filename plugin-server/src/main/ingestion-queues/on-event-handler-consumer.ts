@@ -127,9 +127,6 @@ export const startAsyncWebhooksHandlerConsumer = async ({
         healthcheck: makeHealthCheck(consumer, serverConfig.KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS),
         onShutdown,
     }
-
-    // shutdownCallbacks.push(async () => await stop())
-    // healthChecks['webhooks-ingestion'] = isHealthy
 }
 
 export const buildOnEventIngestionConsumer = ({ hub }: { hub: Hub }) => {
