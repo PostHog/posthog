@@ -34,6 +34,6 @@ describe('SAML Auth', () => {
         })
 
         cy.wait(5000)
-        cy.get('[data-attr="breadcrumb-organization"] > span').should('have.text', 'saml org')
+        cy.get('[data-attr="breadcrumb-project"] > span').should('have.text', 'saml team')
     })
 })
