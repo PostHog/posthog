@@ -238,6 +238,7 @@ export type HogFunctionType = {
     filters?: HogFunctionFilters | null
     masking?: HogFunctionFiltersMasking | null
     depends_on_integration_ids?: Set<IntegrationType['id']>
+    template_id?: string | null
 }
 
 export type HogFunctionInputType = {

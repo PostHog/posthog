@@ -21,6 +21,7 @@ const HOG_FUNCTION_FIELDS = [
     'filters',
     'bytecode',
     'masking',
+    'template_id',
 ]
 
 export class HogFunctionManager {

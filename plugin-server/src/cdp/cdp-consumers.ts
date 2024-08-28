@@ -24,6 +24,7 @@ import { castTimestampOrNow } from '../utils/utils'
 import { RustyHook } from '../worker/rusty-hook'
 import { AsyncFunctionExecutor } from './async-function-executor'
 import { GroupsManager } from './groups-manager'
+import { HogExceptionExecutor } from './hog-exception-executor'
 import { HogExecutor } from './hog-executor'
 import { HogFunctionManager } from './hog-function-manager'
 import { HogMasker } from './hog-masker'
@@ -86,6 +87,7 @@ abstract class CdpConsumerBase {
     hogFunctionManager: HogFunctionManager
     asyncFunctionExecutor: AsyncFunctionExecutor
     hogExecutor: HogExecutor
+    hogExceptionExecutor: HogExceptionExecutor
     hogWatcher: HogWatcher
     hogMasker: HogMasker
     groupsManager: GroupsManager
@@ -108,6 +110,7 @@ abstract class CdpConsumerBase {
         })
         this.hogMasker = new HogMasker(this.redis)
         this.hogExecutor = new HogExecutor(this.hogFunctionManager)
+        this.hogExceptionExecutor = new HogExceptionExecutor(this.hogFunctionManager, hub.postgres)
         const rustyHook = this.hub?.rustyHook ?? new RustyHook(this.hub)
         this.asyncFunctionExecutor = new AsyncFunctionExecutor(this.hub, rustyHook)
         this.groupsManager = new GroupsManager(this.hub)
@@ -422,11 +425,28 @@ abstract class CdpConsumerBase {
                     })
                 })
 
-                const results = (
-                    await this.runManyWithHeartbeat(notOverflowedInvocations, (item) =>
+                const notExceptionInvocations = notOverflowedInvocations.filter((item) => {
+                    // TODO: what will the template_id be in this case
+                    return item.hogFunction.template_id === 'error_tracking'
+                })
+
+                // Split exception functions from all others
+                const { masked: maskedExceptionInvocations, notMasked: notMaskedExceptionInvocations } =
+                    await this.hogMasker.filterByMasking(notExceptionInvocations)
+
+                const notExceptionResults = (
+                    await this.runManyWithHeartbeat(notMaskedExceptionInvocations, (item) =>
                         this.hogExecutor.executeFunction(item.globals, item.hogFunction)
                     )
                 ).filter((x) => !!x) as HogFunctionInvocationResult[]
+
+                const exceptionResults = (
+                    await this.runManyWithHeartbeat(maskedExceptionInvocations, (item) =>
+                        this.hogExceptionExecutor.executeFunction(item.globals, item.hogFunction)
+                    )
+                ).filter((x) => !!x) as HogFunctionInvocationResult[]
+
+                const results = [...notExceptionResults, ...exceptionResults]
 
                 await this.hogWatcher.observeResults(results)
                 return results
