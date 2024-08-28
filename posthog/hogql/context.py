@@ -36,8 +36,6 @@ class HogQLContext:
     enable_select_queries: bool = False
     # Do we apply a limit of MAX_SELECT_RETURNED_ROWS=10000 to the topmost select query?
     limit_top_select: bool = True
-    # How many nested views do we support on this query? If `None`, no limit.
-    max_view_depth: int | None = 1
     # Globals that will be resolved in the context of the query
     globals: Optional[dict] = None
 

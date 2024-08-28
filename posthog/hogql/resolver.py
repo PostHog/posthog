@@ -306,9 +306,6 @@ class Resolver(CloningVisitor):
             if isinstance(database_table, SavedQuery):
                 self.current_view_depth += 1
 
-                if self.context.max_view_depth is not None and self.current_view_depth > self.context.max_view_depth:
-                    raise QueryError("Nested views are not supported")
-
                 node.table = parse_select(str(database_table.query))
 
                 if isinstance(node.table, ast.SelectQuery):
