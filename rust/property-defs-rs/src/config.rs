@@ -12,19 +12,37 @@ pub struct Config {
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,
 
+    // Update sets are batches into at least min_batch_size (unless we haven't sent a batch in more than a few seconds)
     #[envconfig(default = "10")]
     pub max_concurrent_transactions: usize,
 
-    #[envconfig(default = "10000")]
-    pub max_batch_size: usize,
-
-    // If a worker recieves a batch smaller than this, it will simply not commit the offset and
-    // sleep for a while, since DB ops/event scales inversely to batch size
+    // We issue writes (UPSERTS) to postgres in batches of this size.
+    // Total concurrent DB ops is max_concurrent_transactions * update_batch_size
     #[envconfig(default = "1000")]
-    pub min_batch_size: usize,
+    pub update_batch_size: usize,
+
+    // We issue updates in batches of update_batch_size, or when we haven't
+    // received a new update in this many seconds
+    #[envconfig(default = "300")]
+    pub max_issue_period: u64,
+
+    // Propdefs spawns N workers to pull events from kafka,
+    // marshal, and convert ot updates. The number of
+    // concurrent update batches sent to postgres is controlled
+    // by max_concurrent_transactions
+    #[envconfig(default = "10")]
+    pub worker_loop_count: usize,
+
+    // We maintain an internal cache, to avoid sending the same UPSERT multiple times. This is it's size.
+    #[envconfig(default = "100000")]
+    pub cache_capacity: usize,
 
     #[envconfig(default = "100")]
-    pub next_event_wait_timeout_ms: u64,
+    pub channel_slots_per_worker: usize,
+
+    // If an event has some ridiculous number of updates, we skip it
+    #[envconfig(default = "10000")]
+    pub update_count_skip_threshold: usize,
 
     #[envconfig(from = "BIND_HOST", default = "::")]
     pub host: String,
@@ -43,7 +61,7 @@ pub struct KafkaConfig {
     pub kafka_tls: bool,
     #[envconfig(default = "false")]
     pub verify_ssl_certificate: bool,
-    #[envconfig(default = "autocomplete-rs")]
+    #[envconfig(default = "property-definitions-rs")]
     pub consumer_group: String,
 }
 

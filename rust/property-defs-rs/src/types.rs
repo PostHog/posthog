@@ -105,7 +105,7 @@ pub enum Update {
     EventProperty(EventProperty),
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Event {
     pub team_id: i32,
     pub event: String,
@@ -126,12 +126,12 @@ impl From<&Event> for EventDefinition {
 }
 
 impl Event {
-    pub fn into_updates(self) -> Vec<Update> {
+    pub fn into_updates(self, skip_threshold: usize) -> Vec<Update> {
         let team_id = self.team_id;
         let event = self.event.clone();
 
         let updates = self.into_updates_inner();
-        if updates.len() > 10_000 {
+        if updates.len() > skip_threshold {
             warn!(
                 "Event {} for team {} has more than 10,000 properties, skipping",
                 event, team_id

@@ -171,6 +171,8 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "inputs_schema": template_webhook.inputs_schema,
             "hog": template_webhook.hog,
             "filters": None,
+            "masking": None,
+            "sub_templates": response.json()["template"]["sub_templates"],
         }
 
     def test_deletes_via_update(self, *args):
