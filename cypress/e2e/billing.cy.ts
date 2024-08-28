@@ -19,8 +19,6 @@ describe('Billing', () => {
         cy.get('[data-attr=unsubscribe-reason-too-expensive]').click()
         cy.get('[data-attr=unsubscribe-reason-survey-textarea]').type('Product analytics')
         cy.contains('.LemonModal .LemonButton', 'Unsubscribe').click()
-        cy.wait(5000) // Wait 5 seconds
-
         cy.window().then((win) => {
             const events = (win as any)._cypress_posthog_captures
             win.console.warn('_CYPRESS_POSTHOG_CAPTURES', JSON.stringify(events))
