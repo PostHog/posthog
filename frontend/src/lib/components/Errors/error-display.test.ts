@@ -55,6 +55,27 @@ describe('Error Display', () => {
             $exception_message: 'There was an error creating the support ticket with zendesk.',
             $exception_stack_trace_raw:
                 '[{"colno":220,"filename":"https://app-static-prod.posthog.com/static/chunk-UFQKIDIH.js","function":"submitZendeskTicket","in_app":true,"lineno":25}]',
+            $exception_list: [
+                {
+                    mechanism: {
+                        handled: true,
+                        type: 'generic',
+                    },
+                    stacktrace: {
+                        frames: [
+                            {
+                                colno: 220,
+                                filename: 'https://app-static-prod.posthog.com/static/chunk-UFQKIDIH.js',
+                                function: 'submitZendeskTicket',
+                                in_app: true,
+                                lineno: 25,
+                            },
+                        ],
+                    },
+                    type: 'Error',
+                    value: 'There was an error creating the support ticket with zendesk.',
+                },
+            ],
             $exception_synthetic: undefined,
             $exception_type: 'Error',
             $lib: 'posthog-js',
