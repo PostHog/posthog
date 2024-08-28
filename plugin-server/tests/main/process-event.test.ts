@@ -138,7 +138,7 @@ beforeEach(async () => {
     await resetTestDatabase(testCode, TEST_CONFIG)
     await resetTestDatabaseClickhouse(TEST_CONFIG)
 
-    const hub = await createHub({ ...TEST_CONFIG })
+    hub = await createHub({ ...TEST_CONFIG })
     redis = await hub.redisPool.acquire()
 
     eventsProcessor = new EventsProcessor(hub)
