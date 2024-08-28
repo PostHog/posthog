@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::{collections::HashSet, sync::Arc, time::Duration};
 
 use axum::{routing::get, Router};
 use envconfig::Envconfig;
@@ -14,7 +14,7 @@ use property_defs_rs::{
     },
     types::Update,
 };
-use quick_cache::{sync::Cache, unsync};
+use quick_cache::sync::Cache;
 use rdkafka::{
     consumer::{Consumer, StreamConsumer},
     ClientConfig,
@@ -68,7 +68,7 @@ async fn spawn_producer_loop(
     skip_threshold: usize,
     compaction_batch_size: usize,
 ) {
-    let mut batch = unsync::Cache::new(compaction_batch_size);
+    let mut batch = HashSet::with_capacity(compaction_batch_size);
     let mut last_send = tokio::time::Instant::now();
     loop {
         let message = consumer
@@ -87,16 +87,16 @@ async fn spawn_producer_loop(
         metrics::histogram!(UPDATES_PER_EVENT).record(updates.len() as f64);
 
         for update in updates {
-            if batch.get(&update).is_some() {
+            if batch.contains(&update) {
                 metrics::counter!(COMPACTED_UPDATES).increment(1);
                 continue;
             }
-            batch.insert(update, ());
+            batch.insert(update);
 
             if batch.len() >= compaction_batch_size || last_send.elapsed() > Duration::from_secs(10)
             {
                 last_send = tokio::time::Instant::now();
-                for (update, _) in batch.drain() {
+                for update in batch.drain() {
                     if shared_cache.get(&update).is_some() {
                         metrics::counter!(UPDATES_FILTERED_BY_CACHE).increment(1);
                         continue;
