@@ -5,6 +5,7 @@ import { Hub, Person, Team } from '../../../../src/types'
 import { closeHub, createHub } from '../../../../src/utils/db/hub'
 import { UUIDT } from '../../../../src/utils/utils'
 import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/prepareEventStep'
+import { EventsProcessor } from '../../../../src/worker/ingestion/process-event'
 import { resetTestDatabase } from '../../../helpers/sql'
 
 jest.mock('../../../../src/utils/status')
@@ -70,6 +71,7 @@ describe('prepareEventStep()', () => {
         runner = {
             nextStep: (...args: any[]) => args,
             hub,
+            eventsProcessor: new EventsProcessor(hub),
         }
     })
 
