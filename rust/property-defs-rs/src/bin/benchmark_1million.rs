@@ -7,7 +7,7 @@ use tokio::sync::mpsc::{
     error::{TryRecvError, TrySendError},
 };
 
-// This is a bad hack to just copy like function like this, but I'll refactor later
+// This is a bad hack to just copy the function like this, but I'll refactor later
 async fn spawn_producer_loop(
     mut consumer: mpsc::Receiver<Event>,
     channel: mpsc::Sender<Update>,
