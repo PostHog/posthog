@@ -112,7 +112,7 @@ export async function execAsync(bytecode: any[], options?: ExecOptions): Promise
 
 export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
     let vmState: VMState | undefined = undefined
-    let bytecode: any[] | undefined = undefined
+    let bytecode: any[]
     if (!Array.isArray(code)) {
         vmState = code
         bytecode = vmState.bytecode
@@ -171,6 +171,16 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
         } satisfies CallFrame)
     }
     let frame: CallFrame = callStack[callStack.length - 1]
+    let chunkBytecode: any[] = bytecode
+    const setChunkBytecode = (): void => {
+        if (!frame.chunk || frame.chunk === 'root') {
+            chunkBytecode = bytecode
+        } else if (frame.chunk.startsWith('stl/')) {
+            chunkBytecode = BYTECODE_STL[frame.chunk.substring(4)]?.[1] ?? []
+        } else {
+            throw new HogVMException(`Unknown chunk: ${frame.chunk}`)
+        }
+    }
 
     function popStack(): any {
         if (stack.length === 0) {
@@ -211,11 +221,10 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
     }
 
     function next(): any {
-        const bc = frame.chunk === 'root' || !frame.chunk ? bytecode : BYTECODE_STL[frame.chunk][1]
-        if (frame.ip >= bc!.length - 1) {
+        if (frame.ip >= chunkBytecode.length - 1) {
             throw new HogVMException('Unexpected end of bytecode')
         }
-        return bc![++frame.ip]
+        return chunkBytecode[++frame.ip]
     }
 
     function checkTimeout(): void {
@@ -260,15 +269,14 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
     }
 
     while (true) {
-        const bc = frame.chunk === 'root' || !frame.chunk ? bytecode : BYTECODE_STL[frame.chunk][1]
-        if (frame.ip >= bc.length) {
+        if (frame.ip >= chunkBytecode.length) {
             break
         }
         ops += 1
         if ((ops & 127) === 0) {
             checkTimeout()
         }
-        switch (bc[frame.ip]) {
+        switch (chunkBytecode[frame.ip]) {
             case null:
                 break
             case Operation.STRING:
@@ -435,7 +443,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                                 argCount: BYTECODE_STL[chain[0]][0].length,
                                 upvalueCount: 0,
                                 ip: 0,
-                                chunk: chain[0],
+                                chunk: `stl/${chain[0]}`,
                             })
                         )
                     )
@@ -460,6 +468,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 stackKeepFirstElements(stackStart)
                 pushStack(result)
                 frame = callStack[callStack.length - 1]
+                setChunkBytecode()
                 continue // resume the loop without incrementing frame.ip
             }
             case Operation.GET_LOCAL:
@@ -632,6 +641,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                             })
                         ),
                     } satisfies CallFrame
+                    setChunkBytecode()
                     callStack.push(frame)
                     continue // resume the loop without incrementing frame.ip
                 } else {
@@ -707,7 +717,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                         frame.ip += 1 // advance for when we return
                         frame = {
                             ip: 0,
-                            chunk: name,
+                            chunk: `stl/${name}`,
                             stackStart: stack.length - temp,
                             argCount: temp,
                             closure: newHogClosure(
@@ -716,10 +726,11 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                                     argCount: temp,
                                     upvalueCount: 0,
                                     ip: 0,
-                                    chunk: name,
+                                    chunk: `stl/${name}`,
                                 })
                             ),
                         } satisfies CallFrame
+                        setChunkBytecode()
                         callStack.push(frame)
                         continue // resume the loop without incrementing frame.ip
                     } else {
@@ -762,6 +773,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                         argCount: closure.callable.argCount,
                         closure,
                     } satisfies CallFrame
+                    setChunkBytecode()
                     callStack.push(frame)
                     continue // resume the loop without incrementing frame.ip
                 } else if (closure.callable.__hogCallable__ === 'stl') {
@@ -850,6 +862,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                     callStack.splice(callStackLen)
                     pushStack(exception)
                     frame = callStack[callStack.length - 1]
+                    setChunkBytecode()
                     frame.ip = catchIp
                     continue // resume the loop without incrementing frame.ip
                 } else {
@@ -858,7 +871,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
             }
             default:
                 throw new HogVMException(
-                    `Unexpected node while running bytecode in chunk "${frame.chunk}": ${bc[frame.ip]}`
+                    `Unexpected node while running bytecode in chunk "${frame.chunk}": ${chunkBytecode[frame.ip]}`
                 )
         }
 
