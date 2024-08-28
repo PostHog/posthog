@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use health::{HealthHandle, HealthRegistry};
 use sqlx::{postgres::PgPoolOptions, PgPool};
 
@@ -29,7 +27,7 @@ impl AppContext {
         })
     }
 
-    pub async fn issue(&self, updates: HashSet<Update>) -> Result<(), sqlx::Error> {
+    pub async fn issue(&self, updates: Vec<Update>) -> Result<(), sqlx::Error> {
         metrics::counter!(UPDATES_ISSUED).increment(updates.len() as u64);
         Ok(())
     }
