@@ -139,13 +139,13 @@ FROM {inner_select}
             action_total = row[(i * 3) + 2]
             action_unique = row[(i * 3) + 3]
             action_rate = action_unique / num_visitors if num_visitors else None
-            results.append([action_name, action_total, action_unique, action_rate])
+            results.append([action_name, action_unique, action_total, action_rate])
 
         return WebGoalsQueryResponse(
             columns=[
                 "context.columns.action_name",
-                "context.columns.total_conversions",
                 "context.columns.converting_users",
+                "context.columns.total_conversions",
                 "context.columns.conversion_rate",
             ],
             results=results,
