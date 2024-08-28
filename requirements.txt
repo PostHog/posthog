@@ -258,8 +258,6 @@ googleapis-common-protos==1.60.0
     # via
     #   google-api-core
     #   grpcio-status
-greenlet==3.0.3
-    # via sqlalchemy
 grpcio==1.57.0
     # via
     #   google-api-core
@@ -456,10 +454,14 @@ pyjwt==2.4.0
     #   simple-salesforce
     #   snowflake-connector-python
     #   social-auth-core
+pymssql==2.3.0
+    # via -r requirements.in
 pymysql==1.1.1
     # via -r requirements.in
 pynacl==1.5.0
     # via paramiko
+pyodbc==5.1.0
+    # via -r requirements.in
 pyopenssl==23.0.0
     # via
     #   snowflake-connector-python
