@@ -134,6 +134,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
         ],
         fixedPosition: [
             'bottom-center' as ToolbarPositionType,
+            { persist: true },
             {
                 setFixedPosition: (_, { position }) => position,
             },
