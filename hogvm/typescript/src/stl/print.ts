@@ -1,4 +1,4 @@
-import { isHogDate, isHogDateTime, isHogError } from '../objects'
+import { isHogCallable, isHogClosure, isHogDate, isHogDateTime, isHogError } from '../objects'
 
 const escapeCharsMap: Record<string, string> = {
     '\b': '\\b',
@@ -71,6 +71,12 @@ export function printHogValue(obj: any, marked: Set<any> | undefined = undefined
                 return `${String(obj.type)}(${escapeString(obj.message)}${
                     obj.payload ? `, ${printHogValue(obj.payload, marked)}` : ''
                 })`
+            }
+            if (isHogClosure(obj)) {
+                return printHogValue(obj.callable, marked)
+            }
+            if (isHogCallable(obj)) {
+                return `fn<${escapeIdentifier(obj.name ?? 'lambda')}(${printHogValue(obj.argCount)})>`
             }
             if (obj instanceof Map) {
                 return `{${Array.from(obj.entries())

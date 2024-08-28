@@ -144,3 +144,116 @@ export function AnonymousErrorWithStackTrace(): JSX.Element {
         />
     )
 }
+
+export function ChainedErrorStack(): JSX.Element {
+    return (
+        <ErrorDisplay
+            eventProperties={errorProperties({
+                $exception_type: 'ZeroDivisionError',
+                $exception_message: 'division by zero',
+                $exception_list: [
+                    {
+                        module: null,
+                        type: 'ZeroDivisionError',
+                        value: 'division by zero',
+                        stacktrace: {
+                            frames: [
+                                {
+                                    filename: 'example2.py',
+                                    abs_path: '/posthog-python/example2.py',
+                                    function: 'will_raise',
+                                    module: '__main__',
+                                    lineno: 33,
+                                    pre_context: [
+                                        'def more_obfuscation():',
+                                        '    print(3 / 0)',
+                                        '',
+                                        'def will_raise():',
+                                        '    try:',
+                                    ],
+                                    context_line: '        more_obfuscation()',
+                                    post_context: [
+                                        '    except Exception as e:',
+                                        '        raise CustomException("This is a custom exception") from e',
+                                        '',
+                                        'will_raise()',
+                                        'exit()',
+                                    ],
+                                },
+                                {
+                                    filename: 'example2.py',
+                                    abs_path: '/posthog-python/example2.py',
+                                    function: 'more_obfuscation',
+                                    module: '__main__',
+                                    lineno: 29,
+                                    pre_context: [
+                                        '',
+                                        'class CustomException(Exception):',
+                                        '    pass',
+                                        '',
+                                        'def more_obfuscation():',
+                                    ],
+                                    context_line: '    print(3 / 0)',
+                                    post_context: [
+                                        '',
+                                        'def will_raise():',
+                                        '    try:',
+                                        '        more_obfuscation()',
+                                        '    except Exception as e:',
+                                    ],
+                                },
+                            ],
+                        },
+                    },
+                    {
+                        module: '__main__',
+                        type: 'CustomException',
+                        value: 'This is a custom exception',
+                        stacktrace: {
+                            frames: [
+                                {
+                                    filename: 'example2.py',
+                                    abs_path: '/Users/neilkakkar/Project/posthog-python/example2.py',
+                                    function: '<module>',
+                                    module: '__main__',
+                                    lineno: 37,
+                                    pre_context: [
+                                        '    try:',
+                                        '        more_obfuscation()',
+                                        '    except Exception as e:',
+                                        '        raise CustomException("This is a custom exception") from e',
+                                        '',
+                                    ],
+                                    context_line: 'will_raise()',
+                                    post_context: [
+                                        'exit()',
+                                        '',
+                                        '',
+                                        '# print(posthog.get_all_flags("distinct_id_random_22"))',
+                                        '# print(',
+                                    ],
+                                },
+                                {
+                                    filename: 'example2.py',
+                                    abs_path: '/Users/neilkakkar/Project/posthog-python/example2.py',
+                                    function: 'will_raise',
+                                    module: '__main__',
+                                    lineno: 35,
+                                    pre_context: [
+                                        '',
+                                        'def will_raise():',
+                                        '    try:',
+                                        '        more_obfuscation()',
+                                        '    except Exception as e:',
+                                    ],
+                                    context_line: '        raise CustomException("This is a custom exception") from e',
+                                    post_context: ['', 'will_raise()', 'exit()', '', ''],
+                                },
+                            ],
+                        },
+                    },
+                ],
+            })}
+        />
+    )
+}
