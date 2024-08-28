@@ -62,7 +62,7 @@
             <name>value</name>
         </argument>
         <format>JSONEachRow</format>
-        <command>aggregate_funnel.py</command>
+        <command>aggregate_funnel_cohort.py</command>
     </function>
 
     <function>
@@ -95,7 +95,7 @@
             <name>value</name>
         </argument>
         <format>JSONEachRow</format>
-        <command>aggregate_funnel.py</command>
+        <command>aggregate_funnel_array.py</command>
     </function>
 
     <function>
@@ -207,7 +207,7 @@
             <name>value</name>
         </argument>
         <format>JSONEachRow</format>
-        <command>aggregate_funnel_trends.py</command>
+        <command>aggregate_funnel_array_trends.py</command>
     </function>
 
     <function>
@@ -245,7 +245,7 @@
             <name>value</name>
         </argument>
         <format>JSONEachRow</format>
-        <command>aggregate_funnel_trends.py</command>
+        <command>aggregate_funnel_cohort_trends.py</command>
     </function>
 
     <function>
