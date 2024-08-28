@@ -25,21 +25,6 @@ class EnteredTimestamp:
     timings: Any
 
 
-def breakdown_to_single_quoted_string(breakdown):
-    if isinstance(breakdown, str):
-        return "'" + breakdown.replace("'", r"\'") + "'"
-    if isinstance(breakdown, int):
-        return breakdown
-    if isinstance(breakdown, list):
-        if not breakdown:
-            return "[]"
-        if isinstance(breakdown[0], str):
-            return "['" + "','".join([x.replace("'", r"\'") for x in breakdown]) + "']"
-        if isinstance(breakdown[0], int):
-            return str(breakdown)
-    raise Exception()
-
-
 # each one can be multiple steps here
 # it only matters when they entered the funnel - you can propagate the time from the previous step when you update
 # This function is defined for Clickhouse in test_function.xml along with types

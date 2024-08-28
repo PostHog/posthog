@@ -25,21 +25,6 @@ class EnteredTimestamp:
     timings: Any
 
 
-def breakdown_to_single_quoted_string(breakdown):
-    if isinstance(breakdown, str):
-        return "'" + breakdown.replace("'", r"\'") + "'"
-    if isinstance(breakdown, int):
-        return breakdown
-    if isinstance(breakdown, list):
-        if not breakdown:
-            return "[]"
-        if isinstance(breakdown[0], str):
-            return "['" + "','".join([x.replace("'", r"\'") for x in breakdown]) + "']"
-        if isinstance(breakdown[0], int):
-            return str(breakdown)
-    raise Exception()
-
-
 # each one can be multiple steps here
 # it only matters when they entered the funnel - you can propagate the time from the previous step when you update
 # This function is defined for Clickhouse in test_function.xml along with types
@@ -85,13 +70,14 @@ def parse_user_aggregation_with_conversion_window_and_breakdown(
                 if step < 0:
                     exclusion = True
                     step = -step
-                # special code to handle the first step
+                # Special code to handle the first step
+                # Potential Optimization: we could skip tracking here if the user has already completed the funnel for this interval
                 if step == 1:
                     entered_timestamp = [default_entered_timestamp] * (num_steps + 1)
-                    # Put the interval start at 0, which is what we want to return if this works
-                    # could skip tracking here if the user has already completed the funnel for this interval
-                    # what about exclusions?
-                    entered_timestamp[0] = EnteredTimestamp(interval_start, [])
+                    # Set the interval start at 0, which is what we want to return if this works.
+                    # For strict funnels, we need to track if the "from_step" has been hit
+                    # Abuse the timings field on the 0th index entered_timestamp to have the elt True if we have
+                    entered_timestamp[0] = EnteredTimestamp(interval_start, [True] if from_step == 0 else [])
                     entered_timestamp[1] = EnteredTimestamp(timestamp, [timestamp])
                     list_of_entered_timestamps.append(entered_timestamp)
                 else:
@@ -118,10 +104,20 @@ def parse_user_aggregation_with_conversion_window_and_breakdown(
                                 if entered_timestamp[num_steps].timestamp > 0:
                                     results[entered_timestamp[0].timestamp] = (1, prop_val)
                                     list_of_entered_timestamps.remove(entered_timestamp)
+                                # If we have hit the from_step threshold, record it (abuse the timings field)
+                                elif step == from_step + 1:
+                                    entered_timestamp[0].timings.append(True)
+
+            # At the end of the event, clear all steps that weren't done by that event
+            if funnel_order_type == "strict":
+                for entered_timestamp in list_of_entered_timestamps[:]:
+                    for i in range(1, len(entered_timestamp)):
+                        if i not in steps:
+                            entered_timestamp[i] = default_entered_timestamp
 
         # At this point, everything left in entered_timestamps is a failure, if it has made it to from_step
         for entered_timestamp in list_of_entered_timestamps:
-            if entered_timestamp[0].timestamp not in results and entered_timestamp[from_step + 1].timestamp > 0:
+            if entered_timestamp[0].timestamp not in results and len(entered_timestamp[0].timings) > 0:
                 results[entered_timestamp[0].timestamp] = (-1, prop_val)
 
     [loop_prop_val(prop_val) for prop_val in prop_vals]
