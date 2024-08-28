@@ -202,8 +202,7 @@ export async function startPluginsServer(
 
     const setupHub = async (): Promise<Hub> => {
         if (!serverInstance.hub) {
-            const [hub] = await createHub(serverConfig, capabilities)
-            serverInstance.hub = hub
+            serverInstance.hub = await createHub(serverConfig, capabilities)
         }
 
         return serverInstance.hub
@@ -410,9 +409,6 @@ export async function startPluginsServer(
 
             pluginServerStartupTimeMs.inc(Date.now() - timer.valueOf())
             status.info('🚀', 'All systems go')
-
-            hub.lastActivity = new Date().valueOf()
-            hub.lastActivityType = 'serverStart'
         }
 
         if (capabilities.sessionRecordingBlobIngestion) {

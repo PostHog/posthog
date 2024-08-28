@@ -210,10 +210,6 @@ export interface PluginsServerConfig extends CdpConfig {
     HEALTHCHECK_MAX_STALE_SECONDS: number // maximum number of seconds the plugin server can go without ingesting events before the healthcheck fails
     SITE_URL: string | null
     KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: number // (advanced) how many kafka partitions the plugin server should consume from concurrently
-    CONVERSION_BUFFER_ENABLED: boolean
-    CONVERSION_BUFFER_ENABLED_TEAMS: string
-    CONVERSION_BUFFER_TOPIC_ENABLED_TEAMS: string
-    BUFFER_CONVERSION_SECONDS: number
     PERSON_INFO_CACHE_TTL: number
     KAFKA_HEALTHCHECK_SECONDS: number
     OBJECT_STORAGE_ENABLED: boolean // Disables or enables the use of object storage. It will become mandatory to use object storage
@@ -304,9 +300,7 @@ export interface Hub extends PluginsServerConfig {
     clickhouse: ClickHouse
     kafka: Kafka
     kafkaProducer: KafkaProducerWrapper
-    objectStorage: ObjectStorage
-    // metrics
-    pluginMetricsJob: Job | undefined
+    objectStorage?: ObjectStorage
     // currently enabled plugin status
     plugins: Map<PluginId, Plugin>
     pluginConfigs: Map<PluginConfigId, PluginConfig>
@@ -320,7 +314,6 @@ export interface Hub extends PluginsServerConfig {
     organizationManager: OrganizationManager
     pluginsApiKeyManager: PluginsApiKeyManager
     rootAccessManager: RootAccessManager
-    eventsProcessor: EventsProcessor
     actionManager: ActionManager
     actionMatcher: ActionMatcher
     appMetrics: AppMetrics
@@ -328,11 +321,6 @@ export interface Hub extends PluginsServerConfig {
     groupTypeManager: GroupTypeManager
     // geoip database, setup in workers
     mmdb?: ReaderModel
-    // diagnostics
-    lastActivity: number
-    lastActivityType: string
-    statelessVms: StatelessInstanceMap
-    conversionBufferEnabledTeams: Set<number>
     // functions
     enqueuePluginJob: (job: EnqueuedPluginJob) => Promise<void>
     // ValueMatchers used for various opt-in/out features
