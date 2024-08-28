@@ -164,7 +164,11 @@ function FirstStep(): JSX.Element {
                         title: 'Name',
                         key: 'name',
                         render: function RenderName(_, sourceConfig) {
-                            return <span className="font-semibold text-sm gap-1">{sourceConfig.name}</span>
+                            return (
+                                <span className="font-semibold text-sm gap-1">
+                                    {sourceConfig.label ?? sourceConfig.name}
+                                </span>
+                            )
                         },
                     },
                     {
