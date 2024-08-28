@@ -69,6 +69,7 @@ def create_bytecode(
     if args is None:
         bytecode.append(HOGQL_BYTECODE_IDENTIFIER)
         bytecode.append(HOGQL_BYTECODE_VERSION)
+
     bytecode.extend(BytecodeCompiler(supported_functions, args, context, enclosing).visit(expr))
     return bytecode
 
