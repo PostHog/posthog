@@ -887,7 +887,7 @@ export interface ExperimentalAITrendsQuery {
      *
      * @default []
      */
-    properties?: AIPropertyFilter
+    properties?: AIPropertyFilter[]
 
     /**
      * Groups aggregation

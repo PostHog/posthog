@@ -4221,9 +4221,12 @@
                     "type": "string"
                 },
                 "properties": {
-                    "$ref": "#/definitions/AIPropertyFilter",
                     "default": [],
-                    "description": "Property filters for all series"
+                    "description": "Property filters for all series",
+                    "items": {
+                        "$ref": "#/definitions/AIPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "samplingFactor": {
                     "description": "Sampling rate",

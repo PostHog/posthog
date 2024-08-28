@@ -4446,13 +4446,15 @@ class ExperimentalAITrendsQuery(BaseModel):
     )
     kind: Literal["TrendsQuery"] = "TrendsQuery"
     properties: Optional[
-        Union[
-            EventPropertyFilter,
-            PersonPropertyFilter,
-            SessionPropertyFilter,
-            CohortPropertyFilter,
-            GroupPropertyFilter,
-            FeaturePropertyFilter,
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+            ]
         ]
     ] = Field(default=[], description="Property filters for all series")
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
