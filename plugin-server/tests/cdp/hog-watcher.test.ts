@@ -42,7 +42,6 @@ describe('HogWatcher', () => {
     describe('integration', () => {
         let now: number
         let hub: Hub
-        let closeHub: () => Promise<void>
         let watcher: HogWatcher
         let mockStateChangeCallback: jest.Mock
         let redis: CdpRedis

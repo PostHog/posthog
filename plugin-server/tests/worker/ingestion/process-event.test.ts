@@ -13,7 +13,6 @@ jest.mock('../../../src/utils/status')
 jest.setTimeout(600000) // 600 sec timeout.
 
 let hub: Hub
-let closeHub: () => Promise<void>
 let redis: IORedis.Redis
 let eventsProcessor: EventsProcessor
 
@@ -33,7 +32,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
     await hub.redisPool.release(redis)
-    await closeHub?.()
+    await closeHub(hub)
 })
 
 describe('EventsProcessor#createEvent()', () => {

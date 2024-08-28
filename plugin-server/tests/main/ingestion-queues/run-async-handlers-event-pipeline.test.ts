@@ -51,7 +51,6 @@ describe('runAppsOnEventPipeline()', () => {
 
     let hub: Hub
     let redis: Redis.Redis
-    let closeHub: () => Promise<void>
 
     beforeEach(async () => {
         // Use fake timers to ensure that we don't need to wait on e.g. retry logic.
@@ -177,7 +176,7 @@ describe('eachBatchAsyncHandlers', () => {
     })
 
     afterEach(async () => {
-        await closeHub?.()
+        await closeHub(hub)
         jest.useRealTimers()
     })
 

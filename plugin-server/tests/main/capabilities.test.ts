@@ -21,7 +21,6 @@ describe('stringToPluginServerMode', () => {
 describe('capabilities', () => {
     let hub: Hub
     let piscina: Piscina
-    let closeHub: () => Promise<void>
 
     beforeEach(async () => {
         hub = await createHub({

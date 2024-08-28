@@ -19,13 +19,11 @@ describe('HogMasker', () => {
     describe('integration', () => {
         let now: number
         let hub: Hub
-        let closeHub: () => Promise<void>
         let masker: HogMasker
         let redis: CdpRedis
 
         beforeEach(async () => {
             hub = await createHub()
-
             now = 1720000000000
             mockNow.mockReturnValue(now)
 

@@ -46,7 +46,7 @@ describe('processPersonsStep()', () => {
         timestamp = DateTime.fromISO(pluginEvent.timestamp!)
     })
     afterEach(async () => {
-        await closeHub?.()
+        await closeHub(hub)
     })
 
     it('creates person', async () => {

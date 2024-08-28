@@ -12,7 +12,6 @@ import { createOrganization, createTeam, POSTGRES_DELETE_TABLES_QUERY } from '..
 describe('workerTasks.runEventPipeline()', () => {
     let hub: Hub
     let redis: Redis.Redis
-    let closeHub: () => Promise<void>
     const OLD_ENV = process.env
 
     beforeAll(async () => {

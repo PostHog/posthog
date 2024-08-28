@@ -275,7 +275,6 @@ describe('AppMetrics()', () => {
 
     describe('reading writes from clickhouse', () => {
         let hub: Hub
-        let closeHub: () => Promise<void>
 
         beforeEach(async () => {
             hub = await createHub({

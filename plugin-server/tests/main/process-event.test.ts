@@ -54,8 +54,6 @@ export async function createPerson(
     )
 }
 
-export type ReturnWithHub = { hub?: Hub; closeHub?: () => Promise<void> }
-
 type EventsByPerson = [string[], string[]]
 
 export const getEventsByPerson = async (hub: Hub): Promise<EventsByPerson[]> => {
@@ -90,21 +88,9 @@ let processEventCounter = 0
 let mockClientEventCounter = 0
 let team: Team
 let hub: Hub
-let closeHub: () => Promise<void>
 let redis: IORedis.Redis
 let eventsProcessor: EventsProcessor
 let now = DateTime.utc()
-
-async function createTestHub(additionalProps?: Record<string, any>): Promise<[Hub, () => Promise<void>]> {
-    const [hub, closeHub] = await createHub({
-        ...TEST_CONFIG,
-        ...(additionalProps ?? {}),
-    })
-
-    redis = await hub.redisPool.acquire()
-
-    return [hub, closeHub]
-}
 
 async function processEvent(
     distinctId: string,
@@ -151,7 +137,10 @@ beforeEach(async () => {
         `
     await resetTestDatabase(testCode, TEST_CONFIG)
     await resetTestDatabaseClickhouse(TEST_CONFIG)
-    ;[hub, closeHub] = await createTestHub()
+
+    const hub = await createHub({ ...TEST_CONFIG })
+    redis = await hub.redisPool.acquire()
+
     eventsProcessor = new EventsProcessor(hub)
     processEventCounter = 0
     mockClientEventCounter = 0
@@ -168,7 +157,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
     await hub.redisPool.release(redis)
-    await closeHub?.()
+    await closeHub(hub)
 })
 
 const capture = async (hub: Hub, eventName: string, properties: any = {}) => {

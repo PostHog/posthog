@@ -7,7 +7,6 @@ import { resetTestDatabase } from '../../../helpers/sql'
 
 describe('user-agent tests', () => {
     let hub: any
-    let closeHub: () => Promise<void>
 
     beforeAll(async () => {
         console.info = jest.fn() as any

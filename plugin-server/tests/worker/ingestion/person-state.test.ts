@@ -1860,7 +1860,6 @@ describe('PersonState.update()', () => {
         // For some reason these tests failed if I ran them with a hub shared
         // with other tests, so I'm creating a new hub for each test.
         let hub: Hub
-        let closeHub: () => Promise<void>
 
         beforeEach(async () => {
             hub = await createHub({})

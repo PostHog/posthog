@@ -26,7 +26,7 @@ describe('overflow manager', () => {
     afterAll(async () => {
         await redis.flushdb()
         await hub.redisPool.release(redis)
-        await closeHub?.()
+        await closeHub(hub)
     })
 
     test('it does not trigger if several keys are under threshold', async () => {
