@@ -16,6 +16,7 @@ import {
     toUnixTimestampMilli,
 } from './date'
 import { printHogStringOutput } from './print'
+import { like } from '../utils'
 
 function STLToString(args: any[]): string {
     if (isHogDate(args[0])) {
@@ -37,6 +38,10 @@ export const STL: Record<string, (args: any[], name: string, timeout: number) =>
         const regex = new RegExp(args[1])
         return regex.test(args[0])
     },
+    like: ([str, pattern]) => like(str, pattern, false),
+    ilike: ([str, pattern]) => like(str, pattern, true),
+    notLike: ([str, pattern]) => !like(str, pattern, false),
+    notILike: ([str, pattern]) => !like(str, pattern, true),
     toString: STLToString,
     toUUID: (args) => {
         return String(args[0])
@@ -321,6 +326,12 @@ export const STL: Record<string, (args: any[], name: string, timeout: number) =>
             return ''
         }
         return arr.join(separator)
+    },
+    has([arr, elem]) {
+        if (!Array.isArray(arr) || arr.length === 0) {
+            return false
+        }
+        return arr.includes(elem)
     },
     now() {
         return now()

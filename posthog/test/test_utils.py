@@ -487,15 +487,23 @@ class TestUtilities(TestCase):
         no_padding = "SGVsbG8sIFdvcmxkIQ"
         self.assertEqual(base64_decode(no_padding), simple_string)
 
-        # Test with real URL encoded data
-        # from: https://posthog.sentry.io/issues/5680826999/
-        encoded_data = b"data=eyJ0b2tlbiI6InBoY191eEl4QmhLQ2NVZll0d1NoTmhlRVMyNTJBak45b0pYNzZmcElybTV3cWpmIiwiZGlzdGluY3RfaWQiOiIwMTkxMjliNi1kNTQwLTczZjUtYjY3YS1kODI3MTEzOWFmYTYiLCJncm91cHMiOnt9fQ%3D%3D"
-
+        # Tests with real URL encoded data
+        # from: https://posthog.sentry.io/issues/5680826999/events/ee804fe6ffd148559180c61d7c822766/
+        encoded_data = b"data=eyJ0b2tlbiI6InBoY19HNEFGZkNtRWJXSXZXS05GWlVLaWhpNXRIaGNJU1FYd2xVYXpLMm5MdkE0IiwiZGlzdGluY3RfaWQiOiIwMTkxMmJjMS1iY2ZkLTcwNDYtOTQ0My0wNjVjZjhjYzUyYzUiLCJncm91cHMiOnt9fQ%3D%3D"
         decoded = base64_decode(encoded_data)
         decoded_json = json.loads(decoded)
 
-        self.assertEqual(decoded_json["token"], "phc_uxIxBhKCcUfYtwShNheES252AjN9oJX76fpIrm5wqjf")
-        self.assertEqual(decoded_json["distinct_id"], "019129b6-d540-73f5-b67a-d8271139afa6")
+        self.assertEqual(decoded_json["token"], "phc_G4AFfCmEbWIvWKNFZUKihi5tHhcISQXwlUazK2nLvA4")
+        self.assertEqual(decoded_json["distinct_id"], "01912bc1-bcfd-7046-9443-065cf8cc52c5")
+        self.assertEqual(decoded_json["groups"], {})
+
+        # from: https://posthog.sentry.io/issues/5680826999/events/2ec7bfd975594873a84ce8153388c6e2/
+        encoded_data = b"eyJ0b2tlbiI6InBoY19JN3hJY09idHNrcDFWc2FFY0pPdEhycThrWGxrdVg3bGpwdnFWaDNJQ0Z6IiwiZGlzdGluY3RfaWQiOiIwMTkxMmU3Ny1hMjYwLTc5NWMtYjBmYy1lOWE4NzI5MWViNzAiLCJncm91cHMiOnt9fQ%3D%3D"
+        decoded = base64_decode(encoded_data)
+        decoded_json = json.loads(decoded)
+
+        self.assertEqual(decoded_json["token"], "phc_I7xIcObtskp1VsaEcJOtHrq8kXlkuX7ljpvqVh3ICFz")
+        self.assertEqual(decoded_json["distinct_id"], "01912e77-a260-795c-b0fc-e9a87291eb70")
         self.assertEqual(decoded_json["groups"], {})
 
 

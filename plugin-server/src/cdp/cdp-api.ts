@@ -1,4 +1,3 @@
-import { convertJSToHog } from '@posthog/hogvm'
 import express from 'express'
 import { DateTime } from 'luxon'
 
@@ -8,8 +7,7 @@ import { delay } from '../utils/utils'
 import { AsyncFunctionExecutor } from './async-function-executor'
 import { HogExecutor } from './hog-executor'
 import { HogFunctionManager } from './hog-function-manager'
-import { HogWatcher } from './hog-watcher/hog-watcher'
-import { HogWatcherState } from './hog-watcher/types'
+import { HogWatcher, HogWatcherState } from './hog-watcher'
 import { HogFunctionInvocation, HogFunctionInvocationAsyncRequest, HogFunctionType, LogEntry } from './types'
 
 export class CdpApi {
@@ -52,7 +50,7 @@ export class CdpApi {
         () =>
         async (req: express.Request, res: express.Response): Promise<void> => {
             const { id } = req.params
-            const summary = await this.hogWatcher.fetchWatcher(id)
+            const summary = await this.hogWatcher.getState(id)
 
             res.json(summary)
         }
@@ -69,7 +67,7 @@ export class CdpApi {
                 return
             }
 
-            const summary = await this.hogWatcher.fetchWatcher(id)
+            const summary = await this.hogWatcher.getState(id)
 
             // Only allow patching the status if it is different from the current status
 
@@ -80,7 +78,7 @@ export class CdpApi {
             // Hacky - wait for a little to give a chance for the state to change
             await delay(100)
 
-            res.json(await this.hogWatcher.fetchWatcher(id))
+            res.json(await this.hogWatcher.getState(id))
         }
 
     private postFunctionInvocation = async (req: express.Request, res: express.Response): Promise<void> => {
@@ -148,7 +146,7 @@ export class CdpApi {
                     })
 
                     // Add the state, simulating what executeAsyncResponse would do
-                    invocation.vmState!.stack.push(convertJSToHog({ status: 200, body: {} }))
+                    invocation.vmState!.stack.push({ status: 200, body: {} })
                 } else {
                     const asyncInvocationRequest: HogFunctionInvocationAsyncRequest = {
                         state: '', // WE don't care about the state for this level of testing
@@ -167,7 +165,7 @@ export class CdpApi {
                             message: 'Failed to execute async function',
                         })
                     }
-                    invocation.vmState!.stack.push(convertJSToHog(asyncRes?.asyncFunctionResponse.response ?? null))
+                    invocation.vmState!.stack.push(asyncRes?.asyncFunctionResponse.response ?? null)
                 }
 
                 logs.push(...response.logs)

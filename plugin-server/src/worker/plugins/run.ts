@@ -234,8 +234,7 @@ async function runSingleTeamPluginComposeWebhook(
 
 export async function runComposeWebhook(hub: Hub, event: PostIngestionEvent): Promise<void> {
     // Runs composeWebhook for all plugins for this team in parallel
-    let pluginMethodsToRun = await getPluginMethodsForTeam(hub, event.teamId, 'composeWebhook')
-    pluginMethodsToRun = await filterPluginMethods(hub, event, pluginMethodsToRun)
+    const pluginMethodsToRun = await getPluginMethodsForTeam(hub, event.teamId, 'composeWebhook')
 
     await Promise.all(
         pluginMethodsToRun.map(([pluginConfig, composeWebhook]) =>
@@ -401,45 +400,4 @@ async function getPluginMethodsForTeam<M extends keyof PluginMethodsConcrete>(
     ][]
 
     return methodsObtainedFiltered
-}
-
-async function filterPluginMethods<T>(
-    hub: Hub,
-    event: PostIngestionEvent,
-    pluginMethods: [PluginConfig, T][]
-): Promise<[PluginConfig, T][]> {
-    const filteredList: [PluginConfig, T][] = []
-
-    await Promise.all(
-        pluginMethods.map(async ([pluginConfig, method]) => {
-            if (pluginConfig.filters) {
-                try {
-                    const matchedFilters = await hub.actionMatcher.checkFilters(event, pluginConfig.filters)
-                    if (!matchedFilters) {
-                        return
-                    }
-                } catch (error) {
-                    // We consider an exception to be bad enough to drop the event (we should also log it as a processing error)
-
-                    await hub.appMetrics.queueError(
-                        {
-                            teamId: event.teamId,
-                            pluginConfigId: pluginConfig.id,
-                            category: 'composeWebhook',
-                            failures: 1,
-                        },
-                        {
-                            error: `Error occurred when processing filters: ${error}`,
-                            event,
-                        }
-                    )
-                    return
-                }
-            }
-
-            filteredList.push([pluginConfig, method])
-        })
-    )
-
-    return filteredList
 }

@@ -33,6 +33,18 @@ const bounceRatePageViewModeOptions: LemonRadioOption<BounceRatePageViewMode>[] 
             </>
         ),
     },
+    {
+        value: 'uniq_page_screen_autocaptures',
+        label: (
+            <>
+                <div>Use uniqUpTo</div>
+                <div className="text-muted">
+                    Uses the <code>uniqUpTo</code> function to count if the total unique pageviews + screen events +
+                    autocaptures is &gte; 2
+                </div>
+            </>
+        ),
+    },
 ]
 
 export function BounceRatePageViewModeSetting(): JSX.Element {

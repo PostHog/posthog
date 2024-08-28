@@ -3,6 +3,8 @@ import { actions, connect, kea, listeners, path, props, reducers, selectors } fr
 import { forms } from 'kea-forms'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -24,26 +26,28 @@ import { dataWarehouseSettingsLogic } from '../settings/dataWarehouseSettingsLog
 import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
 import type { sourceWizardLogicType } from './sourceWizardLogicType'
 
+const Caption = (): JSX.Element => (
+    <>
+        Enter your Stripe credentials to automatically pull your Stripe data into the PostHog Data warehouse.
+        <br />
+        You can find your account ID{' '}
+        <Link to="https://dashboard.stripe.com/settings/user" target="_blank">
+            in your Stripe dashboard
+        </Link>
+        , and create a secret key{' '}
+        <Link to="https://dashboard.stripe.com/apikeys" target="_blank">
+            here
+        </Link>
+        .
+    </>
+)
+
 export const getHubspotRedirectUri = (): string => `${window.location.origin}/data-warehouse/hubspot/redirect`
 
 export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
     Stripe: {
         name: 'Stripe',
-        caption: (
-            <>
-                Enter your Stripe credentials to automatically pull your Stripe data into the PostHog Data warehouse.
-                <br />
-                You can find your account ID{' '}
-                <Link to="https://dashboard.stripe.com/settings/user" target="_blank">
-                    in your Stripe dashboard
-                </Link>
-                , and create a secret key{' '}
-                <Link to="https://dashboard.stripe.com/apikeys" target="_blank">
-                    here
-                </Link>
-                .
-            </>
-        ),
+        caption: <Caption />,
         fields: [
             {
                 name: 'account_id',
@@ -65,6 +69,7 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
         name: 'Hubspot',
         fields: [],
         caption: 'Succesfully authenticated with Hubspot. Please continue here to complete the source setup',
+        oauthPayload: ['code'],
     },
     Postgres: {
         name: 'Postgres',
@@ -328,6 +333,138 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
             },
         ],
     },
+    MSSQL: {
+        name: 'MSSQL',
+        label: 'Azure SQL Server',
+        caption: (
+            <>
+                Enter your MS SQL Server/Azure SQL Server credentials to automatically pull your SQL data into the
+                PostHog Data warehouse.
+            </>
+        ),
+        fields: [
+            {
+                name: 'host',
+                label: 'Host',
+                type: 'text',
+                required: true,
+                placeholder: 'localhost',
+            },
+            {
+                name: 'port',
+                label: 'Port',
+                type: 'number',
+                required: true,
+                placeholder: '1433',
+            },
+            {
+                name: 'dbname',
+                label: 'Database',
+                type: 'text',
+                required: true,
+                placeholder: 'msdb',
+            },
+            {
+                name: 'user',
+                label: 'User',
+                type: 'text',
+                required: true,
+                placeholder: 'sa',
+            },
+            {
+                name: 'password',
+                label: 'Password',
+                type: 'password',
+                required: true,
+                placeholder: '',
+            },
+            {
+                name: 'schema',
+                label: 'Schema',
+                type: 'text',
+                required: true,
+                placeholder: 'dbo',
+            },
+            {
+                name: 'ssh-tunnel',
+                label: 'Use SSH tunnel?',
+                type: 'switch-group',
+                default: false,
+                fields: [
+                    {
+                        name: 'host',
+                        label: 'Tunnel host',
+                        type: 'text',
+                        required: true,
+                        placeholder: 'localhost',
+                    },
+                    {
+                        name: 'port',
+                        label: 'Tunnel port',
+                        type: 'number',
+                        required: true,
+                        placeholder: '22',
+                    },
+                    {
+                        type: 'select',
+                        name: 'auth_type',
+                        label: 'Authentication type',
+                        required: true,
+                        defaultValue: 'password',
+                        options: [
+                            {
+                                label: 'Password',
+                                value: 'password',
+                                fields: [
+                                    {
+                                        name: 'username',
+                                        label: 'Tunnel username',
+                                        type: 'text',
+                                        required: true,
+                                        placeholder: 'User1',
+                                    },
+                                    {
+                                        name: 'password',
+                                        label: 'Tunnel password',
+                                        type: 'password',
+                                        required: true,
+                                        placeholder: '',
+                                    },
+                                ],
+                            },
+                            {
+                                label: 'Key pair',
+                                value: 'keypair',
+                                fields: [
+                                    {
+                                        name: 'username',
+                                        label: 'Tunnel username',
+                                        type: 'text',
+                                        required: false,
+                                        placeholder: 'User1',
+                                    },
+                                    {
+                                        name: 'private_key',
+                                        label: 'Tunnel private key',
+                                        type: 'textarea',
+                                        required: true,
+                                        placeholder: '',
+                                    },
+                                    {
+                                        name: 'passphrase',
+                                        label: 'Tunnel passphrase',
+                                        type: 'password',
+                                        required: false,
+                                        placeholder: '',
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                ],
+            },
+        ],
+    },
     Snowflake: {
         name: 'Snowflake',
         caption: (
@@ -419,6 +556,18 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
                 placeholder: '',
             },
         ],
+    },
+    Salesforce: {
+        name: 'Salesforce',
+        fields: [
+            {
+                name: 'integration_id',
+                label: 'Salesforce account',
+                type: 'oauth',
+                required: true,
+            },
+        ],
+        caption: 'Select an existing Salesforce account to link to PostHog or create a new connection',
     },
 }
 
@@ -519,6 +668,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             ['dataWarehouseSources'],
             preflightLogic,
             ['preflight'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [
             dataWarehouseTableLogic,
@@ -699,15 +850,21 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             (selectedConnector, isManualLinkFormVisible) => selectedConnector || isManualLinkFormVisible,
         ],
         connectors: [
-            (s) => [s.dataWarehouseSources],
-            (sources): SourceConfig[] => {
-                return Object.values(SOURCE_DETAILS).map((connector) => ({
+            (s) => [s.dataWarehouseSources, s.featureFlags],
+            (sources, featureFlags): SourceConfig[] => {
+                const connectors = Object.values(SOURCE_DETAILS).map((connector) => ({
                     ...connector,
                     disabledReason:
                         sources && sources.results.find((source) => source.source_type === connector.name)
                             ? 'Already linked'
                             : null,
                 }))
+
+                if (!featureFlags[FEATURE_FLAGS.MSSQL_SOURCE]) {
+                    return connectors.filter((n) => n.name !== 'MSSQL')
+                }
+
+                return connectors
             },
         ],
         manualConnectors: [
@@ -883,6 +1040,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     })
                     return
                 }
+                case 'salesforce': {
+                    actions.updateSource({
+                        source_type: 'Salesforce',
+                    })
+                    break
+                }
                 default:
                     lemonToast.error(`Something went wrong.`)
             }
@@ -923,6 +1086,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             if (kind === 'hubspot') {
                 router.actions.push(urls.dataWarehouseTable(), { kind, code: searchParams.code })
             }
+            if (kind === 'salesforce') {
+                router.actions.push(urls.dataWarehouseTable(), {
+                    kind,
+                })
+            }
         },
         '/data-warehouse/new': (_, searchParams) => {
             if (searchParams.kind == 'hubspot' && searchParams.code) {
@@ -930,6 +1098,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 actions.handleRedirect(searchParams.kind, {
                     code: searchParams.code,
                 })
+                actions.setStep(2)
+            }
+            if (searchParams.kind == 'salesforce') {
+                actions.selectConnector(SOURCE_DETAILS['Salesforce'])
+                actions.handleRedirect(searchParams.kind, {})
                 actions.setStep(2)
             }
         },

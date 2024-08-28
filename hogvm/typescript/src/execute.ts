@@ -84,10 +84,10 @@ export async function execAsync(bytecode: any[], options?: ExecOptions): Promise
                 const result = await options?.asyncFunctions[response.asyncFunctionName](
                     ...response.asyncFunctionArgs.map(convertHogToJS)
                 )
-                vmState.stack.push(convertJSToHog(result))
+                vmState.stack.push(result)
             } else if (response.asyncFunctionName in ASYNC_STL) {
                 const result = await ASYNC_STL[response.asyncFunctionName](
-                    response.asyncFunctionArgs,
+                    response.asyncFunctionArgs.map(convertHogToJS),
                     response.asyncFunctionName,
                     options?.timeout ?? DEFAULT_TIMEOUT_MS
                 )
@@ -110,10 +110,10 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
     } else {
         bytecode = code
     }
-
-    if (!bytecode || bytecode.length === 0 || bytecode[0] !== '_h') {
-        throw new HogVMException("Invalid HogQL bytecode, must start with '_h'")
+    if (!bytecode || bytecode.length === 0 || (bytecode[0] !== '_h' && bytecode[0] !== '_H')) {
+        throw new HogVMException("Invalid HogQL bytecode, must start with '_H'")
     }
+    const version = bytecode[0] === '_H' ? bytecode[1] ?? 0 : 0
 
     const startTime = Date.now()
     let temp: any
@@ -123,7 +123,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
 
     const asyncSteps = vmState ? vmState.asyncSteps : 0
     const syncDuration = vmState ? vmState.syncDuration : 0
-    const stack: any[] = vmState ? vmState.stack : []
+    const stack: any[] = vmState ? vmState.stack.map(convertJSToHog) : []
     const memStack: number[] = stack.map((s) => calculateCost(s))
     const callStack: [number, number, number][] = vmState ? vmState.callStack : []
     const throwStack: [number, number, number][] = vmState ? vmState.throwStack : []
@@ -131,7 +131,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
     let memUsed = memStack.reduce((acc, val) => acc + val, 0)
     let maxMemUsed = Math.max(vmState ? vmState.maxMemUsed : 0, memUsed)
     const memLimit = options?.memoryLimit ?? DEFAULT_MAX_MEMORY
-    let ip = vmState ? vmState.ip : 1
+    let ip = vmState ? vmState.ip : bytecode[0] === '_H' ? 2 : 1
     let ops = vmState ? vmState.ops : 0
     const timeout = options?.timeout ?? DEFAULT_TIMEOUT_MS
     const maxAsyncSteps = options?.maxAsyncSteps ?? DEFAULT_MAX_ASYNC_STEPS
@@ -158,7 +158,9 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
         memUsed -= memStack.splice(start, deleteCount).reduce((acc, val) => acc + val, 0)
         return stack.splice(start, deleteCount)
     }
-    function spliceStack1(start: number): any[] {
+
+    /** Keep start elements, return those removed */
+    function stackKeepFirstElements(start: number): any[] {
         memUsed -= memStack.splice(start).reduce((acc, val) => acc + val, 0)
         return stack.splice(start)
     }
@@ -310,7 +312,11 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 for (let i = 0; i < count; i++) {
                     chain.push(popStack())
                 }
-                pushStack(options?.globals ? convertJSToHog(getNestedValue(options.globals, chain)) : null)
+                if (options?.globals && chain[0] in options.globals && Object.hasOwn(options.globals, chain[0])) {
+                    pushStack(convertJSToHog(getNestedValue(options.globals, chain)))
+                } else {
+                    throw new HogVMException(`Global variable not found: ${chain.join('.')}`)
+                }
                 break
             }
             case Operation.POP:
@@ -320,7 +326,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 if (callStack.length > 0) {
                     const [newIp, stackStart, _] = callStack.pop()!
                     const response = popStack()
-                    spliceStack1(stackStart)
+                    stackKeepFirstElements(stackStart)
                     pushStack(response)
                     ip = newIp
                     break
@@ -400,7 +406,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 ip += bodyLength
                 break
             }
-            case Operation.CALL: {
+            case Operation.CALL_GLOBAL: {
                 checkTimeout()
                 const name = next()
                 // excluding "toString" only because of JavaScript --> no, it's not declared, it's omnipresent! o_O
@@ -416,9 +422,14 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                     if (temp > MAX_FUNCTION_ARGS_LENGTH) {
                         throw new HogVMException('Too many arguments')
                     }
-                    const args = Array(temp)
-                        .fill(null)
-                        .map(() => popStack())
+
+                    const args =
+                        version === 0
+                            ? Array(temp)
+                                  .fill(null)
+                                  .map(() => popStack())
+                            : stackKeepFirstElements(stack.length - temp)
+
                     if (options?.functions && Object.hasOwn(options.functions, name) && options.functions[name]) {
                         pushStack(convertJSToHog(options.functions[name](...args.map(convertHogToJS))))
                     } else if (
@@ -436,10 +447,10 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                             result: undefined,
                             finished: false,
                             asyncFunctionName: name,
-                            asyncFunctionArgs: args,
+                            asyncFunctionArgs: args.map(convertHogToJS),
                             state: {
                                 bytecode,
-                                stack,
+                                stack: stack.map(convertHogToJS),
                                 callStack,
                                 throwStack,
                                 declaredFunctions,
@@ -475,7 +486,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 }
                 if (throwStack.length > 0) {
                     const [callStackLen, stackLen, catchIp] = throwStack.pop()!
-                    spliceStack1(stackLen)
+                    stackKeepFirstElements(stackLen)
                     memUsed -= memStack.splice(stackLen).reduce((acc, val) => acc + val, 0)
                     callStack.splice(callStackLen)
                     pushStack(exception)

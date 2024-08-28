@@ -9,8 +9,10 @@ import {
     ChartDisplayCategory,
     ChartDisplayType,
     CountPerActorMathType,
+    DurationType,
     EventPropertyFilter,
     EventType,
+    FilterLogicalOperator,
     FilterType,
     FunnelsFilterType,
     GroupMathType,
@@ -20,14 +22,17 @@ import {
     IntervalType,
     LifecycleFilterType,
     LifecycleToggle,
+    LogEntryPropertyFilter,
     PathsFilterType,
     PersonPropertyFilter,
     PropertyGroupFilter,
     PropertyMathType,
     RetentionFilterType,
     SessionPropertyFilter,
+    SessionRecordingType,
     StickinessFilterType,
     TrendsFilterType,
+    UserBasicType,
 } from '~/types'
 
 export { ChartDisplayCategory }
@@ -63,6 +68,7 @@ export enum NodeKind {
     FunnelsActorsQuery = 'FunnelsActorsQuery',
     FunnelCorrelationActorsQuery = 'FunnelCorrelationActorsQuery',
     SessionsTimelineQuery = 'SessionsTimelineQuery',
+    RecordingsQuery = 'RecordingsQuery',
     SessionAttributionExplorerQuery = 'SessionAttributionExplorerQuery',
     ErrorTrackingQuery = 'ErrorTrackingQuery',
 
@@ -202,8 +208,9 @@ export interface HogQLQueryModifiers {
     debug?: boolean
     s3TableUseInvalidColumns?: boolean
     personsJoinMode?: 'inner' | 'left'
-    bounceRatePageViewMode?: 'count_pageviews' | 'uniq_urls'
+    bounceRatePageViewMode?: 'count_pageviews' | 'uniq_urls' | 'uniq_page_screen_autocaptures'
     sessionTableVersion?: 'auto' | 'v1' | 'v2'
+    propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
 }
 
 export interface DataWarehouseEventsModifier {
@@ -261,6 +268,29 @@ export interface HogQueryResponse {
 export interface HogQuery extends DataNode<HogQueryResponse> {
     kind: NodeKind.HogQuery
     code?: string
+}
+
+export interface RecordingsQueryResponse {
+    results: SessionRecordingType[]
+    has_next: boolean
+}
+
+export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
+    kind: NodeKind.RecordingsQuery
+    date_from?: string | null
+    date_to?: string | null
+    events?: FilterType['events']
+    actions?: FilterType['actions']
+    properties?: AnyPropertyFilter[]
+    console_log_filters?: LogEntryPropertyFilter[]
+    having_predicates?: AnyPropertyFilter[] // duration and snapshot_source filters
+    filter_test_accounts?: boolean
+    operand?: FilterLogicalOperator
+    session_ids?: string[]
+    person_uuid?: string
+    order: DurationType | 'start_time' | 'console_error_count'
+    limit?: integer
+    offset?: integer
 }
 
 export interface HogQLNotice {
@@ -493,6 +523,9 @@ export interface EventsQuery extends DataNode<EventsQueryResponse> {
     orderBy?: string[]
 }
 
+/**
+ * @deprecated Use `ActorsQuery` instead.
+ */
 export interface PersonsNode extends DataNode {
     kind: NodeKind.PersonsNode
     search?: string
@@ -591,11 +624,16 @@ export interface ChartSettings {
     stackBars100?: boolean
 }
 
+export interface TableSettings {
+    columns?: ChartAxis[]
+}
+
 export interface DataVisualizationNode extends Node<never> {
     kind: NodeKind.DataVisualizationNode
     source: HogQLQuery
     display?: ChartDisplayType
     chartSettings?: ChartSettings
+    tableSettings?: TableSettings
 }
 
 interface DataTableNodeViewProps {
@@ -667,9 +705,9 @@ export interface VizSpecificOptions {
     }
 }
 
-export interface InsightVizNode extends Node<never>, InsightVizNodeViewProps {
+export interface InsightVizNode<T = InsightQueryNode> extends Node<never>, InsightVizNodeViewProps {
     kind: NodeKind.InsightVizNode
-    source: InsightQueryNode
+    source: T
 }
 
 interface InsightVizNodeViewProps {
@@ -758,7 +796,10 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'hiddenLegendIndexes',
 ])
 
-export interface TrendsQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}
+export interface TrendsQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {
+    /** Wether more breakdown values are available. */
+    hasMore?: boolean
+}
 
 export type CachedTrendsQueryResponse = CachedQueryResponse<TrendsQueryResponse>
 
@@ -868,6 +909,7 @@ export type RetentionFilter = {
     /** @default Day */
     period?: RetentionFilterLegacy['period']
     showMean?: RetentionFilterLegacy['show_mean']
+    cumulative?: RetentionFilterLegacy['cumulative']
 }
 
 export interface RetentionValue {
@@ -1315,7 +1357,7 @@ export type CachedSessionAttributionExplorerQueryResponse = CachedQueryResponse<
 
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
-    fingerprint?: string
+    fingerprint?: string[]
     select?: HogQLExpression[]
     eventColumns?: string[]
     order?: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
@@ -1327,9 +1369,9 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
 }
 
 export interface ErrorTrackingGroup {
-    fingerprint: string
+    fingerprint: string[]
     exception_type: string | null
-    merged_fingerprints: string[]
+    merged_fingerprints: string[][]
     occurrences: number
     sessions: number
     users: number
@@ -1673,4 +1715,49 @@ export interface DashboardFilter {
     date_from?: string | null
     date_to?: string | null
     properties?: AnyPropertyFilter[] | null
+}
+
+export interface InsightsThresholdAbsolute {
+    lower?: number
+    upper?: number
+}
+
+export interface InsightThreshold {
+    absoluteThreshold?: InsightsThresholdAbsolute
+    // More types of thresholds or conditions can be added here
+}
+
+export interface AlertCondition {
+    // Conditions in addition to the separate threshold
+    // TODO: Think about things like relative thresholds, rate of change, etc.
+}
+
+export interface AlertCheck {
+    id: string
+    created_at: string
+    calculated_value: number
+    state: string
+    targets_notified: boolean
+}
+
+export interface AlertTypeBase {
+    name: string
+    condition: AlertCondition
+    enabled: boolean
+    insight: number
+}
+
+export interface AlertTypeWrite extends AlertTypeBase {
+    subscribed_users: integer[]
+}
+
+export interface AlertType extends AlertTypeBase {
+    id: string
+    subscribed_users: UserBasicType[]
+    threshold: { configuration: InsightThreshold }
+    created_by: UserBasicType
+    created_at: string
+    state: string
+    last_notified_at: string
+    checks: AlertCheck[]
 }

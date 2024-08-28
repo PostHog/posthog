@@ -6,7 +6,7 @@ from typing import Any, Generic, Optional, TypeVar, Union, cast, TypeGuard
 import structlog
 from prometheus_client import Counter
 from pydantic import BaseModel, ConfigDict
-from sentry_sdk import capture_exception, push_scope
+from sentry_sdk import capture_exception, push_scope, set_tag, get_traceparent
 
 from posthog.caching.utils import is_stale, ThresholdMode, cache_target_age, last_refresh_from_cached_result
 from posthog.clickhouse.client.execute_async import enqueue_process_query_task, get_query_status, QueryNotFoundError
@@ -538,7 +538,18 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         dashboard_id: Optional[int] = None,
     ) -> CR | CacheMissResponse | QueryStatusResponse:
         cache_key = self.get_cache_key()
+
         tag_queries(cache_key=cache_key)
+        tag_queries(sentry_trace=get_traceparent())
+        set_tag("cache_key", cache_key)
+        set_tag("query_type", getattr(self.query, "kind", "Other"))
+        if insight_id:
+            tag_queries(insight_id=insight_id)
+            set_tag("insight_id", str(insight_id))
+        if dashboard_id:
+            tag_queries(dashboard_id=dashboard_id)
+            set_tag("dashboard_id", str(dashboard_id))
+
         self.query_id = query_id or self.query_id
         CachedResponse: type[CR] = self.cached_response_type
         cache_manager = QueryCacheManager(
@@ -586,10 +597,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 # This would be a possible place to decide to not ever keep this cache warm
                 # Example: Not for super quickly calculated insights
                 # Set target_age to None in that case
-                target_age=self.cache_target_age(
-                    last_refresh=last_refresh,
-                    lazy=True,  # Attention: Currently using extended/lazy cache age as warming target
-                ),
+                target_age=target_age,
             )
             QUERY_CACHE_WRITE_COUNTER.labels(team_id=self.team.pk).inc()
 

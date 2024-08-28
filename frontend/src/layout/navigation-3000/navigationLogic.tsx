@@ -399,7 +399,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                           },
                           {
                               identifier: Scene.PersonsManagement,
-                              label: 'People',
+                              label: 'People and groups',
                               icon: <IconPeople />,
                               logic: isUsingSidebar ? personsAndGroupsSidebarLogic : undefined,
                               to: isUsingSidebar ? undefined : urls.persons(),
@@ -441,7 +441,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             label: 'Web analytics',
                             icon: <IconPieChart />,
                             to: isUsingSidebar ? undefined : urls.webAnalytics(),
-                            tag: 'beta' as const,
                         },
                         {
                             identifier: Scene.Replay,
@@ -455,6 +454,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   label: 'Error tracking',
                                   icon: <IconWarning />,
                                   to: urls.errorTracking(),
+                                  tag: 'alpha' as const,
                               }
                             : null,
                         featureFlags[FEATURE_FLAGS.HEATMAPS_UI]

@@ -35,7 +35,7 @@ def test_get_column_hints_numeric_with_missing_scale_and_precision():
     mock_engine = _setup([("column", "numeric", None, None)])
 
     assert get_column_hints(mock_engine, "some_schema", "some_table") == {
-        "column": {"data_type": "decimal", "precision": 76, "scale": 16}
+        "column": {"data_type": "decimal", "precision": 76, "scale": 32}
     }
 
 

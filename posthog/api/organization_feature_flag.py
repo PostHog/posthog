@@ -1,6 +1,6 @@
 from django.core.exceptions import ObjectDoesNotExist
 from rest_framework.response import Response
-from rest_framework.decorators import action
+from posthog.api.utils import action
 from rest_framework import (
     mixins,
     viewsets,

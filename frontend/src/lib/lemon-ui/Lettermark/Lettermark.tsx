@@ -1,6 +1,7 @@
 import './Lettermark.scss'
 
 import clsx from 'clsx'
+import React from 'react'
 
 // This is the number of known --lettermark-* variables in `globals.scss`
 const NUM_LETTERMARK_STYLES = 8
@@ -18,13 +19,18 @@ export interface LettermarkProps {
     color?: LettermarkColor
     /** Circular rounded style rather than square */
     rounded?: boolean
+    /** @default 'medium' */
+    size?: 'xsmall' | 'medium' | 'xlarge'
 }
 
 /** An icon-sized lettermark.
  *
  * When given a string, the initial letter is shown. Numbers up to 99 are displayed in full, in integer form.
  */
-export function Lettermark({ name, index, color, rounded = false }: LettermarkProps): JSX.Element {
+export const Lettermark = React.forwardRef<HTMLDivElement, LettermarkProps>(function Lettermark(
+    { name, index, color, rounded = false, size = 'medium' },
+    ref
+) {
     const representation = name
         ? typeof name === 'number'
             ? String(Math.floor(name))
@@ -36,14 +42,14 @@ export function Lettermark({ name, index, color, rounded = false }: LettermarkPr
     return (
         <div
             className={clsx(
-                'Lettermark',
+                `Lettermark Lettermark--${size}`,
                 colorIndex && `Lettermark--variant-${colorIndex}`,
-                rounded && `Lettermark--rounded`,
+                rounded && 'Lettermark--rounded',
                 representation === '?' && 'Lettermark--unknown'
             )}
-            title={String(name)}
+            ref={ref}
         >
             {representation}
         </div>
     )
-}
+})

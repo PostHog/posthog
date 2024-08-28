@@ -34,6 +34,31 @@ def build_function_call(
 
         return f"{substitute_params(expr, raw_params)})"
 
+    # DeltaS3Wrapper format
+    if format == "DeltaS3Wrapper":
+        if url.endswith("/"):
+            escaped_url = add_param(f"{url[:len(url) - 1]}__query/*.parquet")
+        else:
+            escaped_url = add_param(f"{url}__query/*.parquet")
+
+        if structure:
+            escaped_structure = add_param(structure, False)
+
+        expr = f"s3({escaped_url}"
+
+        if access_key and access_secret:
+            escaped_access_key = add_param(access_key)
+            escaped_access_secret = add_param(access_secret)
+
+            expr += f", {escaped_access_key}, {escaped_access_secret}"
+
+        expr += ", 'Parquet'"
+
+        if structure:
+            expr += f", {escaped_structure}"
+
+        return return_expr(expr)
+
     # Delta format
     if format == "Delta":
         escaped_url = add_param(url)

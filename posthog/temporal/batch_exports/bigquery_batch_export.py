@@ -405,7 +405,8 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
         requires_merge = (
             isinstance(inputs.batch_export_model, BatchExportModel) and inputs.batch_export_model.name == "persons"
         )
-        stage_table_name = f"stage_{inputs.table_id}" if requires_merge else inputs.table_id
+        data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
+        stage_table_name = f"stage_{inputs.table_id}_{data_interval_end_str}" if requires_merge else inputs.table_id
 
         with bigquery_client(inputs) as bq_client:
             async with (

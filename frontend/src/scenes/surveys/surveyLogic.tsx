@@ -11,9 +11,10 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { DataTableNode, HogQLQuery, NodeKind } from '~/queries/schema'
+import { DataTableNode, HogQLQuery, InsightVizNode, NodeKind } from '~/queries/schema'
 import { hogql } from '~/queries/utils'
 import {
+    BaseMathType,
     Breadcrumb,
     FeatureFlagFilters,
     MultipleSurveyQuestion,
@@ -241,8 +242,8 @@ export const surveyLogic = kea<surveyLogicType>([
         },
         surveyUserStats: {
             loadSurveyUserStats: async (): Promise<SurveyUserStats> => {
-                const { survey } = values
-                const startDate = dayjs((survey as Survey).created_at).format('YYYY-MM-DD')
+                const survey: Survey = values.survey as Survey
+                const startDate = dayjs(survey.start_date || survey.created_at).format('YYYY-MM-DD')
                 const endDate = survey.end_date
                     ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
                     : dayjs().add(1, 'day').format('YYYY-MM-DD')
@@ -289,14 +290,13 @@ export const surveyLogic = kea<surveyLogicType>([
                 questionIndex: number
                 iteration?: number | null | undefined
             }): Promise<SurveyRatingResults> => {
-                const { survey } = values
-
                 const question = values.survey.questions[questionIndex]
                 if (question.type !== SurveyQuestionType.Rating) {
                     throw new Error(`Survey question type must be ${SurveyQuestionType.Rating}`)
                 }
 
-                const startDate = dayjs((survey as Survey).created_at).format('YYYY-MM-DD')
+                const survey: Survey = values.survey as Survey
+                const startDate = dayjs(survey.start_date || survey.created_at).format('YYYY-MM-DD')
                 const endDate = survey.end_date
                     ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
                     : dayjs().add(1, 'day').format('YYYY-MM-DD')
@@ -344,14 +344,13 @@ export const surveyLogic = kea<surveyLogicType>([
             }: {
                 questionIndex: number
             }): Promise<SurveyRecurringNPSResults> => {
-                const { survey } = values
-
                 const question = values.survey.questions[questionIndex]
                 if (question.type !== SurveyQuestionType.Rating) {
                     throw new Error(`Survey question type must be ${SurveyQuestionType.Rating}`)
                 }
 
-                const startDate = dayjs((survey as Survey).created_at).format('YYYY-MM-DD')
+                const survey: Survey = values.survey as Survey
+                const startDate = dayjs(survey.start_date || survey.created_at).format('YYYY-MM-DD')
                 const endDate = survey.end_date
                     ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
                     : dayjs().add(1, 'day').format('YYYY-MM-DD')
@@ -430,8 +429,8 @@ export const surveyLogic = kea<surveyLogicType>([
             }: {
                 questionIndex: number
             }): Promise<SurveySingleChoiceResults> => {
-                const { survey } = values
-                const startDate = dayjs((survey as Survey).created_at).format('YYYY-MM-DD')
+                const survey: Survey = values.survey as Survey
+                const startDate = dayjs(survey.start_date || survey.created_at).format('YYYY-MM-DD')
                 const endDate = survey.end_date
                     ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
                     : dayjs().add(1, 'day').format('YYYY-MM-DD')
@@ -466,14 +465,13 @@ export const surveyLogic = kea<surveyLogicType>([
             }: {
                 questionIndex: number
             }): Promise<SurveyMultipleChoiceResults> => {
-                const { survey } = values
-
                 const question = values.survey.questions[questionIndex]
                 if (question.type !== SurveyQuestionType.MultipleChoice) {
                     throw new Error(`Survey question type must be ${SurveyQuestionType.MultipleChoice}`)
                 }
 
-                const startDate = dayjs((survey as Survey).created_at).format('YYYY-MM-DD')
+                const survey: Survey = values.survey as Survey
+                const startDate = dayjs(survey.start_date || survey.created_at).format('YYYY-MM-DD')
                 const endDate = survey.end_date
                     ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
                     : dayjs().add(1, 'day').format('YYYY-MM-DD')
@@ -521,14 +519,13 @@ export const surveyLogic = kea<surveyLogicType>([
             }: {
                 questionIndex: number
             }): Promise<SurveyOpenTextResults> => {
-                const { survey } = values
-
                 const question = values.survey.questions[questionIndex]
                 if (question.type !== SurveyQuestionType.Open) {
                     throw new Error(`Survey question type must be ${SurveyQuestionType.Open}`)
                 }
 
-                const startDate = dayjs((survey as Survey).created_at).format('YYYY-MM-DD')
+                const survey: Survey = values.survey as Survey
+                const startDate = dayjs(survey.start_date || survey.created_at).format('YYYY-MM-DD')
                 const endDate = survey.end_date
                     ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
                     : dayjs().add(1, 'day').format('YYYY-MM-DD')
@@ -913,7 +910,8 @@ export const surveyLogic = kea<surveyLogicType>([
                 if (survey.id === 'new') {
                     return null
                 }
-                const createdAt = (survey as Survey).created_at
+                const surveyWithResults = survey as Survey
+                const startDate = surveyWithResults.start_date || surveyWithResults.created_at
                 return {
                     kind: NodeKind.DataTableNode,
                     source: {
@@ -937,7 +935,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         ],
                         orderBy: ['timestamp DESC'],
                         where: [`event == 'survey sent'`],
-                        after: createdAt,
+                        after: startDate,
                         properties: [
                             {
                                 type: PropertyFilterType.Event,
@@ -1114,6 +1112,47 @@ export const surveyLogic = kea<surveyLogicType>([
             (s) => [s.survey],
             (survey) =>
                 survey.questions.some((question) => question.branching && Object.keys(question.branching).length > 0),
+        ],
+        surveyAsInsightURL: [
+            (s) => [s.survey],
+            (survey) => {
+                const query: InsightVizNode = {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        properties: [
+                            {
+                                key: '$survey_id',
+                                value: survey.id,
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.Event,
+                            },
+                        ],
+                        series: [
+                            {
+                                kind: NodeKind.EventsNode,
+                                event: 'survey sent',
+                                name: 'survey sent',
+                                math: BaseMathType.TotalCount,
+                            },
+                            {
+                                kind: NodeKind.EventsNode,
+                                event: 'survey shown',
+                                name: 'survey shown',
+                                math: BaseMathType.TotalCount,
+                            },
+                            {
+                                kind: NodeKind.EventsNode,
+                                event: 'survey dismissed',
+                                name: 'survey dismissed',
+                                math: BaseMathType.TotalCount,
+                            },
+                        ],
+                    },
+                }
+
+                return urls.insightNew(undefined, undefined, query)
+            },
         ],
     }),
     forms(({ actions, props, values }) => ({

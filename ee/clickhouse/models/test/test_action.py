@@ -13,7 +13,7 @@ from posthog.test.base import (
     _create_event,
     _create_person,
 )
-from hogvm.python.operation import Operation as op, HOGQL_BYTECODE_IDENTIFIER as _H
+from hogvm.python.operation import Operation as op, HOGQL_BYTECODE_IDENTIFIER as _H, HOGQL_BYTECODE_VERSION
 
 
 @dataclasses.dataclass
@@ -289,6 +289,15 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
             action1.bytecode,
             [
                 _H,
+                HOGQL_BYTECODE_VERSION,
+                # event = 'insight viewed'
+                op.STRING,
+                "insight viewed",
+                op.STRING,
+                "event",
+                op.GET_GLOBAL,
+                1,
+                op.EQ,
                 # toInt(properties.filters_count) > 10
                 op.INTEGER,
                 10,
@@ -298,18 +307,10 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
                 "properties",
                 op.GET_GLOBAL,
                 2,
-                op.CALL,
+                op.CALL_GLOBAL,
                 "toInt",
                 1,
                 op.GT,
-                # event = 'insight viewed'
-                op.STRING,
-                "insight viewed",
-                op.STRING,
-                "event",
-                op.GET_GLOBAL,
-                1,
-                op.EQ,
                 # and
                 op.AND,
                 2,

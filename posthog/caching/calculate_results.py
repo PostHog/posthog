@@ -123,7 +123,12 @@ def get_cache_type(cacheable: Optional[FilterType] | Optional[dict]) -> CacheTyp
 
 
 def calculate_for_query_based_insight(
-    insight: Insight, *, dashboard: Optional[Dashboard] = None, execution_mode: ExecutionMode, user: User
+    insight: Insight,
+    *,
+    dashboard: Optional[Dashboard] = None,
+    execution_mode: ExecutionMode,
+    user: Optional[User],
+    filters_override: Optional[dict] = None,
 ) -> "InsightResult":
     from posthog.caching.fetch_from_cache import InsightResult, NothingInCacheResult
     from posthog.caching.insight_cache import update_cached_state
@@ -135,7 +140,9 @@ def calculate_for_query_based_insight(
     response = process_response = process_query_dict(
         insight.team,
         insight.query,
-        dashboard_filters_json=dashboard.filters if dashboard is not None else None,
+        dashboard_filters_json=(
+            filters_override if filters_override is not None else dashboard.filters if dashboard is not None else None
+        ),
         execution_mode=execution_mode,
         user=user,
         insight_id=insight.pk,
@@ -164,6 +171,7 @@ def calculate_for_query_based_insight(
         # Translating `QueryResponse` to legacy insights shape
         # The response may not be conformant with that, hence these are all `.get()`s
         result=response.get("results"),
+        has_more=response.get("hasMore"),
         columns=response.get("columns"),
         last_refresh=last_refresh,
         cache_key=cache_key,

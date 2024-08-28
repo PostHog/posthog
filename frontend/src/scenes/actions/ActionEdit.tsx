@@ -1,4 +1,4 @@
-import { IconInfo, IconPlus, IconWarning } from '@posthog/icons'
+import { IconInfo, IconPlus } from '@posthog/icons'
 import { LemonBanner, LemonCheckbox, LemonTextArea } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
@@ -227,19 +227,12 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                                     <LemonCheckbox
                                         id="webhook-checkbox"
                                         bordered
-                                        checked={action.bytecode_error ? false : !!value}
+                                        checked={!!value}
                                         onChange={onChange}
-                                        disabledReason={
-                                            !slackEnabled
-                                                ? 'Configure webhooks in project settings'
-                                                : action.bytecode_error ?? null
-                                        }
+                                        disabledReason={!slackEnabled ? 'Configure webhooks in project settings' : null}
                                         label={
                                             <>
                                                 <span>Post to webhook when this action is triggered.</span>
-                                                {action.bytecode_error ? (
-                                                    <IconWarning className="text-warning text-xl ml-1" />
-                                                ) : null}
                                             </>
                                         }
                                     />
@@ -251,7 +244,7 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                         </LemonField>
                         {action.post_to_slack && (
                             <>
-                                {!action.bytecode_error && action.post_to_slack && (
+                                {action.post_to_slack && (
                                     <>
                                         <LemonField name="slack_message_format">
                                             {({ value, onChange }) => (

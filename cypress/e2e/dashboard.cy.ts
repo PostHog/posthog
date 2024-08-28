@@ -14,7 +14,7 @@ describe('Dashboard', () => {
     it('Dashboards loaded', () => {
         cy.get('h1').should('contain', 'Dashboards')
         // Breadcrumbs work
-        cy.get('[data-attr=breadcrumb-organization]').should('contain', 'Hogflix')
+        cy.get('[data-attr=breadcrumb-organization]').should('contain', 'H') // "H" as the lettermark of "Hogflix"
         cy.get('[data-attr=breadcrumb-project]').should('contain', 'Hogflix Demo App')
         cy.get('[data-attr=breadcrumb-Dashboards]').should('have.text', 'Dashboards')
     })
@@ -95,7 +95,7 @@ describe('Dashboard', () => {
         // refresh the dashboard by changing date range
         cy.get('[data-attr="date-filter"]').click()
         cy.contains('span', 'Last 14 days').click()
-        cy.contains('span', 'Apply and save dashboard').click()
+        cy.contains('span', 'Save').click()
 
         cy.contains('span[class="text-primary text-sm font-medium"]', 'Refreshing').should('not.exist')
         cy.get('span').contains('Refreshing').should('not.exist')
@@ -163,7 +163,7 @@ describe('Dashboard', () => {
         cy.get('[data-attr=date-filter]').contains('No date range override').click()
         cy.get('div').contains('Yesterday').should('exist').click()
         cy.get('[data-attr=date-filter]').contains('Yesterday')
-        cy.get('button').contains('Apply and save dashboard').click()
+        cy.get('button').contains('Save').click()
         cy.get('.InsightCard h5').should('have.length', 1).contains('Yesterday')
         // Cool, now back to A and make sure the insight is still using the original range there, not the one from B
         cy.clickNavMenu('dashboards')
@@ -233,7 +233,7 @@ describe('Dashboard', () => {
 
         cy.get('.InsightCard').its('length').should('be.gte', 2)
         // Breadcrumbs work
-        cy.get('[data-attr=breadcrumb-organization]').should('contain', 'Hogflix')
+        cy.get('[data-attr=breadcrumb-organization]').should('contain', 'H') // "H" as the lettermark of "Hogflix"
         cy.get('[data-attr=breadcrumb-project]').should('contain', 'Hogflix Demo App')
         cy.get('[data-attr=breadcrumb-Dashboards]').should('have.text', 'Dashboards')
         cy.get('[data-attr^="breadcrumb-Dashboard:"]').should('have.text', TEST_DASHBOARD_NAME + 'UnnamedCancelSave')

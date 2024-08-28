@@ -10,8 +10,6 @@ export interface ObjectStorage {
 
 let objectStorage: ObjectStorage | undefined
 
-// Object Storage added without any uses to flush out deployment concerns.
-// see https://github.com/PostHog/posthog/pull/9901
 export const getObjectStorage = (serverConfig: Partial<PluginsServerConfig>): ObjectStorage | undefined => {
     if (!objectStorage) {
         try {

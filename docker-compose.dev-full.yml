@@ -9,6 +9,16 @@
 #
 
 services:
+    proxy:
+        extends:
+            file: docker-compose.base.yml
+            service: proxy
+        ports:
+            - 8010:8000
+        depends_on:
+            - replay-capture
+            - capture
+            - web
     db:
         extends:
             file: docker-compose.base.yml
@@ -117,10 +127,16 @@ services:
         extends:
             file: docker-compose.base.yml
             service: capture
-        ports:
-            - 3000:3000
         environment:
             - DEBUG=1
+        depends_on:
+            - redis
+            - kafka
+
+    replay-capture:
+        extends:
+            file: docker-compose.base.yml
+            service: replay-capture
         depends_on:
             - redis
             - kafka

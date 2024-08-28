@@ -249,7 +249,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                         />
                     </div>
                 </div>
-                <div className="flex flex-row">
+                <div className="flex flex-row px-px">
                     {props.editorFooter ? (
                         props.editorFooter(hasErrors, error, isValidView)
                     ) : (
