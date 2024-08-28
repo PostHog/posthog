@@ -181,8 +181,8 @@ export function SummaryTable(): JSX.Element {
                 ) as TrendExperimentVariant
                 const controlMean = controlVariant.count / controlVariant.absolute_exposure
 
-                const lowerBound = (credibleInterval[0] - controlMean) * 100
-                const upperBound = (credibleInterval[1] - controlMean) * 100
+                const lowerBound = ((credibleInterval[0] - controlMean) / controlMean) * 100
+                const upperBound = ((credibleInterval[1] - controlMean) / controlMean) * 100
 
                 return (
                     <div className="font-semibold">{`[${lowerBound > 0 ? '+' : ''}${lowerBound.toFixed(2)}%, ${
