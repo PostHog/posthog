@@ -85,7 +85,10 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
             variables,
             redirectAfterCreation,
         }),
-        submitNewDashboardSuccessWithResult: (result: DashboardType) => ({ result }),
+        submitNewDashboardSuccessWithResult: (result: DashboardType, variables?: DashboardTemplateVariableType[]) => ({
+            result,
+            variables,
+        }),
     }),
     reducers({
         isLoading: [
@@ -142,7 +145,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                     )
                     actions.hideNewDashboardModal()
                     actions.resetNewDashboard()
-                    dashboardsModel.actions.addDashboardSuccess(getQueryBasedDashboard(result)!)
+                    dashboardsModel.actions.addDashboardSuccess(getQueryBasedDashboard(result))
                     actions.submitNewDashboardSuccessWithResult(result)
                     if (show) {
                         breakpoint()
@@ -189,8 +192,8 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                 )
                 actions.hideNewDashboardModal()
                 actions.resetNewDashboard()
-                dashboardsModel.actions.addDashboardSuccess(getQueryBasedDashboard(result)!)
-                actions.submitNewDashboardSuccessWithResult(result)
+                dashboardsModel.actions.addDashboardSuccess(getQueryBasedDashboard(result))
+                actions.submitNewDashboardSuccessWithResult(result, variables)
                 if (redirectAfterCreation) {
                     router.actions.push(urls.dashboard(result.id))
                 }

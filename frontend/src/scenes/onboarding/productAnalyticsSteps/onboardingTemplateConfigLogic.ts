@@ -28,9 +28,9 @@ export const onboardingTemplateConfigLogic = kea<onboardingTemplateConfigLogicTy
         ],
     }),
     listeners({
-        submitNewDashboardSuccessWithResult: ({ result }) => {
+        submitNewDashboardSuccessWithResult: ({ result, variables }) => {
             if (result) {
-                onboardingLogic.actions.goToNextStep()
+                onboardingLogic.actions.goToNextStep(variables?.length && variables.length > 0 ? 1 : 2)
             }
         },
     }),

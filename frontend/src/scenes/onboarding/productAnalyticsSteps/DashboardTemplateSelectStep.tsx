@@ -40,7 +40,7 @@ export const OnboardingDashboardTemplateSelectStep = ({
                 Get useful insights from your events super fast with our dashboard templates. Select one to get started
                 with based on your market and industry.
             </p>
-            <DashboardTemplateChooser onItemClick={goToNextStep} />
+            <DashboardTemplateChooser onItemClick={goToNextStep} redirectAfterCreation={false} />
         </OnboardingStep>
     )
 }

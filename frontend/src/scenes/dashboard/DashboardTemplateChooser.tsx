@@ -15,7 +15,11 @@ import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
 import { DashboardTemplateType } from '~/types'
 
-export function DashboardTemplateChooser({ scope = 'default', onItemClick }: DashboardTemplateProps): JSX.Element {
+export function DashboardTemplateChooser({
+    scope = 'default',
+    onItemClick,
+    redirectAfterCreation = true,
+}: DashboardTemplateProps): JSX.Element {
     const templatesLogic = dashboardTemplatesLogic({ scope })
     const { allTemplates, allTemplatesLoading } = useValues(templatesLogic)
 
@@ -68,7 +72,11 @@ export function DashboardTemplateChooser({ scope = 'default', onItemClick }: Das
                                     if (template.variables === null) {
                                         template.variables = []
                                     }
-                                    createDashboardFromTemplate(template, template.variables || [])
+                                    createDashboardFromTemplate(
+                                        template,
+                                        template.variables || [],
+                                        redirectAfterCreation
+                                    )
                                 } else {
                                     if (!newDashboardModalVisible) {
                                         showVariableSelectModal(template)
