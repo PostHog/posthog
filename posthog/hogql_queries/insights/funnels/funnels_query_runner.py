@@ -105,24 +105,26 @@ class FunnelsQueryRunner(QueryRunner):
         if response.timings is not None:
             timings.extend(response.timings)
 
-        return FunnelsQueryResponse(results=results, timings=timings, hogql=hogql, modifiers=self.modifiers)
+        return FunnelsQueryResponse(
+            isUdf=self._use_udf, results=results, timings=timings, hogql=hogql, modifiers=self.modifiers
+        )
+
+    @cached_property
+    def _use_udf(self):
+        return self.context.funnelsFilter.useUdf or insight_funnels_use_udf(self.team)
 
     @cached_property
     def funnel_order_class(self):
-        return get_funnel_order_class(self.context.funnelsFilter, use_udf=insight_funnels_use_udf(self.team))(
-            context=self.context
-        )
+        return get_funnel_order_class(self.context.funnelsFilter, use_udf=self._use_udf)(context=self.context)
 
     @cached_property
     def funnel_class(self):
         funnelVizType = self.context.funnelsFilter.funnelVizType
 
-        use_udf = insight_funnels_use_udf(self.team)
-
         if funnelVizType == FunnelVizType.TRENDS:
             return (
                 FunnelTrendsUDF(context=self.context, **self.kwargs)
-                if use_udf and self.context.funnelsFilter.funnelOrderType != StepOrderValue.UNORDERED
+                if self._use_udf and self.context.funnelsFilter.funnelOrderType != StepOrderValue.UNORDERED
                 else FunnelTrends(context=self.context, **self.kwargs)
             )
         elif funnelVizType == FunnelVizType.TIME_TO_CONVERT:
