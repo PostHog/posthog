@@ -2,7 +2,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
 import { Hub } from '../../../../src/types'
-import { createHub } from '../../../../src/utils/db/hub'
+import { closeHub, createHub } from '../../../../src/utils/db/hub'
 import { UUIDT } from '../../../../src/utils/utils'
 import { normalizeEventStep } from '../../../../src/worker/ingestion/event-pipeline/normalizeEventStep'
 import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/processPersonsStep'
@@ -11,7 +11,6 @@ import { createOrganization, createTeam, fetchPostgresPersons, resetTestDatabase
 describe('processPersonsStep()', () => {
     let runner: any
     let hub: Hub
-    let closeHub: () => Promise<void>
 
     let uuid: string
     let teamId: number
@@ -20,7 +19,7 @@ describe('processPersonsStep()', () => {
 
     beforeEach(async () => {
         await resetTestDatabase()
-        ;[hub, closeHub] = await createHub()
+        hub = await createHub()
         runner = {
             nextStep: (...args: any[]) => args,
             hub: hub,

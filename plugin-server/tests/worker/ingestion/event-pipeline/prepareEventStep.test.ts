@@ -2,7 +2,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
 import { Hub, Person, Team } from '../../../../src/types'
-import { createHub } from '../../../../src/utils/db/hub'
+import { closeHub, createHub } from '../../../../src/utils/db/hub'
 import { UUIDT } from '../../../../src/utils/utils'
 import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/prepareEventStep'
 import { resetTestDatabase } from '../../../helpers/sql'
@@ -51,11 +51,10 @@ const teamTwo: Team = {
 describe('prepareEventStep()', () => {
     let runner: any
     let hub: Hub
-    let closeHub: () => Promise<void>
 
     beforeEach(async () => {
         await resetTestDatabase()
-        ;[hub, closeHub] = await createHub()
+        hub = await createHub()
 
         // :KLUDGE: We test below whether kafka messages are produced, so make sure the person exists beforehand.
         await hub.db.createPerson(person.created_at, {}, {}, {}, pluginEvent.team_id, null, false, person.uuid, [
@@ -75,7 +74,7 @@ describe('prepareEventStep()', () => {
     })
 
     afterEach(async () => {
-        await closeHub()
+        await closeHub(hub)
     })
 
     it('goes to `createEventStep` for normal events', async () => {

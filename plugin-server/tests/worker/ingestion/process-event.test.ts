@@ -2,7 +2,7 @@ import * as IORedis from 'ioredis'
 import { DateTime } from 'luxon'
 
 import { Hub, ISOTimestamp, Person, PreIngestionEvent } from '../../../src/types'
-import { createHub } from '../../../src/utils/db/hub'
+import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
 import { EventsProcessor } from '../../../src/worker/ingestion/process-event'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../helpers/clickhouse'
@@ -24,7 +24,7 @@ beforeAll(async () => {
 beforeEach(async () => {
     await resetTestDatabase()
     await resetTestDatabaseClickhouse()
-    ;[hub, closeHub] = await createHub()
+    hub = await createHub()
     redis = await hub.redisPool.acquire()
     await redis.flushdb()
 

@@ -7,7 +7,7 @@ import { BASE_REDIS_KEY, HogWatcher, HogWatcherState } from '../../src/cdp/hog-w
 import { CdpRedis, createCdpRedisPool } from '../../src/cdp/redis'
 import { HogFunctionInvocationResult } from '../../src/cdp/types'
 import { Hub } from '../../src/types'
-import { createHub } from '../../src/utils/db/hub'
+import { closeHub, createHub } from '../../src/utils/db/hub'
 import { delay } from '../../src/utils/utils'
 import { deleteKeysWithPrefix } from './helpers/redis'
 
@@ -48,7 +48,7 @@ describe('HogWatcher', () => {
         let redis: CdpRedis
 
         beforeEach(async () => {
-            ;[hub, closeHub] = await createHub()
+            hub = await createHub()
 
             now = 1720000000000
             mockNow.mockReturnValue(now)
@@ -72,7 +72,7 @@ describe('HogWatcher', () => {
 
         afterEach(async () => {
             jest.useRealTimers()
-            await closeHub()
+            await closeHub(hub)
             jest.clearAllMocks()
         })
 

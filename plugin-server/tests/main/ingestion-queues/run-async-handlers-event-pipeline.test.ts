@@ -23,7 +23,7 @@ import { KAFKA_EVENTS_JSON } from '../../../src/config/kafka-topics'
 import { buildOnEventIngestionConsumer } from '../../../src/main/ingestion-queues/on-event-handler-consumer'
 import { Hub, ISOTimestamp } from '../../../src/types'
 import { DependencyUnavailableError } from '../../../src/utils/db/error'
-import { createHub } from '../../../src/utils/db/hub'
+import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { PostgresUse } from '../../../src/utils/db/postgres'
 import { UUIDT } from '../../../src/utils/utils'
 import { processOnEventStep } from '../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
@@ -56,7 +56,7 @@ describe('runAppsOnEventPipeline()', () => {
     beforeEach(async () => {
         // Use fake timers to ensure that we don't need to wait on e.g. retry logic.
         jest.useFakeTimers({ advanceTimers: true })
-        ;[hub, closeHub] = await createHub()
+        hub = await createHub()
         redis = await hub.redisPool.acquire()
         await hub.postgres.query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_TABLES_QUERY, null, 'deleteTables') // Need to clear the DB to avoid unique constraint violations on ids
     })
@@ -64,7 +64,7 @@ describe('runAppsOnEventPipeline()', () => {
     afterEach(async () => {
         await hub.redisPool.release(redis)
         await teardownPlugins(hub)
-        await closeHub()
+        await closeHub(hub)
         jest.clearAllTimers()
         jest.useRealTimers()
         jest.restoreAllMocks()
@@ -169,12 +169,11 @@ describe('eachBatchAsyncHandlers', () => {
     // to https://github.com/piscinajs/piscina#method-runtask-options should be
     // the case.
     let hub: Hub
-    let closeHub: () => Promise<void>
     let piscina: Piscina
 
     beforeEach(async () => {
         jest.useFakeTimers({ advanceTimers: true })
-        ;[hub, closeHub] = await createHub()
+        hub = await createHub()
     })
 
     afterEach(async () => {

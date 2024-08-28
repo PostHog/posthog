@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 import fetch from 'node-fetch'
 
 import { Hook, Hub } from '../../../../src/types'
-import { createHub } from '../../../../src/utils/db/hub'
+import { closeHub, createHub } from '../../../../src/utils/db/hub'
 import { PostgresUse } from '../../../../src/utils/db/postgres'
 import { convertToPostIngestionEvent } from '../../../../src/utils/event'
 import { UUIDT } from '../../../../src/utils/utils'
@@ -27,7 +27,6 @@ describe('Event Pipeline integration test', () => {
     let actionManager: ActionManager
     let actionMatcher: ActionMatcher
     let hookCannon: HookCommander
-    let closeServer: () => Promise<void>
 
     const ingestEvent = async (event: PluginEvent) => {
         const runner = new EventPipelineRunner(hub, event)
@@ -43,7 +42,7 @@ describe('Event Pipeline integration test', () => {
         await resetTestDatabase()
         await resetTestDatabaseClickhouse()
         process.env.SITE_URL = 'https://example.com'
-        ;[hub, closeServer] = await createHub()
+        hub = await createHub()
 
         actionManager = new ActionManager(hub.db.postgres, hub)
         await actionManager.start()
@@ -62,7 +61,7 @@ describe('Event Pipeline integration test', () => {
     })
 
     afterEach(async () => {
-        await closeServer()
+        await closeHub(hub)
     })
 
     it('handles plugins setting properties', async () => {
