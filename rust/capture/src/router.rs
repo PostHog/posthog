@@ -12,7 +12,7 @@ use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 
 use crate::{
-    limiters::billing::BillingLimiter, redis::Client, sinks, time::TimeSource, v0_endpoint,
+    limiters::redis::RedisLimiter, redis::Client, sinks, time::TimeSource, v0_endpoint,
 };
 
 use crate::config::CaptureMode;
@@ -27,7 +27,7 @@ pub struct State {
     pub sink: Arc<dyn sinks::Event + Send + Sync>,
     pub timesource: Arc<dyn TimeSource + Send + Sync>,
     pub redis: Arc<dyn Client + Send + Sync>,
-    pub billing: BillingLimiter,
+    pub billing_limiter: RedisLimiter,
 }
 
 async fn index() -> &'static str {
@@ -43,7 +43,7 @@ pub fn router<
     liveness: HealthRegistry,
     sink: S,
     redis: Arc<R>,
-    billing: BillingLimiter,
+    billing_limiter: RedisLimiter,
     metrics: bool,
     capture_mode: CaptureMode,
 ) -> Router {
@@ -51,7 +51,7 @@ pub fn router<
         sink: Arc::new(sink),
         timesource: Arc::new(timesource),
         redis,
-        billing,
+        billing_limiter,
     };
 
     // Very permissive CORS policy, as old SDK versions
