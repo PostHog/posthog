@@ -172,7 +172,7 @@ if (res.status != 200 or not res.body.ok) {
             filters=SUB_TEMPLATE_COMMON["exception"].filters,
             masking=SUB_TEMPLATE_COMMON["exception"].masking,
             inputs={
-                "text": "*{person.name}* responded to survey *{event.properties.$survey_name}*",
+                "text": "*:exclamation: <{project.url}/error_tracking/{base64Encode(jsonStringify(event.properties.$exception_fingerprint))}|{event.properties.$exception_type}>*",
                 "blocks": [
                     {
                         "text": {

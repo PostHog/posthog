@@ -22,7 +22,7 @@ import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { Query } from '~/queries/Query/Query'
 import { ErrorTrackingGroup } from '~/queries/schema'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
-import { InsightLogicProps, PipelineStage } from '~/types'
+import { InsightLogicProps } from '~/types'
 
 import { errorTrackingDataNodeLogic } from './errorTrackingDataNodeLogic'
 import ErrorTrackingFilters from './ErrorTrackingFilters'
@@ -234,27 +234,6 @@ const AlertConfigrationModal = (): JSX.Element => {
                         ],
                     }}
                 />
-                <LemonButton
-                    type="primary"
-                    size="small"
-                    className="inline-flex"
-                    to={
-                        urls.pipelineNodeNew(PipelineStage.Destination) +
-                        `?kind=hog_function#configuration=${JSON.stringify({
-                            filters: {
-                                actions: [
-                                    {
-                                        id: 12345,
-                                        name: `Action name`,
-                                        type: 'actions',
-                                    },
-                                ],
-                            },
-                        })}`
-                    }
-                >
-                    Add alert
-                </LemonButton>
             </div>
         </LemonModal>
     )
