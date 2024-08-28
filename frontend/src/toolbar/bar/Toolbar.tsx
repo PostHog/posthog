@@ -144,7 +144,7 @@ export function ToolbarInfoMenu(): JSX.Element | null {
 export function Toolbar(): JSX.Element | null {
     const ref = useRef<HTMLDivElement | null>(null)
     const { minimized, position, isDragging, hedgehogMode, isEmbeddedInApp } = useValues(toolbarLogic)
-    const { setVisibleMenu, toggleMinimized, onMouseDown, setElement, setIsBlurred } = useActions(toolbarLogic)
+    const { setVisibleMenu, toggleMinimized, onMouseOrTouchDown, setElement, setIsBlurred } = useActions(toolbarLogic)
     const { isAuthenticated, userIntent } = useValues(toolbarConfigLogic)
     const { authenticate } = useActions(toolbarConfigLogic)
 
@@ -184,7 +184,8 @@ export function Toolbar(): JSX.Element | null {
                     hedgehogMode && 'Toolbar--hedgehog-mode',
                     isDragging && 'Toolbar--dragging'
                 )}
-                onMouseDown={(e) => onMouseDown(e as any)}
+                onMouseDown={(e) => onMouseOrTouchDown(e.nativeEvent)}
+                onTouchStart={(e) => onMouseOrTouchDown(e.nativeEvent)}
                 onMouseOver={() => setIsBlurred(false)}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={

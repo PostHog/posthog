@@ -59,7 +59,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
         setVisibleMenu: (visibleMenu: MenuState) => ({
             visibleMenu,
         }),
-        onMouseDown: (event: MouseEvent) => ({ event }),
+        onMouseOrTouchDown: (event: MouseEvent | TouchEvent) => ({ event }),
         setDragging: (dragging = true) => ({ dragging }),
         setElement: (element: HTMLElement | null) => ({ element }),
         setMenu: (element: HTMLElement | null) => ({ element }),
@@ -290,18 +290,27 @@ export const toolbarLogic = kea<toolbarLogicType>([
             }
         },
 
-        onMouseDown: ({ event }) => {
-            if (!values.element || event.button !== 0) {
+        onMouseOrTouchDown: ({ event }) => {
+            const isTouchEvent = 'touches' in event
+
+            if (!values.element || (!isTouchEvent && event.button !== 0)) {
                 return
             }
 
-            const offsetX = event.pageX - values.position.x
-            const offsetY = event.pageY - values.position.y
+            const touchX = isTouchEvent ? event.touches[0].pageX : event.pageX
+            const touchY = isTouchEvent ? event.touches[0].pageY : event.pageY
+
+            const offsetX = touchX - values.position.x
+            const offsetY = touchY - values.position.y
             let movedCount = 0
             const moveThreshold = 5
 
-            const onMouseMove = (e: MouseEvent): void => {
+            const onMove = (moveEvent: MouseEvent | TouchEvent): void => {
                 movedCount += 1
+                const isMoveTouchEvent = 'touches' in moveEvent
+
+                const moveTouchX = isMoveTouchEvent ? moveEvent.touches[0].pageX : moveEvent.pageX
+                const moveTouchY = isMoveTouchEvent ? moveEvent.touches[0].pageY : moveEvent.pageY
 
                 if (movedCount > moveThreshold) {
                     actions.setDragging(true)
@@ -314,7 +323,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
                     let closestPosition: ToolbarPositionType | null = null
 
                     for (const [position, { x, y }] of Object.entries(fixedPositions)) {
-                        const distance = Math.sqrt((e.pageX - x) ** 2 + (e.pageY - y) ** 2)
+                        const distance = Math.sqrt((moveTouchX - x) ** 2 + (moveTouchY - y) ** 2)
 
                         if (distance < TOOLBAR_FIXED_POSITION_HITBOX) {
                             closestPosition = position as ToolbarPositionType
@@ -325,20 +334,30 @@ export const toolbarLogic = kea<toolbarLogicType>([
                     if (closestPosition) {
                         actions.setFixedPosition(closestPosition)
                     } else {
-                        actions.setDragPosition(e.pageX - offsetX, e.pageY - offsetY)
+                        actions.setDragPosition(moveTouchX - offsetX, moveTouchY - offsetY)
                     }
                 }
             }
 
-            const onMouseUp = (e: MouseEvent): void => {
-                if (e.button === 0) {
+            if (isTouchEvent) {
+                const onTouchEnd = (): void => {
                     actions.setDragging(false)
-                    document.removeEventListener('mousemove', onMouseMove)
-                    document.removeEventListener('mouseup', onMouseUp)
+                    values.element?.removeEventListener('touchmove', onMove)
+                    values.element?.removeEventListener('touchend', onTouchEnd)
                 }
+                values.element.addEventListener('touchmove', onMove)
+                values.element.addEventListener('touchend', onTouchEnd)
+            } else {
+                const onMouseUp = (e: MouseEvent): void => {
+                    if (e.button === 0) {
+                        actions.setDragging(false)
+                        document.removeEventListener('mousemove', onMove)
+                        document.removeEventListener('mouseup', onMouseUp)
+                    }
+                }
+                document.addEventListener('mousemove', onMove)
+                document.addEventListener('mouseup', onMouseUp)
             }
-            document.addEventListener('mousemove', onMouseMove)
-            document.addEventListener('mouseup', onMouseUp)
         },
 
         setDragging: ({ dragging }) => {

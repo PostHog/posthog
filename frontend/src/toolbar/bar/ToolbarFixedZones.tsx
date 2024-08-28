@@ -11,7 +11,7 @@ export function ToolbarFixedZones(): JSX.Element | null {
     }
 
     return (
-        <div className="w-full h-full absolute top-0 left-0 pointer-events-none">
+        <div className="w-full h-full absolute top-0 left-0 pointer-events-none overflow-hidden">
             {Object.entries(fixedPositions).map(([key, { x, y }]) => (
                 <div
                     key={key}
