@@ -33,7 +33,6 @@ export enum IngestionOverflowMode {
     RerouteRandomly, // discards partition locality
     ConsumeSplitByDistinctId,
     ConsumeSplitEvenly,
-    ConsumeSplitEventlyWithoutIngestionWarning,
 }
 
 type IngestionSplitBatch = {
@@ -301,10 +300,7 @@ export function splitIngestionBatch(
         overflowMode
     )
 
-    if (
-        overflowMode === IngestionOverflowMode.ConsumeSplitEvenly ||
-        overflowMode === IngestionOverflowMode.ConsumeSplitEventlyWithoutIngestionWarning
-    ) {
+    if (overflowMode === IngestionOverflowMode.ConsumeSplitEvenly) {
         /**
          * Grouping by distinct_id is not necessary here, we already give away the ordering guarantee,
          * so we just return batches of one to increase concurrency.

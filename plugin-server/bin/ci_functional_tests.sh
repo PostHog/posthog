@@ -17,7 +17,6 @@ export APP_METRICS_FLUSH_FREQUENCY_MS=0 # Reduce the potential for spurious erro
 export APP_METRICS_GATHERED_FOR_ALL=true
 export PLUGINS_DEFAULT_LOG_LEVEL=0 # All logs, as debug logs are used in synchronization barriers
 export NODE_ENV=production-functional-tests
-export PLUGIN_SERVER_MODE=functional-tests # running all capabilities is too slow
 
 # Not important at all, but I like to see nice red/green for tests
 export FORCE_COLOR=true

@@ -62,23 +62,6 @@ describe('server', () => {
             }
         )
     })
-    test('startPluginsServer does not error - pipelines', async () => {
-        const testCode = `
-        async function processEvent (event) {
-            return event
-        }
-    `
-        await resetTestDatabase(testCode)
-        pluginsServer = await createPluginServer(
-            {},
-            {
-                http: true,
-                eventsIngestionPipelines: true,
-                syncInlinePlugins: true,
-            }
-        )
-    })
-
     test('startPluginsServer does not error - cdp', async () => {
         const testCode = `
         async function processEvent (event) {

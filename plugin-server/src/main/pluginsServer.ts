@@ -40,7 +40,6 @@ import { startGraphileWorker } from './graphile-worker/worker-setup'
 import { startAnalyticsEventsIngestionConsumer } from './ingestion-queues/analytics-events-ingestion-consumer'
 import { startAnalyticsEventsIngestionHistoricalConsumer } from './ingestion-queues/analytics-events-ingestion-historical-consumer'
 import { startAnalyticsEventsIngestionOverflowConsumer } from './ingestion-queues/analytics-events-ingestion-overflow-consumer'
-import { PIPELINES, startEventsIngestionPipelineConsumer } from './ingestion-queues/events-ingestion-consumer'
 import { startJobsConsumer } from './ingestion-queues/jobs-consumer'
 import {
     startAsyncOnEventHandlerConsumer,
@@ -280,28 +279,6 @@ export async function startPluginsServer(
                     hub: hub,
                 })
             )
-        }
-
-        if (capabilities.eventsIngestionPipelines) {
-            const pipelinesToRun =
-                serverConfig.PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE === null
-                    ? Object.keys(PIPELINES)
-                    : [serverConfig.PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE]
-
-            for (const pipelineKey of pipelinesToRun) {
-                if (pipelineKey === null || !PIPELINES[pipelineKey]) {
-                    throw new Error(`Invalid events ingestion pipeline: ${pipelineKey}`)
-                }
-
-                const hub = await setupHub()
-                piscina = piscina ?? (await makePiscina(serverConfig, hub))
-                services.push(
-                    await startEventsIngestionPipelineConsumer({
-                        hub: hub,
-                        pipelineKey: pipelineKey,
-                    })
-                )
-            }
         }
 
         if (capabilities.ingestionOverflow) {
