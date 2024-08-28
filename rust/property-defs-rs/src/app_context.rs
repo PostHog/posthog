@@ -1,19 +1,17 @@
 use health::{HealthHandle, HealthRegistry};
-use sqlx::{postgres::PgPoolOptions, PgPool};
 
 use crate::{config::Config, metrics_consts::UPDATES_ISSUED, types::Update};
 
 pub struct AppContext {
-    pub pool: PgPool,
+    //pub pool: PgPool,
     pub liveness: HealthRegistry,
     pub worker_liveness: HealthHandle,
 }
 
 impl AppContext {
-    pub async fn new(config: &Config) -> Result<Self, sqlx::Error> {
-        let options = PgPoolOptions::new().max_connections(config.max_pg_connections);
-
-        let pool = options.connect(&config.database_url).await?;
+    pub async fn new(_config: &Config) -> Result<Self, sqlx::Error> {
+        //let options = PgPoolOptions::new().max_connections(config.max_pg_connections);
+        //let pool = options.connect(&config.database_url).await?;
 
         let liveness: HealthRegistry = HealthRegistry::new("liveness");
         let worker_liveness = liveness
@@ -21,7 +19,7 @@ impl AppContext {
             .await;
 
         Ok(Self {
-            pool,
+            //pool,
             liveness,
             worker_liveness,
         })

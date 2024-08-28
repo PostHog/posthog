@@ -17,6 +17,7 @@ pub struct Config {
     pub max_concurrent_transactions: usize,
 
     // We issue writes (UPSERTS) to postgres in batches of this size.
+    // Total concurrent DB ops is max_concurrent_transactions * update_batch_size
     #[envconfig(default = "1000")]
     pub update_batch_size: usize,
 
