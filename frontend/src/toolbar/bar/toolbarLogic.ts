@@ -14,6 +14,17 @@ import type { toolbarLogicType } from './toolbarLogicType'
 const MARGIN = 2
 
 export type MenuState = 'none' | 'heatmap' | 'actions' | 'flags' | 'inspect' | 'hedgehog' | 'debugger'
+export type ToolbarPositionType =
+    | 'top-left'
+    | 'top-center'
+    | 'top-right'
+    | 'bottom-left'
+    | 'bottom-center'
+    | 'bottom-right'
+    | 'left-center'
+    | 'right-center'
+
+export const TOOLBAR_FIXED_POSITION_HITBOX = 100
 
 export const toolbarLogic = kea<toolbarLogicType>([
     path(['toolbar', 'bar', 'toolbarLogic']),
@@ -54,6 +65,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
         setMenu: (element: HTMLElement | null) => ({ element }),
         setIsBlurred: (isBlurred: boolean) => ({ isBlurred }),
         setIsEmbeddedInApp: (isEmbedded: boolean) => ({ isEmbedded }),
+        setFixedPosition: (position: ToolbarPositionType) => ({ position }),
     })),
     windowValues(() => ({
         windowHeight: (window: Window) => window.innerHeight,
@@ -117,6 +129,13 @@ export const toolbarLogic = kea<toolbarLogicType>([
             { persist: true },
             {
                 setDragPosition: (_, { x, y }) => ({ x, y }),
+                setFixedPosition: () => null,
+            },
+        ],
+        fixedPosition: [
+            'bottom-center' as ToolbarPositionType,
+            {
+                setFixedPosition: (_, { position }) => position,
             },
         ],
         hedgehogMode: [
@@ -141,17 +160,59 @@ export const toolbarLogic = kea<toolbarLogicType>([
     })),
     selectors({
         dragPosition: [
-            (s) => [s.element, s.lastDragPosition, s.windowWidth, s.windowHeight],
-            (element, lastDragPosition, windowWidth, windowHeight) => {
-                lastDragPosition ??= { x: windowWidth * 0.5, y: windowHeight * 0.5 }
+            (s) => [s.element, s.lastDragPosition, s.windowWidth, s.windowHeight, s.fixedPosition, s.fixedPositions],
+            (element, lastDragPosition, windowWidth, windowHeight, fixedPosition, fixedPositions) => {
+                const position = lastDragPosition ?? fixedPositions[fixedPosition]
+
+                console.log('position', position, lastDragPosition, fixedPosition, fixedPositions)
 
                 // If the element isn't set yet we can just guess the size
                 const elWidth = (element?.offsetWidth ?? 40) + 2 // account for border
                 const elHeight = (element?.offsetHeight ?? 40) + 2 // account for border
 
                 return {
-                    x: inBounds(MARGIN, lastDragPosition.x, windowWidth - elWidth - MARGIN),
-                    y: inBounds(MARGIN, lastDragPosition.y, windowHeight - elHeight - MARGIN),
+                    x: inBounds(MARGIN, position.x, windowWidth - elWidth - MARGIN),
+                    y: inBounds(MARGIN, position.y, windowHeight - elHeight - MARGIN),
+                }
+            },
+        ],
+
+        fixedPositions: [
+            (s) => [s.windowWidth, s.windowHeight],
+            (windowWidth, windowHeight): Record<ToolbarPositionType, { x: number; y: number }> => {
+                return {
+                    'top-left': {
+                        x: 0,
+                        y: 0,
+                    },
+                    'top-center': {
+                        x: windowWidth / 2,
+                        y: 0,
+                    },
+                    'top-right': {
+                        x: windowWidth,
+                        y: 0,
+                    },
+                    'bottom-left': {
+                        x: 0,
+                        y: windowHeight,
+                    },
+                    'bottom-center': {
+                        x: windowWidth / 2,
+                        y: windowHeight,
+                    },
+                    'bottom-right': {
+                        x: windowWidth,
+                        y: windowHeight,
+                    },
+                    'left-center': {
+                        x: 0,
+                        y: windowHeight / 2,
+                    },
+                    'right-center': {
+                        x: windowWidth,
+                        y: windowHeight / 2,
+                    },
                 }
             },
         ],
@@ -233,7 +294,28 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 if (movedCount > moveThreshold) {
                     actions.setDragging(true)
                     // Set drag position offset by where we clicked and where the element is
-                    actions.setDragPosition(e.pageX - offsetX, e.pageY - offsetY)
+
+                    // Check if near any of the fixed positions and set to them if so, otherwise set to mouse position
+
+                    const fixedPositions = values.fixedPositions
+
+                    let closestPosition: ToolbarPositionType | null = null
+
+                    for (const [position, { x, y }] of Object.entries(fixedPositions)) {
+                        const distance = Math.sqrt((e.pageX - x) ** 2 + (e.pageY - y) ** 2)
+
+                        console.log('distance', distance, position, x, y)
+                        if (distance < TOOLBAR_FIXED_POSITION_HITBOX) {
+                            closestPosition = position as ToolbarPositionType
+                            break
+                        }
+                    }
+
+                    if (closestPosition) {
+                        actions.setFixedPosition(closestPosition)
+                    } else {
+                        actions.setDragPosition(e.pageX - offsetX, e.pageY - offsetY)
+                    }
                 }
             }
 
