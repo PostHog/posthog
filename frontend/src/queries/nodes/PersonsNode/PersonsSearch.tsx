@@ -35,7 +35,7 @@ export function PersonsSearch({ query, setQuery }: PersonSearchProps): JSX.Eleme
         query,
         setQuery,
         (query) => query.search || '',
-        (query, value) => ({ ...query, search: value })
+        (query, value) => ({ ...query, search: value?.trim() })
     )
     const target: ActorType = isQueryForGroup(query) ? 'group' : 'person'
 

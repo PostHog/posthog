@@ -19,7 +19,7 @@ export const PersonsSearch = (): JSX.Element => {
     }, [])
 
     useEffect(() => {
-        setListFilters({ search: searchTerm || undefined })
+        setListFilters({ search: searchTerm?.trim() || undefined })
         loadPersonsDebounced()
     }, [searchTerm])
 
