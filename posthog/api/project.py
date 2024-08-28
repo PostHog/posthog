@@ -198,7 +198,6 @@ class ProjectSerializer(ProjectBasicSerializer, UserPermissionsSerializerMixin):
     def create(self, validated_data: dict[str, Any], **kwargs) -> Project:
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
         request = self.context["request"]
-        organization = self.context["view"].organization  # Use the org we used to validate permissions
 
         if "week_start_day" not in validated_data:
             country_code = get_geoip_properties(get_ip_address(request)).get("$geoip_country_code", None)
@@ -212,14 +211,16 @@ class ProjectSerializer(ProjectBasicSerializer, UserPermissionsSerializerMixin):
         for field_name in validated_data.copy():  # Copy to avoid iterating over a changing dict
             if field_name in self.Meta.team_passthrough_fields:
                 team_fields[field_name] = validated_data.pop(field_name)
-        project, team = Project.objects.create_with_team(**validated_data, team_fields=team_fields)
+        project, team = Project.objects.create_with_team(
+            organization_id=self.context["view"].organization_id, **validated_data, team_fields=team_fields
+        )
 
         request.user.current_team = team
         request.user.team = request.user.current_team  # Update cached property
         request.user.save()
 
         log_activity(
-            organization_id=organization.id,
+            organization_id=team.organization_id,
             team_id=team.pk,
             user=request.user,
             was_impersonated=is_impersonated_session(request),

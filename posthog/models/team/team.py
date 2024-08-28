@@ -26,6 +26,7 @@ from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.instance_setting import get_instance_setting
+from posthog.models.organization import Organization
 from posthog.models.signals import mutable_receiver
 from posthog.models.utils import (
     UUIDClassicModel,
@@ -87,9 +88,11 @@ class TeamManager(models.Manager):
                     ]
         return filters
 
-    def create_with_data(self, user: Any = None, default_dashboards: bool = True, **kwargs) -> "Team":
-        kwargs["test_account_filters"] = self.set_test_account_filters(kwargs.get("organization"))
-        team = cast("Team", self.create(**kwargs))
+    def create_with_data(
+        self, user: Any = None, default_dashboards: bool = True, *, organization: Organization, **kwargs
+    ) -> "Team":
+        kwargs["test_account_filters"] = self.set_test_account_filters(organization)
+        team = cast("Team", self.create(organization=organization, **kwargs))
 
         # Create default dashboards (skipped for demo projects)
         if default_dashboards:

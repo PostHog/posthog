@@ -46,7 +46,7 @@ from posthog.user_permissions import UserPermissions, UserPermissionsSerializerM
 from posthog.utils import get_ip_address, get_week_start_for_country_code
 
 
-class PremiumMultiProjectPermissions(BasePermission):
+class PremiumMultiProjectPermissions(BasePermission):  # TODO: Rename to include "Env" in name
     """Require user to have all necessary premium features on their plan for create access to the endpoint."""
 
     message = "You must upgrade your PostHog plan to be able to create and manage multiple projects or environments."
@@ -276,7 +276,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     def create(self, validated_data: dict[str, Any], **kwargs) -> Team:
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
         request = self.context["request"]
-        organization = self.context["view"].organization  # Use the org we used to validate permissions
 
         if "week_start_day" not in validated_data:
             country_code = get_geoip_properties(get_ip_address(request)).get("$geoip_country_code", None)
@@ -286,14 +285,14 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 # but ClickHouse doesn't support Saturday as the first day of the week, so we fall back to Sunday
                 validated_data["week_start_day"] = 1 if week_start_day_for_user_ip_location == 1 else 0
 
-        team = Team.objects.create_with_data(**validated_data)
+        team = Team.objects.create_with_data(organization=self.context["view"].organization, **validated_data)
 
         request.user.current_team = team
         request.user.team = request.user.current_team  # Update cached property
         request.user.save()
 
         log_activity(
-            organization_id=organization.id,
+            organization_id=team.organization_id,
             team_id=team.pk,
             user=request.user,
             was_impersonated=is_impersonated_session(request),
@@ -537,8 +536,6 @@ class RootTeamViewSet(TeamViewSet):
 def validate_team_attrs(
     attrs: dict[str, Any], view: TeamAndOrgViewSetMixin, request: request.Request, instance
 ) -> dict[str, Any]:
-    attrs["organization_id"] = view.organization_id
-
     if "primary_dashboard" in attrs and attrs["primary_dashboard"].team_id != instance.id:
         raise exceptions.PermissionDenied("Dashboard does not belong to this team.")
 
