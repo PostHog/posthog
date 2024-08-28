@@ -73,8 +73,10 @@ class FunnelTrendsUDF(FunnelTrends):
 
         from_step = funnelsFilter.funnelFromStep or 0
 
-        inner_select = parse_select(
-            f"""
+        inner_select = cast(
+            ast.SelectQuery,
+            parse_select(
+                f"""
             SELECT
                 arrayJoin({fn}(
                     {from_step},
@@ -91,9 +93,10 @@ class FunnelTrendsUDF(FunnelTrends):
             FROM {{inner_event_query}}
             GROUP BY aggregation_target{breakdown_prop}
         """,
-            {"inner_event_query": inner_event_query},
+                {"inner_event_query": inner_event_query},
+            ),
         )
-        # This is necessary so clickhouse doesn't truncate timezone information when passing datetimes to python
+        # This is necessary so clickhouse doesn't truncate timezone information when passing datetimes to and from python
         inner_select.settings = HogQLQuerySettings(date_time_output_format="iso", date_time_input_format="best_effort")
 
         conversion_rate_expr = (

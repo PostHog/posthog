@@ -47,7 +47,7 @@ def calculate_funnel_from_user_events(
     breakdown_step = int(breakdown_attribution_type[5:]) if breakdown_attribution_type.startswith("step_") else None
 
     # This function returns an Array. We build up an array of strings to return here.
-    results = []
+    results: list[tuple[int, Any, list[float]]] = []
 
     # Process an event. If this hits an exclusion, return False, else return True.
     def process_event(timestamp, breakdown, steps, *, entered_timestamp, prop_val) -> bool:

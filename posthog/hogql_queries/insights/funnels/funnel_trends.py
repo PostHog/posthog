@@ -230,7 +230,7 @@ class FunnelTrends(FunnelBase):
         )
 
     # The fill query returns all the start_interval dates in the response
-    def _get_fill_query(self) -> str:
+    def _get_fill_query(self) -> ast.SelectQuery:
         team, interval = self.context.team, self.context.interval
 
         date_range = self._date_range()
