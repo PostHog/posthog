@@ -559,41 +559,41 @@ class TestCSVExporter(APIBaseTest):
             )
 
     def test_funnel_time_to_convert(self) -> None:
+        bins = [
+            [1, 1],
+            [2, 3],
+            [3, 5],
+            [4, 17],
+            [5, 29],
+            [6, 44],
+            [7, 38],
+            [8, 24],
+            [9, 10],
+            [10, 7],
+            [11, 3],
+            [12, 1],
+            [13, 1],
+            [14, 1],
+            [15, 0],
+            [16, 0],
+            [17, 0],
+            [18, 0],
+            [19, 0],
+            [20, 0],
+            [21, 1],
+            [22, 0],
+            [23, 1],
+            [24, 0],
+            [25, 0],
+            [26, 0],
+        ]
         data = {
             "results": {
                 "average_conversion_time": 1.45,
-                "bins": [
-                    [1, 1],
-                    [2, 3],
-                    [3, 5],
-                    [4, 17],
-                    [5, 29],
-                    [6, 44],
-                    [7, 38],
-                    [8, 24],
-                    [9, 10],
-                    [10, 7],
-                    [11, 3],
-                    [12, 1],
-                    [13, 1],
-                    [14, 1],
-                    [15, 0],
-                    [16, 0],
-                    [17, 0],
-                    [18, 0],
-                    [19, 0],
-                    [20, 0],
-                    [21, 1],
-                    [22, 0],
-                    [23, 1],
-                    [24, 0],
-                    [25, 0],
-                    [26, 0],
-                ],
+                "bins": bins,
             }
         }
         csv_list = list(_convert_response_to_csv_data(data))
-        bins = data["results"]["bins"]
         assert len(bins) == len(csv_list)
         for bin, csv in zip(bins, csv_list):
             assert bin[0] == csv["bin"]
