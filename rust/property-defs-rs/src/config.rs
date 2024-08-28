@@ -30,19 +30,19 @@ pub struct Config {
     // marshal, and convert ot updates. The number of
     // concurrent update batches sent to postgres is controlled
     // by max_concurrent_transactions
-    #[envconfig(default = "10")]
+    #[envconfig(default = "4")]
     pub worker_loop_count: usize,
 
     // We maintain an internal cache, to avoid sending the same UPSERT multiple times. This is it's size.
-    #[envconfig(default = "100000")]
+    #[envconfig(default = "1000000")]
     pub cache_capacity: usize,
 
     // Each worker thread internally batches up to this number, then de-dupes
     // across this batch before releasing to the main thread
-    #[envconfig(default = "50000")]
+    #[envconfig(default = "10000")]
     pub compaction_batch_size: usize,
 
-    #[envconfig(default = "100")]
+    #[envconfig(default = "1000")]
     pub channel_slots_per_worker: usize,
 
     // If an event has some ridiculous number of updates, we skip it

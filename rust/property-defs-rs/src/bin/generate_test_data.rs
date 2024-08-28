@@ -10,9 +10,11 @@ use rdkafka::{
 fn generate_test_event(seed: usize) -> Event {
     let team_id = (seed % 100) as i32;
     let event_name = format!("test_event_{}", seed % 8);
-    let properties: HashMap<String, String> = (0..200)
-        .map(|i| (format!("prop_{}", i), format!("val_{}", i)))
-        .collect();
+    let prop_key = format!("prop_{}", seed % 1000);
+    let properties: HashMap<String, String> =
+        (0..100) // The average event has 100 properties
+            .map(|i| (prop_key.clone(), format!("val_{}", i)))
+            .collect();
 
     Event {
         team_id,
