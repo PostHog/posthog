@@ -68,7 +68,7 @@ pub struct MultivariateFlagOptions {
 pub struct FlagFilters {
     pub groups: Vec<FlagGroupType>,
     pub multivariate: Option<MultivariateFlagOptions>,
-    pub aggregation_group_type_index: Option<i8>,
+    pub aggregation_group_type_index: Option<i32>,
     pub payloads: Option<serde_json::Value>,
     pub super_groups: Option<Vec<FlagGroupType>>,
 }
@@ -101,7 +101,7 @@ pub struct FeatureFlagRow {
 }
 
 impl FeatureFlag {
-    pub fn get_group_type_index(&self) -> Option<i8> {
+    pub fn get_group_type_index(&self) -> Option<i32> {
         self.filters.aggregation_group_type_index
     }
 

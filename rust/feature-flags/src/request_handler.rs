@@ -168,6 +168,7 @@ pub async fn evaluate_feature_flags(
         database_client,
         person_property_overrides,
         group_property_overrides,
+        None,
     );
     let feature_flag_list = feature_flags_from_cache_or_pg.flags;
 

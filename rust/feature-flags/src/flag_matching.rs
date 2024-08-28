@@ -37,7 +37,8 @@ pub struct Group {
 }
 
 type GroupTypeName = String;
-type GroupTypeIndex = i8;
+type GroupTypeIndex = i32;
+type DatabaseClientArc = Arc<dyn DatabaseClient + Send + Sync>;
 
 #[derive(Debug, sqlx::FromRow)]
 struct GroupTypeMapping {
@@ -50,14 +51,11 @@ pub struct FlagsMatcherCache {
     failed_to_fetch_flags: AtomicBool,
     group_types_to_indexes: Arc<RwLock<Option<HashMap<GroupTypeName, GroupTypeIndex>>>>,
     group_type_index_to_name: Arc<RwLock<Option<HashMap<GroupTypeIndex, GroupTypeName>>>>,
-    database_client: Option<Arc<dyn DatabaseClient + Send + Sync>>,
+    database_client: Option<DatabaseClientArc>,
 }
 
 impl FlagsMatcherCache {
-    pub fn new(
-        team_id: i32,
-        database_client: Option<Arc<dyn DatabaseClient + Send + Sync>>,
-    ) -> Self {
+    pub fn new(team_id: i32, database_client: Option<DatabaseClientArc>) -> Self {
         FlagsMatcherCache {
             team_id,
             failed_to_fetch_flags: AtomicBool::new(false),
@@ -74,50 +72,54 @@ impl FlagsMatcherCache {
             return Err(FlagError::DatabaseUnavailable);
         }
 
-        let cache = self.group_types_to_indexes.read().await;
-        if let Some(ref cached) = *cache {
+        // Use a single read lock check
+        if let Some(cached) = self.group_types_to_indexes.read().await.as_ref() {
             return Ok(cached.clone());
         }
-        drop(cache);
 
+        // If not cached, acquire write lock and check again (double-checked locking pattern)
         let mut cache = self.group_types_to_indexes.write().await;
-        if cache.is_none() {
-            match self.fetch_group_type_mapping().await {
-                Ok(mapping) => {
-                    *cache = Some(mapping.clone());
-                    Ok(mapping)
-                }
-                Err(e) => {
-                    self.failed_to_fetch_flags.store(true, Ordering::Relaxed);
-                    Err(e)
-                }
+        if let Some(cached) = cache.as_ref() {
+            return Ok(cached.clone());
+        }
+
+        // Fetch from database
+        match self.fetch_posthog_grouptypemapping().await {
+            Ok(mapping) => {
+                *cache = Some(mapping.clone());
+                Ok(mapping)
             }
-        } else {
-            Ok(cache.as_ref().unwrap().clone())
+            Err(e) => {
+                self.failed_to_fetch_flags.store(true, Ordering::Relaxed);
+                Err(e)
+            }
         }
     }
 
     pub async fn group_type_index_to_name(
         &self,
     ) -> Result<HashMap<GroupTypeIndex, GroupTypeName>, FlagError> {
-        {
-            let cache = self.group_type_index_to_name.read().await;
-            if let Some(ref cached) = *cache {
-                return Ok(cached.clone());
-            }
+        // Use a single read lock check
+        if let Some(cached) = self.group_type_index_to_name.read().await.as_ref() {
+            return Ok(cached.clone());
         }
 
+        // If not cached, acquire write lock and check again
+        let mut cache = self.group_type_index_to_name.write().await;
+        if let Some(cached) = cache.as_ref() {
+            return Ok(cached.clone());
+        }
+
+        // Derive from group_types_to_indexes
         let types_to_indexes = self.group_types_to_indexes().await?;
         let result: HashMap<GroupTypeIndex, GroupTypeName> =
             types_to_indexes.into_iter().map(|(k, v)| (v, k)).collect();
 
-        let mut cache = self.group_type_index_to_name.write().await;
-        *cache = Some(result);
-
-        Ok(cache.as_ref().unwrap().clone())
+        *cache = Some(result.clone());
+        Ok(result)
     }
 
-    async fn fetch_group_type_mapping(
+    async fn fetch_posthog_grouptypemapping(
         &self,
     ) -> Result<HashMap<GroupTypeName, GroupTypeIndex>, FlagError> {
         let mut conn = self
@@ -129,7 +131,7 @@ impl FlagsMatcherCache {
 
         let query = r#"
             SELECT group_type, group_type_index 
-            FROM group_type_mapping 
+            FROM posthog_grouptypemapping 
             WHERE team_id = $1
         "#;
 
@@ -160,7 +162,7 @@ pub struct FeatureFlagMatcher {
     // pub flags: Vec<FeatureFlag>,
     pub distinct_id: String,
     pub team_id: i32,
-    pub database_client: Option<Arc<dyn DatabaseClient + Send + Sync>>,
+    pub database_client: Option<DatabaseClientArc>,
     // TODO do I need cached_properties, or do I get them from the request?
     // like, in python I get them from the request.  Hmm.  Let me try that.
     // OH, or is this the FlagMatcherCache.  Yeah, so this is the flag matcher cache
@@ -179,9 +181,10 @@ impl FeatureFlagMatcher {
     pub fn new(
         distinct_id: String,
         team_id: i32,
-        database_client: Option<Arc<dyn DatabaseClient + Send + Sync>>,
+        database_client: Option<DatabaseClientArc>,
         person_property_overrides: Option<HashMap<String, Value>>,
         group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
+        cache: Option<Arc<FlagsMatcherCache>>,
     ) -> Self {
         FeatureFlagMatcher {
             distinct_id,
@@ -191,7 +194,8 @@ impl FeatureFlagMatcher {
             cached_group_properties: None,
             person_property_overrides,
             group_property_overrides,
-            cache: Arc::new(FlagsMatcherCache::new(team_id, database_client)),
+            cache: cache
+                .unwrap_or_else(|| Arc::new(FlagsMatcherCache::new(team_id, database_client))),
         }
     }
 
@@ -199,7 +203,7 @@ impl FeatureFlagMatcher {
         &mut self,
         feature_flag: &FeatureFlag,
     ) -> Result<FeatureFlagMatch, FlagError> {
-        if self.hashed_identifier(feature_flag).is_none() {
+        if self.hashed_identifier(feature_flag).await?.is_none() {
             return Ok(FeatureFlagMatch {
                 matches: false,
                 variant: None,
@@ -225,10 +229,10 @@ impl FeatureFlagMatcher {
                         {
                             Some(variant_override)
                         } else {
-                            self.get_matching_variant(feature_flag)
+                            self.get_matching_variant(feature_flag).await?
                         }
                     }
-                    None => self.get_matching_variant(feature_flag),
+                    None => self.get_matching_variant(feature_flag).await?,
                 };
 
                 return Ok(FeatureFlagMatch {
@@ -243,13 +247,17 @@ impl FeatureFlagMatcher {
         })
     }
 
-    fn check_rollout(&self, feature_flag: &FeatureFlag, rollout_percentage: f64) -> (bool, String) {
+    async fn check_rollout(
+        &self,
+        feature_flag: &FeatureFlag,
+        rollout_percentage: f64,
+    ) -> Result<(bool, String), FlagError> {
         if rollout_percentage == 100.0
-            || self.get_hash(feature_flag, "") <= (rollout_percentage / 100.0)
+            || self.get_hash(feature_flag, "").await? <= (rollout_percentage / 100.0)
         {
-            (true, "CONDITION_MATCH".to_string()) // TODO enum
+            Ok((true, "CONDITION_MATCH".to_string())) // TODO enum
         } else {
-            (false, "OUT_OF_ROLLOUT_BOUND".to_string()) // TODO enum
+            Ok((false, "OUT_OF_ROLLOUT_BOUND".to_string())) // TODO enum
         }
     }
 
@@ -264,7 +272,7 @@ impl FeatureFlagMatcher {
         let rollout_percentage = condition.rollout_percentage.unwrap_or(100.0);
         if let Some(flag_condition_properties) = &condition.properties {
             if flag_condition_properties.is_empty() {
-                return Ok(self.check_rollout(feature_flag, rollout_percentage));
+                return self.check_rollout(feature_flag, rollout_percentage).await;
             }
 
             let target_properties =
@@ -284,13 +292,13 @@ impl FeatureFlagMatcher {
             }
         }
 
-        Ok(self.check_rollout(feature_flag, rollout_percentage))
+        self.check_rollout(feature_flag, rollout_percentage).await
     }
 
     async fn get_group_properties_from_override_or_db(
         &mut self,
         feature_flag: &FeatureFlag,
-        group_type_index: i8,
+        group_type_index: i32,
     ) -> Result<HashMap<String, Value>, FlagError> {
         let index_to_name = self.cache.group_type_index_to_name().await?;
 
@@ -324,22 +332,35 @@ impl FeatureFlagMatcher {
         team_id: i32,
         properties: &[PropertyFilter],
     ) -> Result<HashMap<String, Value>, FlagError> {
-        if let Some(person_overrides) = &self.person_property_overrides {
-            // Check if all required properties are present in the overrides
-            // and none of them are of type "cohort"
-            let should_prefer_overrides = properties
-                .iter()
-                .all(|prop| person_overrides.contains_key(&prop.key) && prop.prop_type != "cohort");
-
-            if should_prefer_overrides {
-                return Ok(person_overrides.clone());
-            }
+        if let Some(overrides) = self.check_person_property_overrides(properties) {
+            return Ok(overrides);
         }
 
         // If we don't prefer the overrides (they're either not present, don't contain enough properties to evaluate the condition,
         // or contain a cohort property), fall back to getting properties from cache or DB
         self.get_person_properties_from_in_memory_cache_or_db(team_id, self.distinct_id.clone())
             .await
+    }
+
+    /// Check if all required properties are present in the overrides
+    /// and none of them are of type "cohort"
+    fn check_person_property_overrides(
+        &self,
+        properties: &[PropertyFilter],
+    ) -> Option<HashMap<String, Value>> {
+        self.person_property_overrides
+            .as_ref()
+            .and_then(|person_overrides| {
+                let should_prefer_overrides = properties.iter().all(|prop| {
+                    person_overrides.contains_key(&prop.key) && prop.prop_type != "cohort"
+                });
+
+                if should_prefer_overrides {
+                    Some(person_overrides.clone())
+                } else {
+                    None
+                }
+            })
     }
 
     fn all_properties_match(
@@ -352,13 +373,15 @@ impl FeatureFlagMatcher {
             .all(|property| match_property(property, target_properties, false).unwrap_or(false))
     }
 
-    pub fn hashed_identifier(&self, feature_flag: &FeatureFlag) -> Option<String> {
-        if feature_flag.get_group_type_index().is_none() {
-            // TODO: Use hash key overrides for experience continuity
-            Some(self.distinct_id.clone())
+    pub async fn hashed_identifier(
+        &self,
+        feature_flag: &FeatureFlag,
+    ) -> Result<Option<String>, FlagError> {
+        if let Some(group_type_index) = feature_flag.get_group_type_index() {
+            let index_to_name = self.cache.group_type_index_to_name().await?;
+            Ok(index_to_name.get(&group_type_index).cloned())
         } else {
-            // TODO: Handle getting group key
-            Some("".to_string())
+            Ok(Some(self.distinct_id.clone()))
         }
     }
 
@@ -366,11 +389,12 @@ impl FeatureFlagMatcher {
     /// Given the same identifier and key, it'll always return the same float. These floats are
     /// uniformly distributed between 0 and 1, so if we want to show this feature to 20% of traffic
     /// we can do _hash(key, identifier) < 0.2
-    pub fn get_hash(&self, feature_flag: &FeatureFlag, salt: &str) -> f64 {
+    pub async fn get_hash(&self, feature_flag: &FeatureFlag, salt: &str) -> Result<f64, FlagError> {
         // check if hashed_identifier is None
         let hashed_identifier = self
             .hashed_identifier(feature_flag)
-            .expect("hashed_identifier is None when computing hash");
+            .await?
+            .ok_or(FlagError::InvalidHashedIdentifier)?;
         let hash_key = format!("{}.{}{}", feature_flag.key, hashed_identifier, salt);
         let mut hasher = Sha1::new();
         hasher.update(hash_key.as_bytes());
@@ -383,21 +407,24 @@ impl FeatureFlagMatcher {
             .to_string();
         let hash_val = u64::from_str_radix(&hex_str, 16).unwrap();
 
-        hash_val as f64 / LONG_SCALE as f64
+        Ok(hash_val as f64 / LONG_SCALE as f64)
     }
 
     /// This function takes a feature flag and returns the key of the variant that should be shown to the user.
-    pub fn get_matching_variant(&self, feature_flag: &FeatureFlag) -> Option<String> {
-        let hash = self.get_hash(feature_flag, "variant");
+    pub async fn get_matching_variant(
+        &self,
+        feature_flag: &FeatureFlag,
+    ) -> Result<Option<String>, FlagError> {
+        let hash = self.get_hash(feature_flag, "variant").await?;
         let mut total_percentage = 0.0;
 
         for variant in feature_flag.get_variants() {
             total_percentage += variant.rollout_percentage / 100.0;
             if hash < total_percentage {
-                return Some(variant.key.clone());
+                return Ok(Some(variant.key.clone()));
             }
         }
-        None
+        Ok(None)
     }
 
     /// This function takes a feature flag and returns the key of the variant that should be shown to the user.
@@ -459,7 +486,7 @@ impl FeatureFlagMatcher {
     async fn get_group_properties_from_in_memory_cache_or_db(
         &mut self,
         team_id: i32,
-        group_type_index: i8,
+        group_type_index: i32,
     ) -> Result<HashMap<String, Value>, FlagError> {
         // TODO which of these properties do we need to cache?
         if let Some(cached_props) = self.cached_group_properties.clone() {
@@ -586,7 +613,8 @@ mod tests {
         ))
         .unwrap();
 
-        let mut matcher = FeatureFlagMatcher::new(distinct_id, 1, Some(client.clone()), None, None);
+        let mut matcher =
+            FeatureFlagMatcher::new(distinct_id, 1, Some(client.clone()), None, None, None);
         let match_result = matcher.get_match(&flag).await.unwrap();
         assert_eq!(match_result.matches, true);
         assert_eq!(match_result.variant, None);
@@ -596,6 +624,7 @@ mod tests {
             not_matching_distinct_id,
             1,
             Some(client.clone()),
+            None,
             None,
             None,
         );
@@ -608,6 +637,7 @@ mod tests {
             "other_distinct_id".to_string(),
             1,
             Some(client.clone()),
+            None,
             None,
             None,
         );
@@ -640,37 +670,207 @@ mod tests {
             Some(client.clone()),
             Some(overrides),
             None,
+            None,
         );
 
         let match_result = matcher.get_match(&flag).await.unwrap();
         assert_eq!(match_result.matches, true);
     }
 
-    #[test]
-    fn test_hashed_identifier() {
+    #[tokio::test]
+    async fn test_hashed_identifier() {
         let flag = create_test_flag(1, vec![]);
+        let database_client = setup_pg_client(None).await;
 
-        let matcher = FeatureFlagMatcher::new("test_user".to_string(), 1, None, None, None);
+        // Create a FlagsMatcherCache with pre-populated group type mappings
+        let cache = Arc::new(FlagsMatcherCache::new(1, Some(database_client.clone())));
+        let mut group_types_to_indexes = HashMap::new();
+        group_types_to_indexes.insert("group_type_1".to_string(), 1);
+        *cache.group_types_to_indexes.write().await = Some(group_types_to_indexes);
+
+        let matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            1,
+            Some(database_client.clone()),
+            None,
+            None,
+            Some(cache.clone()),
+        );
         assert_eq!(
-            matcher.hashed_identifier(&flag),
+            matcher.hashed_identifier(&flag).await.unwrap(),
             Some("test_user".to_string())
         );
 
-        // Test with a group type index (this part of the functionality is not implemented yet)
-        // let mut group_flag = flag.clone();
-        // group_flag.filters.aggregation_group_type_index = Some(1);
-        // assert_eq!(matcher.hashed_identifier(&group_flag), Some("".to_string()));
+        // Test with a group type index
+        let mut group_flag = flag.clone();
+        group_flag.filters.aggregation_group_type_index = Some(1);
+        assert_eq!(
+            matcher.hashed_identifier(&group_flag).await.unwrap(),
+            Some("group_type_1".to_string())
+        );
     }
 
-    #[test]
-    fn test_get_matching_variant() {
-        let flag = FeatureFlag {
+    #[tokio::test]
+    async fn test_get_matching_variant_with_cache() {
+        let flag = create_test_flag_with_variants(1);
+        let database_client = setup_pg_client(None).await;
+
+        // Create a FlagsMatcherCache with pre-populated group type mappings
+        let cache = Arc::new(FlagsMatcherCache::new(1, Some(database_client.clone())));
+
+        let group_types_to_indexes: HashMap<String, i32> =
+            [("group_type_1".to_string(), 1)].into_iter().collect();
+        let group_type_index_to_name: HashMap<i32, String> =
+            [(1, "group_type_1".to_string())].into_iter().collect();
+
+        *cache.group_types_to_indexes.write().await = Some(group_types_to_indexes);
+        *cache.group_type_index_to_name.write().await = Some(group_type_index_to_name);
+
+        let matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            1,
+            Some(database_client.clone()),
+            None,
+            None,
+            Some(cache.clone()),
+        );
+
+        // Debug: Print flag details
+        println!("Flag: {:?}", flag);
+        println!("Flag variants: {:?}", flag.get_variants());
+
+        // Debug: Check hashed_identifier
+        let hashed_identifier = matcher.hashed_identifier(&flag).await.unwrap();
+        println!("Hashed identifier: {:?}", hashed_identifier);
+
+        // Debug: Check get_hash
+        let hash = matcher.get_hash(&flag, "variant").await.unwrap();
+        println!("Hash value: {}", hash);
+
+        let variant = matcher.get_matching_variant(&flag).await.unwrap();
+        println!("Selected variant: {:?}", variant);
+
+        assert!(variant.is_some(), "No variant was selected");
+        assert!(
+            ["control", "test", "test2"].contains(&variant.unwrap().as_str()),
+            "Selected variant is not one of the expected options"
+        );
+    }
+    #[tokio::test]
+    async fn test_get_matching_variant_with_db() {
+        let database_client = setup_pg_client(None).await;
+        let team = insert_new_team_in_pg(database_client.clone())
+            .await
+            .unwrap();
+
+        // // Insert group type mapping into the database
+        let mut conn = database_client.get_connection().await.unwrap();
+        sqlx::query(
+            r#"
+            INSERT INTO posthog_grouptypemapping (team_id, group_type, group_type_index)
+            VALUES ($1, $2, $3)
+            "#,
+        )
+        .bind(team.id)
+        .bind("group_type_1")
+        .bind(1)
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+
+        let flag = create_test_flag_with_variants(team.id);
+
+        let matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            team.id,
+            Some(database_client.clone()),
+            None,
+            None,
+            None,
+        );
+
+        let variant = matcher.get_matching_variant(&flag).await.unwrap();
+        assert!(variant.is_some());
+        assert!(["control", "test", "test2"].contains(&variant.unwrap().as_str()));
+    }
+
+    #[tokio::test]
+    async fn test_is_condition_match_empty_properties() {
+        let flag = create_test_flag(1, vec![]);
+
+        let condition = FlagGroupType {
+            variant: None,
+            properties: Some(vec![]),
+            rollout_percentage: Some(100.0),
+        };
+
+        let mut matcher =
+            FeatureFlagMatcher::new("test_user".to_string(), 1, None, None, None, None);
+        let (is_match, reason) = matcher
+            .is_condition_match(&flag, &condition, 0)
+            .await
+            .unwrap();
+        assert_eq!(is_match, true);
+        assert_eq!(reason, "CONDITION_MATCH");
+    }
+
+    #[tokio::test]
+    async fn test_hashed_identifier_with_db() {
+        let database_client = setup_pg_client(None).await;
+        let team = insert_new_team_in_pg(database_client.clone())
+            .await
+            .unwrap();
+
+        // Insert group type mapping into the database
+        let mut conn = database_client.get_connection().await.unwrap();
+        sqlx::query(
+            r#"
+            INSERT INTO posthog_grouptypemapping (team_id, group_type, group_type_index)
+            VALUES ($1, $2, $3)
+            "#,
+        )
+        .bind(team.id)
+        .bind("group_type_1")
+        .bind(1)
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+
+        let flag = create_test_flag(team.id, vec![]);
+        let mut group_flag = flag.clone();
+        group_flag.filters.aggregation_group_type_index = Some(1);
+
+        let matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            team.id,
+            Some(database_client.clone()),
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(
+            matcher.hashed_identifier(&flag).await.unwrap(),
+            Some("test_user".to_string())
+        );
+        assert_eq!(
+            matcher.hashed_identifier(&group_flag).await.unwrap(),
+            Some("group_type_1".to_string())
+        );
+    }
+
+    fn create_test_flag_with_variants(team_id: i32) -> FeatureFlag {
+        FeatureFlag {
             id: 1,
-            team_id: 1,
+            team_id,
             name: Some("Test Flag".to_string()),
             key: "test_flag".to_string(),
             filters: FlagFilters {
-                groups: vec![],
+                groups: vec![FlagGroupType {
+                    properties: None,
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
                 multivariate: Some(MultivariateFlagOptions {
                     variants: vec![
                         MultivariateFlagVariant {
@@ -690,37 +890,13 @@ mod tests {
                         },
                     ],
                 }),
-                aggregation_group_type_index: None,
+                aggregation_group_type_index: Some(1), // Set this to use group-based targeting
                 payloads: None,
                 super_groups: None,
             },
             deleted: false,
             active: true,
             ensure_experience_continuity: false,
-        };
-
-        let matcher = FeatureFlagMatcher::new("test_user".to_string(), 1, None, None, None);
-        let variant = matcher.get_matching_variant(&flag);
-        assert!(variant.is_some());
-        assert!(["control", "test", "test2"].contains(&variant.unwrap().as_str()));
-    }
-
-    #[tokio::test]
-    async fn test_is_condition_match_empty_properties() {
-        let flag = create_test_flag(1, vec![]);
-
-        let condition = FlagGroupType {
-            variant: None,
-            properties: Some(vec![]),
-            rollout_percentage: Some(100.0),
-        };
-
-        let mut matcher = FeatureFlagMatcher::new("test_user".to_string(), 1, None, None, None);
-        let (is_match, reason) = matcher
-            .is_condition_match(&flag, &condition, 0)
-            .await
-            .unwrap();
-        assert_eq!(is_match, true);
-        assert_eq!(reason, "CONDITION_MATCH");
+        }
     }
 }

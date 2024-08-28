@@ -96,6 +96,10 @@ pub enum FlagError {
     DatabaseUnavailable,
     #[error("Timed out while fetching data")]
     TimeoutError,
+    #[error("Invalid hash conversion")]
+    HashConversionError,
+    #[error("Invalid hashed identifier")]
+    InvalidHashedIdentifier,
 }
 
 impl IntoResponse for FlagError {
@@ -165,6 +169,20 @@ impl IntoResponse for FlagError {
                 (
                     StatusCode::SERVICE_UNAVAILABLE,
                     "The request timed out. This could be due to high load or network issues. Please try again later.".to_string(),
+                )
+            }
+            FlagError::HashConversionError => {
+                tracing::error!("Hash conversion error: {:?}", self);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Failed to convert hashed identifier. This is likely a temporary issue. Please try again later.".to_string(),
+                )
+            }
+            FlagError::InvalidHashedIdentifier => {
+                tracing::error!("Invalid hashed identifier: {:?}", self);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "The provided hashed identifier is invalid. Please provide a valid hashed identifier.".to_string(),
                 )
             }
         }
