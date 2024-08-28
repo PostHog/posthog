@@ -4,10 +4,10 @@ import openai
 from pydantic import BaseModel
 
 from posthog.assistant.events_prompt import EventsPropmpt
+from posthog.assistant.groups_prompt import GroupsPrompt
 from posthog.assistant.properties_prompt import PropertiesPrompt
 from posthog.assistant.system_prompt import SystemPrompt
 from posthog.assistant.trends_function import TrendsFunction
-from posthog.models.action.action import Action
 from posthog.models.team.team import Team
 from posthog.schema import ExperimentalAITrendsQuery
 
@@ -25,13 +25,6 @@ class Assistant:
         self._team = team
         self._user_data = self._prepare_user_data()
 
-    def _get_actions(self) -> str:
-        actions = Action.objects.filter(team=self._team, deleted=False)
-        available_actions = "Below is the list of available actions:\n"
-        for action in actions:
-            available_actions += f"{action.name} (ID: {action.id})\n"
-        return available_actions
-
     def _prepare_system_prompt(self):
         return SystemPrompt(self._team).generate_prompt()
 
@@ -40,7 +33,7 @@ class Assistant:
             [
                 EventsPropmpt(self._team).generate_prompt(),
                 PropertiesPrompt(self._team).generate_prompt(),
-                self._get_actions(),
+                GroupsPrompt(self._team).generate_prompt(),
             ]
         )
 
