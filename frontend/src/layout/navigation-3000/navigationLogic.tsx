@@ -450,7 +450,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             label: 'Web analytics',
                             icon: <IconPieChart />,
                             to: isUsingSidebar ? undefined : urls.webAnalytics(),
-                            tag: 'beta' as const,
                         },
                         {
                             identifier: Scene.Replay,

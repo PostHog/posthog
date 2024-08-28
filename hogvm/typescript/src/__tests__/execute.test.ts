@@ -63,24 +63,24 @@ describe('hogvm execute', () => {
         expect(execSync(['_h', op.STRING, 'AL', op.STRING, 'kala', op.NOT_IREGEX], options)).toBe(false)
         expect(execSync(['_h', op.STRING, 'bla', op.STRING, 'properties', op.GET_GLOBAL, 2], options)).toBe(null)
         expect(execSync(['_h', op.STRING, 'foo', op.STRING, 'properties', op.GET_GLOBAL, 2], options)).toBe('bar')
-        expect(execSync(['_h', op.STRING, 'another', op.STRING, 'arg', op.CALL, 'concat', 2], options)).toBe(
+        expect(execSync(['_h', op.STRING, 'another', op.STRING, 'arg', op.CALL_GLOBAL, 'concat', 2], options)).toBe(
             'arganother'
         )
-        expect(execSync(['_h', op.NULL, op.INTEGER, 1, op.CALL, 'concat', 2], options)).toBe('1')
-        expect(execSync(['_h', op.FALSE, op.TRUE, op.CALL, 'concat', 2], options)).toBe('truefalse')
-        expect(execSync(['_h', op.STRING, 'e.*', op.STRING, 'test', op.CALL, 'match', 2], options)).toBe(true)
-        expect(execSync(['_h', op.STRING, '^e.*', op.STRING, 'test', op.CALL, 'match', 2], options)).toBe(false)
-        expect(execSync(['_h', op.STRING, 'x.*', op.STRING, 'test', op.CALL, 'match', 2], options)).toBe(false)
-        expect(execSync(['_h', op.INTEGER, 1, op.CALL, 'toString', 1], options)).toBe('1')
-        expect(execSync(['_h', op.FLOAT, 1.5, op.CALL, 'toString', 1], options)).toBe('1.5')
-        expect(execSync(['_h', op.TRUE, op.CALL, 'toString', 1], options)).toBe('true')
-        expect(execSync(['_h', op.NULL, op.CALL, 'toString', 1], options)).toBe('null')
-        expect(execSync(['_h', op.STRING, 'string', op.CALL, 'toString', 1], options)).toBe('string')
-        expect(execSync(['_h', op.STRING, '1', op.CALL, 'toInt', 1], options)).toBe(1)
-        expect(execSync(['_h', op.STRING, 'bla', op.CALL, 'toInt', 1], options)).toBe(null)
-        expect(execSync(['_h', op.STRING, '1.2', op.CALL, 'toFloat', 1], options)).toBe(1.2)
-        expect(execSync(['_h', op.STRING, 'bla', op.CALL, 'toFloat', 1], options)).toBe(null)
-        expect(execSync(['_h', op.STRING, 'asd', op.CALL, 'toUUID', 1], options)).toBe('asd')
+        expect(execSync(['_h', op.NULL, op.INTEGER, 1, op.CALL_GLOBAL, 'concat', 2], options)).toBe('1')
+        expect(execSync(['_h', op.FALSE, op.TRUE, op.CALL_GLOBAL, 'concat', 2], options)).toBe('truefalse')
+        expect(execSync(['_h', op.STRING, 'e.*', op.STRING, 'test', op.CALL_GLOBAL, 'match', 2], options)).toBe(true)
+        expect(execSync(['_h', op.STRING, '^e.*', op.STRING, 'test', op.CALL_GLOBAL, 'match', 2], options)).toBe(false)
+        expect(execSync(['_h', op.STRING, 'x.*', op.STRING, 'test', op.CALL_GLOBAL, 'match', 2], options)).toBe(false)
+        expect(execSync(['_h', op.INTEGER, 1, op.CALL_GLOBAL, 'toString', 1], options)).toBe('1')
+        expect(execSync(['_h', op.FLOAT, 1.5, op.CALL_GLOBAL, 'toString', 1], options)).toBe('1.5')
+        expect(execSync(['_h', op.TRUE, op.CALL_GLOBAL, 'toString', 1], options)).toBe('true')
+        expect(execSync(['_h', op.NULL, op.CALL_GLOBAL, 'toString', 1], options)).toBe('null')
+        expect(execSync(['_h', op.STRING, 'string', op.CALL_GLOBAL, 'toString', 1], options)).toBe('string')
+        expect(execSync(['_h', op.STRING, '1', op.CALL_GLOBAL, 'toInt', 1], options)).toBe(1)
+        expect(execSync(['_h', op.STRING, 'bla', op.CALL_GLOBAL, 'toInt', 1], options)).toBe(null)
+        expect(execSync(['_h', op.STRING, '1.2', op.CALL_GLOBAL, 'toFloat', 1], options)).toBe(1.2)
+        expect(execSync(['_h', op.STRING, 'bla', op.CALL_GLOBAL, 'toFloat', 1], options)).toBe(null)
+        expect(execSync(['_h', op.STRING, 'asd', op.CALL_GLOBAL, 'toUUID', 1], options)).toBe('asd')
 
         expect(execSync(['_h', op.NULL, op.INTEGER, 1, op.EQ], options)).toBe(false)
         expect(execSync(['_h', op.NULL, op.INTEGER, 1, op.NOT_EQ], options)).toBe(true)
@@ -89,17 +89,32 @@ describe('hogvm execute', () => {
     test('error handling', async () => {
         const globals = { properties: { foo: 'bar' } }
         const options = { globals }
-        expect(() => execSync([], options)).toThrow("Invalid HogQL bytecode, must start with '_h'")
-        await expect(execAsync([], options)).rejects.toThrow("Invalid HogQL bytecode, must start with '_h'")
+        expect(() => execSync([], options)).toThrow("Invalid HogQL bytecode, must start with '_H'")
+        await expect(execAsync([], options)).rejects.toThrow("Invalid HogQL bytecode, must start with '_H'")
+
         expect(() => execSync(['_h', op.INTEGER, 2, op.INTEGER, 1, 'InvalidOp'], options)).toThrow(
             'Unexpected node while running bytecode: InvalidOp'
         )
         expect(() =>
-            execSync(['_h', op.STRING, 'another', op.STRING, 'arg', op.CALL, 'invalidFunc', 2], options)
+            execSync(['_h', op.STRING, 'another', op.STRING, 'arg', op.CALL_GLOBAL, 'invalidFunc', 2], options)
         ).toThrow('Unsupported function call: invalidFunc')
         expect(() => execSync(['_h', op.INTEGER], options)).toThrow('Unexpected end of bytecode')
-        expect(() => execSync(['_h', op.CALL, 'match', 1], options)).toThrow('Not enough arguments on the stack')
+        expect(() => execSync(['_h', op.CALL_GLOBAL, 'match', 1], options)).toThrow('Not enough arguments on the stack')
         expect(() => execSync(['_h', op.TRUE, op.TRUE, op.NOT], options)).toThrow(
+            'Invalid bytecode. More than one value left on stack'
+        )
+
+        expect(() => execSync(['_H', 1, op.INTEGER, 2, op.INTEGER, 1, 'InvalidOp'], options)).toThrow(
+            'Unexpected node while running bytecode: InvalidOp'
+        )
+        expect(() =>
+            execSync(['_H', 1, op.STRING, 'another', op.STRING, 'arg', op.CALL_GLOBAL, 'invalidFunc', 2], options)
+        ).toThrow('Unsupported function call: invalidFunc')
+        expect(() => execSync(['_H', 1, op.INTEGER], options)).toThrow('Unexpected end of bytecode')
+        expect(() => execSync(['_H', 1, op.CALL_GLOBAL, 'match', 1], options)).toThrow(
+            'Not enough arguments on the stack'
+        )
+        expect(() => execSync(['_H', 1, op.TRUE, op.TRUE, op.NOT], options)).toThrow(
             'Invalid bytecode. More than one value left on stack'
         )
     })
@@ -288,9 +303,14 @@ describe('hogvm execute', () => {
                 return 'zero'
             },
         }
-        expect(execSync(['_h', op.INTEGER, 1, op.CALL, 'stringify', 1], { functions })).toBe('one')
-        expect(execSync(['_h', op.INTEGER, 2, op.CALL, 'stringify', 1], { functions })).toBe('two')
-        expect(execSync(['_h', op.STRING, '2', op.CALL, 'stringify', 1], { functions })).toBe('zero')
+        expect(execSync(['_h', op.INTEGER, 1, op.CALL_GLOBAL, 'stringify', 1], { functions })).toBe('one')
+        expect(execSync(['_h', op.INTEGER, 2, op.CALL_GLOBAL, 'stringify', 1], { functions })).toBe('two')
+        expect(execSync(['_h', op.STRING, '2', op.CALL_GLOBAL, 'stringify', 1], { functions })).toBe('zero')
+    })
+
+    test('version 0 and 1', async () => {
+        expect(execSync(['_h', op.STRING, '1', op.STRING, '2', op.CALL_GLOBAL, 'concat', 2, op.RETURN])).toBe('21')
+        expect(execSync(['_H', 1, op.STRING, '1', op.STRING, '2', op.CALL_GLOBAL, 'concat', 2, op.RETURN])).toBe('12')
     })
 
     test('should execute user-defined stringify async function correctly', async () => {
@@ -304,9 +324,9 @@ describe('hogvm execute', () => {
                 return Promise.resolve('zero')
             },
         }
-        expect(await execAsync(['_h', op.INTEGER, 1, op.CALL, 'stringify', 1], { asyncFunctions })).toBe('one')
-        expect(await execAsync(['_h', op.INTEGER, 2, op.CALL, 'stringify', 1], { asyncFunctions })).toBe('two')
-        expect(await execAsync(['_h', op.STRING, '2', op.CALL, 'stringify', 1], { asyncFunctions })).toBe('zero')
+        expect(await execAsync(['_h', op.INTEGER, 1, op.CALL_GLOBAL, 'stringify', 1], { asyncFunctions })).toBe('one')
+        expect(await execAsync(['_h', op.INTEGER, 2, op.CALL_GLOBAL, 'stringify', 1], { asyncFunctions })).toBe('two')
+        expect(await execAsync(['_h', op.STRING, '2', op.CALL_GLOBAL, 'stringify', 1], { asyncFunctions })).toBe('zero')
     })
 
     test('bytecode variable assignment', async () => {
@@ -393,7 +413,7 @@ describe('hogvm execute', () => {
             1,
             op.INTEGER,
             2,
-            op.CALL,
+            op.CALL_GLOBAL,
             'add',
             2,
             op.INTEGER,
@@ -402,12 +422,12 @@ describe('hogvm execute', () => {
             4,
             op.INTEGER,
             3,
-            op.CALL,
+            op.CALL_GLOBAL,
             'add',
             2,
             op.PLUS,
             op.PLUS,
-            op.CALL,
+            op.CALL_GLOBAL,
             'divide',
             2,
             op.RETURN,
@@ -439,7 +459,7 @@ describe('hogvm execute', () => {
             op.GET_LOCAL,
             0,
             op.MINUS,
-            op.CALL,
+            op.CALL_GLOBAL,
             'fibonacci',
             1,
             op.INTEGER,
@@ -447,14 +467,14 @@ describe('hogvm execute', () => {
             op.GET_LOCAL,
             0,
             op.MINUS,
-            op.CALL,
+            op.CALL_GLOBAL,
             'fibonacci',
             1,
             op.PLUS,
             op.RETURN,
             op.INTEGER,
             6,
-            op.CALL,
+            op.CALL_GLOBAL,
             'fibonacci',
             1,
             op.RETURN,
@@ -524,13 +544,30 @@ describe('hogvm execute', () => {
             state: {
                 bytecode,
                 asyncSteps: 1,
-                callStack: [],
+                callStack: [
+                    {
+                        ip: 8,
+                        stackStart: 0,
+                        argCount: 0,
+                        closure: {
+                            __hogClosure__: true,
+                            callable: {
+                                __hogCallable__: 'main',
+                                name: '',
+                                argCount: 0,
+                                upvalueCount: 0,
+                                ip: 1,
+                            },
+                            upvalues: [],
+                        },
+                    },
+                ],
                 throwStack: [],
                 declaredFunctions: {},
-                ip: 8,
                 maxMemUsed: 16,
                 ops: 3,
                 stack: [4.2],
+                upvalues: [],
                 syncDuration: expect.any(Number),
             },
         })
@@ -552,10 +589,10 @@ describe('hogvm execute', () => {
                 bytecode: [],
                 callStack: [],
                 declaredFunctions: {},
-                ip: -1,
                 maxMemUsed: 13,
                 ops: 2,
                 stack: [],
+                upvalues: [],
                 throwStack: [],
                 syncDuration: expect.any(Number),
             },
@@ -579,10 +616,10 @@ describe('hogvm execute', () => {
                 bytecode: [],
                 callStack: [],
                 declaredFunctions: {},
-                ip: -1,
                 maxMemUsed: 13,
                 ops: 3,
                 stack: [],
+                upvalues: [],
                 throwStack: [],
                 syncDuration: expect.any(Number),
             },
@@ -623,10 +660,10 @@ describe('hogvm execute', () => {
                 .result
         ).toEqual(map({ key: map({ otherKey: 'value' }) }))
 
-        // return {key: 'value'};
+        // // return {key: 'value'};
         expect(
-            exec(['_h', op.STRING, 'key', op.GET_GLOBAL, 1, op.STRING, 'value', op.DICT, 1, op.RETURN]).result
-        ).toEqual(new Map([[null, 'value']]))
+            () => exec(['_h', op.STRING, 'key', op.GET_GLOBAL, 1, op.STRING, 'value', op.DICT, 1, op.RETURN]).result
+        ).toThrow('Global variable not found: key')
 
         // var key := 3; return {key: 'value'};
         expect(
@@ -1729,11 +1766,11 @@ describe('hogvm execute', () => {
             op.DICT,
             2,
         ]
-        expect(execSync(['_h', op.STRING, '[1,2,3]', op.CALL, 'jsonParse', 1])).toEqual([1, 2, 3])
-        expect(execSync(['_h', ...dict, op.CALL, 'jsonStringify', 1])).toEqual(
+        expect(execSync(['_h', op.STRING, '[1,2,3]', op.CALL_GLOBAL, 'jsonParse', 1])).toEqual([1, 2, 3])
+        expect(execSync(['_h', ...dict, op.CALL_GLOBAL, 'jsonStringify', 1])).toEqual(
             '{"event":"$pageview","properties":{"$browser":"Chrome","$os":"Windows"}}'
         )
-        expect(execSync(['_h', op.INTEGER, 2, ...dict, op.CALL, 'jsonStringify', 2])).toEqual(
+        expect(execSync(['_h', op.INTEGER, 2, ...dict, op.CALL_GLOBAL, 'jsonStringify', 2])).toEqual(
             JSON.stringify({ event: '$pageview', properties: { $browser: 'Chrome', $os: 'Windows' } }, null, 2)
         )
     })
@@ -1783,21 +1820,21 @@ describe('hogvm execute', () => {
             7,
             op.STRING,
             'true1',
-            op.CALL,
+            op.CALL_GLOBAL,
             'noisy_print',
             1,
             op.JUMP,
             5,
             op.STRING,
             'false1',
-            op.CALL,
+            op.CALL_GLOBAL,
             'noisy_print',
             1,
             op.JUMP,
             5,
             op.STRING,
             'false2',
-            op.CALL,
+            op.CALL_GLOBAL,
             'noisy_print',
             1,
             op.RETURN,
@@ -1823,13 +1860,13 @@ describe('hogvm execute', () => {
             op.POP,
             op.STRING,
             'no',
-            op.CALL,
+            op.CALL_GLOBAL,
             'noisy_print',
             1,
             op.RETURN,
             op.STRING,
             'post',
-            op.CALL,
+            op.CALL_GLOBAL,
             'noisy_print',
             1,
             op.POP,
@@ -1840,7 +1877,7 @@ describe('hogvm execute', () => {
 
     test('uncaught exceptions', () => {
         // throw Error('Not a good day')
-        const bytecode1 = ['_h', op.NULL, op.NULL, op.STRING, 'Not a good day', op.CALL, 'Error', 3, op.THROW]
+        const bytecode1 = ['_h', op.NULL, op.NULL, op.STRING, 'Not a good day', op.CALL_GLOBAL, 'Error', 3, op.THROW]
         expect(() => execSync(bytecode1)).toThrow(new UncaughtHogVMException('Error', 'Not a good day', null))
 
         // throw RetryError('Not a good day', {'key': 'value'})
@@ -1854,7 +1891,7 @@ describe('hogvm execute', () => {
             1,
             op.STRING,
             'Not a good day',
-            op.CALL,
+            op.CALL_GLOBAL,
             'RetryError',
             2,
             op.THROW,
@@ -1862,5 +1899,520 @@ describe('hogvm execute', () => {
         expect(() => execSync(bytecode2)).toThrow(
             new UncaughtHogVMException('RetryError', 'Not a good day', { key: 'value' })
         )
+    })
+
+    test('returns serialized state', () => {
+        const bytecode = [
+            '_h',
+            op.STRING,
+            'key',
+            op.STRING,
+            'value',
+            op.DICT,
+            1,
+            op.GET_LOCAL,
+            0,
+            op.CALL_GLOBAL,
+            'fetch',
+            1,
+        ]
+        const result = exec(bytecode, { asyncFunctions: { fetch: async () => null } })
+        expect(result).toEqual({
+            asyncFunctionArgs: [{ key: 'value' }], // not a Map
+            asyncFunctionName: 'fetch',
+            finished: false,
+            result: undefined,
+            state: {
+                asyncSteps: 1,
+                bytecode: bytecode,
+                callStack: [
+                    {
+                        ip: 12,
+                        stackStart: 0,
+                        argCount: 0,
+                        closure: {
+                            __hogClosure__: true,
+                            callable: {
+                                __hogCallable__: 'main',
+                                name: '',
+                                argCount: 0,
+                                upvalueCount: 0,
+                                ip: 1,
+                            },
+                            upvalues: [],
+                        },
+                    },
+                ],
+                declaredFunctions: {},
+                maxMemUsed: 64,
+                ops: 5,
+                stack: [{ key: 'value' }], // is not a Map
+                syncDuration: 0,
+                throwStack: [],
+                upvalues: [],
+            },
+        })
+    })
+
+    test('can serialize/unserialize lambdas', () => {
+        // let x := 2
+        // let l := (a, b) -> a + b + x
+        // sleep(2)
+        // x := 10
+        // return l(4, 3)
+        const bytecode = [
+            '_H',
+            1,
+            33,
+            2,
+            52,
+            'lambda',
+            2,
+            1,
+            9,
+            55,
+            0,
+            36,
+            1,
+            36,
+            0,
+            6,
+            6,
+            38,
+            53,
+            1,
+            true,
+            0,
+            33,
+            2,
+            2,
+            'sleep',
+            1,
+            35,
+            33,
+            10,
+            37,
+            0,
+            33,
+            4,
+            33,
+            3,
+            36,
+            1,
+            54,
+            2,
+            38,
+            35,
+            57,
+        ]
+        const options = {
+            asyncFunctions: {
+                sleep: async (seconds: number) => new Promise((resolve) => setTimeout(resolve, seconds)),
+            },
+        }
+        const result = exec(bytecode, options)
+
+        expect(result).toEqual({
+            result: undefined,
+            finished: false,
+            asyncFunctionName: 'sleep',
+            asyncFunctionArgs: [2],
+            state: {
+                bytecode,
+                stack: [
+                    2,
+                    {
+                        __hogClosure__: true,
+                        callable: {
+                            __hogCallable__: 'local',
+                            name: 'lambda',
+                            argCount: 2,
+                            upvalueCount: 1,
+                            ip: 9,
+                        },
+                        upvalues: [1],
+                    },
+                ],
+                upvalues: [
+                    {
+                        __hogUpValue__: true,
+                        location: 0,
+                        id: 1,
+                        closed: false,
+                        value: null,
+                    },
+                ],
+                callStack: [
+                    {
+                        ip: 27,
+                        stackStart: 0,
+                        argCount: 0,
+                        closure: {
+                            __hogClosure__: true,
+                            callable: {
+                                __hogCallable__: 'main',
+                                name: '',
+                                argCount: 0,
+                                upvalueCount: 0,
+                                ip: 1,
+                            },
+                            upvalues: [],
+                        },
+                    },
+                ],
+                throwStack: [],
+                declaredFunctions: {},
+                ops: 5,
+                asyncSteps: 1,
+                syncDuration: expect.any(Number),
+                maxMemUsed: 242,
+            },
+        })
+        result.state!.stack.push(null)
+        const result2 = exec(result.state!, options)
+        expect(result2).toEqual({
+            result: 17,
+            finished: true,
+            state: {
+                bytecode: [],
+                stack: [],
+                upvalues: [],
+                callStack: [],
+                throwStack: [],
+                declaredFunctions: {},
+                ops: 19,
+                asyncSteps: 1,
+                syncDuration: expect.any(Number),
+                maxMemUsed: 476,
+            },
+        })
+    })
+
+    test('can serialize/unserialize upvalues', () => {
+        // fn outer() {
+        //   let x := 'outside'
+        //   fn inner() {
+        //     print(x)
+        //   }
+        //
+        //   return inner
+        // }
+        //
+        // let closure := outer()
+        // sleep(2)
+        // return closure()
+        const bytecode = [
+            '_H',
+            1,
+            52,
+            'outer',
+            0,
+            0,
+            19,
+            32,
+            'outside',
+            52,
+            'inner',
+            0,
+            1,
+            3,
+            55,
+            0,
+            38,
+            53,
+            1,
+            true,
+            0,
+            36,
+            1,
+            38,
+            35,
+            57,
+            53,
+            0,
+            36,
+            0,
+            54,
+            0,
+            33,
+            2,
+            2,
+            'sleep',
+            1,
+            35,
+            36,
+            1,
+            54,
+            0,
+            38,
+            35,
+            35,
+        ]
+
+        const options = {
+            asyncFunctions: {
+                sleep: async (seconds: number) => new Promise((resolve) => setTimeout(resolve, seconds)),
+            },
+        }
+        const result = exec(bytecode, options)
+
+        expect(result).toEqual({
+            finished: false,
+            asyncFunctionName: 'sleep',
+            asyncFunctionArgs: [2],
+            state: {
+                bytecode,
+                stack: [
+                    {
+                        __hogClosure__: true,
+                        callable: {
+                            __hogCallable__: 'local',
+                            name: 'outer',
+                            argCount: 0,
+                            upvalueCount: 0,
+                            ip: 7,
+                        },
+                        upvalues: [],
+                    },
+                    {
+                        __hogClosure__: true,
+                        callable: {
+                            __hogCallable__: 'local',
+                            name: 'inner',
+                            argCount: 0,
+                            upvalueCount: 1,
+                            ip: 14,
+                        },
+                        upvalues: [1],
+                    },
+                ],
+                upvalues: [
+                    {
+                        __hogUpValue__: true,
+                        id: 1,
+                        location: 1,
+                        closed: true,
+                        value: 'outside',
+                    },
+                ],
+                callStack: [
+                    {
+                        ip: 37,
+                        stackStart: 0,
+                        argCount: 0,
+                        closure: {
+                            __hogClosure__: true,
+                            callable: {
+                                __hogCallable__: 'main',
+                                name: '',
+                                argCount: 0,
+                                upvalueCount: 0,
+                                ip: 1,
+                            },
+                            upvalues: [],
+                        },
+                    },
+                ],
+                throwStack: [],
+                declaredFunctions: {},
+                ops: 11,
+                asyncSteps: 1,
+                syncDuration: expect.any(Number),
+                maxMemUsed: 682,
+            },
+        })
+        result.state!.stack.push(null)
+        const result2 = exec(result.state!, options)
+        expect(result2).toEqual({
+            result: 'outside',
+            finished: true,
+            state: {
+                bytecode: [],
+                stack: [],
+                upvalues: [],
+                callStack: [],
+                throwStack: [],
+                declaredFunctions: {},
+                ops: 17,
+                asyncSteps: 1,
+                syncDuration: expect.any(Number),
+                maxMemUsed: 682,
+            },
+        })
+    })
+
+    test('can serialize/unserialize upvalues v2', () => {
+        // fn outer() {
+        //   let x := 'outside'
+        //   fn inner() {
+        //     print(x)
+        //     sleep(2)
+        //     return x
+        //   }
+        //   return inner
+        // }
+        //
+        // let closure := outer()
+        // return closure()
+        const bytecode = [
+            '_H',
+            1,
+            52,
+            'outer',
+            0,
+            0,
+            31,
+            32,
+            'outside',
+            52,
+            'inner',
+            0,
+            1,
+            15,
+            55,
+            0,
+            2,
+            'print',
+            1,
+            35,
+            33,
+            2,
+            2,
+            'sleep',
+            1,
+            35,
+            55,
+            0,
+            38,
+            53,
+            1,
+            true,
+            0,
+            36,
+            1,
+            38,
+            35,
+            57,
+            53,
+            0,
+            36,
+            0,
+            54,
+            0,
+            36,
+            1,
+            54,
+            0,
+            38,
+            35,
+            35,
+        ]
+
+        const options = {
+            asyncFunctions: {
+                sleep: async (seconds: number) => new Promise((resolve) => setTimeout(resolve, seconds)),
+            },
+        }
+        const result = exec(bytecode, options)
+
+        expect(result).toEqual({
+            finished: false,
+            asyncFunctionName: 'sleep',
+            asyncFunctionArgs: [2],
+            state: {
+                bytecode: bytecode,
+                stack: [
+                    {
+                        __hogClosure__: true,
+                        callable: {
+                            __hogCallable__: 'local',
+                            name: 'outer',
+                            argCount: 0,
+                            upvalueCount: 0,
+                            ip: 7,
+                        },
+                        upvalues: [],
+                    },
+                    {
+                        __hogClosure__: true,
+                        callable: {
+                            __hogCallable__: 'local',
+                            name: 'inner',
+                            argCount: 0,
+                            upvalueCount: 1,
+                            ip: 14,
+                        },
+                        upvalues: [1],
+                    },
+                ],
+                upvalues: [
+                    {
+                        __hogUpValue__: true,
+                        id: 1,
+                        location: 1,
+                        closed: true,
+                        value: 'outside',
+                    },
+                ],
+                callStack: [
+                    {
+                        ip: 48,
+                        stackStart: 0,
+                        argCount: 0,
+                        closure: {
+                            __hogClosure__: true,
+                            callable: {
+                                __hogCallable__: 'main',
+                                name: '',
+                                argCount: 0,
+                                upvalueCount: 0,
+                                ip: 1,
+                            },
+                            upvalues: [],
+                        },
+                    },
+                    {
+                        ip: 25,
+                        stackStart: 2,
+                        argCount: 0,
+                        closure: {
+                            __hogClosure__: true,
+                            callable: {
+                                __hogCallable__: 'local',
+                                name: 'inner',
+                                argCount: 0,
+                                upvalueCount: 1,
+                                ip: 14,
+                            },
+                            upvalues: [1],
+                        },
+                    },
+                ],
+                throwStack: [],
+                declaredFunctions: {},
+                ops: 16,
+                asyncSteps: 1,
+                syncDuration: expect.any(Number),
+                maxMemUsed: 682,
+            },
+        })
+        result.state!.stack.push(null)
+        const result2 = exec(result.state!, options)
+        expect(result2).toEqual({
+            result: 'outside',
+            finished: true,
+            state: {
+                bytecode: [],
+                stack: [],
+                upvalues: [],
+                callStack: [],
+                throwStack: [],
+                declaredFunctions: {},
+                ops: 20,
+                asyncSteps: 1,
+                syncDuration: expect.any(Number),
+                maxMemUsed: 682,
+            },
+        })
     })
 })

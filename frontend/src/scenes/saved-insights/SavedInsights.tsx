@@ -17,6 +17,7 @@ import {
     IconStickiness,
     IconTrends,
     IconUserPaths,
+    IconVideoCamera,
     IconWarning,
 } from '@posthog/icons'
 import { LemonSelectOptions } from '@posthog/lemon-ui'
@@ -313,6 +314,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         name: 'Error Tracking',
         description: 'List and explore exception groups',
         icon: IconWarning,
+        inMenu: false,
+    },
+    [NodeKind.RecordingsQuery]: {
+        name: 'Session Recordings',
+        description: 'View available recordings',
+        icon: IconVideoCamera,
         inMenu: false,
     },
 }

@@ -1,0 +1,27 @@
+[package]
+name = "property-defs-rs"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+uuid = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+rdkafka = { workspace = true }
+tokio = { workspace = true }
+envconfig = {workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+sqlx = { workspace = true }
+futures = { workspace = true }
+health = { path = "../common/health" }
+time = { workspace = true }
+axum = { workspace = true }
+serve-metrics = { path = "../common/serve_metrics" }
+metrics = { workspace = true }
+chrono = { workspace = true }
+lru = { workspace = true }
+common-metrics = { path = "../common/metrics" }
+
+[lints]
+workspace = true

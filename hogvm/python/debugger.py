@@ -2,6 +2,7 @@ import os
 from time import sleep
 from typing import Any
 
+from hogvm.python.objects import CallFrame
 from hogvm.python.operation import Operation
 
 debug_speed = -1
@@ -62,7 +63,7 @@ def debugger(
         sleep(debug_speed / 1000)
 
 
-def print_symbol(symbol: Operation, ip: int, bytecode: list, stack: list, call_stack: list) -> str:
+def print_symbol(symbol: Operation, ip: int, bytecode: list, stack: list, call_stack: list[CallFrame]) -> str:
     try:
         match symbol:
             case Operation.STRING:
@@ -132,15 +133,20 @@ def print_symbol(symbol: Operation, ip: int, bytecode: list, stack: list, call_s
             case Operation.POP:
                 return f"POP({stack[-1]})"
             case Operation.RETURN:
-                if call_stack:
-                    ip, stack_start, arg_len = call_stack[-1]
-                    return f"RETURN({stack[-1]} --> {ip}/{stack_start})"
+                if len(call_stack) > 1:
+                    return f"RETURN({stack[-1]}) --> {call_stack[-2].ip}"
                 else:
                     return "RETURN"
             case Operation.GET_LOCAL:
                 return f"GET_LOCAL({bytecode[ip+1]})"
             case Operation.SET_LOCAL:
-                return f"GET_LOCAL({bytecode[ip + 1]}, {stack[-1]})"
+                return f"SET_LOCAL({bytecode[ip + 1]}, {stack[-1]})"
+            case Operation.GET_UPVALUE:
+                return f"GET_UPVALUE({bytecode[ip+1]})"
+            case Operation.SET_UPVALUE:
+                return f"SET_UPVALUE({bytecode[ip + 1]})"
+            case Operation.CLOSE_UPVALUE:
+                return "CLOSE_UPVALUE"
             case Operation.GET_PROPERTY:
                 return f"GET_PROPERTY({stack[-2]}, {stack[-1]})"
             case Operation.GET_PROPERTY_NULLISH:
@@ -163,8 +169,14 @@ def print_symbol(symbol: Operation, ip: int, bytecode: list, stack: list, call_s
                 )
             case Operation.DECLARE_FN:
                 return f"DECLARE_FN({bytecode[ip+1]}, args={bytecode[ip+2]}, ops={bytecode[ip+3]})"
-            case Operation.CALL:
-                return f"CALL({bytecode[ip+1]} {', '.join(str(stack[-i]) for i in range(bytecode[ip+2]))})"
+            case Operation.CALLABLE:
+                return f"CALLABLE({bytecode[ip+1]}, args={bytecode[ip+2]}, upvalues={bytecode[ip+3]}, ops={bytecode[ip+4]})"
+            case Operation.CLOSURE:
+                return f"CLOSURE"
+            case Operation.CALL_GLOBAL:
+                return f"CALL_GLOBAL({bytecode[ip+1]}, {', '.join(str(stack[-(bytecode[ip+2] - i)]) for i in range(bytecode[ip+2]))})"
+            case Operation.CALL_LOCAL:
+                return f"CALL_LOCAL({bytecode[ip+1]} {', '.join(str(stack[-(bytecode[ip+1] - i)]) for i in range(bytecode[ip+1]))})"
             case Operation.TRY:
                 return f"TRY(+{bytecode[ip+1]})"
             case Operation.POP_TRY:
@@ -177,8 +189,8 @@ def print_symbol(symbol: Operation, ip: int, bytecode: list, stack: list, call_s
 
 
 def color_bytecode(bytecode: list) -> list:
-    colored = ["op.START"]
-    ip = 1
+    colored = ["op.START", f"version: {bytecode[1]}"] if bytecode[0] == "_H" else ["op.START"]
+    ip = len(colored)
     while ip < len(bytecode):
         symbol = bytecode[ip]
         match symbol:
@@ -254,6 +266,12 @@ def color_bytecode(bytecode: list) -> list:
                 add = ["op.GET_LOCAL", f"index: {bytecode[ip+1]}"]
             case Operation.SET_LOCAL:
                 add = ["op.SET_LOCAL", f"index: {bytecode[ip+1]}"]
+            case Operation.GET_UPVALUE:
+                add = ["op.GET_UPVALUE", f"index: {bytecode[ip+1]}"]
+            case Operation.SET_UPVALUE:
+                add = ["op.SET_UPVALUE", f"index: {bytecode[ip+1]}"]
+            case Operation.CLOSE_UPVALUE:
+                add = ["op.CLOSE_UPVALUE"]
             case Operation.GET_PROPERTY:
                 add = ["op.GET_PROPERTY"]
             case Operation.GET_PROPERTY_NULLISH:
@@ -274,8 +292,24 @@ def color_bytecode(bytecode: list) -> list:
                 add = ["op.JUMP_IF_STACK_NOT_NULL", f"offset: {'+' if bytecode[ip+1] >= 0 else ''}{bytecode[ip+1]}"]
             case Operation.DECLARE_FN:
                 add = ["op.DECLARE_FN", f"name: {bytecode[ip+1]}", f"args: {bytecode[ip+2]}", f"ops: {bytecode[ip+3]}"]
-            case Operation.CALL:
-                add = ["op.CALL", f"name: {bytecode[ip+1]}", f"args: {bytecode[ip+2]}"]
+            case Operation.CALLABLE:
+                add = [
+                    "op.CALLABLE",
+                    f"name: {bytecode[ip+1]}",
+                    f"args: {bytecode[ip+2]}",
+                    f"upvalues: {bytecode[ip+3]}",
+                    f"ops: {bytecode[ip+4]}",
+                ]
+            case Operation.CLOSURE:
+                upvalue_count = bytecode[ip + 1]
+                add = ["op.CLOSURE", f"upvalues: {upvalue_count}"]
+                for i in range(upvalue_count):
+                    add.append(f"is_local({i}): {bytecode[ip + 2 + i * 2]}")
+                    add.append(f"index({i}): {bytecode[ip + 2 + i * 2 + 1]}")
+            case Operation.CALL_LOCAL:
+                add = ["op.CALL_LOCAL", f"args: {bytecode[ip+1]}"]
+            case Operation.CALL_GLOBAL:
+                add = ["op.CALL_GLOBAL", f"name: {bytecode[ip+1]}", f"args: {bytecode[ip+2]}"]
             case Operation.TRY:
                 add = ["op.TRY", f"catch: +{bytecode[ip+1]}"]
             case Operation.POP_TRY:
