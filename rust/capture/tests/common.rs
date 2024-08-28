@@ -6,7 +6,7 @@ use std::num::NonZeroU32;
 use std::ops::Add;
 use std::str::FromStr;
 use std::string::ToString;
-use std::sync::{Arc, Once};
+use std::sync::Once;
 use std::time::Duration;
 
 use anyhow::bail;
@@ -20,14 +20,14 @@ use rdkafka::util::Timeout;
 use rdkafka::{Message, TopicPartitionList};
 use redis::{Client, Commands};
 use time::OffsetDateTime;
-use tokio::net::TcpListener;
-use tokio::sync::Notify;
 use tokio::time::timeout;
 use tracing::{debug, warn};
 
+use axum_test::{TestRequest, TestServer, TestServerConfig};
 use capture::config::{CaptureMode, Config, KafkaConfig};
 use capture::limiters::billing::QuotaResource;
-use capture::server::serve;
+use capture::server::serve_app;
+use serde::Serialize;
 
 pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     print_sink: false,
@@ -68,8 +68,7 @@ pub fn setup_tracing() {
     });
 }
 pub struct ServerHandle {
-    pub addr: SocketAddr,
-    shutdown: Arc<Notify>,
+    server: TestServer,
 }
 
 impl ServerHandle {
@@ -79,58 +78,34 @@ impl ServerHandle {
         config.kafka.kafka_historical_topic = historical.topic_name().to_string();
         Self::for_config(config).await
     }
+
     pub async fn for_recordings(main: &EphemeralTopic) -> Self {
         let mut config = DEFAULT_CONFIG.clone();
         config.kafka.kafka_topic = main.topic_name().to_string();
         config.capture_mode = CaptureMode::Recordings;
         Self::for_config(config).await
     }
+
     pub async fn for_config(config: Config) -> Self {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        let notify = Arc::new(Notify::new());
-        let shutdown = notify.clone();
+        let app = serve_app(config).await;
+        let server = TestServerConfig::builder()
+            .expect_success_by_default()
+            .build_server(app)
+            .expect("Could not start TestServer");
 
-        tokio::spawn(async move {
-            serve(config, listener, async move { notify.notified().await }).await
-        });
-        Self { addr, shutdown }
+        Self { server }
     }
 
-    pub async fn capture_events<T: Into<reqwest::Body>>(&self, body: T) -> reqwest::Response {
-        let client = reqwest::Client::new();
-        client
-            .post(format!("http://{:?}/i/v0/e", self.addr))
-            .body(body)
-            .send()
-            .await
-            .expect("failed to send request")
+    pub fn capture_events<T: Serialize>(&self, body: &T) -> TestRequest {
+        self.server.post("/i/v0/e").json(body)
     }
 
-    pub async fn capture_to_batch<T: Into<reqwest::Body>>(&self, body: T) -> reqwest::Response {
-        let client = reqwest::Client::new();
-        client
-            .post(format!("http://{:?}/batch", self.addr))
-            .body(body)
-            .send()
-            .await
-            .expect("failed to send request")
+    pub fn capture_to_batch<T: Serialize>(&self, body: &T) -> TestRequest {
+        self.server.post("/batch").json(body)
     }
 
-    pub async fn capture_recording<T: Into<reqwest::Body>>(&self, body: T) -> reqwest::Response {
-        let client = reqwest::Client::new();
-        client
-            .post(format!("http://{:?}/s/", self.addr))
-            .body(body)
-            .send()
-            .await
-            .expect("failed to send request")
-    }
-}
-
-impl Drop for ServerHandle {
-    fn drop(&mut self) {
-        self.shutdown.notify_one()
+    pub fn capture_recording<T: Serialize>(&self, body: &T) -> TestRequest {
+        self.server.post("/s/").json(body)
     }
 }
 

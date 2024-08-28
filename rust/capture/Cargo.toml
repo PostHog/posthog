@@ -43,7 +43,7 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 assert-json-diff = { workspace = true }
-axum-test-helper = { git = "https://github.com/posthog/axum-test-helper.git" } # TODO: remove, directly use reqwest like capture-server tests
+axum-test = { workspace = true }
 anyhow = { workspace = true }
 futures = { workspace = true }
 once_cell = { workspace = true }

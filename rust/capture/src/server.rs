@@ -1,3 +1,6 @@
+use axum::extract::connect_info::IntoMakeServiceWithConnectInfo;
+use axum::Router;
+
 use std::future::Future;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -15,10 +18,7 @@ use crate::router;
 use crate::sinks::kafka::KafkaSink;
 use crate::sinks::print::PrintSink;
 
-pub async fn serve<F>(config: Config, listener: TcpListener, shutdown: F)
-where
-    F: Future<Output = ()> + Send + 'static,
-{
+pub async fn serve_app(config: Config) -> IntoMakeServiceWithConnectInfo<Router, SocketAddr> {
     let liveness = HealthRegistry::new("liveness");
 
     let redis_client =
@@ -91,14 +91,20 @@ where
         )
     };
 
+    app.into_make_service_with_connect_info::<SocketAddr>()
+}
+
+pub async fn serve<F>(config: Config, listener: TcpListener, shutdown: F)
+where
+    F: Future<Output = ()> + Send + 'static,
+{
     // run our app with hyper
     // `axum::Server` is a re-export of `hyper::Server`
+    let app = serve_app(config).await;
+
     tracing::info!("listening on {:?}", listener.local_addr().unwrap());
-    axum::serve(
-        listener,
-        app.into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .with_graceful_shutdown(shutdown)
-    .await
-    .unwrap()
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown)
+        .await
+        .unwrap()
 }
