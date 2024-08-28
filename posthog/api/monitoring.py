@@ -17,6 +17,12 @@ API_REQUESTS_COUNTER = Counter(
     labelnames=["endpoint", "method"],
 )
 
+API_REQUESTS_ERROR_COUNTER = Counter(
+    "api_requests_error",
+    "Number of errored API requests",
+    labelnames=["endpoint", "method"],
+)
+
 
 def monitor(*, feature: Feature | None, endpoint: str, method: str) -> Callable:
     """
@@ -30,8 +36,11 @@ def monitor(*, feature: Feature | None, endpoint: str, method: str) -> Callable:
 
             if feature:
                 set_tag("feature", feature.value)
-
-            return func(*args, **kwargs)
+            try:
+                return func(*args, **kwargs)
+            except Exception:
+                API_REQUESTS_ERROR_COUNTER.labels(endpoint=endpoint, method=method).inc()
+                raise
 
         return wrapper
 

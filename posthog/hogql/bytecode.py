@@ -14,6 +14,7 @@ from posthog.hogql.visitor import Visitor
 from hogvm.python.operation import (
     Operation,
     HOGQL_BYTECODE_IDENTIFIER,
+    HOGQL_BYTECODE_VERSION,
 )
 from posthog.schema import HogQLNotice
 
@@ -65,7 +66,8 @@ def create_bytecode(
     bytecode: list[Any] = []
     if args is None:
         bytecode.append(HOGQL_BYTECODE_IDENTIFIER)
-    bytecode.extend(BytecodeBuilder(supported_functions, args, context).visit(expr))
+        bytecode.append(HOGQL_BYTECODE_VERSION)
+    bytecode.extend(BytecodeCompiler(supported_functions, args, context).visit(expr))
     return bytecode
 
 
@@ -82,7 +84,7 @@ class HogFunction:
     bytecode: list[Any]
 
 
-class BytecodeBuilder(Visitor):
+class BytecodeCompiler(Visitor):
     def __init__(
         self,
         supported_functions: Optional[set[str]] = None,
@@ -97,7 +99,7 @@ class BytecodeBuilder(Visitor):
         self.args = args
         # we're in a function definition
         if args is not None:
-            for arg in reversed(args):
+            for arg in args:
                 self._declare_local(arg)
         self.context = context or HogQLContext(team_id=None)
 
@@ -126,7 +128,7 @@ class BytecodeBuilder(Visitor):
 
     def visit_and(self, node: ast.And):
         response = []
-        for expr in reversed(node.exprs):
+        for expr in node.exprs:
             response.extend(self.visit(expr))
         response.append(Operation.AND)
         response.append(len(node.exprs))
@@ -134,7 +136,7 @@ class BytecodeBuilder(Visitor):
 
     def visit_or(self, node: ast.Or):
         response = []
-        for expr in reversed(node.exprs):
+        for expr in node.exprs:
             response.extend(self.visit(expr))
         response.append(Operation.OR)
         response.append(len(node.exprs))
@@ -224,12 +226,12 @@ class BytecodeBuilder(Visitor):
             return [*self.visit(node.args[0]), Operation.NOT]
         if node.name == "and" and len(node.args) > 1:
             args = []
-            for arg in reversed(node.args):
+            for arg in node.args:
                 args.extend(self.visit(arg))
             return [*args, Operation.AND, len(node.args)]
         if node.name == "or" and len(node.args) > 1:
             args = []
-            for arg in reversed(node.args):
+            for arg in node.args:
                 args.extend(self.visit(arg))
             return [*args, Operation.OR, len(node.args)]
         if node.name == "if" and len(node.args) >= 2:
@@ -278,16 +280,16 @@ class BytecodeBuilder(Visitor):
             )
         response = []
 
+        for expr in node.args:
+            response.extend(self.visit(expr))
+
         if node.name in MIN_ARGS_INCLUDING_OPTIONAL and len(node.args) < MIN_ARGS_INCLUDING_OPTIONAL[node.name]:
             for _ in range(len(node.args), MIN_ARGS_INCLUDING_OPTIONAL[node.name]):
                 response.append(Operation.NULL)
 
-        for expr in reversed(node.args):
-            response.extend(self.visit(expr))
-
         response.extend(
             [
-                Operation.CALL,
+                Operation.CALL_GLOBAL,
                 node.name,
                 len(node.args)
                 if node.name not in MIN_ARGS_INCLUDING_OPTIONAL
@@ -484,18 +486,18 @@ class BytecodeBuilder(Visitor):
 
         if key_var is not None:
             expr_keys_local = self._declare_local("__H_keys_H__")  # keys
-            response.extend([Operation.GET_LOCAL, expr_local, Operation.CALL, "keys", 1])
+            response.extend([Operation.GET_LOCAL, expr_local, Operation.CALL_GLOBAL, "keys", 1])
         else:
             expr_keys_local = None
 
         expr_values_local = self._declare_local("__H_values_H__")  # values
-        response.extend([Operation.GET_LOCAL, expr_local, Operation.CALL, "values", 1])
+        response.extend([Operation.GET_LOCAL, expr_local, Operation.CALL_GLOBAL, "values", 1])
 
         loop_index_local = self._declare_local("__H_index_H__")  # 0
         response.extend([Operation.INTEGER, 1])
 
         loop_limit_local = self._declare_local("__H_limit_H__")  # length of keys
-        response.extend([Operation.GET_LOCAL, expr_values_local, Operation.CALL, "length", 1])
+        response.extend([Operation.GET_LOCAL, expr_values_local, Operation.CALL_GLOBAL, "length", 1])
 
         if key_var is not None:
             key_var_local = self._declare_local(key_var)  # loop key
@@ -668,5 +670,9 @@ def execute_hog(
         if not source_code.endswith(";"):
             source_code = f"{source_code};"
     program = parse_program(source_code)
-    bytecode = create_bytecode(program)
+    bytecode = create_bytecode(
+        program,
+        supported_functions=set(functions.keys()) if functions is not None else set(),
+        context=HogQLContext(team_id=team.id if team else None),
+    )
     return execute_bytecode(bytecode, globals=globals, functions=functions, timeout=timeout, team=team)

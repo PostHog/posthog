@@ -1,4 +1,4 @@
-import { calculateCost, convertHogToJS, convertJSToHog, exec, ExecResult } from '@posthog/hogvm'
+import { calculateCost, convertHogToJS, exec, ExecResult } from '@posthog/hogvm'
 import { DateTime } from 'luxon'
 import { Histogram } from 'prom-client'
 
@@ -30,9 +30,9 @@ const hogExecutionDuration = new Histogram({
 export const formatInput = (bytecode: any, globals: HogFunctionInvocation['globals']): any => {
     // Similar to how we generate the bytecode by iterating over the values,
     // here we iterate over the object and replace the bytecode with the actual values
-    // bytecode is indicated as an array beginning with ["_h"]
+    // bytecode is indicated as an array beginning with ["_H"] (versions 1+) or ["_h"] (version 0)
 
-    if (Array.isArray(bytecode) && bytecode[0] === '_h') {
+    if (Array.isArray(bytecode) && (bytecode[0] === '_h' || bytecode[0] === '_H')) {
         const res = exec(bytecode, {
             globals,
             timeout: DEFAULT_TIMEOUT_MS,
@@ -217,7 +217,7 @@ export class HogExecutor {
         }
 
         // Add the response to the stack to continue execution
-        invocation.vmState.stack.push(convertJSToHog(response))
+        invocation.vmState.stack.push(response)
         invocation.timings.push(...timings)
 
         const res = this.execute(hogFunction, invocation)

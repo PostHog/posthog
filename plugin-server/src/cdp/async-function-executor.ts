@@ -119,16 +119,11 @@ export class AsyncFunctionExecutor {
                             url,
                             method,
                             headers,
-                            body,
+                            // The body is passed in the `blob` field below.
                         }),
-                        metadata: JSON.stringify({
-                            // TODO: It seems like Fetch expects metadata to have this shape, which
-                            // I don't understand. I think `metadata` is where all the other Hog
-                            // state is going to be stored? For now I'm just trying to make fetch
-                            // work.
-                            tries: 0,
-                            trace: [],
-                        }),
+                        metadata: JSON.stringify({}),
+                        // Fetch bodies are passed in the binary blob column/field.
+                        blob: toUint8Array(body),
                     })
                 } catch (e) {
                     status.error(
@@ -192,4 +187,24 @@ export class AsyncFunctionExecutor {
 
         return response
     }
+}
+
+function toUint8Array(data: any): Uint8Array | undefined {
+    if (data === null || data === undefined) {
+        return undefined
+    }
+
+    if (data instanceof Uint8Array) {
+        return data
+    }
+
+    if (data instanceof ArrayBuffer) {
+        return new Uint8Array(data)
+    }
+
+    if (typeof data === 'string') {
+        return new TextEncoder().encode(data)
+    }
+
+    return new TextEncoder().encode(JSON.stringify(data))
 }

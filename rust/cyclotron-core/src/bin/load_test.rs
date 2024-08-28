@@ -38,6 +38,7 @@ async fn producer_loop(manager: QueueManager, shared_context: Arc<SharedContext>
                 function_id: Some(Uuid::now_v7()),
                 vm_state: None,
                 parameters: None,
+                blob: None,
                 metadata: None,
             };
 
