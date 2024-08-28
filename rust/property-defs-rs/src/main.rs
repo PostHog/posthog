@@ -1,5 +1,6 @@
-use std::{collections::HashSet, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
+use ahash::AHashSet;
 use axum::{routing::get, Router};
 use envconfig::Envconfig;
 use futures::future::ready;
@@ -68,7 +69,7 @@ async fn spawn_producer_loop(
     skip_threshold: usize,
     compaction_batch_size: usize,
 ) {
-    let mut batch = HashSet::with_capacity(compaction_batch_size);
+    let mut batch = AHashSet::with_capacity(compaction_batch_size);
     let mut last_send = tokio::time::Instant::now();
     loop {
         let message = consumer

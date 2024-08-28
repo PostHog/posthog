@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use property_defs_rs::types::{Event, Update};
-use quick_cache::{sync::Cache, unsync};
+use quick_cache::sync::Cache;
 use tokio::sync::mpsc::{
     self,
     error::{TryRecvError, TrySendError},
@@ -16,7 +16,7 @@ async fn spawn_producer_loop(
     compaction_batch_size: usize,
     total_updates_received: Arc<std::sync::atomic::AtomicUsize>,
 ) {
-    let mut batch = unsync::Cache::new(compaction_batch_size);
+    let mut batch = ahash::AHashSet::with_capacity(compaction_batch_size);
     let mut last_send = tokio::time::Instant::now();
     loop {
         let event = match consumer.try_recv() {
@@ -34,15 +34,15 @@ async fn spawn_producer_loop(
         total_updates_received.fetch_add(updates.len(), std::sync::atomic::Ordering::Relaxed);
 
         for update in updates {
-            if batch.get(&update).is_some() {
+            if batch.contains(&update) {
                 continue;
             }
-            batch.insert(update, ());
+            batch.insert(update);
 
             if batch.len() >= compaction_batch_size || last_send.elapsed() > Duration::from_secs(10)
             {
                 last_send = tokio::time::Instant::now();
-                for (update, _) in batch.drain() {
+                for update in batch.drain() {
                     if shared_cache.get(&update).is_some() {
                         continue;
                     }

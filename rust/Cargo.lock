@@ -2820,6 +2820,7 @@ dependencies = [
 name = "property-defs-rs"
 version = "0.1.0"
 dependencies = [
+ "ahash",
  "axum 0.7.5",
  "chrono",
  "common-metrics",

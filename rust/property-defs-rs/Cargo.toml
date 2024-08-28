@@ -21,6 +21,7 @@ metrics = { workspace = true }
 chrono = { workspace = true }
 quick_cache = { workspace = true }
 common-metrics = { path = "../common/metrics" }
+ahash = { workspace = true }
 
 [lints]
 workspace = true
