@@ -159,20 +159,35 @@ export const toolbarLogic = kea<toolbarLogicType>([
         ],
     })),
     selectors({
-        dragPosition: [
-            (s) => [s.element, s.lastDragPosition, s.windowWidth, s.windowHeight, s.fixedPosition, s.fixedPositions],
-            (element, lastDragPosition, windowWidth, windowHeight, fixedPosition, fixedPositions) => {
+        position: [
+            (s) => [
+                s.element,
+                s.lastDragPosition,
+                s.windowWidth,
+                s.windowHeight,
+                s.fixedPosition,
+                s.fixedPositions,
+                s.minimized,
+            ],
+            (element, lastDragPosition, windowWidth, windowHeight, fixedPosition, fixedPositions, minimized) => {
                 const position = lastDragPosition ?? fixedPositions[fixedPosition]
 
-                console.log('position', position, lastDragPosition, fixedPosition, fixedPositions)
+                const width = element
+                    ? parseInt(
+                          getComputedStyle(element)
+                              .getPropertyValue(minimized ? '--toolbar-width-minimized' : '--toolbar-width-expanded')
+                              .replace('px', '')
+                      )
+                    : 40
 
-                // If the element isn't set yet we can just guess the size
-                const elWidth = (element?.offsetWidth ?? 40) + 2 // account for border
-                const elHeight = (element?.offsetHeight ?? 40) + 2 // account for border
+                const height = element?.offsetHeight ?? 40
+
+                const xPadding = width * 0.5 + 10
+                const yPadding = height * 0.5 + 10
 
                 return {
-                    x: inBounds(MARGIN, position.x, windowWidth - elWidth - MARGIN),
-                    y: inBounds(MARGIN, position.y, windowHeight - elHeight - MARGIN),
+                    x: inBounds(xPadding, position.x, windowWidth - xPadding),
+                    y: inBounds(yPadding, position.y, windowHeight - yPadding),
                 }
             },
         ],
@@ -218,28 +233,28 @@ export const toolbarLogic = kea<toolbarLogicType>([
         ],
 
         menuProperties: [
-            (s) => [s.element, s.menu, s.dragPosition, s.windowWidth, s.windowHeight, s.isBlurred],
-            (element, menu, dragPosition, windowWidth, windowHeight, isBlurred) => {
+            (s) => [s.element, s.menu, s.position, s.windowWidth, s.windowHeight, s.isBlurred],
+            (element, menu, position, windowWidth, windowHeight, isBlurred) => {
                 if (!element || !menu) {
                     return {}
                 }
 
-                const elWidth = element.offsetWidth + 2 // account for border
-                const elHeight = element.offsetHeight + 2 // account for border
                 const margin = 10
+                const marginFromPosition = element.offsetHeight * 0.5 + margin
 
-                const isBelow = dragPosition.y + elHeight * 0.5 < windowHeight * 0.5
+                const isBelow = position.y < windowHeight * 0.5
 
-                let maxHeight = isBelow
-                    ? windowHeight - dragPosition.y - elHeight - margin * 2
-                    : dragPosition.y - margin * 2
+                // Max space we could fill
+                const spaceAboveOrBelow = isBelow ? windowHeight - position.y : position.y
+                // Then we remove some margins and half the height of the element
+                const maxDesiredHeight = spaceAboveOrBelow - margin - marginFromPosition
+                // Finally we don't want it to end up too big
+                const finalHeight = isBlurred ? 0 : inBounds(0, maxDesiredHeight, windowHeight * 0.6)
 
-                maxHeight = isBlurred ? 0 : inBounds(0, maxHeight, windowHeight * 0.6)
+                const desiredY = isBelow ? position.y + marginFromPosition : position.y - marginFromPosition
+                const desiredX = position.x
 
-                const desiredY = isBelow ? dragPosition.y + elHeight + margin : dragPosition.y - margin
-                const desiredX = dragPosition.x + elWidth * 0.5
-
-                const top = inBounds(MARGIN, desiredY, windowHeight - elHeight)
+                const top = inBounds(MARGIN, desiredY, windowHeight)
                 const left = inBounds(
                     MARGIN + menu.clientWidth * 0.5,
                     desiredX,
@@ -248,7 +263,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
 
                 return {
                     transform: `translate(${left}px, ${top}px)`,
-                    maxHeight,
+                    maxHeight: finalHeight,
                     isBelow,
                 }
             },
@@ -280,11 +295,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 return
             }
 
-            const originContainerBounds = values.element.getBoundingClientRect()
-
-            // removeAllListeners(cache)
-            const offsetX = event.pageX - originContainerBounds.left
-            const offsetY = event.pageY - originContainerBounds.top
+            const offsetX = event.pageX - values.position.x
+            const offsetY = event.pageY - values.position.y
             let movedCount = 0
             const moveThreshold = 5
 
@@ -304,7 +316,6 @@ export const toolbarLogic = kea<toolbarLogicType>([
                     for (const [position, { x, y }] of Object.entries(fixedPositions)) {
                         const distance = Math.sqrt((e.pageX - x) ** 2 + (e.pageY - y) ** 2)
 
-                        console.log('distance', distance, position, x, y)
                         if (distance < TOOLBAR_FIXED_POSITION_HITBOX) {
                             closestPosition = position as ToolbarPositionType
                             break
@@ -342,27 +353,12 @@ export const toolbarLogic = kea<toolbarLogicType>([
             if (!values.hedgehogMode || !actor) {
                 return
             }
-            const pageX = actor.x + SPRITE_SIZE * 0.5 - (values.element?.getBoundingClientRect().width ?? 0) * 0.5
-            const pageY =
-                values.windowHeight - actor.y - SPRITE_SIZE - (values.element?.getBoundingClientRect().height ?? 0)
 
-            actions.setDragPosition(pageX, pageY)
+            const newX = actor.x + SPRITE_SIZE * 0.5
+            const newY = values.windowHeight - actor.y - SPRITE_SIZE - 20
+            actions.setDragPosition(newX, newY)
         },
 
-        toggleMinimized: () => {
-            const sync = (): void => {
-                // Hack to trigger correct positioning
-                actions.syncWithHedgehog()
-                if (values.lastDragPosition) {
-                    actions.setDragPosition(values.lastDragPosition.x, values.lastDragPosition.y)
-                }
-            }
-            sync()
-            // Sync position after the animation completes
-            setTimeout(() => sync(), 150)
-            setTimeout(() => sync(), 300)
-            setTimeout(() => sync(), 550)
-        },
         createAction: () => {
             actions.setVisibleMenu('actions')
         },

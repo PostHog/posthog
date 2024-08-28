@@ -17,7 +17,7 @@ export function ToolbarFixedZones(): JSX.Element | null {
                     key={key}
                     className={clsx(
                         'transition-all absolute border rounded bg-primary opacity-20',
-                        key === fixedPosition && !lastDragPosition && 'opacity-50'
+                        key === fixedPosition && !lastDragPosition && 'opacity-50 scale-110'
                     )}
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{

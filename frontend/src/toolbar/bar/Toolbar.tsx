@@ -143,7 +143,7 @@ export function ToolbarInfoMenu(): JSX.Element | null {
 
 export function Toolbar(): JSX.Element | null {
     const ref = useRef<HTMLDivElement | null>(null)
-    const { minimized, dragPosition, isDragging, hedgehogMode, isEmbeddedInApp } = useValues(toolbarLogic)
+    const { minimized, position, isDragging, hedgehogMode, isEmbeddedInApp } = useValues(toolbarLogic)
     const { setVisibleMenu, toggleMinimized, onMouseDown, setElement, setIsBlurred } = useActions(toolbarLogic)
     const { isAuthenticated, userIntent } = useValues(toolbarConfigLogic)
     const { authenticate } = useActions(toolbarConfigLogic)
@@ -189,8 +189,8 @@ export function Toolbar(): JSX.Element | null {
                 // eslint-disable-next-line react/forbid-dom-props
                 style={
                     {
-                        '--toolbar-button-x': `${dragPosition.x}px`,
-                        '--toolbar-button-y': `${dragPosition.y}px`,
+                        '--toolbar-button-x': `${position.x}px`,
+                        '--toolbar-button-y': `${position.y}px`,
                     } as any
                 }
             >
