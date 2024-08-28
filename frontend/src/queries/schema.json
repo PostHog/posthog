@@ -1,6 +1,134 @@
 {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "definitions": {
+        "AIActionsNode": {
+            "additionalProperties": false,
+            "properties": {
+                "custom_name": {
+                    "type": "string"
+                },
+                "event": {
+                    "description": "The event or `null` for all events.",
+                    "type": ["string", "null"]
+                },
+                "fixedProperties": {
+                    "items": {
+                        "$ref": "#/definitions/AIPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "kind": {
+                    "const": "EventsNode",
+                    "type": "string"
+                },
+                "math": {
+                    "$ref": "#/definitions/MathType"
+                },
+                "math_group_type_index": {
+                    "enum": [0, 1, 2, 3, 4],
+                    "type": "number"
+                },
+                "math_property": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "orderBy": {
+                    "description": "Columns to order by",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AIPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "type": "object"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "AIEventsNode": {
+            "additionalProperties": false,
+            "properties": {
+                "custom_name": {
+                    "type": "string"
+                },
+                "event": {
+                    "description": "The event or `null` for all events.",
+                    "type": ["string", "null"]
+                },
+                "fixedProperties": {
+                    "items": {
+                        "$ref": "#/definitions/AIPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "kind": {
+                    "const": "EventsNode",
+                    "type": "string"
+                },
+                "math": {
+                    "$ref": "#/definitions/MathType"
+                },
+                "math_group_type_index": {
+                    "enum": [0, 1, 2, 3, 4],
+                    "type": "number"
+                },
+                "math_property": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "orderBy": {
+                    "description": "Columns to order by",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AIPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "type": "object"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "AIPropertyFilter": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/EventPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/PersonPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/SessionPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/CohortPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/GroupPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/FeaturePropertyFilter"
+                }
+            ]
+        },
         "AbsoluteThreshold": {
             "additionalProperties": false,
             "properties": {
@@ -3921,6 +4049,89 @@
                 }
             },
             "required": ["columns", "hogql", "results", "types"],
+            "type": "object"
+        },
+        "ExperimentalAITrendsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "aggregation_group_type_index": {
+                    "description": "Groups aggregation",
+                    "type": "integer"
+                },
+                "breakdownFilter": {
+                    "additionalProperties": false,
+                    "description": "Breakdown of the events and actions",
+                    "properties": {
+                        "breakdown_hide_other_aggregation": {
+                            "type": ["boolean", "null"]
+                        },
+                        "breakdown_histogram_bin_count": {
+                            "type": "integer"
+                        },
+                        "breakdown_limit": {
+                            "type": "integer"
+                        },
+                        "breakdowns": {
+                            "items": {
+                                "$ref": "#/definitions/Breakdown"
+                            },
+                            "maxLength": 3,
+                            "type": "array"
+                        }
+                    },
+                    "type": "object"
+                },
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter",
+                    "description": "Compare to date range"
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/InsightDateRange",
+                    "description": "Date range for the query"
+                },
+                "filterTestAccounts": {
+                    "default": false,
+                    "description": "Exclude internal and test users by applying the respective filters",
+                    "type": "boolean"
+                },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType",
+                    "default": "day",
+                    "description": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
+                },
+                "kind": {
+                    "const": "TrendsQuery",
+                    "type": "string"
+                },
+                "properties": {
+                    "$ref": "#/definitions/AIPropertyFilter",
+                    "default": [],
+                    "description": "Property filters for all series"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
+                },
+                "series": {
+                    "description": "Events and actions to include",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/AIEventsNode"
+                            },
+                            {
+                                "$ref": "#/definitions/AIActionsNode"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                },
+                "trendsFilter": {
+                    "$ref": "#/definitions/TrendsFilter",
+                    "description": "Properties specific to the trends insight"
+                }
+            },
+            "required": ["kind", "series"],
             "type": "object"
         },
         "FeaturePropertyFilter": {

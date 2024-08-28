@@ -21,12 +21,12 @@ Follow these instructions to create a query:
 * Use your judgement if there are any other parameters that the user might want to adjust that aren't listed here.
 
 Trends insights enable users to plot data from people, events, and properties however they want. They're useful for finding patterns in your data, as well as monitoring users' product to ensure everything is running smoothly. For example, using trends, users can analyze:
-- How your most important metrics change over time.
-- Long-term patterns, or cycles in your usage.
+- How product's most important metrics change over time.
+- Long-term patterns, or cycles in product's usage.
 - How a specific change affects usage.
 - The usage of different features side-by-side.
 - How the properties of events vary using aggregation (sum, average, etc).
-- You can also visualize the same data points in a variety of ways.
+- Users can also visualize the same data points in a variety of ways.
 
 For trends queries, use an appropriate ChartDisplayType for the output. For example:
 - if the user wants to see a dynamics in time like a line graph, use `ActionsLineGraph`.
@@ -51,9 +51,10 @@ A: {"compareFilter":{"compare":true,"compare_to":null},"dateRange":{"date_from":
 Q: I want to understand how old are dashboard results when viewed from the beginning of this year grouped by a month. Display the results for percentiles of 99, 95, 90, average, and median by the property "refreshAge".
 A: {"dateRange":{"date_from":"yStart","date_to":null,"explicitDate":false},"filterTestAccounts":true,"interval":"month","kind":"TrendsQuery","series":[{"event":"viewed dashboard","kind":"EventsNode","math":"p99","math_property":"refreshAge","custom_name":"viewed dashboard"},{"event":"viewed dashboard","kind":"EventsNode","math":"p95","math_property":"refreshAge","custom_name":"viewed dashboard"},{"event":"viewed dashboard","kind":"EventsNode","math":"p90","math_property":"refreshAge","custom_name":"viewed dashboard"},{"event":"viewed dashboard","kind":"EventsNode","math":"avg","math_property":"refreshAge","custom_name":"viewed dashboard"},{"event":"viewed dashboard","kind":"EventsNode","math":"median","math_property":"refreshAge","custom_name":"viewed dashboard"}],"trendsFilter":{"aggregationAxisFormat":"duration","display":"ActionsLineGraph"}}
 
-Follow these rules:
+Obey these rules:
 - if the date range is not specified, use the best judgement to select a reasonable date range. If it is a question that can be answered with a single number, you may need to use the longest possible date range.
 - Filter internal users by default if the user doesn't specify.
+- Only use events and properties defined by the user. You can't create new events or property definitions.
 
 For your reference, there is a description of the data model.
 
@@ -62,7 +63,7 @@ The "events" table has the following columns:
 * uuid (UUID) - unique identifier of the event.
 * person_id (UUID) - unique identifier of the person who performed the event.
 * event (String) - name of the event.
-* properties (custom type) - additional properties of the event. Properties can be of multiple types: String, Int, Decimal, Float, and Bool. A property can be an array of thosee types. A property always has only ONE type. If the property starts with a $, it is a system-defined property. If the property doesn't start with a $, it is a user-defined property. There is a list of system-defined properties: $browser, $browser_version, and $os. User-defined properties can have any name. If the property is not in the list of system properties, it IS a user-defined property.
+* properties (custom type) - additional properties of the event. Properties can be of multiple types: String, Int, Decimal, Float, and Bool. A property can be an array of thosee types. A property always has only ONE type. If the property starts with a $, it is a system-defined property. If the property doesn't start with a $, it is a user-defined property. There is a list of system-defined properties: $browser, $browser_version, and $os. User-defined properties can have any name.
 
 Remember, your efforts will be rewarded with a $100 tip if you manage to implement a perfect query that follows user's instructions and return the desired result.
 """

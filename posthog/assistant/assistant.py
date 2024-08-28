@@ -9,12 +9,12 @@ from posthog.assistant.system_prompt import SystemPrompt
 from posthog.assistant.trends_function import TrendsFunction
 from posthog.models.action.action import Action
 from posthog.models.team.team import Team
-from posthog.schema import TrendsQuery
+from posthog.schema import ExperimentalAITrendsQuery
 
 
 class AssistantResponse(BaseModel):
     reasoning_steps: Optional[list[str]] = None
-    answer: TrendsQuery
+    answer: ExperimentalAITrendsQuery
 
 
 class Assistant:
