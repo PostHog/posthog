@@ -1136,7 +1136,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               tileId: TileId.GOALS,
                               title: 'Goals',
                               layout: {
-                                  colSpanClassName: 'md:col-span-1',
+                                  colSpanClassName: 'md:col-span-2',
                               },
                               query: {
                                   full: true,
@@ -1149,9 +1149,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       limit: 10,
                                       filterTestAccounts,
                                   },
+                                  embedded: true,
                               },
                               insightProps: createInsightProps(TileId.GOALS),
-                              canOpenInsight: true,
+                              canOpenInsight: false,
                               canOpenModal: false,
                           }
                         : null,
