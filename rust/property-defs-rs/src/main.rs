@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::{collections::HashSet, sync::Arc, time::Duration};
 
 use axum::{routing::get, Router};
 use envconfig::Envconfig;
@@ -7,10 +7,10 @@ use property_defs_rs::{
     app_context::AppContext,
     config::Config,
     metrics_consts::{
-        BATCH_ACQUIRE_TIME, CACHE_CONSUMED, EMPTY_EVENTS, EVENTS_RECEIVED, EVENT_PARSE_ERROR,
-        FORCED_SMALL_BATCH, PERMIT_WAIT_TIME, RECV_DEQUEUED, TRANSACTION_LIMIT_SATURATION,
-        UPDATES_FILTERED_BY_CACHE, UPDATES_PER_EVENT, UPDATES_SEEN, UPDATE_ISSUE_TIME,
-        WORKER_BLOCKED,
+        BATCH_ACQUIRE_TIME, CACHE_CONSUMED, COMPACTED_UPDATES, EMPTY_EVENTS, EVENTS_RECEIVED,
+        EVENT_PARSE_ERROR, FORCED_SMALL_BATCH, PERMIT_WAIT_TIME, RECV_DEQUEUED,
+        TRANSACTION_LIMIT_SATURATION, UPDATES_FILTERED_BY_CACHE, UPDATES_PER_EVENT, UPDATES_SEEN,
+        UPDATE_ISSUE_TIME, WORKER_BLOCKED,
     },
     types::{Event, Update},
 };
@@ -65,9 +65,11 @@ fn start_health_liveness_server(config: &Config, context: Arc<AppContext>) -> Jo
 async fn spawn_producer_loop(
     consumer: Arc<StreamConsumer>,
     channel: mpsc::Sender<Update>,
-    cache: Arc<Cache<Update, ()>>,
     skip_threshold: usize,
+    compaction_batch_size: usize,
 ) {
+    let mut batch = Vec::with_capacity(compaction_batch_size + skip_threshold);
+    let mut sent = HashSet::with_capacity(compaction_batch_size + skip_threshold);
     loop {
         let message = consumer
             .recv()
@@ -85,26 +87,29 @@ async fn spawn_producer_loop(
         metrics::histogram!(UPDATES_PER_EVENT).record(updates.len() as f64);
 
         for update in updates {
-            if cache.get(&update).is_some() {
-                metrics::counter!(UPDATES_FILTERED_BY_CACHE).increment(1);
-                continue;
+            batch.push(update);
+            if batch.len() >= compaction_batch_size {
+                for update in batch.drain(..) {
+                    if sent.contains(&update) {
+                        metrics::counter!(COMPACTED_UPDATES).increment(1);
+                        continue;
+                    }
+                    sent.insert(update.clone());
+                    match channel.try_send(update) {
+                        Ok(_) => {}
+                        Err(TrySendError::Full(_)) => {
+                            warn!("Worker blocked");
+                            metrics::counter!(WORKER_BLOCKED).increment(1);
+                            tokio::time::sleep(Duration::from_secs(1)).await;
+                        }
+                        Err(e) => {
+                            warn!("Coordinator send failed: {:?}", e);
+                            return;
+                        }
+                    }
+                }
+                sent.clear();
             }
-            cache.insert(update.clone(), ());
-            // We first try to non-blocking send, so we can get a metric on backpressure
-            match channel.try_send(update) {
-                Ok(_) => continue,
-                Err(TrySendError::Full(u)) => {
-                    metrics::counter!(WORKER_BLOCKED).increment(1);
-                    channel
-                        .send(u)
-                        .await
-                        .expect("TODO - workers panic on send fail");
-                }
-                Err(TrySendError::Closed(_)) => {
-                    warn!("Channel closed, shutting down worker");
-                    return;
-                }
-            };
         }
     }
 }
@@ -130,14 +135,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (tx, mut rx) = mpsc::channel(config.update_batch_size * config.channel_slots_per_worker);
     let transaction_limit = Arc::new(Semaphore::new(config.max_concurrent_transactions));
-    let cache = Arc::new(Cache::new(config.cache_capacity));
+    let cache = Cache::new(config.cache_capacity);
 
     for _ in 0..config.worker_loop_count {
         tokio::spawn(spawn_producer_loop(
             consumer.clone(),
             tx.clone(),
-            cache.clone(),
             config.update_count_skip_threshold,
+            config.compaction_batch_size,
         ));
     }
 
@@ -160,6 +165,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         warn!("Coordinator recv failed, dying");
                         return Ok(());
                     }
+                    let before_recv = batch.len() - got;
+                    let before_filter = batch.len();
+                    retain_from(&mut batch, before_recv, |u| cache.get(u).is_none());
+                    batch[..before_recv].iter().for_each(|u| {
+                        cache.insert(u.clone(), ());
+                    });
+
+                    let filtered = before_filter - batch.len();
+                    metrics::counter!(UPDATES_FILTERED_BY_CACHE).increment(filtered as u64);
                     metrics::gauge!(RECV_DEQUEUED).set(got as f64);
                     continue;
                 }

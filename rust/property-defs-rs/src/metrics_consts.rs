@@ -14,3 +14,4 @@ pub const PERMIT_WAIT_TIME: &str = "prop_defs_permit_wait_time_ms";
 pub const UPDATE_ISSUE_TIME: &str = "prop_defs_update_issue_time_ms";
 pub const CACHE_CONSUMED: &str = "prop_defs_cache_space";
 pub const RECV_DEQUEUED: &str = "prop_defs_recv_dequeued";
+pub const COMPACTED_UPDATES: &str = "prop_defs_compaction_ratio";
