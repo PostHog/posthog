@@ -355,10 +355,6 @@ export function taxonomicFilterTypeToPropertyFilterType(
         return PropertyFilterType.DataWarehousePersonProperty
     }
 
-    if (filterType == TaxonomicFilterGroupType.Replay) {
-        return PropertyFilterType.Recording
-    }
-
     return Object.entries(propertyFilterMapping).find(([, v]) => v === filterType)?.[0] as
         | PropertyFilterType
         | undefined

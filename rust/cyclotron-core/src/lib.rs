@@ -5,6 +5,7 @@ mod ops;
 // Types
 mod types;
 pub use types::BulkInsertResult;
+pub use types::Bytes;
 pub use types::Job;
 pub use types::JobInit;
 pub use types::JobState;

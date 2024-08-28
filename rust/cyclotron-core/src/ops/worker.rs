@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use crate::{
     error::QueueError,
-    types::{Job, JobState, JobUpdate},
+    types::{Bytes, Job, JobState, JobUpdate},
 };
 
 use super::meta::throw_if_no_rows;
@@ -59,9 +59,10 @@ RETURNING
     last_transition,
     scheduled,
     transition_count,
-    NULL as vm_state,
+    NULL::bytea as vm_state,
     metadata,
     parameters,
+    blob,
     lock_id,
     last_heartbeat,
     janitor_touch_count
@@ -126,6 +127,7 @@ RETURNING
     vm_state,
     metadata,
     parameters,
+    blob,
     lock_id,
     last_heartbeat,
     janitor_touch_count
@@ -142,12 +144,12 @@ pub async fn get_vm_state<'c, E>(
     executor: E,
     job_id: Uuid,
     lock_id: Uuid,
-) -> Result<Option<String>, QueueError>
+) -> Result<Option<Bytes>, QueueError>
 where
     E: sqlx::Executor<'c, Database = sqlx::Postgres>,
 {
     struct VMState {
-        vm_state: Option<String>,
+        vm_state: Option<Bytes>,
     }
 
     let res = sqlx::query_as!(
@@ -207,6 +209,10 @@ where
 
     if let Some(parameters) = updates.parameters {
         set_parameters(&mut *txn, job_id, parameters, lock_id).await?;
+    }
+
+    if let Some(blob) = updates.blob {
+        set_blob(&mut *txn, job_id, blob, lock_id).await?;
     }
 
     // Calling flush indicates forward progress, so we should touch the heartbeat
@@ -316,7 +322,7 @@ where
 pub async fn set_vm_state<'c, E>(
     executor: E,
     job_id: Uuid,
-    vm_state: Option<String>,
+    vm_state: Option<Bytes>,
     lock_id: Uuid,
 ) -> Result<(), QueueError>
 where
@@ -334,7 +340,7 @@ where
 pub async fn set_metadata<'c, E>(
     executor: E,
     job_id: Uuid,
-    metadata: Option<String>,
+    metadata: Option<Bytes>,
     lock_id: Uuid,
 ) -> Result<(), QueueError>
 where
@@ -352,7 +358,7 @@ where
 pub async fn set_parameters<'c, E>(
     executor: E,
     job_id: Uuid,
-    parameters: Option<String>,
+    parameters: Option<Bytes>,
     lock_id: Uuid,
 ) -> Result<(), QueueError>
 where
@@ -361,6 +367,24 @@ where
     let q = sqlx::query!(
         "UPDATE cyclotron_jobs SET parameters = $1 WHERE id = $2 AND lock_id = $3",
         parameters,
+        job_id,
+        lock_id
+    );
+    assert_does_update(executor, job_id, lock_id, q).await
+}
+
+pub async fn set_blob<'c, E>(
+    executor: E,
+    job_id: Uuid,
+    blob: Option<Bytes>,
+    lock_id: Uuid,
+) -> Result<(), QueueError>
+where
+    E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+{
+    let q = sqlx::query!(
+        "UPDATE cyclotron_jobs SET blob = $1 WHERE id = $2 AND lock_id = $3",
+        blob,
         job_id,
         lock_id
     );

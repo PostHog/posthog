@@ -100,7 +100,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         action = Action.objects.get(pk=response.json()["id"])
-        assert action.bytecode == ["_h", 32, "%/signup%", 32, "$current_url", 32, "properties", 1, 2, 17]
+        assert action.bytecode == ["_H", 1, 32, "%/signup%", 32, "$current_url", 32, "properties", 1, 2, 17]
 
     def test_cant_create_action_with_the_same_name(self, *args):
         original_action = Action.objects.create(name="user signed up", team=self.team)

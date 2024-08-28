@@ -165,6 +165,12 @@ jobs:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
               run: cd ../ && python manage.py setup_test_environment --only-postgres
 
+            - name: Download MaxMind Database
+              if: needs.changes.outputs.rust == 'true'
+              run: |
+                  mkdir -p ../share
+                  curl -L "https://mmdbcdn.posthog.net/" --http1.1 | brotli --decompress --output=../share/GeoLite2-City.mmdb
+
             - name: Run cargo test
               if: needs.changes.outputs.rust == 'true'
               run: |
