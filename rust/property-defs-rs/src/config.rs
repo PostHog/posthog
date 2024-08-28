@@ -12,7 +12,6 @@ pub struct Config {
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,
 
-    // Update sets are batches into at least min_batch_size (unless we haven't sent a batch in more than a few seconds)
     #[envconfig(default = "10")]
     pub max_concurrent_transactions: usize,
 
@@ -27,22 +26,27 @@ pub struct Config {
     pub max_issue_period: u64,
 
     // Propdefs spawns N workers to pull events from kafka,
-    // marshal, and convert ot updates. The number of
+    // marshal, and convert to updates. The number of
     // concurrent update batches sent to postgres is controlled
     // by max_concurrent_transactions
-    #[envconfig(default = "10")]
+    #[envconfig(default = "4")]
     pub worker_loop_count: usize,
 
     // We maintain an internal cache, to avoid sending the same UPSERT multiple times. This is it's size.
-    #[envconfig(default = "100000")]
+    #[envconfig(default = "1000000")]
     pub cache_capacity: usize,
 
-    // Each worker thread internally batches up to this number, then de-dupes
-    // across this batch before releasing to the main thread
-    #[envconfig(default = "50000")]
+    // Each worker maintains a small local batch of updates, which it
+    // flushes to the main thread (updating/filtering by the
+    // cross-thread cache while it does). This is that batch size.
+    #[envconfig(default = "10000")]
     pub compaction_batch_size: usize,
 
-    #[envconfig(default = "100")]
+    // Workers send updates back to the main thread over a channel,
+    // which has a depth of this many slots. If the main thread slows,
+    // which usually means if postgres is slow, the workers will block
+    // after filling this channel.
+    #[envconfig(default = "1000")]
     pub channel_slots_per_worker: usize,
 
     // If an event has some ridiculous number of updates, we skip it

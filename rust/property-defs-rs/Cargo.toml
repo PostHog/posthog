@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-uuid = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 rdkafka = { workspace = true }
@@ -22,6 +21,7 @@ metrics = { workspace = true }
 chrono = { workspace = true }
 quick_cache = { workspace = true }
 common-metrics = { path = "../common/metrics" }
+ahash = { workspace = true }
 
 [lints]
 workspace = true

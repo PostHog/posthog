@@ -1,24 +1,24 @@
-use std::{collections::HashSet, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
+use ahash::AHashSet;
 use axum::{routing::get, Router};
 use envconfig::Envconfig;
 use futures::future::ready;
 use property_defs_rs::{
     app_context::AppContext,
     config::Config,
+    message_to_event,
     metrics_consts::{
-        BATCH_ACQUIRE_TIME, CACHE_CONSUMED, COMPACTED_UPDATES, EMPTY_EVENTS, EVENTS_RECEIVED,
-        EVENT_PARSE_ERROR, FORCED_SMALL_BATCH, PERMIT_WAIT_TIME, RECV_DEQUEUED,
-        TRANSACTION_LIMIT_SATURATION, UPDATES_FILTERED_BY_CACHE, UPDATES_PER_EVENT, UPDATES_SEEN,
-        UPDATE_ISSUE_TIME, WORKER_BLOCKED,
+        BATCH_ACQUIRE_TIME, CACHE_CONSUMED, COMPACTED_UPDATES, EVENTS_RECEIVED, FORCED_SMALL_BATCH,
+        PERMIT_WAIT_TIME, RECV_DEQUEUED, TRANSACTION_LIMIT_SATURATION, UPDATES_FILTERED_BY_CACHE,
+        UPDATES_PER_EVENT, UPDATES_SEEN, UPDATE_ISSUE_TIME, WORKER_BLOCKED,
     },
-    types::{Event, Update},
+    types::Update,
 };
 use quick_cache::sync::Cache;
 use rdkafka::{
     consumer::{Consumer, StreamConsumer},
-    message::BorrowedMessage,
-    ClientConfig, Message,
+    ClientConfig,
 };
 use serve_metrics::{serve, setup_metrics_routes};
 use tokio::{
@@ -65,11 +65,12 @@ fn start_health_liveness_server(config: &Config, context: Arc<AppContext>) -> Jo
 async fn spawn_producer_loop(
     consumer: Arc<StreamConsumer>,
     channel: mpsc::Sender<Update>,
+    shared_cache: Arc<Cache<Update, ()>>,
     skip_threshold: usize,
     compaction_batch_size: usize,
 ) {
-    let mut batch = Vec::with_capacity(compaction_batch_size);
-    let mut sent = HashSet::with_capacity(compaction_batch_size);
+    let mut batch = AHashSet::with_capacity(compaction_batch_size);
+    let mut last_send = tokio::time::Instant::now();
     loop {
         let message = consumer
             .recv()
@@ -87,14 +88,21 @@ async fn spawn_producer_loop(
         metrics::histogram!(UPDATES_PER_EVENT).record(updates.len() as f64);
 
         for update in updates {
-            batch.push(update);
-            if batch.len() >= compaction_batch_size {
-                for update in batch.drain(..) {
-                    if sent.contains(&update) {
-                        metrics::counter!(COMPACTED_UPDATES).increment(1);
+            if batch.contains(&update) {
+                metrics::counter!(COMPACTED_UPDATES).increment(1);
+                continue;
+            }
+            batch.insert(update);
+
+            if batch.len() >= compaction_batch_size || last_send.elapsed() > Duration::from_secs(10)
+            {
+                last_send = tokio::time::Instant::now();
+                for update in batch.drain() {
+                    if shared_cache.get(&update).is_some() {
+                        metrics::counter!(UPDATES_FILTERED_BY_CACHE).increment(1);
                         continue;
                     }
-                    sent.insert(update.clone());
+                    shared_cache.insert(update.clone(), ());
                     match channel.try_send(update) {
                         Ok(_) => {}
                         Err(TrySendError::Full(update)) => {
@@ -108,7 +116,6 @@ async fn spawn_producer_loop(
                         }
                     }
                 }
-                sent.clear();
             }
         }
     }
@@ -135,12 +142,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (tx, mut rx) = mpsc::channel(config.update_batch_size * config.channel_slots_per_worker);
     let transaction_limit = Arc::new(Semaphore::new(config.max_concurrent_transactions));
-    let cache = Cache::new(config.cache_capacity);
+    let cache = Arc::new(Cache::new(config.cache_capacity));
 
     for _ in 0..config.worker_loop_count {
         tokio::spawn(spawn_producer_loop(
             consumer.clone(),
             tx.clone(),
+            cache.clone(),
             config.update_count_skip_threshold,
             config.compaction_batch_size,
         ));
@@ -165,15 +173,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         warn!("Coordinator recv failed, dying");
                         return Ok(());
                     }
-                    let before_recv = batch.len() - got;
-                    let before_filter = batch.len();
-                    retain_from(&mut batch, before_recv, |u| cache.get(u).is_none());
-                    batch[..before_recv].iter().for_each(|u| {
-                        cache.insert(u.clone(), ());
-                    });
-
-                    let filtered = before_filter - batch.len();
-                    metrics::counter!(UPDATES_FILTERED_BY_CACHE).increment(filtered as u64);
                     metrics::gauge!(RECV_DEQUEUED).set(got as f64);
                     continue;
                 }
@@ -208,37 +207,5 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             context.issue(batch).await.unwrap();
             issue_time.fin();
         });
-    }
-}
-
-// This copies event properties, which means the total resident memory usage is higher than we'd like, and that constrains
-// our batch size. serde_json provides no zero-copy way to parse a JSON object, so we're stuck with this for now.
-fn message_to_event(msg: BorrowedMessage) -> Option<Event> {
-    let Some(payload) = msg.payload() else {
-        warn!("Received empty event");
-        metrics::counter!(EMPTY_EVENTS).increment(1);
-        return None;
-    };
-
-    let event = serde_json::from_slice::<Event>(payload);
-    let event = match event {
-        Ok(e) => e,
-        Err(e) => {
-            metrics::counter!(EVENT_PARSE_ERROR).increment(1);
-            warn!("Failed to parse event: {:?}", e);
-            return None;
-        }
-    };
-    Some(event)
-}
-
-pub fn retain_from<T>(buffer: &mut Vec<T>, from: usize, predicate: impl Fn(&T) -> bool) {
-    let mut i = from;
-    while i < buffer.len() {
-        if !predicate(&buffer[i]) {
-            buffer.swap_remove(i);
-        } else {
-            i += 1;
-        }
     }
 }
