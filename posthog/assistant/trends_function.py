@@ -38,6 +38,7 @@ class TrendsFunction:
             ("PersonPropertyFilter", PropertyDefinition.Type.PERSON.label),
             ("SessionPropertyFilter", PropertyDefinition.Type.SESSION.label),
             ("FeaturePropertyFilter", "feature"),
+            ("CohortPropertyFilter", "cohort"),
         ):
             property_schema = schema["$defs"][key]
             property_schema["properties"]["key"]["description"] = (

@@ -1,8 +1,10 @@
 from typing import Optional
 
 import openai
+from openai.types.chat import ChatCompletionMessageParam
 from pydantic import BaseModel
 
+from posthog.assistant.cohorts_prompt import CohortsPrompt
 from posthog.assistant.events_prompt import EventsPropmpt
 from posthog.assistant.groups_prompt import GroupsPrompt
 from posthog.assistant.properties_prompt import PropertiesPrompt
@@ -31,24 +33,25 @@ class Assistant:
     def _prepare_user_data(self):
         return "".join(
             [
+                GroupsPrompt(self._team).generate_prompt(),
                 EventsPropmpt(self._team).generate_prompt(),
                 PropertiesPrompt(self._team).generate_prompt(),
-                GroupsPrompt(self._team).generate_prompt(),
+                CohortsPrompt(self._team).generate_prompt(),
             ]
         )
 
     def _prepare_user_prompt(self, prompt: str):
         return f"Answer to my question:\n<question>{prompt}</question>\n{self._user_data}"
 
-    def create_completion(self, messages: list[dict]):
-        prompts = [
+    def create_completion(self, messages: list[ChatCompletionMessageParam]):
+        prompts: list[ChatCompletionMessageParam] = [
             {"role": "system", "content": self._prepare_system_prompt()},
             {"role": "user", "content": self._prepare_user_prompt(messages[0]["content"])},
             *messages[1:],
         ]
 
         completions = openai.chat.completions.create(
-            model="gpt-4o-2024-08-06",
+            model="gpt-4o-mini",
             messages=prompts,
             tools=[TrendsFunction().generate_function()],
             tool_choice={"type": "function", "function": {"name": "output_insight_schema"}},
