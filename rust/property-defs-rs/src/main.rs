@@ -1,19 +1,20 @@
-use std::{num::NonZeroUsize, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use axum::{routing::get, Router};
 use envconfig::Envconfig;
 use futures::future::ready;
-use lru::LruCache;
 use property_defs_rs::{
     app_context::AppContext,
     config::Config,
     metrics_consts::{
-        BATCH_ACQUIRE_TIME, EMPTY_EVENTS, EVENTS_RECEIVED, EVENT_PARSE_ERROR, FORCED_SMALL_BATCH,
-        PERMIT_WAIT_TIME, TRANSACTION_LIMIT_SATURATION, UPDATES_FILTERED_BY_CACHE,
-        UPDATES_PER_EVENT, UPDATES_SEEN, UPDATE_ISSUE_TIME, WORKER_BLOCKED,
+        BATCH_ACQUIRE_TIME, CACHE_CONSUMED, EMPTY_EVENTS, EVENTS_RECEIVED, EVENT_PARSE_ERROR,
+        FORCED_SMALL_BATCH, PERMIT_WAIT_TIME, RECV_DEQUEUED, TRANSACTION_LIMIT_SATURATION,
+        UPDATES_FILTERED_BY_CACHE, UPDATES_PER_EVENT, UPDATES_SEEN, UPDATE_ISSUE_TIME,
+        WORKER_BLOCKED,
     },
     types::{Event, Update},
 };
+use quick_cache::sync::Cache;
 use rdkafka::{
     consumer::{Consumer, StreamConsumer},
     message::BorrowedMessage,
@@ -61,7 +62,12 @@ fn start_health_liveness_server(config: &Config, context: Arc<AppContext>) -> Jo
     })
 }
 
-async fn spawn_producer_loop(consumer: Arc<StreamConsumer>, channel: mpsc::Sender<Update>) {
+async fn spawn_producer_loop(
+    consumer: Arc<StreamConsumer>,
+    channel: mpsc::Sender<Update>,
+    cache: Arc<Cache<Update, ()>>,
+    skip_threshold: usize,
+) {
     loop {
         let message = consumer
             .recv()
@@ -72,13 +78,18 @@ async fn spawn_producer_loop(consumer: Arc<StreamConsumer>, channel: mpsc::Sende
             continue;
         };
 
-        let updates = event.into_updates();
+        let updates = event.into_updates(skip_threshold);
 
         metrics::counter!(EVENTS_RECEIVED).increment(1);
         metrics::counter!(UPDATES_SEEN).increment(updates.len() as u64);
         metrics::histogram!(UPDATES_PER_EVENT).record(updates.len() as f64);
 
         for update in updates {
+            if cache.get(&update).is_some() {
+                metrics::counter!(UPDATES_FILTERED_BY_CACHE).increment(1);
+                continue;
+            }
+            cache.insert(update.clone(), ());
             // We first try to non-blocking send, so we can get a metric on backpressure
             match channel.try_send(update) {
                 Ok(_) => continue,
@@ -117,12 +128,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     start_health_liveness_server(&config, context.clone());
 
-    let (tx, mut rx) = mpsc::channel(config.update_batch_size * 10);
+    let (tx, mut rx) = mpsc::channel(config.update_batch_size * config.channel_slots_per_worker);
     let transaction_limit = Arc::new(Semaphore::new(config.max_concurrent_transactions));
-    let mut cache = LruCache::new(NonZeroUsize::new(config.cache_capacity).unwrap());
+    let cache = Arc::new(Cache::new(config.cache_capacity));
 
     for _ in 0..config.worker_loop_count {
-        tokio::spawn(spawn_producer_loop(consumer.clone(), tx.clone()));
+        tokio::spawn(spawn_producer_loop(
+            consumer.clone(),
+            tx.clone(),
+            cache.clone(),
+            config.update_count_skip_threshold,
+        ));
     }
 
     loop {
@@ -133,7 +149,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         while batch.len() < config.update_batch_size {
             context.worker_liveness.report_healthy().await;
 
-            let before_recv = batch.len();
             let remaining_capacity = config.update_batch_size - batch.len();
             // We race these two, so we can escape this loop and do a small batch if we've been waiting too long
             let recv = rx.recv_many(&mut batch, remaining_capacity);
@@ -145,18 +160,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         warn!("Coordinator recv failed, dying");
                         return Ok(());
                     }
-                    assert!(batch.len() == before_recv + got);
-
-                    // It's important that we only filter /newly seen/ elements, because
-                    // we immediately insert them into the cache, so a full-pass filter
-                    // on cache membership would empty the batch.
-                    retain_from(&mut batch, before_recv, |u| !cache.contains(u));
-                    batch[before_recv..].iter().for_each(|u| {
-                        cache.put(u.clone(), ());
-                    });
-
-                    let filtered = (before_recv + got) - batch.len();
-                    metrics::counter!(UPDATES_FILTERED_BY_CACHE).increment(filtered as u64);
+                    metrics::gauge!(RECV_DEQUEUED).set(got as f64);
                     continue;
                 }
                 _ = sleep => {
@@ -169,6 +173,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         batch_time.fin();
+
+        metrics::gauge!(CACHE_CONSUMED).set(cache.len() as f64);
 
         metrics::gauge!(TRANSACTION_LIMIT_SATURATION).set(
             (config.max_concurrent_transactions - transaction_limit.available_permits()) as f64,
