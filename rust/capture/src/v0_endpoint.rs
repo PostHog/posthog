@@ -336,7 +336,9 @@ pub async fn process_replay_events<'a>(
     let snapshot_items: Vec<Value> = events
         .iter()
         .map(|e| match e.properties.get("$snapshot_data") {
+            // We can either have an array or single object
             Some(Value::Array(value)) => Ok(value.to_vec()),
+            // Wrap a single object in a vec to simplify processing.
             Some(Value::Object(value)) => Ok([Value::Object(value.clone())].to_vec()),
             _ => Err(CaptureError::MissingSnapshotData),
         })
