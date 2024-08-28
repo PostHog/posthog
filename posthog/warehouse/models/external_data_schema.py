@@ -357,6 +357,7 @@ def get_mssql_schemas(
     host: str, port: str, database: str, user: str, password: str, schema: str, ssh_tunnel: SSHTunnel
 ) -> dict[str, list[tuple[str, str]]]:
     def get_schemas(postgres_host: str, postgres_port: int):
+        # Importing pymssql requires mssql drivers to be installed locally
         import pymssql
 
         connection = pymssql.connect(
