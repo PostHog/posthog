@@ -2415,4 +2415,176 @@ describe('hogvm execute', () => {
             },
         })
     })
+
+    test('stl closure callbacks', () => {
+        // return arrayMap(x -> x * 2, [1,2,3])
+        const bytecode1 = [
+            '_H',
+            1,
+            52,
+            'lambda',
+            1,
+            0,
+            6,
+            33,
+            2,
+            36,
+            0,
+            8,
+            38,
+            53,
+            0,
+            33,
+            1,
+            33,
+            2,
+            33,
+            3,
+            43,
+            3,
+            2,
+            'arrayMap',
+            2,
+            38,
+        ]
+        expect(execSync(bytecode1)).toEqual([2, 4, 6])
+
+        // let xx := arrayMap
+        // return xx(x -> x * 2, [1,2,3])
+        const bytecode2 = [
+            '_H',
+            1,
+            32,
+            'arrayMap',
+            1,
+            1,
+            52,
+            'lambda',
+            1,
+            0,
+            6,
+            33,
+            2,
+            36,
+            0,
+            8,
+            38,
+            53,
+            0,
+            33,
+            1,
+            33,
+            2,
+            33,
+            3,
+            43,
+            3,
+            36,
+            0,
+            54,
+            2,
+            38,
+            35,
+        ]
+        expect(execSync(bytecode2)).toEqual([2, 4, 6])
+
+        // return arrayExists(x -> x like '%a%', ['c', 'd', 'cat'])
+        const bytecode3 = [
+            '_H',
+            1,
+            52,
+            'lambda',
+            1,
+            0,
+            6,
+            32,
+            '%a%',
+            36,
+            0,
+            17,
+            38,
+            53,
+            0,
+            32,
+            'c',
+            32,
+            'd',
+            32,
+            'cat',
+            43,
+            3,
+            2,
+            'arrayExists',
+            2,
+            38,
+        ]
+
+        expect(execSync(bytecode3)).toEqual(true)
+
+        // return arrayExists(x -> x like '%a%', ['c', 'd', 'bin'])
+        const bytecode4 = [
+            '_H',
+            1,
+            52,
+            'lambda',
+            1,
+            0,
+            6,
+            32,
+            '%a%',
+            36,
+            0,
+            17,
+            38,
+            53,
+            0,
+            32,
+            'c',
+            32,
+            'd',
+            32,
+            'bin',
+            43,
+            3,
+            2,
+            'arrayExists',
+            2,
+            38,
+        ]
+
+        expect(execSync(bytecode4)).toEqual(false)
+
+        // return arrayFilter(x -> x like '%a%', ['c', 'd', 'cat'])
+        const bytecode5 = [
+            '_H',
+            1,
+            52,
+            'lambda',
+            1,
+            0,
+            6,
+            32,
+            '%a%',
+            36,
+            0,
+            17,
+            38,
+            53,
+            0,
+            32,
+            'c',
+            32,
+            'd',
+            32,
+            'cat',
+            43,
+            3,
+            2,
+            'arrayFilter',
+            2,
+            38,
+        ]
+
+        expect(execSync(bytecode5)).toEqual(['cat'])
+    })
 })

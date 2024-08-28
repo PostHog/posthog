@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { isHogDate, isHogDateTime, isHogError, newHogError } from '../objects'
+import { HogClosure, isHogCallable, isHogClosure, isHogDate, isHogDateTime, isHogError, newHogError } from '../objects'
 import { md5Hex, sha256Hex, sha256HmacChainHex } from './crypto'
 import {
     formatDateTime,
@@ -31,16 +31,24 @@ function STLToString(args: any[]): string {
 }
 
 export interface STLFunction {
-    fn: (args: any[], name: string, timeout: number) => any
+    fn: (args: any[], name: string, timeout: number, callClosure?: (closure: HogClosure, args: any[]) => any) => any
     minArgs?: number
     maxArgs?: number
 }
 
 export interface AsyncSTLFunction {
-    fn: (args: any[], name: string, timeout: number) => Promise<any>
+    fn: (
+        args: any[],
+        name: string,
+        timeout: number,
+        callClosure?: (closure: HogClosure, args: any[]) => any
+    ) => Promise<any>
     minArgs?: number
     maxArgs?: number
 }
+
+// NOTE: All arguments to STL functions are in "Hog format". Call `convertHogToJS` to convert them to JS.
+//       All responses must similarly be in Hog format. Call `convertJSToHog` to convert JS to Hog.
 
 export const STL: Record<string, STLFunction> = {
     concat: {
@@ -189,6 +197,8 @@ export const STL: Record<string, STLFunction> = {
                         return toHogDate(x.year, x.month, x.day)
                     } else if (x.__hogError__) {
                         return newHogError(x.type, x.message, x.payload)
+                    } else if (x.__hogCallable__ || x.__hogClosure__) {
+                        return x
                     }
                     // All other objects will
                     const map = new Map()
@@ -227,7 +237,7 @@ export const STL: Record<string, STLFunction> = {
                         if (Array.isArray(x)) {
                             return x.map((v) => convert(v, marked))
                         }
-                        if (isHogDateTime(x) || isHogDate(x) || isHogError(x)) {
+                        if (isHogDateTime(x) || isHogDate(x) || isHogError(x) || isHogCallable(x) || isHogClosure(x)) {
                             return x
                         }
                         const obj: Record<string, any> = {}
@@ -504,6 +514,36 @@ export const STL: Record<string, STLFunction> = {
             return arr.join(separator)
         },
         minArgs: 1,
+        maxArgs: 2,
+    },
+    arrayMap: {
+        fn: ([closure, arr], name, timeout, callClosure) => {
+            if (!Array.isArray(arr) || !isHogClosure(closure) || !callClosure) {
+                return []
+            }
+            return arr.map((item) => callClosure(closure, [item]))
+        },
+        minArgs: 2,
+        maxArgs: 2,
+    },
+    arrayExists: {
+        fn: ([closure, arr], name, timeout, callClosure) => {
+            if (!Array.isArray(arr) || !isHogClosure(closure) || !callClosure) {
+                return false
+            }
+            return arr.some((item) => callClosure(closure, [item]))
+        },
+        minArgs: 2,
+        maxArgs: 2,
+    },
+    arrayFilter: {
+        fn: ([closure, arr], name, timeout, callClosure) => {
+            if (!Array.isArray(arr) || !isHogClosure(closure) || !callClosure) {
+                return []
+            }
+            return arr.filter((item) => callClosure(closure, [item]))
+        },
+        minArgs: 2,
         maxArgs: 2,
     },
     has: {
