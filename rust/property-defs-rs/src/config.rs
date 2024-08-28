@@ -37,6 +37,9 @@ pub struct Config {
     #[envconfig(default = "100000")]
     pub cache_capacity: usize,
 
+    #[envconfig(default = "100")]
+    pub channel_slots_per_worker: usize,
+
     #[envconfig(from = "BIND_HOST", default = "::")]
     pub host: String,
 
@@ -54,7 +57,7 @@ pub struct KafkaConfig {
     pub kafka_tls: bool,
     #[envconfig(default = "false")]
     pub verify_ssl_certificate: bool,
-    #[envconfig(default = "autocomplete-rs")]
+    #[envconfig(default = "property-definitions-rs")]
     pub consumer_group: String,
 }
 

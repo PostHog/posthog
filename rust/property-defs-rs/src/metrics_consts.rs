@@ -12,3 +12,5 @@ pub const EVENT_PARSE_ERROR: &str = "prop_defs_event_parse_error";
 pub const BATCH_ACQUIRE_TIME: &str = "prop_defs_batch_acquire_time_ms";
 pub const PERMIT_WAIT_TIME: &str = "prop_defs_permit_wait_time_ms";
 pub const UPDATE_ISSUE_TIME: &str = "prop_defs_update_issue_time_ms";
+pub const CACHE_CONSUMED: &str = "prop_defs_cache_space";
+pub const RECV_DEQUEUED: &str = "prop_defs_recv_dequeued";

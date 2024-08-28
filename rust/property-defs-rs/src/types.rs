@@ -105,7 +105,7 @@ pub enum Update {
     EventProperty(EventProperty),
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Event {
     pub team_id: i32,
     pub event: String,
