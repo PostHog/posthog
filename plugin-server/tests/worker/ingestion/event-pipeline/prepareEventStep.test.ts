@@ -63,7 +63,7 @@ describe('prepareEventStep()', () => {
         hub.db.kafkaProducer!.queueMessage = jest.fn()
 
         // eslint-disable-next-line @typescript-eslint/require-await
-        hub.eventsProcessor.teamManager.fetchTeam = jest.fn(async (teamId) => {
+        hub.teamManager.fetchTeam = jest.fn(async (teamId) => {
             return teamId === 2 ? teamTwo : null
         })
 
@@ -94,7 +94,7 @@ describe('prepareEventStep()', () => {
     })
 
     it('scrubs IPs when team.anonymize_ips=true', async () => {
-        jest.mocked(runner.hub.eventsProcessor.teamManager.fetchTeam).mockReturnValue({
+        jest.mocked(runner.hub.teamManager.fetchTeam).mockReturnValue({
             ...teamTwo,
             anonymize_ips: true,
         })
