@@ -55,10 +55,8 @@ CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
 
 const { version } = require('../../package.json')
 
-// TODO: refactor this into a class, removing the need for many different Servers
 export type ServerInstance = {
     hub?: Hub
-    // piscina?: Piscina
     stop: () => Promise<void>
 }
 
@@ -82,9 +80,6 @@ export async function startPluginsServer(
     status.updatePrompt(serverConfig.PLUGIN_SERVER_MODE)
     status.info('ℹ️', `${serverConfig.WORKER_CONCURRENCY} workers, ${serverConfig.TASKS_PER_WORKER} tasks per worker`)
     runStartupProfiles(serverConfig)
-
-    // // Structure containing initialized clients for Postgres, Kafka, Redis, etc.
-    // let hub: Hub | undefined
 
     // Used to trigger reloads of plugin code/config
     let pubSub: PubSub | undefined
