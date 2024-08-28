@@ -14,13 +14,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
 let action := inputs.action
 let name := event.name
 
-let hasIdentifier := false
-
-for (let key, value in inputs.identifiers) {
-    if (not empty(value)) {
-        hasIdentifier := true
-    }
-}
+let hasIdentifier := arrayExists(x -> not empty(x), values(inputs.identifiers))
 
 if (not hasIdentifier) {
     print('No identifier set. Skipping as at least 1 identifier is needed.')

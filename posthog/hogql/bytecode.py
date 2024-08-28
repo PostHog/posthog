@@ -9,8 +9,9 @@ from posthog.hogql import ast
 from posthog.hogql.base import AST
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import QueryError
+from posthog.hogql.inline_stl import INLINE_STL
 from posthog.hogql.parser import parse_program
-from posthog.hogql.visitor import Visitor
+from posthog.hogql.visitor import Visitor, TraversingVisitor
 from hogvm.python.operation import (
     Operation,
     HOGQL_BYTECODE_IDENTIFIER,
@@ -70,6 +71,22 @@ def create_bytecode(
         bytecode.append(HOGQL_BYTECODE_IDENTIFIER)
         bytecode.append(HOGQL_BYTECODE_VERSION)
 
+    # Find all accessed inline STL functions and inline them at the start of the function
+    stl_functions: list[ast.Declaration] = []
+    for field in sorted(find_fields(expr)):
+        if field in INLINE_STL and field not in supported_functions:
+            function_program = parse_program(INLINE_STL[field])
+            stl_functions.extend(function_program.declarations)
+    if stl_functions:
+        if isinstance(expr, ast.Program):
+            expr = ast.Program(declarations=[*stl_functions, *expr.declarations])
+        elif isinstance(expr, ast.ExprStatement):
+            expr = ast.Program(declarations=[*stl_functions, ast.ReturnStatement(expr=expr.expr)])
+        elif isinstance(expr, ast.Statement):
+            expr = ast.Program(declarations=[*stl_functions, expr])
+        else:
+            expr = ast.Program(declarations=[*stl_functions, ast.ReturnStatement(expr=expr)])
+
     bytecode.extend(BytecodeCompiler(supported_functions, args, context, enclosing).visit(expr))
     return bytecode
 
@@ -107,7 +124,6 @@ class BytecodeCompiler(Visitor):
         self.supported_functions = supported_functions or set()
         self.locals: list[Local] = []
         self.upvalues: list[UpValue] = []
-        # self.functions: dict[str, HogFunction] = {}
         self.scope_depth = 0
         self.args = args
         # we're in a function definition
@@ -816,3 +832,25 @@ def execute_hog(
         context=HogQLContext(team_id=team.id if team else None),
     )
     return execute_bytecode(bytecode, globals=globals, functions=functions, timeout=timeout, team=team)
+
+
+class FieldFinder(TraversingVisitor):
+    fields: set[str]
+
+    def __init__(self):
+        self.fields = set()
+
+    def visit_field(self, node: ast.Field):
+        if len(node.chain) == 1:
+            self.fields.add(str(node.chain[0]))
+
+    def visit_call(self, node: ast.Call):
+        self.fields.add(node.name)
+        for arg in node.args:
+            self.visit(arg)
+
+
+def find_fields(node: ast.Expr | ast.Statement | ast.Program) -> set[str]:
+    finder = FieldFinder()
+    finder.visit(node)
+    return finder.fields
