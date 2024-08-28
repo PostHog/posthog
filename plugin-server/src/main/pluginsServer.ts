@@ -2,7 +2,7 @@ import * as Sentry from '@sentry/node'
 import fs from 'fs'
 import { Server } from 'http'
 import { BatchConsumer } from 'kafka/batch-consumer'
-import { CompressionCodecs, CompressionTypes, Consumer, KafkaJSProtocolError } from 'kafkajs'
+import { CompressionCodecs, CompressionTypes, KafkaJSProtocolError } from 'kafkajs'
 // @ts-expect-error no type definitions
 import SnappyCodec from 'kafkajs-snappy'
 import * as schedule from 'node-schedule'
@@ -99,20 +99,6 @@ export async function startPluginsServer(
     // A Node Worker Thread pool
     let piscina: Piscina | undefined
 
-    // Ingestion Kafka consumer. Handles both analytics events and screen
-    // recording events. The functionality roughly looks like:
-    //
-    // 1. events come in via the /e/ and friends endpoints and published to the
-    //    plugin_events_ingestion Kafka topic.
-    // 2. this queue consumes from the plugin_events_ingestion topic.
-    // 3. update or creates people in the Persons table in pg with the new event
-    //    data.
-    // 4. passes the event through `processEvent` on any plugins that the team
-    //    has enabled.
-    // 5. publishes the resulting event to a Kafka topic on which ClickHouse is
-    //    listening.
-    let eventsIngestionConsumer: Map<string, IngestionConsumer> | undefined
-
     const shutdownCallbacks: (() => Promise<any>)[] = []
 
     // Kafka consumer. Handles events that we couldn't find an existing person
@@ -148,7 +134,6 @@ export async function startPluginsServer(
         await Promise.allSettled([
             pubSub?.stop(),
             graphileWorker?.stop(),
-            ...Array.from(eventsIngestionConsumer?.values() || []).map((consumer) => consumer.stop()),
             ...shutdownCallbacks.map((cb) => cb()),
             posthog.shutdownAsync(),
         ])
@@ -338,9 +323,8 @@ export async function startPluginsServer(
                     pipeline: pipeline,
                 })
 
-                eventsIngestionConsumer = eventsIngestionConsumer ?? new Map<string, IngestionConsumer>()
-                eventsIngestionConsumer.set(pipelineKey, queue)
-                shutdownOnConsumerExit(eventsIngestionConsumer.get(pipelineKey)!.consumer!)
+                shutdownCallbacks.push(async () => await queue.stop())
+                shutdownOnConsumerExit(queue!.consumer!)
                 healthChecks[`events-ingestion-pipeline-${pipelineKey}`] = isHealthy
             }
             if (serverConfig.PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE === null) {
@@ -508,7 +492,7 @@ export async function startPluginsServer(
             const batchConsumer = ingester.batchConsumer
 
             if (batchConsumer) {
-                stopSessionRecordingBlobOverflowConsumer = () => ingester.stop()
+                shutdownCallbacks.push(async () => await ingester.stop())
                 shutdownOnConsumerExit(batchConsumer)
                 healthChecks['session-recordings-blob-overflow'] = () => ingester.isHealthy() ?? false
             }
