@@ -49,47 +49,14 @@ export function loadPostHogJS(): void {
             person_profiles: 'always',
 
             // Helper to capture events for assertions in Cypress
-            _onCapture: (event, eventPayload) => {
-                // ;(window as any).console.warn('in event handler _CYPRESS_POSTHOG_CAPTURES', (window as any)._cypress_posthog_captures)
-                // ;(window as any).console.warn('in event handler _CYPRESS_POSTHOG_CAPTURES EVENT', event)
-                // ;(window as any).console.warn('in event handler _CYPRESS_POSTHOG_CAPTURES EVENT Data', eventPayload)
-                //
-                // if not exist, initialize as empty array
+            _onCapture: (_, eventPayload) => {
                 const captures = (window as any)._cypress_posthog_captures || []
                 captures.push(eventPayload)
-                ;(window as any).console.warn(
-                    ' POST_DEBUG_CYPRESS_TEST_FAILURE in event handler, a NOOP , event is ',
-                    event,
-                    ` payload is `,
-                    eventPayload,
-                    ` captures is `,
-                    captures
-                )
                 ;(window as any)._cypress_posthog_captures = captures
             },
         })
 
-        // window.console.warn('POSTHOG CONFIG _onCapture is ,', config._onCapture?.toString())
-
-        const instance = posthog.init(window.JS_POSTHOG_API_KEY, config)
-        instance?._addCaptureHook((event, payload) => {
-            ;(window as any).console.warn('DEBUG: _addCaptureHook :: event is  ', event, '  payload is ', payload)
-        })
-
-        window.posthog?.capture('capturing posthog event')
-        window.console.warn('POSTHOG LOADED, STANDARD EVENT CAPTURED')
-        if (config._onCapture) {
-            config._onCapture('capturing posthog event', {
-                uuid: '01919505-3a07-7404-b4de-1877b907e539',
-                event: 'capturing posthog event',
-                properties: {},
-            })
-        } else {
-            window.console.warn('POSTHOG CONFIG _onCapture is undefined, cannot be called')
-        }
-        window.console.warn('POSTHOG LOADED, EVENT CAPTURED VIA _ONCAPTURE DIRECTLY')
-        window.console.warn('WHAT IS IN _CYPRESS_POSTHOG_CAPTURES', window._cypress_posthog_captures)
-
+        posthog.init(window.JS_POSTHOG_API_KEY, config)
         const Cypress = (window as any).Cypress
 
         if (Cypress) {
