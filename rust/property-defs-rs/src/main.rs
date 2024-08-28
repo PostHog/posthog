@@ -68,8 +68,8 @@ async fn spawn_producer_loop(
     skip_threshold: usize,
     compaction_batch_size: usize,
 ) {
-    let mut batch = Vec::with_capacity(compaction_batch_size);
-    let mut sent = HashSet::with_capacity(compaction_batch_size);
+    let mut batch = Vec::with_capacity(compaction_batch_size + skip_threshold);
+    let mut sent = HashSet::with_capacity(compaction_batch_size + skip_threshold);
     loop {
         let message = consumer
             .recv()
