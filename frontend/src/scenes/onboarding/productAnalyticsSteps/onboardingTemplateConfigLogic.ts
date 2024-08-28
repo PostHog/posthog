@@ -1,4 +1,4 @@
-import { actions, connect, kea, path, reducers } from 'kea'
+import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { urlToAction } from 'kea-router'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
@@ -26,6 +26,13 @@ export const onboardingTemplateConfigLogic = kea<onboardingTemplateConfigLogicTy
                 submitNewDashboardSuccessWithResult: (_, { result }) => result,
             },
         ],
+    }),
+    listeners({
+        submitNewDashboardSuccessWithResult: ({ result }) => {
+            if (result) {
+                onboardingLogic.actions.goToNextStep()
+            }
+        },
     }),
     urlToAction(({ actions, values }) => ({
         '/onboarding/:productKey': (_, { step }) => {

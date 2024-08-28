@@ -1,5 +1,6 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 import { DashboardTemplateVariables } from 'scenes/dashboard/DashboardTemplateVariables'
 import { dashboardTemplateVariablesLogic } from 'scenes/dashboard/dashboardTemplateVariablesLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
@@ -18,6 +19,8 @@ export const OnboardingDashboardTemplateConfigureStep = ({
     const { isLoading } = useValues(newDashboardLogic)
     const { variables } = useValues(dashboardTemplateVariablesLogic)
 
+    const [isSubmitting, setIsSubmitting] = useState(false)
+
     return (
         <OnboardingStep
             title={activeDashboardTemplate?.template_name || 'Configure dashboard'}
@@ -26,18 +29,26 @@ export const OnboardingDashboardTemplateConfigureStep = ({
             continueOverride={
                 <LemonButton
                     type="primary"
-                    onClick={() =>
-                        activeDashboardTemplate &&
-                        createDashboardFromTemplate(activeDashboardTemplate, variables, false)
-                    }
+                    onClick={() => {
+                        if (activeDashboardTemplate) {
+                            setIsSubmitting(true)
+                            createDashboardFromTemplate(activeDashboardTemplate, variables, false)
+                        }
+                    }}
                     loading={isLoading}
                 >
                     Create dashboard
                 </LemonButton>
             }
         >
-            <p>Select the events or website elements that represent important parts of your funnel.</p>
-            <DashboardTemplateVariables />
+            {isSubmitting || isLoading ? (
+                <p>Creating dashboard...</p>
+            ) : (
+                <>
+                    <p>Select the events or website elements that represent important parts of your funnel.</p>
+                    <DashboardTemplateVariables />
+                </>
+            )}
         </OnboardingStep>
     )
 }
