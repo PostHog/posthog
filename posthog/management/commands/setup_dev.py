@@ -94,7 +94,7 @@ class Command(BaseCommand):
                     team_fields={"name": "saml team"},
                 )
 
-                OrganizationDomain.objects.create(
+                domain = OrganizationDomain.objects.create(
                     id=settings.E2E_SAML_ORGANIZATION_DOMAIN_ID,
                     organization=saml_organization,
                     domain=settings.E2E_SAML_DOMAIN,
@@ -105,6 +105,12 @@ class Command(BaseCommand):
                     saml_acs_url=settings.E2E_SAML_ACS_URL,
                     saml_x509_cert=settings.E2E_SAML_X509_CERT,
                 )
+                print(
+                    "DEBUG: len(domain) is ",
+                    len(domain.saml_x509_cert),
+                    "\n\tsettings.E2E_SAML_X509_CERT is ",
+                    len(settings.E2E_SAML_X509_CERT),
+                )  # noqa T201
             else:
                 print("Warning: Not all required SAML settings are set. Skipping OrganizationDomain creation.")  # noqa T201
 
