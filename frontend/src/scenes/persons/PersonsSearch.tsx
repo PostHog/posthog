@@ -28,7 +28,7 @@ export const PersonsSearch = (): JSX.Element => {
             <LemonInput
                 type="search"
                 placeholder="Search for persons"
-                onChange={setSearchTerm}
+                onChange={value => setSearchTerm(value?.trim())}
                 value={searchTerm}
                 data-attr="persons-search"
             />
