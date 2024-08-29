@@ -29,7 +29,7 @@ jobs:
             packages: write # allow push to ghcr.io
 
         outputs:
-            digest: ${{ steps.docker_build.outputs.digest }}
+            capture_digest: ${{ steps.digest.outputs.capture_digest }}
 
         defaults:
             run:
@@ -93,7 +93,10 @@ jobs:
                   build-args: BIN=${{ matrix.image }}
 
             - name: Container image digest
-              run: echo ${{ steps.docker_build.outputs.digest }}
+              id: digest
+              run: |
+                echo ${{ steps.docker_build.outputs.digest }}
+                echo "${{matrix.image}}_digest=${{ steps.docker_build.outputs.digest }}" >> $GITHUB_OUTPUT
 
     deploy:
         name: Deploy capture-replay
@@ -118,11 +121,12 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ needs.build.outputs.digest }}"
+                            "sha": "${{ needs.build.outputs.capture_digest }}"
                           }
                         },
                         "release": "capture-replay",
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": ${{ toJson(github.repository) }},
-                        "labels": []
+                        "labels": [],
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }

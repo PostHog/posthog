@@ -6,6 +6,7 @@ import {
     LemonDropdown,
     LemonInput,
     LemonLabel,
+    LemonSelect,
     LemonSwitch,
     LemonTag,
     LemonTextArea,
@@ -52,7 +53,9 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
         sparkline,
         sparklineLoading,
         template,
+        subTemplate,
         templateHasChanged,
+        forcedSubTemplateId,
     } = useValues(logic)
     const {
         submitConfiguration,
@@ -63,6 +66,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
         duplicateFromTemplate,
         setConfigurationValue,
         deleteHogFunction,
+        setSubTemplateId,
     } = useActions(logic)
 
     if (loading && !loaded) {
@@ -286,6 +290,41 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                         </div>
 
                         <div className="flex-2 min-w-100 space-y-4">
+                            {!forcedSubTemplateId && template?.sub_templates && (
+                                <>
+                                    <div className="border bg-bg-light rounded p-3 space-y-2">
+                                        <div className="flex items-center gap-2">
+                                            <LemonLabel className="flex-1">Choose template</LemonLabel>
+                                            <LemonSelect
+                                                size="small"
+                                                options={[
+                                                    {
+                                                        value: null,
+                                                        label: 'Default',
+                                                    },
+                                                    ...template.sub_templates.map((subTemplate) => ({
+                                                        value: subTemplate.id,
+                                                        label: subTemplate.name,
+                                                        labelInMenu: (
+                                                            <div className="max-w-120 space-y-1 my-1">
+                                                                <div className="font-semibold">{subTemplate.name}</div>
+                                                                <div className="text-muted font-sans text-xs">
+                                                                    {subTemplate.description}
+                                                                </div>
+                                                            </div>
+                                                        ),
+                                                    })),
+                                                ]}
+                                                value={subTemplate?.id}
+                                                onChange={(value) => {
+                                                    setSubTemplateId(value)
+                                                }}
+                                            />
+                                        </div>
+                                    </div>
+                                </>
+                            )}
+
                             <div className="border bg-bg-light rounded p-3 space-y-2">
                                 <div className="space-y-2">
                                     <HogFunctionInputs />
