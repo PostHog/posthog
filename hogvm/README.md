@@ -1,10 +1,10 @@
 # HogVM
 
-A HogVM is a 🦔 that runs HogQL bytecode. It's purpose is to locally evaluate HogQL expressions against any object.
+A HogVM is a 🦔 that runs Hog bytecode. It's purpose is to locally evaluate Hog/QL expressions against any object.
 
-## HogQL bytecode
+## Hog bytecode
 
-HogQL Bytecode is a compact representation of a subset of the HogQL AST nodes. It follows a certain structure:
+Hog Bytecode is a compact representation of a subset of the Hog AST nodes. It follows a certain structure:
 
 ```
 1 + 2                  # [_H, op.INTEGER, 2, op.INTEGER, 1, op.PLUS]
@@ -23,11 +23,11 @@ The `python/execute.py` function in this folder acts as the reference implementa
 
 ### Operations
 
-To be considered a PostHog HogQL Bytecode Certified Parser, you must implement the following operations:
+Here's a sample list of Hog bytecode operations, missing about half of them and likely out of date:
 
 ```bash
 FIELD = 1          # [arg3, arg2, arg1, FIELD, 3]       # arg1.arg2.arg3
-CALL = 2           # [arg2, arg1, CALL, 'concat', 2]    # concat(arg1, arg2)
+CALL_GLOBAL = 2    # [arg2, arg1, CALL, 'concat', 2]    # concat(arg1, arg2)
 AND = 3            # [val3, val2, val1, AND, 3]         # val1 and val2 and val3
 OR = 4             # [val3, val2, val1, OR, 3]          # val1 or val2 or val3
 NOT = 5            # [val, NOT]                         # not val
@@ -60,29 +60,9 @@ INTEGER = 33       # [INTEGER, 123]                     # 123
 FLOAT = 34         # [FLOAT, 123.12]                    # 123.01
 ```
 
-### Async Operations
-
-Some operations can't be computed directly, and are thus asked back to the caller. These include:
-
-```bash
-IN_COHORT = 27     # [val2, val1, IREGEX]               # val1 in cohort val2
-NOT_IN_COHORT = 28 # [val2, val1, NOT_IREGEX]           # val1 not in cohort val2
-```
-
-The arguments for these instructions will be passed on to the provided `async_operation(*args)` in reverse:
-
-```python
-def async_operation(*args):
-    if args[0] == op.IN_COHORT:
-        return db.queryInCohort(args[1], args[2])
-    return False
-
-execute_bytecode(to_bytecode("'user_id' in cohort 2"), {}, async_operation).result
-```
-
 ### Functions
 
-A PostHog HogQL Bytecode Certified Parser must also implement the following function calls:
+A Hog Certified Parser must also implement the following function calls:
 
 ```bash
 concat(...)              # concat('test: ', 1, null, '!') == 'test: 1!'
@@ -96,7 +76,7 @@ ifNull(val, alternative) # ifNull('string', false) == 'string'
 
 ### Null handling
 
-In HogQL equality comparisons, `null` is treated as any other variable. Its presence will not make functions automatically return `null`, as is the ClickHouse default.
+In Hog/QL equality comparisons, `null` is treated as any other variable. Its presence will not make functions automatically return `null`, as is the ClickHouse default.
 
 ```sql
 1 == null # false
@@ -104,11 +84,3 @@ In HogQL equality comparisons, `null` is treated as any other variable. Its pres
 ```
 
 Nulls are just ignored in `concat`
-
-
-## Known broken features
-
-- **Regular Expression** support is implemented, but NOT GUARANTEED to the same way across platforms. Different implementations (ClickHouse, Python, Node) use different Regexp engines. ClickHouse uses `re2`, the others use `pcre`. Use the case-insensitive regex operators instead of passing in modifier flags through the expression.
-- **DateTime** comparisons are not supported.
-- **Cohort Matching** operations are not implemented.
-- Only a small subset of functions is enabled. This list is bound to expand.

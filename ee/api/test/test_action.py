@@ -1,7 +1,7 @@
-import datetime
 from typing import cast
 
 import pytest
+from django.utils import timezone
 from rest_framework import status
 
 from posthog.cloud_utils import is_cloud
@@ -19,7 +19,7 @@ class TestActionApi(APIBaseTest):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             key="key_123",
             plan="enterprise",
-            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+            valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
         )
 
         response = self.client.post(f"/api/projects/{self.team.id}/actions/", data={"name": "user signed up"})
@@ -47,7 +47,7 @@ class TestActionApi(APIBaseTest):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             key="key_123",
             plan="enterprise",
-            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+            valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
         )
 
         response = self.client.post(
@@ -66,7 +66,7 @@ class TestActionApi(APIBaseTest):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             key="key_123",
             plan="enterprise",
-            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+            valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
         )
 
         # Ensure the cloud check is cached to not affect the number of queries
@@ -91,7 +91,7 @@ class TestActionApi(APIBaseTest):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             key="key_123",
             plan="enterprise",
-            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+            valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
         )
         response = self.client.post(
             f"/api/projects/{self.team.id}/actions/",

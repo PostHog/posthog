@@ -28,6 +28,7 @@ export function isHogCallable(obj: any): obj is HogCallable {
         '__hogCallable__' in obj &&
         'argCount' in obj &&
         'ip' in obj &&
+        // 'chunk' in obj &&  // TODO: enable after this has been live for some hours
         'upvalueCount' in obj
     )
 }
@@ -48,11 +49,13 @@ export function newHogCallable(
     type: HogCallable['__hogCallable__'],
     {
         name,
+        chunk,
         argCount,
         upvalueCount,
         ip,
     }: {
         name: string
+        chunk: string
         argCount: number
         upvalueCount: number
         ip: number
@@ -61,6 +64,7 @@ export function newHogCallable(
     return {
         __hogCallable__: type,
         name,
+        chunk: chunk,
         argCount,
         upvalueCount,
         ip,

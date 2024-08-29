@@ -1,5 +1,3 @@
-import datetime
-
 from django.utils import timezone
 
 from posthog.client import sync_execute
@@ -60,7 +58,7 @@ class TestPluginLogEntry(BaseTest):
 
         results = fetch_plugin_log_entries(
             plugin_config_id=some_plugin_config.pk,
-            after=datetime.datetime.min,
+            after=timezone.datetime.min,
             before=timezone.now() + timezone.timedelta(seconds=5),
         )
 

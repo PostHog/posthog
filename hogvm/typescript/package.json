@@ -1,6 +1,6 @@
 {
     "name": "@posthog/hogvm",
-    "version": "1.0.38",
+    "version": "1.0.39",
     "description": "PostHog Hog Virtual Machine",
     "types": "dist/index.d.ts",
     "source": "src/index.ts",
@@ -9,10 +9,12 @@
     "packageManager": "pnpm@8.3.1",
     "scripts": {
         "test": "jest --runInBand --forceExit",
-        "watch": "parcel watch",
-        "build": "pnpm clean && parcel build && pnpm copyCli",
+        "build": "pnpm clean && pnpm build:stl && pnpm build:parcel && pnpm build:cli",
+        "build:stl": "cd ../.. && python3 -m hogvm.stl.compile",
+        "build:parcel": "parcel build",
+        "build:compile": "tsc -p tsconfig.build.json",
+        "build:cli": "cp src/cli.js dist/cli.js",
         "clean": "rm -rf dist .parce-cache",
-        "copyCli": "cp src/cli.js dist/cli.js",
         "check": "tsc -p tsconfig.build.json --noEmit",
         "prettier": "prettier --write src",
         "prettier:check": "prettier --check src",

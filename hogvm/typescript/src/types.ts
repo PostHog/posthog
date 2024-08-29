@@ -92,6 +92,7 @@ export interface HogCallable {
     argCount: number
     upvalueCount: number
     ip: number
+    chunk: string
 }
 
 export interface HogUpValue {

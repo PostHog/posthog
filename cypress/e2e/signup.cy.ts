@@ -1,11 +1,12 @@
 import { decideResponse } from '../fixtures/api/decide'
-import { auth } from '../support'
 
 const VALID_PASSWORD = 'hedgE-hog-123%'
 
 describe('Signup', () => {
     beforeEach(() => {
-        auth.logout()
+        cy.get('[data-attr=menu-item-me]').click()
+        cy.get('[data-attr=top-menu-item-logout]').click()
+        cy.location('pathname').should('include', '/login')
         cy.visit('/signup')
     })
 
@@ -145,7 +146,8 @@ describe('Signup', () => {
         // We can't actually test the social login feature.
         // But, we can make sure the form exists as it should, and that upon submit
         // we get the expected error that no social session exists.
-        cy.clearAllCookies()
+        cy.visit('/logout')
+        cy.location('pathname').should('include', '/login')
         cy.visit('/organization/confirm-creation?organization_name=&first_name=Test&email=test%40posthog.com')
 
         cy.get('[name=email]').should('have.value', 'test@posthog.com')
@@ -168,7 +170,8 @@ describe('Signup', () => {
             )
         )
 
-        cy.clearAllCookies()
+        cy.visit('/logout')
+        cy.location('pathname').should('include', '/login')
 
         cy.visit('/signup?maintenanceRedirect=true', {
             onLoad(win: Cypress.AUTWindow) {
