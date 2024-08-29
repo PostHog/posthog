@@ -1,5 +1,3 @@
-import RE2 from 're2'
-
 import {
     CallFrame,
     HogUpValue,
@@ -12,6 +10,7 @@ import {
     ThrowFrame,
 } from './objects'
 import { Operation } from './operation'
+import { match, matchInsensitive } from './stl/regex'
 import { ASYNC_STL, STL } from './stl/stl'
 import {
     calculateCost,
@@ -355,19 +354,19 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 break
             case Operation.REGEX:
                 temp = popStack()
-                pushStack(new RE2(popStack()).test(temp))
+                pushStack(match(popStack(), temp))
                 break
             case Operation.NOT_REGEX:
                 temp = popStack()
-                pushStack(!new RE2(popStack()).test(temp))
+                pushStack(!match(popStack(), temp))
                 break
             case Operation.IREGEX:
                 temp = popStack()
-                pushStack(new RE2(popStack(), 'i').test(temp))
+                pushStack(matchInsensitive(popStack(), temp))
                 break
             case Operation.NOT_IREGEX:
                 temp = popStack()
-                pushStack(!new RE2(popStack(), 'i').test(temp))
+                pushStack(!matchInsensitive(popStack(), temp))
                 break
             case Operation.GET_GLOBAL: {
                 const count = next()

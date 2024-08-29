@@ -37,11 +37,10 @@
         ".prettierrc"
     ],
     "peerDependencies": {
-        "luxon": "^3.4.4",
-        "re2": "^1.21.3"
+        "luxon": "^3.4.4"
     },
     "dependencies": {
         "luxon": "^3.4.4",
-        "re2": "^1.21.3"
+        "re2js": "0.4.1"
     }
 }

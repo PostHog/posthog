@@ -17,6 +17,7 @@ import {
 } from './date'
 import { printHogStringOutput } from './print'
 import { like } from '../utils'
+import { match } from './regex'
 
 function STLToString(args: any[]): string {
     if (isHogDate(args[0])) {
@@ -51,10 +52,7 @@ export const STL: Record<string, STLFunction> = {
         maxArgs: undefined,
     },
     match: {
-        fn: (args) => {
-            const regex = new RegExp(args[1])
-            return regex.test(args[0])
-        },
+        fn: (args) => match(args[1], args[0]),
         minArgs: 2,
         maxArgs: 2,
     },

@@ -61,6 +61,12 @@ describe('hogvm execute', () => {
         expect(execSync(['_h', op.STRING, '.*', op.STRING, 'kala', op.NOT_IREGEX], options)).toBe(false)
         expect(execSync(['_h', op.STRING, 'b', op.STRING, 'kala', op.NOT_IREGEX], options)).toBe(true)
         expect(execSync(['_h', op.STRING, 'AL', op.STRING, 'kala', op.NOT_IREGEX], options)).toBe(false)
+
+        expect(execSync(['_h', op.STRING, 'AL(?i)', op.STRING, 'kala', op.REGEX], options)).toBe(true)
+        expect(execSync(['_h', op.STRING, 'AL(?i)', op.STRING, 'kala', op.IREGEX], options)).toBe(true)
+        expect(execSync(['_h', op.STRING, 'AL(?-i)', op.STRING, 'kala', op.REGEX], options)).toBe(false)
+        expect(execSync(['_h', op.STRING, 'AL(?-i)', op.STRING, 'kala', op.IREGEX], options)).toBe(false)
+
         expect(execSync(['_h', op.STRING, 'bla', op.STRING, 'properties', op.GET_GLOBAL, 2], options)).toBe(null)
         expect(execSync(['_h', op.STRING, 'foo', op.STRING, 'properties', op.GET_GLOBAL, 2], options)).toBe('bar')
         expect(execSync(['_h', op.STRING, 'another', op.STRING, 'arg', op.CALL_GLOBAL, 'concat', 2], options)).toBe(
