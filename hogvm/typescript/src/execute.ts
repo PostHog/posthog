@@ -1,17 +1,9 @@
-import {
-    CallFrame,
-    HogUpValue,
-    isHogCallable,
-    isHogClosure,
-    isHogError,
-    isHogUpValue,
-    newHogCallable,
-    newHogClosure,
-    ThrowFrame,
-} from './objects'
+import { DEFAULT_MAX_ASYNC_STEPS, DEFAULT_MAX_MEMORY, DEFAULT_TIMEOUT_MS, MAX_FUNCTION_ARGS_LENGTH } from './constants'
+import { isHogCallable, isHogClosure, isHogError, isHogUpValue, newHogCallable, newHogClosure } from './objects'
 import { Operation } from './operation'
 import { match, matchInsensitive } from './stl/regex'
 import { ASYNC_STL, STL } from './stl/stl'
+import { CallFrame, ExecOptions, ExecResult, HogUpValue, ThrowFrame, VMState } from './types'
 import {
     calculateCost,
     convertHogToJS,
@@ -22,55 +14,6 @@ import {
     setNestedValue,
     UncaughtHogVMException,
 } from './utils'
-
-const DEFAULT_MAX_ASYNC_STEPS = 100
-const DEFAULT_MAX_MEMORY = 64 * 1024 * 1024 // 64 MB
-const DEFAULT_TIMEOUT_MS = 5000 // ms
-const MAX_FUNCTION_ARGS_LENGTH = 300
-
-export interface VMState {
-    /** Bytecode running in the VM */
-    bytecode: any[]
-    /** Stack of the VM */
-    stack: any[]
-    /** Values hoisted from the stack */
-    upvalues: HogUpValue[]
-    /** Call stack of the VM */
-    callStack: CallFrame[] // [number, number, number][]
-    /** Throw stack of the VM */
-    throwStack: ThrowFrame[]
-    /** Declared functions of the VM (deprecated) */
-    declaredFunctions: Record<string, [number, number]>
-    /** How many sync ops have been performed */
-    ops: number
-    /** How many async steps have been taken */
-    asyncSteps: number
-    /** Combined duration of sync steps */
-    syncDuration: number
-    /** Max memory used */
-    maxMemUsed: number
-}
-
-export interface ExecOptions {
-    /** Global variables to be passed into the function */
-    globals?: Record<string, any>
-    functions?: Record<string, (...args: any[]) => any>
-    asyncFunctions?: Record<string, (...args: any[]) => Promise<any>>
-    /** Timeout in milliseconds */
-    timeout?: number
-    /** Max number of async function that can happen. When reached the function will throw */
-    maxAsyncSteps?: number
-    /** Memory limit in bytes. This is calculated based on the size of the VM stack. */
-    memoryLimit?: number
-}
-
-export interface ExecResult {
-    result: any
-    finished: boolean
-    asyncFunctionName?: string
-    asyncFunctionArgs?: any[]
-    state?: VMState
-}
 
 export function execSync(bytecode: any[], options?: ExecOptions): any {
     const response = exec(bytecode, options)
@@ -96,7 +39,7 @@ export async function execAsync(bytecode: any[], options?: ExecOptions): Promise
                 const result = await ASYNC_STL[response.asyncFunctionName].fn(
                     response.asyncFunctionArgs,
                     response.asyncFunctionName,
-                    options?.timeout ?? DEFAULT_TIMEOUT_MS
+                    options
                 )
                 vmState.stack.push(result)
             } else {
@@ -659,7 +602,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                             },
                         } satisfies ExecResult
                     } else if (name in STL) {
-                        pushStack(STL[name].fn(args, name, timeout))
+                        pushStack(STL[name].fn(args, name, options))
                     } else {
                         throw new HogVMException(`Unsupported function call: ${name}`)
                     }
@@ -727,7 +670,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                             args.push(null)
                         }
                     }
-                    pushStack(stlFn.fn(args, closure.callable.name, timeout))
+                    pushStack(stlFn.fn(args, closure.callable.name, options))
                 } else if (closure.callable.__hogCallable__ === 'async') {
                     if (asyncSteps >= maxAsyncSteps) {
                         throw new HogVMException(`Exceeded maximum number of async steps: ${maxAsyncSteps}`)

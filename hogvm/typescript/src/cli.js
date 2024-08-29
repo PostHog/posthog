@@ -1,7 +1,9 @@
-import * as fs from 'fs'
+// eslint-disable-next-line no-undef
+const exec = require('./index').exec
+// eslint-disable-next-line no-undef
+const fs = require('fs')
 
-import { exec } from './execute'
-
+// eslint-disable-next-line no-undef
 const args = process.argv.slice(2).filter((arg) => arg !== '' && !arg.startsWith('-'))
 const filename = args[0]
 

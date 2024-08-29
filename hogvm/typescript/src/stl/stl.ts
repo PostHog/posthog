@@ -1,6 +1,8 @@
 import { DateTime } from 'luxon'
 
 import { isHogDate, isHogDateTime, isHogError, newHogError } from '../objects'
+import { AsyncSTLFunction, STLFunction } from '../types'
+import { like } from '../utils'
 import { md5Hex, sha256Hex, sha256HmacChainHex } from './crypto'
 import {
     formatDateTime,
@@ -16,7 +18,6 @@ import {
     toUnixTimestampMilli,
 } from './date'
 import { printHogStringOutput } from './print'
-import { like } from '../utils'
 import { match } from './regex'
 
 function STLToString(args: any[]): string {
@@ -31,18 +32,6 @@ function STLToString(args: any[]): string {
     return printHogStringOutput(args[0])
 }
 
-export interface STLFunction {
-    fn: (args: any[], name: string, timeout: number) => any
-    minArgs?: number
-    maxArgs?: number
-}
-
-export interface AsyncSTLFunction {
-    fn: (args: any[], name: string, timeout: number) => Promise<any>
-    minArgs?: number
-    maxArgs?: number
-}
-
 export const STL: Record<string, STLFunction> = {
     concat: {
         fn: (args) => {
@@ -52,7 +41,7 @@ export const STL: Record<string, STLFunction> = {
         maxArgs: undefined,
     },
     match: {
-        fn: (args) => match(args[1], args[0]),
+        fn: (args, _name, options) => match(args[1], args[0], options),
         minArgs: 2,
         maxArgs: 2,
     },
@@ -130,7 +119,7 @@ export const STL: Record<string, STLFunction> = {
     },
     notEmpty: {
         fn: (args) => {
-            return !STL.empty.fn(args, 'empty', 0)
+            return !STL.empty.fn(args, 'empty')
         },
         minArgs: 1,
         maxArgs: 1,
@@ -376,21 +365,17 @@ export const STL: Record<string, STLFunction> = {
         maxArgs: 0,
     },
     sha256Hex: {
-        fn: ([str]) => {
-            return sha256Hex(str)
-        },
+        fn: ([str], _, options) => sha256Hex(str, options),
         minArgs: 1,
         maxArgs: 1,
     },
     md5Hex: {
-        fn: ([str]) => {
-            return md5Hex(str)
-        },
+        fn: ([str], _, options) => md5Hex(str, options),
         minArgs: 1,
         maxArgs: 1,
     },
     sha256HmacChainHex: {
-        fn: ([data]) => sha256HmacChainHex(data),
+        fn: ([data], _, options) => sha256HmacChainHex(data, options),
         minArgs: 1,
         maxArgs: 1,
     },

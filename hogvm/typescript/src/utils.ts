@@ -1,5 +1,4 @@
 import { toHogDate, toHogDateTime } from './stl/date'
-import { HogUpValue } from './objects'
 
 export class HogVMException extends Error {
     constructor(message: string) {
