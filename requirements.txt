@@ -597,7 +597,7 @@ vine==5.0.0
     #   kombu
 wcwidth==0.2.6
     # via prompt-toolkit
-webdriver-manager==4.0.1
+webdriver-manager==4.0.2
 wheel==0.42.0
     # via astunparse
 whitenoise==6.5.0

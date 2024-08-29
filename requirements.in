@@ -90,7 +90,7 @@ sqlparse==0.4.4
 temporalio==1.6.0
 token-bucket==0.3.0
 toronado==0.1.0
-webdriver_manager==4.0.1
+webdriver_manager==4.0.2
 whitenoise==6.5.0
 mimesis==5.2.1
 more-itertools==9.0.0
