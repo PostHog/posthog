@@ -5,6 +5,8 @@ use cyclotron_janitor::{config::JanitorSettings, janitor::Janitor};
 use sqlx::PgPool;
 use uuid::Uuid;
 
+use common_kafka::test::create_mock_kafka;
+
 #[sqlx::test(migrations = "../cyclotron-core/migrations")]
 async fn janitor_test(db: PgPool) {
     let worker = Worker::from_pool(db.clone());
@@ -15,6 +17,8 @@ async fn janitor_test(db: PgPool) {
     let stall_timeout = Duration::milliseconds(10);
     let max_touches = 3;
 
+    let (_, mock_producer) = create_mock_kafka().await;
+
     let settings = JanitorSettings {
         stall_timeout,
         max_touches,
@@ -23,6 +27,7 @@ async fn janitor_test(db: PgPool) {
     };
     let janitor = Janitor {
         inner: cyclotron_core::Janitor::from_pool(db.clone()),
+        kafka_producer: mock_producer,
         settings,
         metrics_labels: vec![],
     };

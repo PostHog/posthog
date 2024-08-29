@@ -1,5 +1,10 @@
+use common_kafka::kafka_producer::create_kafka_producer;
+use common_kafka::kafka_producer::KafkaContext;
 use cyclotron_core::{QueueError, SHARD_ID_KEY};
+use health::HealthRegistry;
 use tracing::{info, warn};
+
+use rdkafka::producer::FutureProducer;
 
 use crate::{
     config::{JanitorConfig, JanitorSettings},
@@ -17,12 +22,16 @@ pub struct CleanupResult {
 
 pub struct Janitor {
     pub inner: cyclotron_core::Janitor,
+    pub kafka_producer: FutureProducer<KafkaContext>,
     pub settings: JanitorSettings,
     pub metrics_labels: Vec<(String, String)>,
 }
 
 impl Janitor {
-    pub async fn new(config: JanitorConfig) -> Result<Self, QueueError> {
+    pub async fn new(
+        config: JanitorConfig,
+        health_registry: &HealthRegistry,
+    ) -> Result<Self, QueueError> {
         let settings = config.settings;
         let inner = cyclotron_core::Janitor::new(config.pool).await?;
 
@@ -31,8 +40,17 @@ impl Janitor {
             (SHARD_ID_KEY.to_string(), settings.shard_id.clone()),
         ];
 
+        let kafka_liveness = health_registry
+            .register("rdkafka".to_string(), time::Duration::seconds(30))
+            .await;
+
+        let kafka_producer = create_kafka_producer(&config.kafka, kafka_liveness)
+            .await
+            .expect("failed to create kafka producer");
+
         Ok(Self {
             inner,
+            kafka_producer,
             settings,
             metrics_labels,
         })
