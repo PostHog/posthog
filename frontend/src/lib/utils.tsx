@@ -594,9 +594,9 @@ export function stripHTTP(url: string): string {
     return url
 }
 
-export function isDomain(url: string): boolean {
+export function isDomain(url: string | URL): boolean {
     try {
-        const parsedUrl = new URL(url)
+        const parsedUrl = typeof url === 'string' ? new URL(url) : url
         if (parsedUrl.protocol.includes('http') && (!parsedUrl.pathname || parsedUrl.pathname === '/')) {
             return true
         }
