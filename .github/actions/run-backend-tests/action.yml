@@ -167,6 +167,10 @@ runs:
                   --durations=100 --durations-min=1.0 --store-durations \
                   $PYTEST_ARGS
 
+        - name: Setup tmate session
+          if: failure()
+          uses: mxschmitt/action-tmate@v3
+
         - name: Run /decide read replica tests
           id: run-decide-read-replica-tests
           if: ${{ inputs.segment == 'Core' && inputs.group == 1 && inputs.person-on-events != 'true' }}
