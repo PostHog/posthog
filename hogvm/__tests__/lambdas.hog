@@ -32,7 +32,6 @@ noArg()
 print('-------- lambdas do not survive json --------')
 
 print(b)
-print(jsonStringify(b))) // just a json string "<lambda:0>"
+print(jsonStringify(b)) // just a json string "<lambda:0>"
 let c := jsonParse(jsonStringify(b))
 print(c) // prints a string, can't be called
-
