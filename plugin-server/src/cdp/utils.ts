@@ -190,7 +190,7 @@ export const prepareLogEntriesForClickhouse = (
             ...logEntry,
             team_id: result.invocation.teamId,
             log_source: 'hog_function',
-            log_source_id: result.invocation.hogFunctionId,
+            log_source_id: result.invocation.hogFunction.id,
             instance_id: result.invocation.id,
             timestamp: castTimestampOrNow(logEntry.timestamp, TimestampFormat.ClickHouse),
         }

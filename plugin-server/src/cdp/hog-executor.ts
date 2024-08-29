@@ -257,7 +257,7 @@ export class HogExecutor {
                             }
 
                             result.capturedPostHogEvents!.push({
-                                team_id: invocation.team_id,
+                                team_id: invocation.teamId,
                                 timestamp: DateTime.utc().toISO(),
                                 distinct_id: event.distinct_id || invocation.globals.event.distinct_id,
                                 event: event.event,
@@ -283,6 +283,7 @@ export class HogExecutor {
             hogExecutionDuration.observe(duration)
 
             result.finished = execRes.finished
+            result.invocation.vmState = execRes.state
             invocation.timings.push({
                 kind: 'hog',
                 duration_ms: duration,
@@ -306,10 +307,7 @@ export class HogExecutor {
                     switch (execRes.asyncFunctionName) {
                         case 'fetch':
                             // Sanitize the args
-                            const [url, fetchOptions] = execRes.asyncFunctionArgs as [
-                                string | undefined,
-                                Record<string, any> | undefined
-                            ]
+                            const [url, fetchOptions] = args as [string | undefined, Record<string, any> | undefined]
 
                             if (typeof url !== 'string') {
                                 throw new Error('fetch: Invalid URL')

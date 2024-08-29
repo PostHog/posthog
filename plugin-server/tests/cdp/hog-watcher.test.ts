@@ -9,6 +9,7 @@ import { HogFunctionInvocationResult } from '../../src/cdp/types'
 import { Hub } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { delay } from '../../src/utils/utils'
+import { createInvocation } from './fixtures'
 import { deleteKeysWithPrefix } from './helpers/redis'
 
 const mockNow: jest.Mock = require('../../src/utils/now').now as any
@@ -21,10 +22,9 @@ const createResult = (options: {
 }): HogFunctionInvocationResult => {
     return {
         invocation: {
+            ...createInvocation({ id: options.id }),
             id: 'invocation-id',
             teamId: 2,
-            hogFunctionId: options.id,
-            globals: {} as any,
             timings: [
                 {
                     kind: 'async_function',

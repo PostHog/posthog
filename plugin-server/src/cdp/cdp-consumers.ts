@@ -84,7 +84,7 @@ function createInvocation(globals: HogFunctionInvocationGlobals, hogFunction: Ho
     return {
         id: new UUIDT().toString(),
         globals: modifiedGlobals,
-        team_id: hogFunction.team_id,
+        teamId: hogFunction.team_id,
         hogFunction,
         queue: 'hog',
         timings: [],
@@ -521,7 +521,7 @@ export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
                     results.map(async (result) => {
                         // Tricky: We want to pull all the logs out as we don't want them to be passed around to any subsequent functions
                         this.produceAppMetric({
-                            team_id: result.invocation.team_id,
+                            team_id: result.invocation.teamId,
                             app_source_id: result.invocation.hogFunction.id,
                             metric_kind: result.error ? 'failure' : 'success',
                             metric_name: result.error ? 'failed' : 'succeeded',

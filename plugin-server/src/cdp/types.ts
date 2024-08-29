@@ -156,7 +156,7 @@ export interface HogFunctionTiming {
 export type HogFunctionInvocation = {
     id: string
     globals: HogFunctionInvocationGlobals
-    team_id: Team['id']
+    teamId: Team['id']
     hogFunction: HogFunctionType
     queue: 'hog' | 'fetch'
     queueParameters?: Record<string, any>
