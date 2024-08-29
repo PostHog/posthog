@@ -15,6 +15,7 @@ from posthog.hogql.metadata import is_valid_view
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.warehouse.models import DataWarehouseJoin, DataWarehouseModelPath, DataWarehouseSavedQuery
+from uuid import UUID
 
 logger = structlog.get_logger(__name__)
 
@@ -164,6 +165,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
 
         saved_query = self.get_object()
         saved_query_id = saved_query.id.hex
+
         lquery = f"*{{{level},}}.{saved_query_id}"
 
         paths = DataWarehouseModelPath.objects.filter(team=saved_query.team, path__lquery=lquery)
@@ -178,7 +180,12 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             if offset < 0:
                 continue
 
-            ancestors.add(model_path.path[offset])
+            try:
+                id = UUID(model_path.path[offset])
+            except ValueError:
+                id = model_path.path[offset]
+
+            ancestors.add(id)
 
         return response.Response({"ancestors": ancestors})
 

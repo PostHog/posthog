@@ -15,7 +15,7 @@ const assignDepths = (nodes: Node[]): NodeWithDepth[] => {
 
     const assignDepthRecursive = (nodeId: string, currentDepth: number): void => {
         const node = nodeMap[nodeId]
-        if (!node || node.depth !== -1) {
+        if (!node) {
             return
         } // Skip if node doesn't exist or already processed
 
@@ -210,7 +210,7 @@ const NodeCanvasWithTable = ({
         setNodePositions(nodePositions)
         const tablePosition = calculateTablePosition(nodePositions)
         setTablePosition(tablePosition)
-    }, [])
+    }, [nodes, fixedFields, joinedFields])
 
     useEffect(() => {
         const allNodes = [...nodePositions]

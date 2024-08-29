@@ -2067,6 +2067,18 @@ const api = {
         ): Promise<DataWarehouseSavedQuery> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).update({ data })
         },
+        async ancestors(viewId: DataWarehouseSavedQuery['id'], level: number): Promise<string[]> {
+            return await new ApiRequest()
+                .dataWarehouseSavedQuery(viewId)
+                .withAction('ancestors')
+                .create({ data: { level } })
+        },
+        async descendants(viewId: DataWarehouseSavedQuery['id'], level: number): Promise<string[]> {
+            return await new ApiRequest()
+                .dataWarehouseSavedQuery(viewId)
+                .withAction('descendants')
+                .create({ data: { level } })
+        },
     },
     externalDataSources: {
         async list(options?: ApiMethodOptions | undefined): Promise<PaginatedResponse<ExternalDataStripeSource>> {
