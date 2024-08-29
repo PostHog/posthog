@@ -205,7 +205,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
         return stack.splice(start, deleteCount)
     }
     function stackKeepFirstElements(count: number): any[] {
-        if (stack.length < count) {
+        if (count < 0 || stack.length < count) {
             throw new HogVMException('Stack underflow')
         }
         for (let i = sortedUpValues.length - 1; i >= 0; i--) {

@@ -99,7 +99,7 @@ def execute_bytecode(
 
     def stack_keep_first_elements(count: int) -> list[Any]:
         nonlocal stack, mem_stack, mem_used
-        if len(stack) < count:
+        if count < 0 or len(stack) < count:
             raise HogVMException("Stack underflow")
         for upvalue in reversed(upvalues):
             if upvalue["location"] >= count:
