@@ -64,7 +64,7 @@ class TrendsFunction:
                         "reasoning_steps": {
                             "type": "array",
                             "items": {"type": "string"},
-                            "description": "The reasoning steps leading to the final conclusion that will be shown to the user. Use 'you' if you want to refer to the user.",
+                            "description": "The reasoning steps leading to the final conclusion that will be shown to the user. Use 'you' if you want to refer to the user. Explain it with gradually increasing complexity.",
                         },
                         "answer": self._flat_schema,
                     },

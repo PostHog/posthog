@@ -1,67 +1,68 @@
-from typing import Optional
+from typing import Literal, Optional, TypedDict
 
-import openai
+from langchain_core.output_parsers.openai_tools import PydanticToolsParser
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_openai import ChatOpenAI
 from openai.types.chat import ChatCompletionMessageParam
 from pydantic import BaseModel
 
-from posthog.assistant.cohorts_prompt import CohortsPrompt
 from posthog.assistant.events_prompt import EventsPropmpt
 from posthog.assistant.groups_prompt import GroupsPrompt
 from posthog.assistant.properties_prompt import PropertiesPrompt
-from posthog.assistant.system_prompt import SystemPrompt
+from posthog.assistant.system_prompt import trends_examples, trends_system_prompt
 from posthog.assistant.trends_function import TrendsFunction
+from posthog.models.property_definition import PropertyType
 from posthog.models.team.team import Team
 from posthog.schema import ExperimentalAITrendsQuery
 
 
-class AssistantResponse(BaseModel):
+class output_insight_schema(BaseModel):
     reasoning_steps: Optional[list[str]] = None
     answer: ExperimentalAITrendsQuery
+
+
+class PropertyNameAndType(TypedDict):
+    name: Literal["event", "person", "session", "cohort", "feature"]
+    type: PropertyType
 
 
 class Assistant:
     _team: Team
     _user_data: str
+    _llm: ChatOpenAI
 
     def __init__(self, team: Team):
         self._team = team
-        self._user_data = self._prepare_user_data()
+        self._llm = ChatOpenAI(model="gpt-4o")
 
-    def _prepare_system_prompt(self):
-        return SystemPrompt(self._team).generate_prompt()
-
-    def _prepare_user_data(self):
-        return "".join(
+    def create_completion(self, messages: list[ChatCompletionMessageParam]):
+        llm = self._llm.bind_tools([TrendsFunction().generate_function()], tool_choice="output_insight_schema")
+        prompts = ChatPromptTemplate.from_messages(
             [
-                GroupsPrompt(self._team).generate_prompt(),
-                EventsPropmpt(self._team).generate_prompt(),
-                PropertiesPrompt(self._team).generate_prompt(),
-                CohortsPrompt(self._team).generate_prompt(),
+                ("system", trends_system_prompt),
+                ("user", "Answer to my question:\n<question>{question}</question>\n{user_data}"),
+                *[(message["role"], message["content"]) for message in messages[1:]],
             ]
         )
 
-    def _prepare_user_prompt(self, prompt: str):
-        return f"Answer to my question:\n<question>{prompt}</question>\n{self._user_data}"
+        chain = prompts | llm | PydanticToolsParser(tools=[output_insight_schema])
 
-    def create_completion(self, messages: list[ChatCompletionMessageParam]):
-        prompts: list[ChatCompletionMessageParam] = [
-            {"role": "system", "content": self._prepare_system_prompt()},
-            {"role": "user", "content": self._prepare_user_prompt(messages[0]["content"])},
-            *messages[1:],
-        ]
-
-        completions = openai.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=prompts,
-            tools=[TrendsFunction().generate_function()],
-            tool_choice={"type": "function", "function": {"name": "output_insight_schema"}},
-        )
-
-        response = AssistantResponse.model_validate_json(
-            completions.choices[0].message.tool_calls[0].function.arguments
+        message: list = chain.invoke(
+            {
+                "examples": trends_examples,
+                "user_data": "".join(
+                    [
+                        GroupsPrompt(self._team).generate_prompt(),
+                        EventsPropmpt(self._team).generate_prompt(),
+                        PropertiesPrompt(self._team).generate_prompt(),
+                        # CohortsPrompt(self._team).generate_prompt(),
+                    ]
+                ),
+                "question": messages[0]["content"],
+            }
         )
 
         return [
             *messages,
-            {"role": "assistant", "content": response.model_dump_json()},
+            {"role": "assistant", "content": message[0].model_dump_json()},
         ]
