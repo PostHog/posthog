@@ -1,6 +1,6 @@
 {
     "db_name": "PostgreSQL",
-    "query": "UPDATE cyclotron_jobs SET vm_state = $1 WHERE id = $2 AND lock_id = $3",
+    "query": "UPDATE cyclotron_jobs SET blob = $1 WHERE id = $2 AND lock_id = $3",
     "describe": {
         "columns": [],
         "parameters": {
@@ -8,5 +8,5 @@
         },
         "nullable": []
     },
-    "hash": "16d533b5a15b0b9926a181f578b5b577efe424710b45f02e1ddeece8bca96f87"
+    "hash": "58dfd4671ac3497614b184384ac7f8d490dda8b27a150454e413d02f89c92050"
 }
