@@ -106,7 +106,7 @@ async def _run(
         team_id=team.pk,
         source_id=source.pk,
         sync_type=sync_type,
-        sync_type_config=sync_type_config,
+        sync_type_config=sync_type_config or {},
     )
 
     workflow_id = str(uuid.uuid4())
