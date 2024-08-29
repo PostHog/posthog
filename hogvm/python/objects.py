@@ -45,7 +45,7 @@ def is_hog_callable(obj: Any) -> bool:
         and "__hogCallable__" in obj
         and "argCount" in obj
         and "ip" in obj
-        # and "chunk" in obj
+        # and "chunk" in obj # TODO: enable after this has been live for some hours
         and "upvalueCount" in obj
     )
 

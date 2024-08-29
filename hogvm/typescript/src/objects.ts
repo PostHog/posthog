@@ -84,7 +84,7 @@ export function isHogCallable(obj: any): obj is HogCallable {
         '__hogCallable__' in obj &&
         'argCount' in obj &&
         'ip' in obj &&
-        // 'chunk' in obj &&
+        // 'chunk' in obj &&  // TODO: enable after this has been live for some hours
         'upvalueCount' in obj
     )
 }
