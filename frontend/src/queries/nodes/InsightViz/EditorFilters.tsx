@@ -269,6 +269,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             editorFilters: rightFilters,
         },
     ]
+
     return (
         <CSSTransition in={showing} timeout={250} classNames="anim-" mountOnEnter unmountOnExit>
             <div
