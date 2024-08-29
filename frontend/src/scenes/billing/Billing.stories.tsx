@@ -10,6 +10,7 @@ import batchExports from '~/mocks/fixtures/api/organizations/@current/batchExpor
 import exportsUnsubscribeConfigs from '~/mocks/fixtures/api/organizations/@current/plugins/exportsUnsubscribeConfigs.json'
 
 import { Billing } from './Billing'
+import { PurchaseCreditsModal } from './PurchaseCreditsModal'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 
 const meta: Meta = {
@@ -66,6 +67,18 @@ export const BillingWithLimitAnd100PercentDiscount = (): JSX.Element => {
     })
 
     return <Billing />
+}
+
+export const BillingPurchaseCreditsModal = (): JSX.Element => {
+    useStorybookMocks({
+        get: {
+            '/api/billing/': {
+                ...billingJson,
+            },
+        },
+    })
+
+    return <PurchaseCreditsModal />
 }
 
 export const BillingUnsubscribeModal = (): JSX.Element => {
