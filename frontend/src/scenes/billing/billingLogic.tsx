@@ -91,7 +91,7 @@ export const billingLogic = kea<billingLogicType>([
         setUnsubscribeError: (error: null | UnsubscribeError) => ({ error }),
         resetUnsubscribeError: true,
         setBillingAlert: (billingAlert: BillingAlertConfig | null) => ({ billingAlert }),
-        showPurchaseCreditModal: (isOpen: boolean) => ({ isOpen }),
+        showPurchaseCreditsModal: (isOpen: boolean) => ({ isOpen }),
     }),
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags'], preflightLogic, ['preflight']],
@@ -180,10 +180,10 @@ export const billingLogic = kea<billingLogicType>([
                 },
             },
         ],
-        isPurchaseCreditModalOpen: [
+        isPurchaseCreditsModalOpen: [
             false,
             {
-                showPurchaseCreditModal: (_, { isOpen }) => isOpen,
+                showPurchaseCreditsModal: (_, { isOpen }) => isOpen,
             },
         ],
     }),
@@ -450,7 +450,7 @@ export const billingLogic = kea<billingLogicType>([
                     send_invoice: sendInvoice,
                 })
 
-                actions.showPurchaseCreditModal(false)
+                actions.showPurchaseCreditsModal(false)
                 actions.loadSelfServeCreditEligible()
 
                 LemonDialog.open({

@@ -5,20 +5,20 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { billingLogic } from './billingLogic'
 
-export const PurchaseCreditModal = (): JSX.Element | null => {
-    const { showPurchaseCreditModal, submitCreditForm } = useActions(billingLogic)
+export const PurchaseCreditsModal = (): JSX.Element | null => {
+    const { showPurchaseCreditsModal, submitCreditForm } = useActions(billingLogic)
     const { selfServeCreditEligibility, isCreditFormSubmitting, creditForm, creditDiscount } = useValues(billingLogic)
 
     return (
         <LemonModal
-            onClose={() => showPurchaseCreditModal(false)}
+            onClose={() => showPurchaseCreditsModal(false)}
             width="max(44vw)"
             title="Wow, big spender!"
             footer={
                 <>
                     <LemonButton
                         type="secondary"
-                        onClick={() => showPurchaseCreditModal(false)}
+                        onClick={() => showPurchaseCreditsModal(false)}
                         disabled={isCreditFormSubmitting}
                     >
                         Cancel
