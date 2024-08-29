@@ -3,14 +3,14 @@ import { useActions, useValues } from 'kea'
 import { BlushingHog } from 'lib/components/hedgehogs'
 import useResizeObserver from 'use-resize-observer'
 
-import { AnnualCreditModal } from './AnnualCreditModal'
 import { billingLogic } from './billingLogic'
+import { PurchaseCreditModal } from './PurchaseCreditModal'
 
 export const CreditCTAHero = (): JSX.Element | null => {
     const { width, ref: heroRef } = useResizeObserver()
 
-    const { selfServeCreditEligibility, isAnnualCreditModalOpen } = useValues(billingLogic)
-    const { showAnnualCreditModal } = useActions(billingLogic)
+    const { selfServeCreditEligibility, isPurchaseCreditModalOpen } = useValues(billingLogic)
+    const { showPurchaseCreditModal } = useActions(billingLogic)
 
     // if (!selfServeCreditEligibility.eligible || selfServeCreditEligibility.status === "paid") {
     if (!selfServeCreditEligibility.eligible) {
@@ -50,7 +50,7 @@ export const CreditCTAHero = (): JSX.Element | null => {
                                 You're eligible to purchase credits. Buy credits upfront to get a discount and make your
                                 PostHog payments more predictable.
                             </p>
-                            <LemonButton type="primary" onClick={() => showAnnualCreditModal(true)} className="mt-4">
+                            <LemonButton type="primary" onClick={() => showPurchaseCreditModal(true)} className="mt-4">
                                 Purchase credits
                             </LemonButton>
                         </>
@@ -61,7 +61,7 @@ export const CreditCTAHero = (): JSX.Element | null => {
                     <BlushingHog className="w-50 h-50 -my-5" />
                 </div>
             )}
-            {isAnnualCreditModalOpen && <AnnualCreditModal />}
+            {isPurchaseCreditModalOpen && <PurchaseCreditModal />}
         </div>
     )
 }

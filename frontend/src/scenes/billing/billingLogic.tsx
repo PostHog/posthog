@@ -91,7 +91,7 @@ export const billingLogic = kea<billingLogicType>([
         setUnsubscribeError: (error: null | UnsubscribeError) => ({ error }),
         resetUnsubscribeError: true,
         setBillingAlert: (billingAlert: BillingAlertConfig | null) => ({ billingAlert }),
-        showAnnualCreditModal: (isOpen: boolean) => ({ isOpen }),
+        showPurchaseCreditModal: (isOpen: boolean) => ({ isOpen }),
     }),
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags'], preflightLogic, ['preflight']],
@@ -180,10 +180,10 @@ export const billingLogic = kea<billingLogicType>([
                 },
             },
         ],
-        isAnnualCreditModalOpen: [
+        isPurchaseCreditModalOpen: [
             false,
             {
-                showAnnualCreditModal: (_, { isOpen }) => isOpen,
+                showPurchaseCreditModal: (_, { isOpen }) => isOpen,
             },
         ],
     }),
@@ -304,8 +304,8 @@ export const billingLogic = kea<billingLogicType>([
             {
                 loadSelfServeCreditEligible: async () => {
                     const response = await api.get('api/billing/credits/eligibility')
-                    if (!values.selfServeCreditForm.creditInput) {
-                        actions.setSelfServeCreditFormValue('creditInput', response.estimated_credit_amount_usd * 12)
+                    if (!values.creditForm.creditInput) {
+                        actions.setcreditFormValue('creditInput', response.estimated_credit_amount_usd * 12)
                     }
                     return response
                 },
@@ -391,6 +391,25 @@ export const billingLogic = kea<billingLogicType>([
                     ?.addons.find((addon) => addon.plans.find((plan) => plan.current_plan))
             },
         ],
+        creditDiscount: [
+            (s) => [s.creditForm],
+            (creditForm: { creditInput: string; sendInvoice: boolean }): number => {
+                const spend = +creditForm.creditInput
+                if (spend < 6000) {
+                    return 0
+                }
+                if (spend < 20000) {
+                    return 0.1
+                }
+                if (spend < 60000) {
+                    return 0.2
+                }
+                if (spend < 100000) {
+                    return 0.25
+                }
+                return 0.3
+            },
+        ],
     }),
     forms(({ actions, values }) => ({
         activateLicense: {
@@ -420,7 +439,7 @@ export const billingLogic = kea<billingLogicType>([
                 }
             },
         },
-        selfServeCreditForm: {
+        creditForm: {
             defaults: {
                 creditInput: '',
                 sendInvoice: false,
@@ -431,7 +450,7 @@ export const billingLogic = kea<billingLogicType>([
                     send_invoice: sendInvoice,
                 })
 
-                actions.showAnnualCreditModal(false)
+                actions.showPurchaseCreditModal(false)
                 actions.loadSelfServeCreditEligible()
 
                 LemonDialog.open({
@@ -439,7 +458,6 @@ export const billingLogic = kea<billingLogicType>([
                     width: 536,
                     content: sendInvoice ? (
                         <>
-                            {/* Note(@zach): add email input for a custom email on the invoice */}
                             <p className="mb-4">
                                 The invoice for your credits has been created and it will be emailed to the email on
                                 file.
@@ -451,7 +469,6 @@ export const billingLogic = kea<billingLogicType>([
                         </>
                     ) : (
                         <>
-                            {/* Note(@zach): add email for when credits are applied */}
                             <p>
                                 Your card will be charged in the next 3 hours and the credits will be applied to your
                                 account. Please make sure your card on file is up to date. You will receive an email

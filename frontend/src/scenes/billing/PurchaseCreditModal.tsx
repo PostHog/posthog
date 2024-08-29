@@ -5,55 +5,31 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { billingLogic } from './billingLogic'
 
-export const AnnualCreditModal = (): JSX.Element | null => {
-    const { showAnnualCreditModal, submitSelfServeCreditForm } = useActions(billingLogic)
-    const { selfServeCreditEligibility, isSelfServeCreditFormSubmitting, selfServeCreditForm } = useValues(billingLogic)
-
-    // TODO(@zach): move into a function in the logic
-    const getDiscount = (): number => {
-        const monthlySpend = +selfServeCreditForm.creditInput
-        if (monthlySpend < 6000) {
-            return 0
-        }
-        if (monthlySpend < 20000) {
-            return 0.1
-        }
-        if (monthlySpend < 60000) {
-            return 0.2
-        }
-        if (monthlySpend < 100000) {
-            return 0.25
-        }
-        return 0.3
-    }
+export const PurchaseCreditModal = (): JSX.Element | null => {
+    const { showPurchaseCreditModal, submitCreditForm } = useActions(billingLogic)
+    const { selfServeCreditEligibility, isCreditFormSubmitting, creditForm, creditDiscount } = useValues(billingLogic)
 
     return (
         <LemonModal
-            onClose={() => showAnnualCreditModal(false)}
+            onClose={() => showPurchaseCreditModal(false)}
             width="max(44vw)"
             title="Wow, big spender!"
             footer={
                 <>
                     <LemonButton
                         type="secondary"
-                        onClick={() => showAnnualCreditModal(false)}
-                        disabled={isSelfServeCreditFormSubmitting}
+                        onClick={() => showPurchaseCreditModal(false)}
+                        disabled={isCreditFormSubmitting}
                     >
                         Cancel
                     </LemonButton>
-                    <LemonButton
-                        type="primary"
-                        onClick={() => submitSelfServeCreditForm()}
-                        loading={isSelfServeCreditFormSubmitting}
-                    >
-                        Purchase{' '}
-                        {selfServeCreditForm.creditInput ? `$${selfServeCreditForm.creditInput.toLocaleString()}` : ''}{' '}
-                        credits
+                    <LemonButton type="primary" onClick={() => submitCreditForm()} loading={isCreditFormSubmitting}>
+                        Purchase {creditForm.creditInput ? `$${creditForm.creditInput.toLocaleString()}` : ''} credits
                     </LemonButton>
                 </>
             }
         >
-            <Form formKey="selfServeCreditForm" logic={billingLogic} enableFormOnSubmit>
+            <Form formKey="creditForm" logic={billingLogic} enableFormOnSubmit>
                 <div className="flex flex-col gap-3.5">
                     <p className="mb-0">
                         You're using PostHog more and you're now eligible to purchase credits upfront for a discount.
@@ -80,14 +56,14 @@ export const AnnualCreditModal = (): JSX.Element | null => {
 
                     <p className="mb-1 text-md font-semibold">Breakdown</p>
                     <p>
-                        Due today: <b>${Math.round(+selfServeCreditForm.creditInput).toLocaleString('en-US')}</b>
+                        Due today: <b>${Math.round(+creditForm.creditInput).toLocaleString('en-US')}</b>
                         <br />
-                        Discount: <b>{getDiscount() * 100}%</b>
+                        Discount: <b>{creditDiscount * 100}%</b>
                         <br />
                         Total credits:{' '}
                         <b>
                             $
-                            {(+selfServeCreditForm.creditInput / (1 - getDiscount())).toLocaleString('en-US', {
+                            {(+creditForm.creditInput / (1 - creditDiscount)).toLocaleString('en-US', {
                                 minimumFractionDigits: 2,
                                 maximumFractionDigits: 2,
                             })}
@@ -96,7 +72,7 @@ export const AnnualCreditModal = (): JSX.Element | null => {
                         Monthly credits:{' '}
                         <b>
                             $
-                            {(+selfServeCreditForm.creditInput / (1 - getDiscount()) / 12).toLocaleString('en-US', {
+                            {(+creditForm.creditInput / (1 - creditDiscount) / 12).toLocaleString('en-US', {
                                 minimumFractionDigits: 2,
                                 maximumFractionDigits: 2,
                             })}
