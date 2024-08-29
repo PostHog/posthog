@@ -520,16 +520,6 @@ export async function startPluginsServer(
             }
         }
 
-        // if (capabilities.cdpFunctionOverflow) {
-        //     ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, capabilities)
-        //     const consumer = new CdpOverflowConsumer(hub)
-        //     await consumer.start()
-
-        //     shutdownOnConsumerExit(consumer.batchConsumer!)
-        //     shutdownCallbacks.push(async () => await consumer.stop())
-        //     healthChecks['cdp-overflow'] = () => consumer.isHealthy() ?? false
-        // }
-
         // if (capabilities.cdpCyclotronWorker) {
         //     ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, capabilities)
         //     if (hub.CYCLOTRON_DATABASE_URL) {
