@@ -121,7 +121,7 @@ function InsightCardInternal(
             style={{ ...(divProps?.style ?? {}), ...(theme?.boxStyle ?? {}) }}
             ref={ref}
         >
-            <ErrorBoundary>
+            <ErrorBoundary tags={{ feature: 'insight' }}>
                 <BindLogic logic={insightLogic} props={insightLogicProps}>
                     <InsightMeta
                         insight={insight}

@@ -9,6 +9,7 @@ import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
+import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { InsightVizNode } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
 import { isFunnelsQuery } from '~/queries/utils'
@@ -93,25 +94,27 @@ export function InsightViz({ uniqueKey, query, setQuery, context, readOnly, embe
     )
 
     return (
-        <BindLogic logic={insightLogic} props={insightProps}>
-            <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-                <BindLogic logic={insightVizDataLogic} props={insightProps}>
-                    <div
-                        className={
-                            !isEmbedded
-                                ? clsx('InsightViz', {
-                                      'InsightViz--horizontal': isFunnels || isHorizontalAlways,
-                                  })
-                                : 'InsightCard__viz'
-                        }
-                    >
-                        {!readOnly && (
-                            <EditorFilters query={query.source} showing={showingFilters} embedded={isEmbedded} />
-                        )}
-                        {!isEmbedded ? <div className="flex-1 h-full overflow-auto">{display}</div> : display}
-                    </div>
+        <ErrorBoundary tags={{ feature: 'InsightViz' }}>
+            <BindLogic logic={insightLogic} props={insightProps}>
+                <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
+                    <BindLogic logic={insightVizDataLogic} props={insightProps}>
+                        <div
+                            className={
+                                !isEmbedded
+                                    ? clsx('InsightViz', {
+                                          'InsightViz--horizontal': isFunnels || isHorizontalAlways,
+                                      })
+                                    : 'InsightCard__viz'
+                            }
+                        >
+                            {!readOnly && (
+                                <EditorFilters query={query.source} showing={showingFilters} embedded={isEmbedded} />
+                            )}
+                            {!isEmbedded ? <div className="flex-1 h-full overflow-auto">{display}</div> : display}
+                        </div>
+                    </BindLogic>
                 </BindLogic>
             </BindLogic>
-        </BindLogic>
+        </ErrorBoundary>
     )
 }
