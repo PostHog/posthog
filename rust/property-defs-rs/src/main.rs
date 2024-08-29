@@ -205,7 +205,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tokio::spawn(async move {
             let _permit = permit;
             let issue_time = common_metrics::timing_guard(UPDATE_ISSUE_TIME, &[]);
-            context.issue(batch, cache_utilization).await.unwrap();
+            if let Err(e) = context.issue(batch, cache_utilization).await {
+                warn!("Issue failed: {:?}", e);
+            }
             issue_time.fin();
         });
     }
