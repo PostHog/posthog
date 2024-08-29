@@ -144,6 +144,10 @@ impl KafkaSink {
                 (config.kafka_producer_queue_mib * 1024).to_string(),
             );
 
+        if &config.kafka_client_id != "" {
+            client_config.set("client.id", &config.kafka_client_id);
+        }
+
         if config.kafka_tls {
             client_config
                 .set("security.protocol", "ssl")
