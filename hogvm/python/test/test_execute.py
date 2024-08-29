@@ -126,7 +126,7 @@ class TestBytecodeExecute:
             raise AssertionError("Expected Exception not raised")
 
         try:
-            execute_bytecode([_H, VERSION, op.CALL_GLOBAL, "notAFunction", 1], {})
+            execute_bytecode([_H, VERSION, op.CALL_GLOBAL, "replaceOne", 1], {})
         except Exception as e:
             assert str(e) == "Stack underflow"
         else:
