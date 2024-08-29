@@ -639,7 +639,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             [
                                 {
                                     id: PathTab.PATH,
-                                    title: 'Top paths',
+                                    title: 'Paths',
                                     linkText: 'Path',
                                     query: {
                                         full: true,
@@ -664,7 +664,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 },
                                 {
                                     id: PathTab.INITIAL_PATH,
-                                    title: 'Top entry paths',
+                                    title: 'Entry paths',
                                     linkText: 'Entry path',
                                     query: {
                                         full: true,
@@ -688,8 +688,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 },
                                 {
                                     id: PathTab.EXIT_PATH,
-                                    title: 'Top exit paths',
-                                    linkText: 'Exit path',
+                                    title: 'End paths',
+                                    linkText: 'End path',
                                     query: {
                                         full: true,
                                         kind: NodeKind.DataTableNode,
@@ -725,7 +725,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         tabs: [
                             {
                                 id: SourceTab.CHANNEL,
-                                title: 'Top channels',
+                                title: 'Channels',
                                 linkText: 'Channel',
                                 query: {
                                     full: true,
@@ -763,7 +763,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             },
                             {
                                 id: SourceTab.REFERRING_DOMAIN,
-                                title: 'Top referrers',
+                                title: 'Referrers',
                                 linkText: 'Referring domain',
                                 query: {
                                     full: true,
@@ -784,7 +784,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
                             {
                                 id: SourceTab.UTM_SOURCE,
-                                title: 'Top sources',
+                                title: 'UTM sources',
                                 linkText: 'UTM source',
                                 query: {
                                     full: true,
@@ -804,7 +804,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             },
                             {
                                 id: SourceTab.UTM_MEDIUM,
-                                title: 'Top UTM medium',
+                                title: 'UTM medium',
                                 linkText: 'UTM medium',
                                 query: {
                                     full: true,
@@ -824,7 +824,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             },
                             {
                                 id: SourceTab.UTM_CAMPAIGN,
-                                title: 'Top UTM campaigns',
+                                title: 'UTM campaigns',
                                 linkText: 'UTM campaign',
                                 query: {
                                     full: true,
@@ -844,7 +844,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             },
                             {
                                 id: SourceTab.UTM_CONTENT,
-                                title: 'Top UTM content',
+                                title: 'UTM content',
                                 linkText: 'UTM content',
                                 query: {
                                     full: true,
@@ -864,7 +864,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             },
                             {
                                 id: SourceTab.UTM_TERM,
-                                title: 'Top UTM terms',
+                                title: 'UTM terms',
                                 linkText: 'UTM term',
                                 query: {
                                     full: true,
@@ -916,7 +916,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         tabs: [
                             {
                                 id: DeviceTab.DEVICE_TYPE,
-                                title: 'Device types',
+                                title: 'Device type',
                                 linkText: 'Device type',
                                 query: {
                                     kind: NodeKind.InsightVizNode,
@@ -953,7 +953,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             },
                             {
                                 id: DeviceTab.BROWSER,
-                                title: 'Top browsers',
+                                title: 'Browsers',
                                 linkText: 'Browser',
                                 query: {
                                     full: true,
@@ -973,7 +973,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             },
                             {
                                 id: DeviceTab.OS,
-                                title: 'Top OSs',
+                                title: 'OS',
                                 linkText: 'OS',
                                 query: {
                                     full: true,
@@ -1040,7 +1040,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                   },
                                   {
                                       id: GeographyTab.COUNTRIES,
-                                      title: 'Top countries',
+                                      title: 'Countries',
                                       linkText: 'Countries',
                                       query: {
                                           full: true,
@@ -1060,7 +1060,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                   },
                                   {
                                       id: GeographyTab.REGIONS,
-                                      title: 'Top regions',
+                                      title: 'Regions',
                                       linkText: 'Regions',
                                       query: {
                                           full: true,
@@ -1080,7 +1080,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                   },
                                   {
                                       id: GeographyTab.CITIES,
-                                      title: 'Top cities',
+                                      title: 'Cities',
                                       linkText: 'Cities',
                                       query: {
                                           full: true,
