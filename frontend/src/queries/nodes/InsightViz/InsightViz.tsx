@@ -35,11 +35,20 @@ type InsightVizProps = {
     context?: QueryContext
     readOnly?: boolean
     embedded?: boolean
+    inSharedMode?: boolean
 }
 
 let uniqueNode = 0
 
-export function InsightViz({ uniqueKey, query, setQuery, context, readOnly, embedded }: InsightVizProps): JSX.Element {
+export function InsightViz({
+    uniqueKey,
+    query,
+    setQuery,
+    context,
+    readOnly,
+    embedded,
+    inSharedMode,
+}: InsightVizProps): JSX.Element {
     const [key] = useState(() => `InsightViz.${uniqueKey || uniqueNode++}`)
     const insightProps: InsightLogicProps = context?.insightProps || {
         dashboardItemId: `new-AdHoc.${key}`,
@@ -89,6 +98,7 @@ export function InsightViz({ uniqueKey, query, setQuery, context, readOnly, embe
             disableLastComputationRefresh={disableLastComputationRefresh}
             showingResults={showingResults}
             embedded={isEmbedded}
+            inSharedMode={inSharedMode}
         />
     )
 

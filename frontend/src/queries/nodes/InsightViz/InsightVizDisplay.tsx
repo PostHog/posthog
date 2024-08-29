@@ -43,6 +43,7 @@ export function InsightVizDisplay({
     insightMode,
     context,
     embedded,
+    inSharedMode,
 }: {
     disableHeader?: boolean
     disableTable?: boolean
@@ -53,6 +54,7 @@ export function InsightVizDisplay({
     insightMode?: ItemMode
     context?: QueryContext
     embedded: boolean
+    inSharedMode?: boolean
 }): JSX.Element {
     const { insightProps, canEditInsight } = useValues(insightLogic)
 
@@ -128,7 +130,7 @@ export function InsightVizDisplay({
                         context={context}
                         vizSpecificOptions={vizSpecificOptions?.[InsightType.RETENTION]}
                         inCardView={embedded}
-                        inSharedMode={insightMode === ItemMode.Sharing}
+                        inSharedMode={inSharedMode}
                     />
                 )
             case InsightType.PATHS:

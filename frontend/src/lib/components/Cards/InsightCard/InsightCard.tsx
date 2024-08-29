@@ -151,6 +151,7 @@ function InsightCardInternal(
                             }}
                             readOnly
                             embedded
+                            inSharedMode={placement === DashboardPlacement.Public}
                         />
                     </div>
                 </BindLogic>

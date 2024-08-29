@@ -39,10 +39,12 @@ export interface QueryProps<Q extends Node> {
     readOnly?: boolean
     /** Reduce UI elements to only show data */
     embedded?: boolean
+    /** Disables modals and other things */
+    inSharedMode?: boolean
 }
 
 export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null {
-    const { query: propsQuery, setQuery: propsSetQuery, readOnly, embedded } = props
+    const { query: propsQuery, setQuery: propsSetQuery, readOnly, embedded, inSharedMode } = props
 
     const [localQuery, localSetQuery] = useState(propsQuery)
     useEffect(() => {
@@ -104,6 +106,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 readOnly={readOnly}
                 uniqueKey={uniqueKey}
                 embedded={embedded}
+                inSharedMode={inSharedMode}
             />
         )
     } else if (isWebOverviewQuery(query)) {
