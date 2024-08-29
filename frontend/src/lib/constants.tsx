@@ -201,6 +201,7 @@ export const FEATURE_FLAGS = {
     ALERTS: 'alerts', // owner: github.com/nikitaevg
     ERROR_TRACKING: 'error-tracking', // owner: #team-replay
     SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE: 'settings-bounce-rate-page-view-mode', // owner: @robbie-c
+    ONBOARDING_DASHBOARD_TEMPLATES: 'onboarding-dashboard-templates', // owner: @raquelmsmith
     MULTIPLE_BREAKDOWNS: 'multiple-breakdowns', // owner: @skoob13 #team-product-analytics
     WEB_ANALYTICS_LIVE_USER_COUNT: 'web-analytics-live-user-count', // owner: @robbie-c
     SETTINGS_SESSION_TABLE_VERSION: 'settings-session-table-version', // owner: @robbie-c
@@ -209,7 +210,6 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS_REPLAY: 'web-analytics-replay', // owner: @robbie-c
     BATCH_EXPORTS_POSTHOG_HTTP: 'posthog-http-batch-exports',
     EXPERIMENT_MAKE_DECISION: 'experiment-make-decision', // owner: @jurajmajerik #team-feature-success
-    MSSQL_SOURCE: 'mssql_source', // owner: @Gilbert09 #team-data-warehouse
     DATA_MODELING: 'data-modeling', // owner: @EDsCODE #team-data-warehouse
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]

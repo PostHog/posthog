@@ -57,6 +57,8 @@ logger = structlog.get_logger(__name__)
 def get_generic_sql_error(source_type: ExternalDataSource.Type):
     if source_type == ExternalDataSource.Type.MYSQL:
         name = "MySQL"
+    elif source_type == ExternalDataSource.Type.MSSQL:
+        name = "SQL database"
     else:
         name = "Postgres"
 
@@ -77,6 +79,11 @@ SnowflakeErrors = {
     "Incorrect username or password was specified": "Incorrect username or password was specified",
     "This session does not have a current database": "Database specified not found",
     "Verify the account name is correct": "Can't find an account with the specified account ID",
+}
+MSSQLErrors = {
+    "Login failed for user": "Login failed for database",
+    "Adaptive Server is unavailable or does not exist": "Could not connect to SQL server - check server host and port",
+    "connection timed out": "Could not connect to SQL server - check server firewall settings",
 }
 
 
@@ -683,6 +690,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ExternalDataSource.Type.MYSQL,
             ExternalDataSource.Type.MSSQL,
         ]:
+            # Importing pymssql requires mssql drivers to be installed locally - see posthog/warehouse/README.md
+            from pymssql import OperationalError as MSSQLOperationalError
+
             host = request.data.get("host", None)
             port = request.data.get("port", None)
             database = request.data.get("dbname", None)
@@ -775,6 +785,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": exposed_error or get_generic_sql_error(source_type)},
                 )
+            except MSSQLOperationalError as e:
+                error_msg = " ".join(str(n) for n in e.args)
+                exposed_error = self._expose_mssql_error(error_msg)
+
+                if exposed_error is None:
+                    capture_exception(e)
+
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": exposed_error or get_generic_sql_error(source_type)},
+                )
             except BaseSSHTunnelForwarderError as e:
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
@@ -782,7 +803,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
             except Exception as e:
                 capture_exception(e)
-                logger.exception("Could not fetch Postgres schemas", exc_info=e)
+                logger.exception("Could not fetch schemas", exc_info=e)
 
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
@@ -959,6 +980,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         for key, value in PostgresErrors.items():
             if key in error_msg:
+                return value
+        return None
+
+    def _expose_mssql_error(self, error: str) -> str | None:
+        for key, value in MSSQLErrors.items():
+            if key in error:
                 return value
         return None
 
