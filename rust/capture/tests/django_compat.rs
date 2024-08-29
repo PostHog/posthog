@@ -112,6 +112,7 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
             billing_limiter,
             false,
             CaptureMode::Events,
+            None,
         );
 
         let client = TestClient::new(app);

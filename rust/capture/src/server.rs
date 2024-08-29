@@ -47,6 +47,7 @@ where
             billing_limiter,
             config.export_prometheus,
             config.capture_mode,
+            config.concurrency_limit,
         )
     } else {
         let sink_liveness = liveness
@@ -88,6 +89,7 @@ where
             billing_limiter,
             config.export_prometheus,
             config.capture_mode,
+            config.concurrency_limit,
         )
     };
 

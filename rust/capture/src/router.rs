@@ -8,6 +8,7 @@ use axum::{
     Router,
 };
 use health::HealthRegistry;
+use tower::limit::ConcurrencyLimitLayer;
 use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 
@@ -32,6 +33,7 @@ async fn index() -> &'static str {
     "capture"
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn router<
     TZ: TimeSource + Send + Sync + 'static,
     S: sinks::Event + Send + Sync + 'static,
@@ -44,6 +46,7 @@ pub fn router<
     billing_limiter: RedisLimiter,
     metrics: bool,
     capture_mode: CaptureMode,
+    concurrency_limit: Option<usize>,
 ) -> Router {
     let state = State {
         sink: Arc::new(sink),
@@ -122,15 +125,21 @@ pub fn router<
         )
         .layer(DefaultBodyLimit::max(RECORDING_BODY_SIZE));
 
-    let router = match capture_mode {
+    let mut router = match capture_mode {
         CaptureMode::Events => Router::new().merge(batch_router).merge(event_router),
         CaptureMode::Recordings => Router::new().merge(recordings_router),
+    };
+
+    if let Some(limit) = concurrency_limit {
+        router = router.layer(ConcurrencyLimitLayer::new(limit));
     }
-    .merge(status_router)
-    .layer(TraceLayer::new_for_http())
-    .layer(cors)
-    .layer(axum::middleware::from_fn(track_metrics))
-    .with_state(state);
+
+    let router = router
+        .merge(status_router)
+        .layer(TraceLayer::new_for_http())
+        .layer(cors)
+        .layer(axum::middleware::from_fn(track_metrics))
+        .with_state(state);
 
     // Don't install metrics unless asked to
     // Installing a global recorder when capture is used as a library (during tests etc)

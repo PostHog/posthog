@@ -58,6 +58,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     export_prometheus: false,
     redis_key_prefix: None,
     capture_mode: CaptureMode::Events,
+    concurrency_limit: None,
 });
 
 static TRACING_INIT: Once = Once::new();
