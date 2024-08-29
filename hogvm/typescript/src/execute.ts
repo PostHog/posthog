@@ -327,11 +327,11 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 break
             case Operation.IREGEX:
                 temp = popStack()
-                pushStack(regexMatch()(popStack(), temp + '(?i)'))
+                pushStack(regexMatch()('(?i)' + popStack(), temp))
                 break
             case Operation.NOT_IREGEX:
                 temp = popStack()
-                pushStack(!regexMatch()(popStack(), temp + '(?i)'))
+                pushStack(!regexMatch()('(?i)' + popStack(), temp))
                 break
             case Operation.GET_GLOBAL: {
                 const count = next()

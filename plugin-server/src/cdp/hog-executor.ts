@@ -34,7 +34,11 @@ export function execHog(bytecode: any, options?: ExecOptions): ExecResult {
         timeout: DEFAULT_TIMEOUT_MS,
         maxAsyncSteps: 0,
         ...options,
-        external: { re2: RE2, crypto, ...(options?.external ?? {}) },
+        external: {
+            regex: { match: (regex, str) => new RE2(regex).test(str) },
+            crypto,
+            ...(options?.external ?? {}),
+        },
     })
 }
 

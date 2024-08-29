@@ -1,3 +1,4 @@
+import RE2 from 're2'
 import { exec, execAsync, execSync } from '../execute'
 import { Operation as op } from '../operation'
 import { UncaughtHogVMException } from '../utils'
@@ -17,7 +18,14 @@ const tuple = (array: any[]): any[] => {
 describe('hogvm execute', () => {
     test('execution results', async () => {
         const globals = { properties: { foo: 'bar', nullValue: null } }
-        const options = { globals }
+        const options = {
+            globals,
+            external: {
+                regex: {
+                    match: (regex: string, value: string) => new RE2(regex).test(value),
+                },
+            },
+        }
         expect(execSync(['_h'], options)).toBe(null)
         expect(execSync(['_h', op.INTEGER, 2, op.INTEGER, 1, op.PLUS], options)).toBe(3)
         expect(execSync(['_h', op.INTEGER, 2, op.INTEGER, 1, op.MINUS], options)).toBe(-1)
@@ -62,10 +70,10 @@ describe('hogvm execute', () => {
         expect(execSync(['_h', op.STRING, 'b', op.STRING, 'kala', op.NOT_IREGEX], options)).toBe(true)
         expect(execSync(['_h', op.STRING, 'AL', op.STRING, 'kala', op.NOT_IREGEX], options)).toBe(false)
 
-        expect(execSync(['_h', op.STRING, 'AL(?i)', op.STRING, 'kala', op.REGEX], options)).toBe(true)
-        expect(execSync(['_h', op.STRING, 'AL(?i)', op.STRING, 'kala', op.IREGEX], options)).toBe(true)
-        expect(execSync(['_h', op.STRING, 'AL(?-i)', op.STRING, 'kala', op.REGEX], options)).toBe(false)
-        expect(execSync(['_h', op.STRING, 'AL(?-i)', op.STRING, 'kala', op.IREGEX], options)).toBe(false)
+        expect(execSync(['_h', op.STRING, '(?i)AL', op.STRING, 'kala', op.REGEX], options)).toBe(true)
+        expect(execSync(['_h', op.STRING, '(?i)AL', op.STRING, 'kala', op.IREGEX], options)).toBe(true)
+        expect(execSync(['_h', op.STRING, '(?-i)AL', op.STRING, 'kala', op.REGEX], options)).toBe(false)
+        expect(execSync(['_h', op.STRING, '(?-i)AL', op.STRING, 'kala', op.IREGEX], options)).toBe(false)
 
         expect(execSync(['_h', op.STRING, 'bla', op.STRING, 'properties', op.GET_GLOBAL, 2], options)).toBe(null)
         expect(execSync(['_h', op.STRING, 'foo', op.STRING, 'properties', op.GET_GLOBAL, 2], options)).toBe('bar')

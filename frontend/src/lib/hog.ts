@@ -13,7 +13,7 @@ export function execHog(code: any[] | VMState, options?: ExecOptions): ExecResul
                         (insensitive ? RE2JS.CASE_INSENSITIVE : 0) |
                         (multiline ? RE2JS.MULTILINE : 0) |
                         (dotall ? RE2JS.DOTALL : 0)
-                    return RE2JS.compile(newRegex, flags).matches(str)
+                    return RE2JS.compile(newRegex, flags).matcher(str).find()
                 },
             },
         },

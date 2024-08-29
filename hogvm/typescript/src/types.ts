@@ -38,7 +38,7 @@ export interface ExecOptions {
     external?: {
         /** RegEx (RE2) matching. Uses '(?ism)' and '(?-ism)' on the regex as modifiers */
         regex?: {
-            match: (regex: string, str: string) => boolean
+            match: (regex: string, value: string) => boolean
         }
         /** NodeJS crypto */
         crypto?: typeof crypto
