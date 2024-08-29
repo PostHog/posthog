@@ -153,24 +153,14 @@ export interface HogFunctionTiming {
     duration_ms: number
 }
 
-export type HogFunctionInvocation = {
-    id: string
-    globals: HogFunctionInvocationGlobals
-    teamId: Team['id']
-    hogFunction: HogFunctionType
-    queue: 'hog' | 'fetch'
-    queueParameters?: Record<string, any>
-    // The current vmstate (set if the invocation is paused)
-    vmState?: VMState
-    timings: HogFunctionTiming[]
+export type HogFunctionQueueParametersFetchRequest = {
+    url: string
+    method: string
+    body: string
+    headers: Record<string, string>
 }
 
-export type HogFunctionAsyncFunctionRequest = {
-    name: string
-    args: any[]
-}
-
-export type HogFunctionAsyncFunctionResponse = {
+export type HogFunctionQueueParametersFetchResponse = {
     /** An error message to indicate something went wrong and the invocation should be stopped */
     error?: any
     /** The data to be passed to the Hog function from the response */
@@ -180,6 +170,27 @@ export type HogFunctionAsyncFunctionResponse = {
     } | null
     timings?: HogFunctionTiming[]
     logs?: LogEntry[]
+}
+
+export type HogFunctionInvocationQueueParameters =
+    | HogFunctionQueueParametersFetchRequest
+    | HogFunctionQueueParametersFetchResponse
+
+export type HogFunctionInvocation = {
+    id: string
+    globals: HogFunctionInvocationGlobals
+    teamId: Team['id']
+    hogFunction: HogFunctionType
+    queue: 'hog' | 'fetch'
+    queueParameters?: HogFunctionInvocationQueueParameters
+    // The current vmstate (set if the invocation is paused)
+    vmState?: VMState
+    timings: HogFunctionTiming[]
+}
+
+export type HogFunctionAsyncFunctionRequest = {
+    name: string
+    args: any[]
 }
 
 // The result of an execution

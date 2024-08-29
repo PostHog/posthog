@@ -9,6 +9,7 @@ import {
     HogFunctionInvocationGlobals,
     HogFunctionInvocationGlobalsWithInputs,
     HogFunctionInvocationResult,
+    HogFunctionQueueParametersFetchResponse,
     HogFunctionType,
 } from './types'
 import { convertToHogFunctionFilterGlobal } from './utils'
@@ -146,8 +147,18 @@ export class HogExecutor {
 
         try {
             // If the queueParameter is set then we have an expected format that we want to parse and add to the stack
+            console.log('EXEC', invocation.queue, invocation.queueParameters)
             if (invocation.queueParameters) {
-                const { logs = [], response = null, error, timings = [] } = invocation.queueParameters
+                const {
+                    logs = [],
+                    response = null,
+                    error,
+                    timings = [],
+                } = invocation.queueParameters as HogFunctionQueueParametersFetchResponse
+
+                // Reset the queue parameters to be sure
+                invocation.queue = 'hog'
+                invocation.queueParameters = undefined
 
                 // Special handling for fetch
                 // TODO: Would be good to have a dedicated value in the fetch response for the status code
@@ -176,14 +187,11 @@ export class HogExecutor {
                     }
                 }
 
+                console.log('Addding to vmstate!', response)
                 // Add the response to the stack to continue execution
                 invocation.vmState!.stack.push(response)
                 invocation.timings.push(...timings)
                 result.logs = [...logs, ...result.logs]
-
-                // Reset the queue parameters to be sure
-                invocation.queue = 'hog'
-                invocation.queueParameters = undefined
             }
 
             const start = performance.now()

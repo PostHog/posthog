@@ -21,7 +21,7 @@ import { captureTeamEvent } from '../utils/posthog'
 import { status } from '../utils/status'
 import { castTimestampOrNow } from '../utils/utils'
 import { RustyHook } from '../worker/rusty-hook'
-import { AsyncFunctionExecutor } from './async-function-executor'
+import { FetchExecutor } from './fetch-executor'
 import { GroupsManager } from './groups-manager'
 import { HogExecutor } from './hog-executor'
 import { HogFunctionManager } from './hog-function-manager'
@@ -75,7 +75,7 @@ export interface TeamIDWithConfig {
 abstract class CdpConsumerBase {
     batchConsumer?: BatchConsumer
     hogFunctionManager: HogFunctionManager
-    asyncFunctionExecutor: AsyncFunctionExecutor
+    fetchExecutor: FetchExecutor
     hogExecutor: HogExecutor
     hogWatcher: HogWatcher
     hogMasker: HogMasker
@@ -100,7 +100,7 @@ abstract class CdpConsumerBase {
         this.hogMasker = new HogMasker(this.redis)
         this.hogExecutor = new HogExecutor(this.hogFunctionManager)
         const rustyHook = this.hub?.rustyHook ?? new RustyHook(this.hub)
-        this.asyncFunctionExecutor = new AsyncFunctionExecutor(this.hub, rustyHook)
+        this.fetchExecutor = new FetchExecutor(this.hub, rustyHook)
         this.groupsManager = new GroupsManager(this.hub)
     }
 
@@ -287,6 +287,8 @@ abstract class CdpConsumerBase {
 
         this.kafkaProducer = await createKafkaProducerWrapper(this.hub)
         this.kafkaProducer.producer.connect()
+
+        await this.startKafkaConsumer()
     }
 
     public async stop(): Promise<void> {
@@ -352,7 +354,6 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
 
                 // Find all functions that could need running
                 invocationGlobals.forEach((globals) => {
-                    // TODO: Move that out of finding to somewhere else
                     const { matchingFunctions, nonMatchingFunctions } = this.hogExecutor.findMatchingFunctions(globals)
 
                     possibleInvocations.push(
@@ -466,39 +467,40 @@ export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
         if (!invocations.length) {
             return
         }
-        const invocationResults = await this.runWithHeartbeat(() => this.processInvocations(invocations))
-        await this.processInvocationResults(invocationResults)
-    }
 
-    protected async processInvocations(invocations: HogFunctionInvocation[]): Promise<HogFunctionInvocationResult[]> {
-        // These are either new invocations or responses
-        // The key thing we need to consider is taking the response, adding it to the invocation state and then continuing
-        return await runInstrumentedFunction({
+        const invocationResults = await runInstrumentedFunction({
             statsKey: `cdpConsumer.handleEachBatch.executeInvocations`,
             func: async () => {
                 // TODO: Handle if the invocation step is not "hog" so we should do fetch instead...
 
                 const results = await this.runManyWithHeartbeat(invocations, (item) => this.hogExecutor.execute(item))
-                await this.hogWatcher.observeResults(results)
                 return results
             },
         })
+
+        await this.hogWatcher.observeResults(invocationResults)
+        await this.processInvocationResults(invocationResults)
+        await this.produceQueuedMessages()
     }
 
     protected async processInvocationResults(results: HogFunctionInvocationResult[]): Promise<void> {
         await runInstrumentedFunction({
             statsKey: `cdpConsumer.handleEachBatch.produceResults`,
             func: async () => {
+                console.log('Processing invocations results', results.length)
+
                 await Promise.all(
                     results.map(async (result) => {
                         // Tricky: We want to pull all the logs out as we don't want them to be passed around to any subsequent functions
-                        this.produceAppMetric({
-                            team_id: result.invocation.teamId,
-                            app_source_id: result.invocation.hogFunction.id,
-                            metric_kind: result.error ? 'failure' : 'success',
-                            metric_name: result.error ? 'failed' : 'succeeded',
-                            count: 1,
-                        })
+                        if (result.finished || result.error) {
+                            this.produceAppMetric({
+                                team_id: result.invocation.teamId,
+                                app_source_id: result.invocation.hogFunction.id,
+                                metric_kind: result.error ? 'failure' : 'success',
+                                metric_name: result.error ? 'failed' : 'succeeded',
+                                count: 1,
+                            })
+                        }
 
                         this.produceLogs(result)
 
@@ -557,6 +559,7 @@ export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
                             // If it looks like a
                             try {
                                 const invocation = await unGzipObject<HogFunctionInvocation>(item.state)
+
                                 if ('asyncFunctionResponse' in item) {
                                     // This means it is a callback from hoghooks so we need to add the response to the invocation
                                     invocation.queue = 'hog'

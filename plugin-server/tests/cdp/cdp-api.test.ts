@@ -222,7 +222,7 @@ describe('CDP API', () => {
                     },
                     {
                         level: 'debug',
-                        message: "Suspending function due to async function call 'fetch'. Payload: 1689 bytes",
+                        message: "Suspending function due to async function call 'fetch'. Payload: 1960 bytes",
                     },
                     {
                         level: 'debug',
