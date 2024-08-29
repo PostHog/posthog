@@ -283,7 +283,7 @@ export function SecondaryMetricsTable({
                     <div className="w-1/2 pt-5">
                         <div className="inline-flex space-x-2 mb-0">
                             <h2 className="mb-0 font-semibold text-lg">Secondary metrics</h2>
-                            {metrics.length > 0 && (
+                            {metrics && metrics.length > 0 && (
                                 <Tooltip title="Monitor side effects of your experiment.">
                                     <IconInfo className="text-muted-alt text-base" />
                                 </Tooltip>

@@ -383,7 +383,9 @@ export const elementsLogic = kea<elementsLogicType>([
             const inspectForExperiment =
                 experimentsTabLogic.values.buttonExperimentsVisible && experimentsTabLogic.values.inspectingElement !== null
 
-            console.log(`elementsLogic: selectElement : inspectForExperiment is`, inspectForExperiment, `  selectedVariant is `, experimentsTabLogic.values.selectedVariant)
+            console.log(`elementsLogic: selectElement : experiments.inspectingElement is `,  experimentsTabLogic.values.inspectingElement,
+                ` inspectForExperiment is`, inspectForExperiment, `  selectedVariant is `, experimentsTabLogic.values.selectedVariant,
+                `buttonExperimentsVisible is `, experimentsTabLogic.values.buttonExperimentsVisible)
             if (inspectForAction) {
                 actions.setHoverElement(null)
                 if (element) {

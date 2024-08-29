@@ -1,41 +1,83 @@
-import clsx from 'clsx'
+import {IconAIText, IconCode, IconMessage} from "@posthog/icons";
 import { Field } from 'kea-forms'
-import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
+import {LemonSegmentedButton, LemonSegmentedButtonOption} from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
-import { URL_MATCHING_HINTS } from 'scenes/actions/hints'
+import {useState} from "react";
 
-import { SelectorCount } from '~/toolbar/actions/SelectorCount'
 import {WebExperimentTransform} from '~/toolbar/types'
-import {LemonField} from "lib/lemon-ui/LemonField";
+import {useActions, useValues} from "kea";
+import {experimentsTabLogic} from "~/toolbar/experiments/experimentsTabLogic";
 
 interface WebExperimentTransformFieldProps {
+    variant: string
+    tIndex: number
     transform: WebExperimentTransform
 }
+type elementTransformKind = 'html' | 'text' | 'css'
+const ELEMENT_TRANSFORM_OPTIONS: LemonSegmentedButtonOption<elementTransformKind>[] = [
+    {
+        value: 'html',
+        label: 'HTML',
+        icon: <IconCode />,
+    },
+    {
+        value: 'text',
+        label: 'Text',
+        icon: <IconMessage />,
+    },
+    {
+        value: 'css',
+        label: 'CSS',
+        icon: <IconAIText />,
+    },
+]
 
-export function WebExperimentTransformField({ transform }: WebExperimentTransformFieldProps): JSX.Element {
-    console.log(`transform is `, transform)
+export function WebExperimentTransformField({ variant, tIndex, transform }: WebExperimentTransformFieldProps): JSX.Element {
+    const [transformSelected, setTransformSelected] = useState(transform.html ? "html": transform.text ? "text" : "css")
+    const {
+        experimentForm,
+    } = useValues(experimentsTabLogic)
+    const {
+        setExperimentFormValue,
+    } = useActions(experimentsTabLogic)
     return (
         <>
-            <div className={clsx('action-field my-1', 'action-field-selected')}>
-                <LemonField.Pure label='text content'>
-                        <LemonTextArea
-                        onChange={(val) =>
-                            transform.text = val
+            <LemonSegmentedButton fullWidth options={ELEMENT_TRANSFORM_OPTIONS}
+                                  onChange={(e) => setTransformSelected(e)}
+            value ={transformSelected}/>
+            { transformSelected == 'text' && (
+                <LemonTextArea
+                    value={transform.text}
+                    stopPropagation={true}
+                />
+            )}
+
+            { transformSelected == 'html' && (
+                <LemonTextArea
+                    onChange={(value)=>{
+                        console.log(`changing html to ${value}`)
+                        transform.html = value
+                        if(experimentForm.variants) {
+                            const webVariant = experimentForm.variants[variant]
+                            if (webVariant) {
+                                webVariant.transforms[tIndex].html = value
+                            }
                         }
-                            value={transform.text} />
-                </LemonField.Pure>
-                <LemonField label='html content' name='html'>
-                        {({ value }) => <LemonTextArea  value={value} />}
-                </LemonField>
-                <LemonField label='css Classname' name='className'>
-                        {({ value }) => <LemonTextArea  value={value} />}
-                </LemonField>
-                <LemonField label='image URL' name='imgUrl'>
-                        {({ value }) => <LemonTextArea  value={value} />}
-                </LemonField>
-            </div>
+                        setExperimentFormValue('variants', experimentForm.variants )
+                    }}
+                    value={transform.html}
+                />
+            )}
+
+            { transformSelected == 'css' && (
+                <LemonTextArea
+                    onChange={(value)=>{
+                        transform.className = value
+                    }}
+                    value={transform.className}
+                    stopPropagation={true}
+                />
+            )}
         </>
     )
 }
