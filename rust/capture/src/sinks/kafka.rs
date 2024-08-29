@@ -362,6 +362,7 @@ mod tests {
             kafka_exceptions_topic: "events_plugin_ingestion".to_string(),
             kafka_heatmaps_topic: "events_plugin_ingestion".to_string(),
             kafka_tls: false,
+            kafka_client_id: "".to_string(),
         };
         let sink = KafkaSink::new(config, handle, limiter).expect("failed to create sink");
         (cluster, sink)
