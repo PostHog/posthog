@@ -485,6 +485,7 @@ export function LineGraph_({
                         if (tooltip.body) {
                             const referenceDataPoint = tooltip.dataPoints[0] // Use this point as reference to get the date
                             const dataset = datasets[referenceDataPoint.datasetIndex]
+                            const date = dataset?.days?.[referenceDataPoint.dataIndex]
                             const seriesData = createTooltipData(tooltip.dataPoints, (dp) => {
                                 const hasDotted =
                                     datasets.some((d) => d.dotted) &&
@@ -498,8 +499,12 @@ export function LineGraph_({
 
                             tooltipRoot.render(
                                 <InsightTooltip
-                                    date={dataset?.days?.[tooltip.dataPoints?.[0]?.dataIndex]}
-                                    altTitle={dataset?.labels?.[tooltip.dataPoints?.[0]?.dataIndex]}                                    
+                                    date={date}
+                                    altTitle={() =>
+                                        typeof date === 'number'
+                                            ? dataset?.labels?.[referenceDataPoint.dataIndex]
+                                            : null
+                                    }
                                     timezone={timezone}
                                     seriesData={seriesData}
                                     breakdownFilter={breakdownFilter}
