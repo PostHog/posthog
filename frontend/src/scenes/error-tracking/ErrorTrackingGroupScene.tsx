@@ -24,7 +24,7 @@ export function ErrorTrackingGroupScene(): JSX.Element {
             <ErrorTrackingFilters.FilterGroup />
             <LemonDivider className="mt-2" />
             <ErrorTrackingFilters.Options showOrder={false} />
-            <div className="pt-4">
+            <div className="pt-2">
                 <OverviewTab />
             </div>
         </>
