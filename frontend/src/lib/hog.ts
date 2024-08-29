@@ -4,7 +4,7 @@ import * as crypto from 'crypto'
 export function execHog(code: any[] | VMState, options?: ExecOptions): ExecResult {
     return hogExec(code, {
         external: {
-            crypto,
+            crypto, // TODO: switch to webcrypto and polyfill on the node side
             re2: undefined,
         },
         ...(options ?? {}),
