@@ -1,20 +1,22 @@
 import { LemonTable } from '@posthog/lemon-ui'
+export interface FixedField {
+    column: string
+    type: string
+}
 
-const FAKE_DATA = [
-    { column: 'id', type: 'integer' },
-    { column: 'name', type: 'string' },
-    { column: 'email', type: 'string' },
-    { column: 'created_at', type: 'datetime' },
-    { column: 'is_active', type: 'boolean' },
-    { column: 'properties', type: 'json' },
-]
+export interface JoinedField {
+    nodeId: string
+    type: string
+    table: string
+}
 
-interface TableFieldsProps {
-    joinedData: { name: string; type: string; table: string }[]
+export interface TableFieldsProps {
+    fixedFields: FixedField[]
+    joinedFields: JoinedField[]
     rowsRefs: React.MutableRefObject<(HTMLDivElement | null)[]>
 }
 
-export function TableFields({ joinedData, rowsRefs }: TableFieldsProps): JSX.Element {
+export function TableFields({ fixedFields, joinedFields, rowsRefs }: TableFieldsProps): JSX.Element {
     return (
         <div className="">
             <div>
@@ -25,8 +27,8 @@ export function TableFields({ joinedData, rowsRefs }: TableFieldsProps): JSX.Ele
             <div className="flex flex-col gap-1">
                 <div
                     ref={(el) => {
-                        rowsRefs.current[joinedData.length] = el
-                        rowsRefs.current[joinedData.length]?.setAttribute('id', 'schema')
+                        rowsRefs.current[joinedFields.length] = el
+                        rowsRefs.current[joinedFields.length]?.setAttribute('id', 'schema')
                     }}
                     className="pl-4 mt-4"
                 >
@@ -44,7 +46,7 @@ export function TableFields({ joinedData, rowsRefs }: TableFieldsProps): JSX.Ele
                             render: (_, { type }) => type,
                         },
                     ]}
-                    dataSource={FAKE_DATA}
+                    dataSource={fixedFields}
                     loading={false}
                     showHeader={false}
                 />
@@ -58,15 +60,15 @@ export function TableFields({ joinedData, rowsRefs }: TableFieldsProps): JSX.Ele
                     columns={[
                         {
                             key: 'name',
-                            render: (_, { name, table }, idx) => (
+                            render: (_, { nodeId, table }, idx) => (
                                 <div
                                     ref={(el) => {
                                         rowsRefs.current[idx] = el
-                                        rowsRefs.current[idx]?.setAttribute('id', name)
+                                        rowsRefs.current[idx]?.setAttribute('id', nodeId)
                                     }}
                                     className="flex flex-col"
                                 >
-                                    <span className="font-bold">{name}</span>
+                                    <span className="font-bold">{nodeId}</span>
                                     <span className="text-muted">{table}</span>
                                 </div>
                             ),
@@ -76,9 +78,9 @@ export function TableFields({ joinedData, rowsRefs }: TableFieldsProps): JSX.Ele
                             render: (_, { type }) => type,
                         },
                     ]}
-                    dataSource={joinedData}
                     loading={false}
                     showHeader={false}
+                    dataSource={joinedFields}
                 />
             </div>
         </div>

@@ -2,43 +2,15 @@ import clsx from 'clsx'
 import { useEffect, useRef, useState } from 'react'
 
 import GenericNode from './Node'
-import { TableFields } from './TableFields'
-
-interface Position {
-    x: number
-    y: number
-}
-
-interface Node {
-    id: string
-    name: string
-    leaf: string[]
-}
-
-interface NodeWithDepth extends Node {
-    depth: number
-}
-
-interface NodePosition extends NodeWithDepth {
-    position: Position
-}
-
-interface Edge {
-    from: Position
-    to: Position
-}
-
-interface NodePositionWithBounds extends NodePosition {
-    left: Position | null
-    right: Position | null
-}
+import { FixedField, JoinedField, TableFields } from './TableFields'
+import { Edge, Node, NodePosition, NodePositionWithBounds, NodeWithDepth, Position } from './types'
 
 const assignDepths = (nodes: Node[]): NodeWithDepth[] => {
     const nodeMap: { [id: string]: NodeWithDepth } = {}
 
     // Initialize all nodes with depth -1
     nodes.forEach((node) => {
-        nodeMap[node.id] = { ...node, depth: -1 }
+        nodeMap[node.nodeId] = { ...node, depth: -1 }
     })
 
     const assignDepthRecursive = (nodeId: string, currentDepth: number): void => {
@@ -59,8 +31,8 @@ const assignDepths = (nodes: Node[]): NodeWithDepth[] => {
 
     // Start assigning depths from each unprocessed node
     nodes.forEach((node) => {
-        if (nodeMap[node.id].depth === -1) {
-            assignDepthRecursive(node.id, 0)
+        if (nodeMap[node.nodeId].depth === -1) {
+            assignDepthRecursive(node.nodeId, 0)
         }
     })
 
@@ -123,7 +95,7 @@ const calculateTablePosition = (nodePositions: NodePosition[]): Position => {
 
 const calculateEdges = (nodeRefs: (HTMLDivElement | null)[], nodes: NodePosition[]): Edge[] => {
     const nodes_map = nodes.reduce((acc: Record<string, NodePosition>, node) => {
-        acc[node.id] = node
+        acc[node.nodeId] = node
         return acc
     }, {})
 
@@ -168,8 +140,8 @@ const calculateEdges = (nodeRefs: (HTMLDivElement | null)[], nodes: NodePosition
 
     const visited = new Set<string>()
     for (const node of nodes) {
-        if (!visited.has(node.id)) {
-            edges.push(...dfs(node.id, visited))
+        if (!visited.has(node.nodeId)) {
+            edges.push(...dfs(node.nodeId, visited))
         }
     }
 
@@ -210,14 +182,16 @@ const calculateEdgesFromTo = (from: NodePositionWithBounds, to: NodePositionWith
 
 interface ScrollableDraggableCanvasProps {
     nodes: Node[]
+    fixedFields: FixedField[]
+    joinedFields: JoinedField[]
 }
 
-const ScrollableDraggableCanvas = ({ nodes }: ScrollableDraggableCanvasProps): JSX.Element => {
+const NodeCanvasWithTable = ({ nodes, fixedFields, joinedFields }: ScrollableDraggableCanvasProps): JSX.Element => {
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const [isDragging, setIsDragging] = useState(false)
     const [offset, setOffset] = useState({ x: 0, y: 0 })
     const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
-    const rowsRefs = useRef<(HTMLDivElement | null)[]>(Array(FAKE_JOINED_DATA.length).fill(null))
+    const rowsRefs = useRef<(HTMLDivElement | null)[]>(Array(joinedFields.length).fill(null))
     const nodeRefs = useRef<(HTMLDivElement | null)[]>(Array(nodes.length).fill(null))
     const tableNodeRef = useRef<HTMLDivElement | null>(null)
     const [nodePositions, setNodePositions] = useState<NodePosition[]>([])
@@ -245,7 +219,7 @@ const ScrollableDraggableCanvas = ({ nodes }: ScrollableDraggableCanvasProps): J
 
             if (nodeRect && ref) {
                 allNodes.push({
-                    id: ref.id,
+                    nodeId: ref.id,
                     name: 'Table',
                     position: { x: tablePosition.x, y: tablePosition.y + (rect.y - nodeRect.y) },
                     leaf: [],
@@ -356,10 +330,10 @@ const ScrollableDraggableCanvas = ({ nodes }: ScrollableDraggableCanvasProps): J
                     )
                 })}
             </svg>
-            {nodePositions.map(({ name, position, id }, idx) => {
+            {nodePositions.map(({ name, position, nodeId }, idx) => {
                 return (
                     <div
-                        key={id}
+                        key={nodeId}
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{
                             position: 'absolute',
@@ -370,7 +344,7 @@ const ScrollableDraggableCanvas = ({ nodes }: ScrollableDraggableCanvasProps): J
                         <GenericNode
                             pref={(el: HTMLDivElement | null) => {
                                 nodeRefs.current[idx] = el
-                                nodeRefs.current[idx]?.setAttribute('id', id)
+                                nodeRefs.current[idx]?.setAttribute('id', nodeId)
                             }}
                         >
                             {name}
@@ -387,30 +361,30 @@ const ScrollableDraggableCanvas = ({ nodes }: ScrollableDraggableCanvasProps): J
                     top: `${tablePosition.y + offset.y}px`,
                 }}
             >
-                <TableFieldNode nodeRef={tableNodeRef} rowsRefs={rowsRefs} />
+                <TableFieldNode
+                    fixedFields={fixedFields}
+                    joinedFields={joinedFields}
+                    nodeRef={tableNodeRef}
+                    rowsRefs={rowsRefs}
+                />
             </div>
         </div>
     )
 }
 
-export default ScrollableDraggableCanvas
-
-const FAKE_JOINED_DATA = [
-    { name: 'customer_email', type: 'string', table: 'prod_stripe_invoice' },
-    { name: 'account_size', type: 'string', table: 'prod_stripe_invoice' },
-    { name: 'tax_code', type: 'string', table: 'prod_stripe_customer' },
-    { name: 'location', type: 'string', table: 'prod_stripe_account' },
-]
+export default NodeCanvasWithTable
 
 interface TableFieldNodeProps {
+    fixedFields: FixedField[]
+    joinedFields: JoinedField[]
     rowsRefs: React.MutableRefObject<(HTMLDivElement | null)[]>
     nodeRef: React.MutableRefObject<HTMLDivElement | null>
 }
 
-function TableFieldNode({ nodeRef, rowsRefs }: TableFieldNodeProps): JSX.Element {
+function TableFieldNode({ nodeRef, rowsRefs, fixedFields, joinedFields }: TableFieldNodeProps): JSX.Element {
     return (
-        <div ref={nodeRef} className="w-[500px] h-[600px] bg-white border border-black border-2 rounded-lg">
-            <TableFields joinedData={FAKE_JOINED_DATA} rowsRefs={rowsRefs} />
+        <div ref={nodeRef} className="w-[500px] bg-white border border-black border-2 rounded-lg">
+            <TableFields fixedFields={fixedFields} joinedFields={joinedFields} rowsRefs={rowsRefs} />
         </div>
     )
 }
