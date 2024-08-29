@@ -20,12 +20,14 @@ class TestTemplateRudderstack(BaseHogFunctionTemplateTest):
                     "timestamp": "2024-08-29T13:40:22.713Z",
                     "distinct_id": "a08ff8e1-a5ee-49cc-99e9-564e455c33f0",
                     "name": "$pageview",
-                    "properties": {"url": "https://example.com", "$browser": "Chrome"},
+                    "properties": {"$current_url": "https://example.com", "$browser": "Chrome"},
                 }
             },
         )
 
-        assert self.get_mock_fetch_calls()[0] == snapshot(
+        res = self.get_mock_fetch_calls()[0]
+        res[1]["body"]["sentAt"]["dt"] = 1724946899.775266
+        assert res == snapshot(
             (
                 "https://hosted.rudderlabs.com/v1/batch",
                 {
@@ -75,7 +77,7 @@ class TestTemplateRudderstack(BaseHogFunctionTemplateTest):
                                 "name": None,
                             }
                         ],
-                        "sentAt": {"__hogDateTime__": True, "dt": 1724938851.999, "zone": "UTC"},
+                        "sentAt": {"__hogDateTime__": True, "dt": 1724946899.775266, "zone": "UTC"},
                     },
                 },
             )
