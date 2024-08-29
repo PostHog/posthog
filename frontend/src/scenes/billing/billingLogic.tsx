@@ -297,10 +297,16 @@ export const billingLogic = kea<billingLogicType>([
             {
                 eligible: false,
                 estimated_credit_amount_usd: 0,
+                status: 'none',
+                invoice_url: null,
+                collection_method: null,
             },
             {
                 loadSelfServeCreditEligible: async () => {
                     const response = await api.get('api/billing/credits/eligibility')
+                    if (!values.selfServeCreditForm.creditInput) {
+                        actions.setSelfServeCreditFormValue('creditInput', response.estimated_credit_amount_usd * 12)
+                    }
                     return response
                 },
             },
@@ -420,45 +426,47 @@ export const billingLogic = kea<billingLogicType>([
                 sendInvoice: false,
             },
             submit: async ({ creditInput, sendInvoice }) => {
-                console.log('creditInput', creditInput)
-                console.log('sendInvoice', sendInvoice)
-
-                // TODO(@zach): add a check they haven't already purchased credits
-                const response = await api.create('api/billing/credits/purchase', {
+                await api.create('api/billing/credits/purchase', {
                     annual_amount_usd: +creditInput,
                     send_invoice: sendInvoice,
                 })
 
-                console.log('response', response)
-
                 actions.showAnnualCreditModal(false)
+                actions.loadSelfServeCreditEligible()
 
                 LemonDialog.open({
                     title: 'Your credit purchase has been submitted',
                     width: 536,
-                    content: (
-                        sendInvoice ? (
-                            <>
-                                {/* Note(@zach): add email input for a custom email on the invoice */}
-                                <p className="mb-4">The invoice for your credits has been created and it will be emailed to the email on file.</p>
-                                <p>Once the invoice is paid we will apply the credits to your account. Until the invoice is paid you will be charged for usage on as normal</p>
-                            </>
-    
-                        ) : (
-                            <>
-                                {/* Note(@zach): add email for when credits are applied */}
-                                <p>
-                                    Your card will be charged in the next 3 hours and the credits will be applied to your account. Please make sure your card on file is up to date. You will receive an email when the credits are applied.
-                                </p>
-                            </>
-                        )
+                    content: sendInvoice ? (
+                        <>
+                            {/* Note(@zach): add email input for a custom email on the invoice */}
+                            <p className="mb-4">
+                                The invoice for your credits has been created and it will be emailed to the email on
+                                file.
+                            </p>
+                            <p>
+                                Once the invoice is paid we will apply the credits to your account. Until the invoice is
+                                paid you will be charged for usage on as normal
+                            </p>
+                        </>
+                    ) : (
+                        <>
+                            {/* Note(@zach): add email for when credits are applied */}
+                            <p>
+                                Your card will be charged in the next 3 hours and the credits will be applied to your
+                                account. Please make sure your card on file is up to date. You will receive an email
+                                when the credits are applied.
+                            </p>
+                        </>
                     ),
                 })
             },
             errors: ({ creditInput }) => ({
-                creditInput: !creditInput 
-                    ? 'Please enter the amount' 
-                    : +creditInput < 500 ? 'Please enter an amount greater than $500' : undefined,
+                creditInput: !creditInput
+                    ? 'Please enter the amount'
+                    : +creditInput < 6000
+                    ? 'Please enter a credit amount greater than $6,000'
+                    : undefined,
             }),
         },
     })),

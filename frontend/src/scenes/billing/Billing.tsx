@@ -22,8 +22,8 @@ import { urls } from 'scenes/urls'
 import { BillingCTAHero } from './BillingCTAHero'
 import { billingLogic } from './billingLogic'
 import { BillingProduct } from './BillingProduct'
+import { CreditCTAHero } from './CreditCTAHero'
 import { UnsubscribeCard } from './UnsubscribeCard'
-import { AnnualCreditModal } from './AnnualCreditModal'
 
 export const scene: SceneExport = {
     component: Billing,
@@ -40,10 +40,8 @@ export function Billing(): JSX.Element {
         over20kAnnual,
         isAnnualPlan,
         billingError,
-        selfServeCreditEligibility,
-        isAnnualCreditModalOpen,
     } = useValues(billingLogic)
-    const { reportBillingShown, showAnnualCreditModal } = useActions(billingLogic)
+    const { reportBillingShown } = useActions(billingLogic)
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
 
@@ -113,32 +111,26 @@ export function Billing(): JSX.Element {
                     </Form>
                 </>
             )}
+
             {billingError && (
                 <LemonBanner type={billingError.status} className="mb-2" action={billingError.action}>
                     {billingError.message}
                 </LemonBanner>
             )}
+
             {billing?.free_trial_until ? (
                 <LemonBanner type="success" className="mb-2">
                     You are currently on a free trial until <b>{billing.free_trial_until.format('LL')}</b>
                 </LemonBanner>
             ) : null}
+
             {!billing?.has_active_subscription && platformAndSupportProduct && (
                 <div className="mb-6">
                     <BillingCTAHero product={platformAndSupportProduct} />
                 </div>
             )}
-            {selfServeCreditEligibility.eligible && (
-                <div className="mb-6">
-                    <LemonBanner type="success" className="mb-2">
-                        You are eligible for a self-serve annual credit.
-                    </LemonBanner>
-                    <LemonButton type="secondary" onClick={() => showAnnualCreditModal(true)}>
-                        Apply for self-serve annual credit
-                    </LemonButton>
-                </div>
-            )}
-            {isAnnualCreditModalOpen && <AnnualCreditModal />}
+
+            <CreditCTAHero />
 
             <div
                 className={clsx('flex justify-between', {
