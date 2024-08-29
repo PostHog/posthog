@@ -189,8 +189,6 @@ export const STL: Record<string, STLFunction> = {
                         return toHogDate(x.year, x.month, x.day)
                     } else if (x.__hogError__) {
                         return newHogError(x.type, x.message, x.payload)
-                    } else if (x.__hogCallable__ || x.__hogClosure__) {
-                        return x
                     }
                     // All other objects will
                     const map = new Map()
@@ -229,8 +227,13 @@ export const STL: Record<string, STLFunction> = {
                         if (Array.isArray(x)) {
                             return x.map((v) => convert(v, marked))
                         }
-                        if (isHogDateTime(x) || isHogDate(x) || isHogError(x) || isHogCallable(x) || isHogClosure(x)) {
+                        if (isHogDateTime(x) || isHogDate(x) || isHogError(x)) {
                             return x
+                        }
+                        if (isHogCallable(x) || isHogClosure(x)) {
+                            // we don't support serializing callables
+                            const callable = isHogCallable(x) ? x : x.callable
+                            return `fn<${callable.name || 'lambda'}(${callable.argCount})>`
                         }
                         const obj: Record<string, any> = {}
                         for (const key in x) {

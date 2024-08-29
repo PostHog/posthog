@@ -46,7 +46,14 @@ export function printHogValue(obj: any, marked: Set<any> | undefined = undefined
         marked = new Set()
     }
     if (typeof obj === 'object' && obj !== null && obj !== undefined) {
-        if (marked.has(obj) && !isHogDateTime(obj) && !isHogDate(obj) && !isHogError(obj)) {
+        if (
+            marked.has(obj) &&
+            !isHogDateTime(obj) &&
+            !isHogDate(obj) &&
+            !isHogError(obj) &&
+            !isHogClosure(obj) &&
+            !isHogCallable(obj)
+        ) {
             return 'null'
         }
         marked.add(obj)

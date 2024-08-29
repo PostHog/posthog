@@ -12,9 +12,7 @@ cow
 --------
 moo
 cow
--------- lambdas survive json --------
+-------- lambdas do not survive json --------
 fn<lambda(1)>
-{"__hogClosure__":true,"callable":{"__hogCallable__":"local","name":"lambda","chunk":"root","argCount":1,"upvalueCount":0,"ip":7},"upvalues":[]}
+"fn<lambda(1)>"
 fn<lambda(1)>
-4
-4
