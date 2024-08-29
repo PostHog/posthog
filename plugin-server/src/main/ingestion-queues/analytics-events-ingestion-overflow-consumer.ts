@@ -48,5 +48,7 @@ export const startAnalyticsEventsIngestionOverflowConsumer = async ({
 
     await queue.start()
 
-    return queue
+    const { isHealthy } = await queue.start()
+
+    return { queue, isHealthy }
 }
