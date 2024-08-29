@@ -1,5 +1,7 @@
 import { exec } from '@posthog/hogvm'
 import { createHash } from 'crypto'
+import * as crypto from 'crypto'
+import RE2 from 're2'
 
 import { CdpRedis } from './redis'
 import { HogFunctionInvocationGlobals, HogFunctionType } from './types'
@@ -52,6 +54,7 @@ export class HogMasker {
                 // TODO: Catch errors
                 const value = exec(item.hogFunction.masking.bytecode, {
                     globals: item.globals,
+                    external: { re2: RE2, crypto },
                     timeout: 50,
                     maxAsyncSteps: 0,
                 })

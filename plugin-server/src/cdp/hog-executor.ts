@@ -1,6 +1,8 @@
 import { calculateCost, convertHogToJS, exec, ExecResult } from '@posthog/hogvm'
+import crypto from 'crypto'
 import { DateTime } from 'luxon'
 import { Histogram } from 'prom-client'
+import RE2 from 're2'
 
 import { status } from '../utils/status'
 import { UUIDT } from '../utils/utils'
@@ -37,6 +39,7 @@ export const formatInput = (bytecode: any, globals: HogFunctionInvocation['globa
             globals,
             timeout: DEFAULT_TIMEOUT_MS,
             maxAsyncSteps: 0,
+            external: { re2: RE2, crypto },
         })
 
         if (!res.finished) {
@@ -91,6 +94,7 @@ export class HogExecutor {
                         globals: filtersGlobals,
                         timeout: DEFAULT_TIMEOUT_MS,
                         maxAsyncSteps: 0,
+                        external: { re2: RE2, crypto },
                     })
 
                     if (typeof filterResult.result === 'boolean' && filterResult.result) {
@@ -274,6 +278,7 @@ export class HogExecutor {
                 let hogLogs = 0
                 execRes = exec(invocation.vmState ?? hogFunction.bytecode, {
                     globals,
+                    external: { re2: RE2, crypto },
                     timeout: DEFAULT_TIMEOUT_MS, // TODO: Swap this to milliseconds when the package is updated
                     maxAsyncSteps: MAX_ASYNC_STEPS, // NOTE: This will likely be configurable in the future
                     asyncFunctions: {

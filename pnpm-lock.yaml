@@ -52,6 +52,9 @@ dependencies:
   '@monaco-editor/react':
     specifier: 4.6.0
     version: 4.6.0(monaco-editor@0.49.0)(react-dom@18.2.0)(react@18.2.0)
+  '@posthog/hogvm':
+    specifier: ^1.0.40
+    version: 1.0.40(luxon@3.5.0)
   '@posthog/icons':
     specifier: 0.7.3
     version: 0.7.3(react-dom@18.2.0)(react@18.2.0)
@@ -5399,6 +5402,14 @@ packages:
 
   /@popperjs/core@2.11.6:
     resolution: {integrity: sha512-50/17A98tWUfQ176raKiOGXuYpLyyVMkxxG6oylzL3BPOlA6ADGdK7EYunSa4I064xerltq9TGXs8HmOk5E+vw==}
+    dev: false
+
+  /@posthog/hogvm@1.0.40(luxon@3.5.0):
+    resolution: {integrity: sha512-A/F+nabxgf3f/Yq4bcG2BwfNFhIfh+gB+yXd+IuNlz6S9V2wGWLjxHGDt0AXgvBeSNSPpFAyK4kICnIrs8LtfA==}
+    peerDependencies:
+      luxon: ^3.4.4
+    dependencies:
+      luxon: 3.5.0
     dev: false
 
   /@posthog/icons@0.7.3(react-dom@18.2.0)(react@18.2.0):
@@ -15672,6 +15683,11 @@ packages:
     dependencies:
       yallist: 4.0.0
     dev: true
+
+  /luxon@3.5.0:
+    resolution: {integrity: sha512-rh+Zjr6DNfUYR3bPwJEnuwDdqMbxZW7LOQfUN4B54+Cl+0o5zaU9RJ6bcidfDtC1cWCZXQ+nvX8bf6bAji37QQ==}
+    engines: {node: '>=12'}
+    dev: false
 
   /lz-string@1.4.4:
     resolution: {integrity: sha512-0ckx7ZHRPqb0oUm8zNr+90mtf9DQB60H1wMCjBtfi62Kl3a7JbHob6gA2bC+xRvZoOL+1hzUK8jeuEIQE8svEQ==}
