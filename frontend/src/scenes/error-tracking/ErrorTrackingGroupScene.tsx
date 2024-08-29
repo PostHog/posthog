@@ -1,13 +1,12 @@
 import './ErrorTracking.scss'
 
-import { LemonDivider, LemonTabs } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+import { LemonDivider } from '@posthog/lemon-ui'
 import { base64Decode } from 'lib/utils'
 import { SceneExport } from 'scenes/sceneTypes'
+import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 
 import ErrorTrackingFilters from './ErrorTrackingFilters'
-import { ErrorGroupTab, errorTrackingGroupSceneLogic } from './errorTrackingGroupSceneLogic'
-import { BreakdownsTab } from './groups/BreakdownsTab'
+import { errorTrackingGroupSceneLogic } from './errorTrackingGroupSceneLogic'
 import { OverviewTab } from './groups/OverviewTab'
 
 export const scene: SceneExport = {
@@ -19,31 +18,15 @@ export const scene: SceneExport = {
 }
 
 export function ErrorTrackingGroupScene(): JSX.Element {
-    const { errorGroupTab } = useValues(errorTrackingGroupSceneLogic)
-    const { setErrorGroupTab } = useActions(errorTrackingGroupSceneLogic)
-
     return (
         <>
+            <SessionPlayerModal />
             <ErrorTrackingFilters.FilterGroup />
             <LemonDivider className="mt-2" />
             <ErrorTrackingFilters.Options showOrder={false} />
-
-            <LemonTabs
-                activeKey={errorGroupTab}
-                onChange={setErrorGroupTab}
-                tabs={[
-                    {
-                        key: ErrorGroupTab.Overview,
-                        label: 'Overview',
-                        content: <OverviewTab />,
-                    },
-                    {
-                        key: ErrorGroupTab.Breakdowns,
-                        label: 'Breakdowns',
-                        content: <BreakdownsTab />,
-                    },
-                ]}
-            />
+            <div className="pt-4">
+                <OverviewTab />
+            </div>
         </>
     )
 }
