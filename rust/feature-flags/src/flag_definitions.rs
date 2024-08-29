@@ -7,11 +7,6 @@ use tracing::instrument;
 // TODO: Add integration tests across repos to ensure this doesn't happen.
 pub const TEAM_FLAGS_CACHE_PREFIX: &str = "posthog:1:team_feature_flags_";
 
-// TODO: Hmm, revisit when dealing with groups, but seems like
-// ideal to just treat it as a u8 and do our own validation on top
-#[derive(Debug, Deserialize)]
-pub enum GroupTypeIndex {}
-
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OperatorType {
