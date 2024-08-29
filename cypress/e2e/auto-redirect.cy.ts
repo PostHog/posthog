@@ -1,8 +1,9 @@
-import { auth } from '../support'
-
 describe('Redirect to other subdomain if logged in', () => {
+    beforeEach(() => {
+        cy.clearAllCookies()
+    })
     it('Redirects to the EU instance', () => {
-        auth.logout()
+        cy.visit('/logout')
 
         const redirect_path = '/test'
 
@@ -22,7 +23,7 @@ describe('Redirect to other subdomain if logged in', () => {
     })
 
     it('Redirects to the US instance', () => {
-        auth.logout()
+        cy.visit('/logout')
 
         const redirect_path = '/test'
 

@@ -16,7 +16,7 @@ clickhouse-driver==0.2.7
 clickhouse-pool==0.5.3
 cryptography==39.0.2
 dj-database-url==0.5.0
-Django~=5.0.0
+Django~=4.2.15
 django-axes==5.9.0
 django-cors-headers==3.5.0
 django-deprecate-fields==0.1.1
@@ -90,11 +90,11 @@ sqlparse==0.4.4
 temporalio==1.6.0
 token-bucket==0.3.0
 toronado==0.1.0
-webdriver_manager==4.0.2
+webdriver_manager==4.0.1
 whitenoise==6.5.0
 mimesis==5.2.1
 more-itertools==9.0.0
-django-two-factor-auth==1.16.0
+django-two-factor-auth==1.14.0
 phonenumberslite==8.13.6
 openai==1.10.0
 tiktoken==0.6.0

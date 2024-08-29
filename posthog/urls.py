@@ -104,11 +104,11 @@ def home(request, *args, **kwargs):
 def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
     if not request.GET.get("redirect"):
         return HttpResponse("You need to pass a url to ?redirect=", status=400)
-    if not request.headers.get("referer"):
+    if not request.META.get("HTTP_REFERER"):
         return HttpResponse('You need to make a request that includes the "Referer" header.', status=400)
 
     current_team = cast(User, request.user).team
-    referer_url = urlparse(request.headers["referer"])
+    referer_url = urlparse(request.META["HTTP_REFERER"])
     redirect_url = urlparse(request.GET["redirect"])
     is_forum_login = request.GET.get("forum_login", "").lower() == "true"
 
@@ -174,7 +174,7 @@ urlpatterns = [
     opt_slash_path("_health", health),
     opt_slash_path("_stats", stats),
     opt_slash_path("_preflight", preflight_check),
-    path("admin/redisvalues", redis_values_view, name="redis_values"),
+    re_path(r"^admin/redisvalues$", redis_values_view, name="redis_values"),
     # ee
     *ee_urlpatterns,
     # api
@@ -226,7 +226,7 @@ urlpatterns = [
     opt_slash_path("robots.txt", robots_txt),
     opt_slash_path(".well-known/security.txt", security_txt),
     # auth
-    opt_slash_path("logout", authentication.logout, name="logout"),
+    path("logout", authentication.logout, name="login"),
     path(
         "login/<str:backend>/", authentication.sso_login, name="social_begin"
     ),  # overrides from `social_django.urls` to validate proper license

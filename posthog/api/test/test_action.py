@@ -29,7 +29,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 ],
                 "description": "Test description",
             },
-            headers={"origin": "http://testserver"},
+            HTTP_ORIGIN="http://testserver",
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json() == {
@@ -96,7 +96,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 ],
                 "description": "Test description",
             },
-            headers={"origin": "http://testserver"},
+            HTTP_ORIGIN="http://testserver",
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         action = Action.objects.get(pk=response.json()["id"])
@@ -113,7 +113,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/actions/",
             {"name": "user signed up"},
-            headers={"origin": "http://testserver"},
+            HTTP_ORIGIN="http://testserver",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
@@ -160,7 +160,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "email": "person@email.com",
                 },
             },
-            headers={"origin": "http://testserver"},
+            HTTP_ORIGIN="http://testserver",
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["name"] == "user signed up 2"
@@ -228,7 +228,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.patch(
             f"/api/projects/{self.team.id}/actions/{action.pk}/",
             data={"name": "user signed up 2", "steps": []},
-            headers={"origin": "http://testserver"},
+            HTTP_ORIGIN="http://testserver",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["steps"]), 0)
@@ -243,7 +243,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/actions/",
             data={"name": "user signed up"},
-            headers={"origin": "https://evilwebsite.com"},
+            HTTP_ORIGIN="https://evilwebsite.com",
         )
         self.assertEqual(response.status_code, 401)
 
@@ -253,26 +253,27 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/actions/?temporary_token=token123",
             data={"name": "user signed up"},
-            headers={"origin": "https://somewebsite.com"},
+            HTTP_ORIGIN="https://somewebsite.com",
         )
         self.assertEqual(response.status_code, 201)
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/actions/?temporary_token=token123",
             data={"name": "user signed up and post to slack", "post_to_slack": True},
-            headers={"origin": "https://somewebsite.com"},
+            HTTP_ORIGIN="https://somewebsite.com",
         )
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.json()["post_to_slack"], True)
 
         list_response = self.client.get(
-            f"/api/projects/{self.team.id}/actions/", headers={"origin": "https://evilwebsite.com"}
+            f"/api/projects/{self.team.id}/actions/",
+            HTTP_ORIGIN="https://evilwebsite.com",
         )
         self.assertEqual(list_response.status_code, 401)
 
         detail_response = self.client.get(
             f"/api/projects/{self.team.id}/actions/{response.json()['id']}/",
-            headers={"origin": "https://evilwebsite.com"},
+            HTTP_ORIGIN="https://evilwebsite.com",
         )
         self.assertEqual(detail_response.status_code, 401)
 
@@ -280,14 +281,14 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         list_response = self.client.get(
             f"/api/projects/{self.team.id}/actions/",
             data={"temporary_token": "token123"},
-            headers={"origin": "https://somewebsite.com"},
+            HTTP_ORIGIN="https://somewebsite.com",
         )
         self.assertEqual(list_response.status_code, 200)
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/actions/?temporary_token=token123",
             data={"name": "user signed up 22"},
-            headers={"origin": "https://somewebsite.com"},
+            HTTP_ORIGIN="https://somewebsite.com",
         )
         self.assertEqual(response.status_code, 201, response.json())
 
@@ -296,7 +297,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/actions/",
             data={"name": "user signed up again"},
-            headers={"origin": "https://testserver/"},
+            HTTP_ORIGIN="https://testserver/",
         )
         self.assertEqual(response.status_code, 201, response.json())
 
@@ -305,7 +306,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/actions/",
             data={"name": "test event", "steps": [{"event": "test_event "}]},
-            headers={"origin": "http://testserver"},
+            HTTP_ORIGIN="http://testserver",
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         action = Action.objects.get(pk=response.json()["id"])
@@ -424,7 +425,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 ],
                 "description": "Test description",
             },
-            headers={"origin": "http://testserver"},
+            HTTP_ORIGIN="http://testserver",
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 

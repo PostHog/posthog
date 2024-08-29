@@ -83,8 +83,8 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         extra_data: Optional[dict[str, Any]] = None,
     ) -> Optional[tuple[str, str]]:
         """Try to find personal API key in request and return it along with where it was found."""
-        if "authorization" in request.headers:
-            authorization_match = re.match(rf"^{cls.keyword}\s+(\S.+)$", request.headers["authorization"])
+        if "HTTP_AUTHORIZATION" in request.META:
+            authorization_match = re.match(rf"^{cls.keyword}\s+(\S.+)$", request.META["HTTP_AUTHORIZATION"])
             if authorization_match:
                 return authorization_match.group(1).strip(), "Authorization header"
         data = request.data if request_data is None and isinstance(request, Request) else request_data
@@ -213,8 +213,8 @@ class JwtAuthentication(authentication.BaseAuthentication):
 
     @classmethod
     def authenticate(cls, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
-        if "authorization" in request.headers:
-            authorization_match = re.match(rf"^Bearer\s+(\S.+)$", request.headers["authorization"])
+        if "HTTP_AUTHORIZATION" in request.META:
+            authorization_match = re.match(rf"^Bearer\s+(\S.+)$", request.META["HTTP_AUTHORIZATION"])
             if authorization_match:
                 try:
                     token = authorization_match.group(1).strip()

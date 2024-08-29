@@ -288,8 +288,6 @@ def create_event_definitions_sql(
         for f in ee_model._meta.get_fields()
         if hasattr(f, "column") and f.column not in ["deprecated_tags", "tags"]
     }
-    # Django relies on PK being present in the result set to tell if it's a saved instance
-    event_definition_fields.add("id as pk")
 
     enterprise_join = (
         "FULL OUTER JOIN ee_enterpriseeventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id"
