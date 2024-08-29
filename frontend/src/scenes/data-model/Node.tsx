@@ -6,11 +6,11 @@ interface NodeProps {
     children: React.ReactNode
 }
 
-function GenericNode({ pref, height = '50px', className = '', children }: NodeProps): JSX.Element {
+function GenericNode({ pref, className = '', children }: NodeProps): JSX.Element {
     return (
         <div
             ref={pref}
-            className={`flex px-4 justify-center items-center space-between gap-1 bg-white border border-black border-2 rounded-lg h-[${height}] ${className}`}
+            className={`flex px-4 py-3 justify-center items-center space-between gap-1 bg-white border border-black border-2 rounded-lg ${className}`}
         >
             {children}
         </div>

@@ -9,11 +9,18 @@ interface Position {
     y: number
 }
 
-interface NodePosition {
+interface Node {
     id: string
     name: string
-    position: Position
     leaf: string[]
+}
+
+interface NodeWithDepth extends Node {
+    depth: number
+}
+
+interface NodePosition extends NodeWithDepth {
+    position: Position
 }
 
 interface Edge {
@@ -26,51 +33,93 @@ interface NodePositionWithBounds extends NodePosition {
     right: Position | null
 }
 
-const calculateNodePositions = (): NodePosition[] => {
-    const windowWidth = window.innerWidth
-    const windowHeight = window.innerHeight
+const assignDepths = (nodes: Node[]): NodeWithDepth[] => {
+    const nodeMap: { [id: string]: NodeWithDepth } = {}
+
+    // Initialize all nodes with depth -1
+    nodes.forEach((node) => {
+        nodeMap[node.id] = { ...node, depth: -1 }
+    })
+
+    const assignDepthRecursive = (nodeId: string, currentDepth: number): void => {
+        const node = nodeMap[nodeId]
+        if (!node || node.depth !== -1) {
+            return
+        } // Skip if node doesn't exist or already processed
+
+        node.depth = currentDepth
+
+        // Process leaf nodes
+        node.leaf.forEach((leafId) => {
+            if (nodeMap[leafId]) {
+                assignDepthRecursive(leafId, currentDepth + 1)
+            }
+        })
+    }
+
+    // Start assigning depths from each unprocessed node
+    nodes.forEach((node) => {
+        if (nodeMap[node.id].depth === -1) {
+            assignDepthRecursive(node.id, 0)
+        }
+    })
+
+    return Object.values(nodeMap)
+}
+
+const calculateNodePositions = (nodesWithDepth: NodeWithDepth[]): NodePosition[] => {
     const padding = 50
     const verticalSpacing = 150
     const horizontalSpacing = 300
+    // Order nodes by depth
+    nodesWithDepth.sort((a, b) => a.depth - b.depth)
 
-    const nodes: NodePosition[] = [
-        {
-            id: 'posthog',
-            name: 'PostHog',
-            position: { x: padding, y: padding },
-            leaf: ['schema'],
-        },
-        {
-            id: 'stripe',
-            name: 'Stripe',
-            position: { x: padding, y: padding + verticalSpacing },
-            leaf: ['stripe-invoice', 'stripe-customer', 'stripe-account'],
-        },
-        {
-            id: 'stripe-invoice',
-            name: 'Stripe invoice',
-            position: { x: padding + horizontalSpacing, y: padding + verticalSpacing },
-            leaf: ['tax_code'],
-        },
-        {
-            id: 'stripe-account',
-            name: 'Stripe account',
-            position: { x: padding + horizontalSpacing, y: padding + 2 * verticalSpacing },
-            leaf: ['account_size', 'customer_email'],
-        },
-    ]
+    // Create a map to store the next available row for each depth
+    const depthRowMap: { [key: number]: number } = {}
 
-    nodes.forEach((node) => {
-        node.position.x = Math.min(node.position.x, windowWidth - padding)
-        node.position.y = Math.min(node.position.y, windowHeight - padding)
+    // Update node positions based on depth
+    const nodePositions = nodesWithDepth.map((node) => {
+        const col = node.depth
+
+        // If this is the first node at this depth, initialize the row
+        if (depthRowMap[col] === undefined) {
+            depthRowMap[col] = 0
+        }
+
+        // Reset row to match root if new column
+        if (col > 0 && depthRowMap[col] === 0) {
+            depthRowMap[col] = depthRowMap[0] - 1 || 0
+        }
+
+        const row = depthRowMap[col]
+
+        // Update the next available row for this depth
+        depthRowMap[col] = row + 1
+
+        return {
+            ...node,
+            position: {
+                x: padding + col * horizontalSpacing,
+                y: padding + row * verticalSpacing,
+            },
+        }
     })
 
-    return nodes
+    return nodePositions
 }
 
-const NODES: NodePosition[] = calculateNodePositions()
+const calculateTablePosition = (nodePositions: NodePosition[]): Position => {
+    // Find the node with the maximum x position
+    const farthestNode = nodePositions.reduce((max, node) => (node.position.x > max.position.x ? node : max))
 
-const TABLE_POSITION = { x: Math.min(700, window.innerWidth - 300), y: 100 }
+    // Calculate the table position to be slightly to the right of the farthest node
+    const tablePosition: Position = {
+        x: farthestNode.position.x + 300, // Add some padding
+        y: 100, // Fixed y position for the table
+    }
+
+    return tablePosition
+}
 
 const calculateEdges = (nodeRefs: (HTMLDivElement | null)[], nodes: NodePosition[]): Edge[] => {
     const nodes_map = nodes.reduce((acc: Record<string, NodePosition>, node) => {
@@ -104,7 +153,7 @@ const calculateEdges = (nodeRefs: (HTMLDivElement | null)[], nodes: NodePosition
 
             if (toNode && toRef) {
                 const toWithBounds = calculateBound(toNode, toRef)
-                const newEdges = calculateEdgesFromTo(fromWithBounds, toWithBounds, depth)
+                const newEdges = calculateEdgesFromTo(fromWithBounds, toWithBounds)
                 edges.push(...newEdges)
             }
 
@@ -145,57 +194,46 @@ const calculateBound = (node: NodePosition, ref: HTMLDivElement | null): NodePos
     }
 }
 
-const calculateEdgesFromTo = (from: NodePositionWithBounds, to: NodePositionWithBounds, depth = 0): Edge[] => {
+const calculateEdgesFromTo = (from: NodePositionWithBounds, to: NodePositionWithBounds): Edge[] => {
     if (!from.right || !to.left) {
         return []
     }
 
     const edges = []
-    const spacing = 25 + 25 * depth
-    if (from.right.y != to.left.y) {
-        edges.push({
-            from: from.right,
-            to: { x: to.left.x - spacing, y: from.right.y },
-        })
-        edges.push({
-            from: { x: to.left.x - spacing, y: from.right.y },
-            to: { x: to.left.x - spacing, y: to.left.y },
-        })
-        edges.push({
-            from: { x: to.left.x - spacing, y: to.left.y },
-            to: to.left,
-        })
-    } else {
-        edges.push({
-            from: from.right,
-            to: to.left,
-        })
-    }
+    edges.push({
+        from: from.right,
+        to: to.left,
+    })
 
     return edges
 }
 
-const ScrollableDraggableCanvas = (): JSX.Element => {
+interface ScrollableDraggableCanvasProps {
+    nodes: Node[]
+}
+
+const ScrollableDraggableCanvas = ({ nodes }: ScrollableDraggableCanvasProps): JSX.Element => {
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const [isDragging, setIsDragging] = useState(false)
     const [offset, setOffset] = useState({ x: 0, y: 0 })
     const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
     const rowsRefs = useRef<(HTMLDivElement | null)[]>(Array(FAKE_JOINED_DATA.length).fill(null))
-    const nodeRefs = useRef<(HTMLDivElement | null)[]>(Array(NODES.length).fill(null))
+    const nodeRefs = useRef<(HTMLDivElement | null)[]>(Array(nodes.length).fill(null))
     const tableNodeRef = useRef<HTMLDivElement | null>(null)
+    const [nodePositions, setNodePositions] = useState<NodePosition[]>([])
+    const [tablePosition, setTablePosition] = useState<Position>({ x: 0, y: 0 })
+    const [edges, setEdges] = useState<Edge[]>([])
 
-    const drawGrid = (ctx: CanvasRenderingContext2D, canvasWidth: number, canvasHeight: number): void => {
-        ctx.fillStyle = '#000000'
-        const dotSize = 1
-        const spacing = 20
+    useEffect(() => {
+        const nodesWithDepth = assignDepths(nodes)
+        const nodePositions = calculateNodePositions(nodesWithDepth)
+        setNodePositions(nodePositions)
+        const tablePosition = calculateTablePosition(nodePositions)
+        setTablePosition(tablePosition)
+    }, [])
 
-        for (let x = offset.x % spacing; x < canvasWidth; x += spacing) {
-            for (let y = offset.y % spacing; y < canvasHeight; y += spacing) {
-                ctx.fillRect(x, y, dotSize, dotSize)
-            }
-        }
-
-        const allNodes = [...NODES]
+    useEffect(() => {
+        const allNodes = [...nodePositions]
         // calculated table row positions
         rowsRefs.current.forEach((ref) => {
             const rect = ref?.getBoundingClientRect()
@@ -209,25 +247,28 @@ const ScrollableDraggableCanvas = (): JSX.Element => {
                 allNodes.push({
                     id: ref.id,
                     name: 'Table',
-                    position: { x: TABLE_POSITION.x, y: TABLE_POSITION.y + (rect.y - nodeRect.y) },
+                    position: { x: tablePosition.x, y: tablePosition.y + (rect.y - nodeRect.y) },
                     leaf: [],
+                    depth: -1,
                 })
             }
         })
 
-        const edges = calculateEdges([...nodeRefs.current, ...rowsRefs.current], allNodes)
+        const calculatedEdges = calculateEdges([...nodeRefs.current, ...rowsRefs.current], allNodes)
+        setEdges(calculatedEdges)
+    }, [nodePositions, tablePosition])
 
-        ctx.globalCompositeOperation = 'xor'
+    const drawGrid = (ctx: CanvasRenderingContext2D, canvasWidth: number, canvasHeight: number): void => {
+        ctx.fillStyle = '#000000'
+        ctx.imageSmoothingEnabled = true
+        const dotSize = 0.5
+        const spacing = 10
 
-        // Draw node edges. Offset translates original position to scrolled/dragged position
-        edges.forEach(({ from, to }) => {
-            ctx.beginPath()
-            ctx.moveTo(from.x + offset.x, from.y + offset.y)
-            ctx.lineTo(to.x + offset.x, to.y + offset.y)
-            ctx.strokeStyle = 'black'
-            ctx.lineWidth = 1
-            ctx.stroke()
-        })
+        for (let x = offset.x % spacing; x < canvasWidth; x += spacing) {
+            for (let y = offset.y % spacing; y < canvasHeight; y += spacing) {
+                ctx.fillRect(x, y, dotSize, dotSize)
+            }
+        }
     }
 
     useEffect(() => {
@@ -263,7 +304,7 @@ const ScrollableDraggableCanvas = (): JSX.Element => {
         return () => {
             window.removeEventListener('resize', handleResize)
         }
-    }, [offset])
+    }, [offset, nodePositions])
 
     const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>): void => {
         setIsDragging(true)
@@ -295,7 +336,27 @@ const ScrollableDraggableCanvas = (): JSX.Element => {
                 onMouseLeave={handleMouseUp}
                 className={clsx('w-full h-full', isDragging ? 'cursor-grabbing' : 'cursor-grab')}
             />
-            {NODES.map(({ name, position, id }, idx) => {
+            <svg className="absolute top-0 left-0 w-full h-full pointer-events-none">
+                {edges.map((edge, index) => {
+                    const controlPoint1X = edge.from.x + offset.x + (edge.to.x - edge.from.x) / 3
+                    const controlPoint1Y = edge.from.y + offset.y
+                    const controlPoint2X = edge.to.x + offset.x - (edge.to.x - edge.from.x) / 3
+                    const controlPoint2Y = edge.to.y + offset.y
+                    return (
+                        <path
+                            key={index}
+                            d={`M ${edge.from.x + offset.x} ${edge.from.y + offset.y} 
+                               C ${controlPoint1X} ${controlPoint1Y}, 
+                                 ${controlPoint2X} ${controlPoint2Y}, 
+                                 ${edge.to.x + offset.x} ${edge.to.y + offset.y}`}
+                            stroke="black"
+                            strokeWidth="2"
+                            fill="none"
+                        />
+                    )
+                })}
+            </svg>
+            {nodePositions.map(({ name, position, id }, idx) => {
                 return (
                     <div
                         key={id}
@@ -322,8 +383,8 @@ const ScrollableDraggableCanvas = (): JSX.Element => {
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
                     position: 'absolute',
-                    left: `${TABLE_POSITION.x + offset.x}px`,
-                    top: `${TABLE_POSITION.y + offset.y}px`,
+                    left: `${tablePosition.x + offset.x}px`,
+                    top: `${tablePosition.y + offset.y}px`,
                 }}
             >
                 <TableFieldNode nodeRef={tableNodeRef} rowsRefs={rowsRefs} />
