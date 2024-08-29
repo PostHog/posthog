@@ -1,0 +1,10 @@
+--- arrayMap ----
+[2, 4, 6]
+--- arrayExists ----
+true
+false
+false
+--- arrayFilter ----
+['banana']
+['apple', 'cherry']
+[]

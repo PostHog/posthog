@@ -107,7 +107,6 @@ class BytecodeCompiler(Visitor):
         self.supported_functions = supported_functions or set()
         self.locals: list[Local] = []
         self.upvalues: list[UpValue] = []
-        # self.functions: dict[str, HogFunction] = {}
         self.scope_depth = 0
         self.args = args
         # we're in a function definition
