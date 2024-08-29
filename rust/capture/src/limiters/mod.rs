@@ -1,2 +1,2 @@
-pub mod redis;
 pub mod overflow;
+pub mod redis;

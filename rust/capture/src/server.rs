@@ -8,8 +8,8 @@ use tokio::net::TcpListener;
 
 use crate::config::Config;
 
-use crate::limiters::redis::RedisLimiter;
 use crate::limiters::overflow::OverflowLimiter;
+use crate::limiters::redis::RedisLimiter;
 use crate::redis::RedisClient;
 use crate::router;
 use crate::sinks::kafka::KafkaSink;

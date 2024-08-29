@@ -175,7 +175,7 @@ mod tests {
     use time::Duration;
 
     use crate::{
-        limiters::billing::{RedisLimiter, QuotaResource},
+        limiters::billing::{QuotaResource, RedisLimiter},
         redis::MockRedisClient,
     };
 
