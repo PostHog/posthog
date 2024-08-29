@@ -32,7 +32,8 @@ class TestSiteApp(BaseTest):
         )
 
         response = self.client.get(
-            f"/site_app/{plugin_config.id}/tokentoken/somehash/", headers={"origin": "http://127.0.0.1:8000"}
+            f"/site_app/{plugin_config.id}/tokentoken/somehash/",
+            HTTP_ORIGIN="http://127.0.0.1:8000",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(

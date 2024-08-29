@@ -82,7 +82,7 @@ class AllowIPMiddleware:
         self.get_response = get_response
 
     def get_forwarded_for(self, request: HttpRequest):
-        forwarded_for = request.headers.get("x-forwarded-for")
+        forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
         if forwarded_for is not None:
             return [ip.strip() for ip in forwarded_for.split(",")]
         else:
@@ -303,8 +303,8 @@ class CHQueries:
             client_query_id=self._get_param(request, "client_query_id"),
             session_id=self._get_param(request, "session_id"),
             container_hostname=settings.CONTAINER_HOSTNAME,
-            http_referer=request.headers.get("referer"),
-            http_user_agent=request.headers.get("user-agent"),
+            http_referer=request.META.get("HTTP_REFERER"),
+            http_user_agent=request.META.get("HTTP_USER_AGENT"),
         )
 
         if hasattr(user, "current_team_id") and user.current_team_id:
@@ -394,8 +394,8 @@ class ShortCircuitMiddleware:
                     id=request.path,
                     route_id=resolve(request.path).route,
                     container_hostname=settings.CONTAINER_HOSTNAME,
-                    http_referer=request.headers.get("referer"),
-                    http_user_agent=request.headers.get("user-agent"),
+                    http_referer=request.META.get("HTTP_REFERER"),
+                    http_user_agent=request.META.get("HTTP_USER_AGENT"),
                 )
                 if self.decide_throttler.allow_request(request, None):
                     return get_decide(request)
@@ -468,8 +468,8 @@ class CaptureMiddleware:
                     id=request.path,
                     route_id=resolve(request.path).route,
                     container_hostname=settings.CONTAINER_HOSTNAME,
-                    http_referer=request.headers.get("referer"),
-                    http_user_agent=request.headers.get("user-agent"),
+                    http_referer=request.META.get("HTTP_REFERER"),
+                    http_user_agent=request.META.get("HTTP_USER_AGENT"),
                 )
 
                 for middleware in self.CAPTURE_MIDDLEWARE:
@@ -522,9 +522,9 @@ def per_request_logging_context_middleware(
         # header from NGINX, but we really want to have a way to get to the
         # team_id given a host header, and we can't do that with NGINX.
         structlog.contextvars.bind_contextvars(
-            host=request.headers.get("host", ""),
+            host=request.META.get("HTTP_HOST", ""),
             container_hostname=settings.CONTAINER_HOSTNAME,
-            x_forwarded_for=request.headers.get("x-forwarded-for", ""),
+            x_forwarded_for=request.META.get("HTTP_X_FORWARDED_FOR", ""),
         )
 
         return get_response(request)
@@ -609,7 +609,6 @@ class PostHogTokenCookieMiddleware(SessionMiddleware):
             # clears the cookies that were previously set, except for ph_current_instance as that is used for the website login button
             response.delete_cookie("ph_current_project_token", domain=default_cookie_options["domain"])
             response.delete_cookie("ph_current_project_name", domain=default_cookie_options["domain"])
-
         if request.user and request.user.is_authenticated and request.user.team:
             response.set_cookie(
                 key="ph_current_project_token",

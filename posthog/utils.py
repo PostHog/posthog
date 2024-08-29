@@ -514,8 +514,7 @@ def friendly_time(seconds: float):
 
 def get_ip_address(request: HttpRequest) -> str:
     """use requestobject to fetch client machine's IP Address"""
-    x_forwarded_for = request.headers.get("x-forwarded-for")
-    ip: Any
+    x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
     if x_forwarded_for:
         ip = x_forwarded_for.split(",")[0]
     else:
@@ -1168,7 +1167,7 @@ def is_json(val):
     return True
 
 
-def cast_timestamp_or_now(timestamp: Optional[Union[datetime.datetime, str]]) -> str:
+def cast_timestamp_or_now(timestamp: Optional[Union[timezone.datetime, str]]) -> str:
     if not timestamp:
         timestamp = timezone.now()
 

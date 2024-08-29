@@ -3,10 +3,9 @@ from datetime import datetime, timedelta
 from enum import Enum, auto
 from typing import Any, Optional, Union
 
-from datetime import UTC
 from zoneinfo import ZoneInfo
-from rest_framework.exceptions import ValidationError
 from django.utils import timezone
+from rest_framework.exceptions import ValidationError
 
 from posthog.cache_utils import cache_for
 from posthog.models.event import DEFAULT_EARLIEST_TIME_DELTA
@@ -159,7 +158,7 @@ def deep_dump_object(params: dict[str, Any]) -> dict[str, Any]:
 
 def convert_to_datetime_aware(date_obj):
     if date_obj.tzinfo is None:
-        date_obj = date_obj.replace(tzinfo=UTC)
+        date_obj = date_obj.replace(tzinfo=timezone.utc)
     return date_obj
 
 

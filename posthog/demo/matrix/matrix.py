@@ -1,4 +1,3 @@
-import datetime
 import datetime as dt
 from abc import ABC, abstractmethod
 from collections import defaultdict, deque
@@ -29,9 +28,9 @@ class Cluster(ABC):
 
     index: int  # Cluster index
     matrix: "Matrix"  # Parent
-    start: datetime.datetime  # Start of the simulation
-    now: datetime.datetime  # Current moment in the simulation
-    end: datetime.datetime  # End of the simulation (might be same as now or later)
+    start: timezone.datetime  # Start of the simulation
+    now: timezone.datetime  # Current moment in the simulation
+    end: timezone.datetime  # End of the simulation (might be same as now or later)
 
     radius: int
     people_matrix: list[list[SimPerson]]  # Grid containing all people in the cluster

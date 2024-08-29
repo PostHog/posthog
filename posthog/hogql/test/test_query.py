@@ -3,9 +3,8 @@ from uuid import UUID
 
 from zoneinfo import ZoneInfo
 from django.test import override_settings
-from freezegun import freeze_time
-from datetime import UTC
 from django.utils import timezone
+from freezegun import freeze_time
 
 from posthog import datetime
 from posthog.hogql import ast
@@ -238,7 +237,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.results[0][0], "bla")
             self.assertEqual(
                 response.results[0][1],
-                datetime.datetime(2020, 1, 10, 0, 0, tzinfo=UTC),
+                datetime.datetime(2020, 1, 10, 0, 0, tzinfo=timezone.utc),
             )
 
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -1053,17 +1052,17 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             [
                 (
                     (
-                        datetime.datetime(2020, 1, 1, 0, 0, tzinfo=UTC),
-                        datetime.datetime(2020, 1, 2, 0, 0, tzinfo=UTC),
+                        datetime.datetime(2020, 1, 1, 0, 0, tzinfo=timezone.utc),
+                        datetime.datetime(2020, 1, 2, 0, 0, tzinfo=timezone.utc),
                     ),
-                    datetime.datetime(2020, 1, 1, 0, 0, tzinfo=UTC),
-                    datetime.datetime(2020, 1, 2, 0, 0, tzinfo=UTC),
+                    datetime.datetime(2020, 1, 1, 0, 0, tzinfo=timezone.utc),
+                    datetime.datetime(2020, 1, 2, 0, 0, tzinfo=timezone.utc),
                     (
-                        datetime.datetime(2019, 12, 31, 0, 0, tzinfo=UTC),
-                        datetime.datetime(2020, 1, 2, 0, 0, tzinfo=UTC),
+                        datetime.datetime(2019, 12, 31, 0, 0, tzinfo=timezone.utc),
+                        datetime.datetime(2020, 1, 2, 0, 0, tzinfo=timezone.utc),
                     ),
-                    datetime.datetime(2019, 12, 31, 0, 0, tzinfo=UTC),
-                    datetime.datetime(2020, 1, 2, 0, 0, tzinfo=UTC),
+                    datetime.datetime(2019, 12, 31, 0, 0, tzinfo=timezone.utc),
+                    datetime.datetime(2020, 1, 2, 0, 0, tzinfo=timezone.utc),
                 )
             ],
         )

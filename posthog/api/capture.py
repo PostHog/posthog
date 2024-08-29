@@ -7,7 +7,7 @@ import sentry_sdk
 import structlog
 import time
 from collections.abc import Iterator
-from datetime import datetime, timedelta, UTC
+from datetime import datetime, timedelta
 from dateutil import parser
 from django.conf import settings
 from django.http import JsonResponse
@@ -240,7 +240,7 @@ def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:
         timestamp_number = int(timestamp)
         KLUDGES_COUNTER.labels(kludge="sent_at_seconds_timestamp").inc()
 
-    return datetime.fromtimestamp(timestamp_number, UTC)
+    return datetime.fromtimestamp(timestamp_number, timezone.utc)
 
 
 def _get_retry_count(request) -> int | None:

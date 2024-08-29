@@ -847,13 +847,15 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
         for _ in range(5):
             response = self.client.get(
-                f"/api/projects/{self.team.pk}/feature_flags", headers={"authorization": f"Bearer {personal_api_key}"}
+                f"/api/projects/{self.team.pk}/feature_flags",
+                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
             )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # Call to flags gets rate limited
         response = self.client.get(
-            f"/api/projects/{self.team.pk}/feature_flags", headers={"authorization": f"Bearer {personal_api_key}"}
+            f"/api/projects/{self.team.pk}/feature_flags",
+            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
         )
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
         self.assertEqual(
@@ -876,12 +878,13 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         # but not call to persons
         for _ in range(3):
             response = self.client.get(
-                f"/api/projects/{self.team.pk}/persons/", headers={"authorization": f"Bearer {personal_api_key}"}
+                f"/api/projects/{self.team.pk}/persons/",
+                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
             )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             response = self.client.get(
                 f"/api/projects/{self.team.pk}/persons/values/?key=whatever",
-                headers={"authorization": f"Bearer {personal_api_key}"},
+                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
             )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -894,7 +897,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
         # until the limit is reached
         response = self.client.get(
-            f"/api/projects/{self.team.pk}/persons/", headers={"authorization": f"Bearer {personal_api_key}"}
+            f"/api/projects/{self.team.pk}/persons/",
+            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
         )
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
         self.assertEqual(

@@ -97,8 +97,9 @@ class TestDecide(BaseTest, QueryMatchingTest):
                     },
                 )
             },
-            headers={"origin": origin, "user-agent": user_agent or "PostHog test"},
+            HTTP_ORIGIN=origin,
             REMOTE_ADDR=ip,
+            HTTP_USER_AGENT=user_agent or "PostHog test",
         )
 
     def _update_team(self, data, expected_status_code: int = status.HTTP_200_OK):
@@ -133,7 +134,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                     }
                 )
             },
-            headers={"origin": "http://127.0.0.1:8000"},
+            HTTP_ORIGIN="http://127.0.0.1:8000",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -144,7 +145,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         self.team.app_urls = ["https://example.com"]
         self.team.save()
-        response = self.client.get("/decide/", headers={"origin": "https://evilsite.com"}).json()
+        response = self.client.get("/decide/", HTTP_ORIGIN="https://evilsite.com").json()
         self.assertEqual(response["isAuthenticated"], False)
         self.assertIsNone(response["toolbarParams"].get("toolbarVersion", None))
 
@@ -2632,7 +2633,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         ]
 
         for payload in invalid_payloads:
-            response = self.client.post("/decide/", {"data": payload}, headers={"origin": "http://127.0.0.1:8000"})
+            response = self.client.post("/decide/", {"data": payload}, HTTP_ORIGIN="http://127.0.0.1:8000")
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
             response_data = response.json()
             detail = response_data.pop("detail")
@@ -2646,7 +2647,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self.client.post(
             "/decide/?compression=gzip",
             data=b"\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\x03",
-            headers={"origin": "http://127.0.0.1:8000"},
+            HTTP_ORIGIN="http://127.0.0.1:8000",
             content_type="text/plain",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -3089,7 +3090,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         ):
 
             def invalid_request():
-                return self.client.post("/decide/", {"data": "1==1"}, headers={"origin": "http://127.0.0.1:8000"})
+                return self.client.post("/decide/", {"data": "1==1"}, HTTP_ORIGIN="http://127.0.0.1:8000")
 
             for _ in range(4):
                 response = invalid_request()
@@ -3541,7 +3542,7 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
                     },
                 )
             },
-            headers={"origin": origin},
+            HTTP_ORIGIN=origin,
             REMOTE_ADDR=ip,
         )
 
@@ -3784,7 +3785,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                     },
                 )
             },
-            headers={"origin": origin},
+            HTTP_ORIGIN=origin,
             REMOTE_ADDR=ip,
         )
 
@@ -4632,7 +4633,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
 
             response = self.client.get(
                 f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
-                headers={"authorization": f"Bearer {personal_api_key}"},
+                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
             )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
@@ -4874,7 +4875,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
 
             response = self.client.get(
                 f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts",
-                headers={"authorization": f"Bearer {personal_api_key}"},
+                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
             )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             response_data = response.json()
@@ -5144,7 +5145,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
 
             response = self.client.get(
                 f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts",
-                headers={"authorization": f"Bearer {personal_api_key}"},
+                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
             )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             response_data = response.json()

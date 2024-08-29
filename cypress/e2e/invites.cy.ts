@@ -1,4 +1,3 @@
-import { auth } from '../support'
 import { randomString } from '../support/random'
 
 const VALID_PASSWORD = 'hedgE-hog-123%'
@@ -48,7 +47,8 @@ describe('Invite Signup', () => {
             headers: { Authorization: 'Bearer e2e_demo_api_key' },
         }).then((response) => {
             expect(response.status).to.eq(201)
-            auth.logout()
+            cy.get('[data-attr=menu-item-me]').click()
+            cy.get('[data-attr=top-menu-item-logout]').click()
             cy.visit('/signup/' + response.body.id)
         })
         cy.get('.error-view-container').should('not.exist')
@@ -81,7 +81,8 @@ describe('Invite Signup', () => {
         cy.get('[data-attr=invite-link]')
             .last()
             .then((element) => {
-                auth.logout()
+                cy.get('[data-attr=menu-item-me]').click()
+                cy.get('[data-attr=top-menu-item-logout]').click()
                 cy.visit(element.text())
             })
         cy.get('[data-attr="password"]').type(VALID_PASSWORD)
@@ -93,8 +94,7 @@ describe('Invite Signup', () => {
         cy.location('pathname').should('include', 'verify_email')
 
         // Log out, log in as main
-        cy.clearAllCookies()
-        cy.visit('/login')
+        cy.visit('/logout')
         cy.login()
 
         // Go to organization settings

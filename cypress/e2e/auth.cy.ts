@@ -1,12 +1,15 @@
-import { auth } from '../support'
-
 describe('Auth', () => {
+    beforeEach(() => {
+        cy.get('[data-attr=menu-item-me]').click()
+    })
+
     it('Logout', () => {
-        auth.logout()
+        cy.get('[data-attr=top-menu-item-logout]').click()
+        cy.location('pathname').should('eq', '/login')
     })
 
     it('Logout and login', () => {
-        auth.logout()
+        cy.get('[data-attr=top-menu-item-logout]').click()
 
         cy.get('[data-attr=login-email]').type('test@posthog.com').should('have.value', 'test@posthog.com').blur()
         cy.get('[data-attr=password]', { timeout: 5000 }).should('be.visible') // Wait for login precheck (note blur above)
@@ -19,7 +22,7 @@ describe('Auth', () => {
     })
 
     it('Logout and verify that Google login button has correct link', () => {
-        auth.logout()
+        cy.get('[data-attr=top-menu-item-logout]').click()
 
         cy.window().then((win) => {
             win.POSTHOG_APP_CONTEXT.preflight.available_social_auth_providers = {
@@ -31,7 +34,7 @@ describe('Auth', () => {
     })
 
     it('Try logging in improperly and then properly', () => {
-        auth.logout()
+        cy.get('[data-attr=top-menu-item-logout]').click()
 
         cy.get('[data-attr=login-email]').type('test@posthog.com').should('have.value', 'test@posthog.com').blur()
         cy.get('[data-attr=password]', { timeout: 5000 }).should('be.visible') // Wait for login precheck (note blur above)
@@ -47,7 +50,8 @@ describe('Auth', () => {
     })
 
     it('Redirect to appropriate place after login', () => {
-        auth.logout()
+        cy.visit('/logout')
+        cy.location('pathname').should('include', '/login')
 
         cy.visit('/activity/explore')
         cy.location('pathname').should('include', '/login') // Should be redirected to login because we're now logged out
@@ -61,7 +65,8 @@ describe('Auth', () => {
     })
 
     it('Redirect to appropriate place after login with complex URL', () => {
-        auth.logout()
+        cy.visit('/logout')
+        cy.location('pathname').should('include', '/login')
 
         cy.visit('/insights?search=testString')
         cy.location('pathname').should('include', '/login') // Should be redirected to login because we're now logged out
@@ -78,5 +83,16 @@ describe('Auth', () => {
     it('Cannot access signup page if authenticated', () => {
         cy.visit('/signup')
         cy.location('pathname').should('eq', '/project/1')
+    })
+
+    it('Logout in another tab results in logout in the current tab too', () => {
+        cy.window().then(async (win) => {
+            // Hit /logout *in the background* by using fetch()
+            await win.fetch('/logout')
+        })
+
+        cy.clickNavMenu('dashboards') // This should cause logout bacause of new data fetching being initiated
+
+        cy.location('pathname').should('eq', '/login') // We should be quickly redirected to the login page
     })
 })
