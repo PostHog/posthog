@@ -84,7 +84,7 @@ def execute_bytecode(
             )
         )
     frame = call_stack[-1]
-    chunk_bytecode = bytecode
+    chunk_bytecode: list[Any] = bytecode
 
     def set_chunk_bytecode():
         nonlocal chunk_bytecode, last_op
@@ -97,7 +97,7 @@ def execute_bytecode(
         else:
             raise HogVMException(f"Unknown chunk: {frame.chunk}")
 
-    def stack_keep_first_elements(count: int) -> list[any]:
+    def stack_keep_first_elements(count: int) -> list[Any]:
         nonlocal stack, mem_stack, mem_used
         for upvalue in reversed(upvalues):
             if upvalue["location"] >= count:
