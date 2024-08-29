@@ -58,6 +58,8 @@ pub struct Config {
 
     #[envconfig(default = "events")]
     pub capture_mode: CaptureMode,
+
+    pub concurrency_limit: Option<usize>,
 }
 
 #[derive(Envconfig, Clone)]
