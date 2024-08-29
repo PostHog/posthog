@@ -52,7 +52,7 @@ export const validateProposedUrl = (
     currentUrls: string[],
     onlyAllowDomains: boolean = false
 ): string | undefined => {
-    if (!onlyAllowDomains && !isURL(proposedUrl)) {
+    if (!isURL(proposedUrl)) {
         return 'Please enter a valid URL'
     }
 
