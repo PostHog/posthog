@@ -12,8 +12,9 @@ import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
 import { DatabaseSchemaTable } from '~/queries/schema'
-import { InsightLogicProps } from '~/types'
+import { ExternalDataSourceType, InsightLogicProps } from '~/types'
 
+import { SOURCE_DETAILS } from '../new/sourceWizardLogic'
 import { dataWarehouseSceneLogic } from '../settings/dataWarehouseSceneLogic'
 import { viewLinkLogic } from '../viewLinkLogic'
 import { ViewLinkModal } from '../ViewLinkModal'
@@ -141,7 +142,7 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                 {
                     name: 'External',
                     items: Object.keys(dataWarehouseTablesBySourceType).map((source_type) => ({
-                        name: source_type,
+                        name: SOURCE_DETAILS[source_type as ExternalDataSourceType]?.label ?? source_type,
                         items: dataWarehouseTablesBySourceType[source_type].map((table) => ({
                             name: table.name,
                             table: table,
