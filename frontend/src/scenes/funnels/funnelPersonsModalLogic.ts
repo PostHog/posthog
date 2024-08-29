@@ -78,19 +78,15 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
 
     selectors({
         canOpenPersonModal: [
-            (s) => [s.funnelsFilter, s.isInDashboardContext],
-            (funnelsFilter, isInDashboardContext): boolean => {
-                return !isInDashboardContext && !funnelsFilter?.funnelAggregateByHogQL
+            (s) => [s.funnelsFilter],
+            (funnelsFilter): boolean => {
+                return !funnelsFilter?.funnelAggregateByHogQL
             },
         ],
     }),
 
     listeners(({ values }) => ({
         openPersonsModalForStep: ({ step, stepIndex, converted }) => {
-            if (values.isInDashboardContext) {
-                return
-            }
-
             // Note - when in a legend the step.order is always 0 so we use stepIndex instead
             const stepNo = typeof stepIndex === 'number' ? stepIndex + 1 : step.order + 1
             const title = funnelTitle({
@@ -111,10 +107,6 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
             openPersonsModal({ title, query, additionalSelect: { matched_recordings: 'matched_recordings' } })
         },
         openPersonsModalForSeries: ({ step, series, converted }) => {
-            if (values.isInDashboardContext) {
-                return
-            }
-
             const stepNo = step.order + 1
             const breakdownValues = getBreakdownStepValues(series, series.order)
             const title = funnelTitle({
@@ -137,10 +129,6 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
             openPersonsModal({ title, query, additionalSelect: { matched_recordings: 'matched_recordings' } })
         },
         openCorrelationPersonsModal: ({ correlation, success }) => {
-            if (values.isInDashboardContext) {
-                return
-            }
-
             if (correlation.result_type === FunnelCorrelationResultsType.Properties) {
                 const { breakdown, breakdown_value } = parseBreakdownValue(correlation.event.event)
                 const title = funnelTitle({

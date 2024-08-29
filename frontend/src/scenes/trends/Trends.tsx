@@ -16,12 +16,13 @@ interface Props {
     view: InsightType
     context?: QueryContext
     embedded?: boolean
+    inSharedMode?: boolean
 }
 
-export function TrendInsight({ view, context, embedded }: Props): JSX.Element {
+export function TrendInsight({ view, context, embedded, inSharedMode }: Props): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
     const { insightProps, showPersonsModal: insightLogicShowPersonsModal } = useValues(insightLogic)
-    const showPersonsModal = insightLogicShowPersonsModal && !embedded
+    const showPersonsModal = insightLogicShowPersonsModal && !inSharedMode
 
     const { display, series, breakdownFilter, hasBreakdownMore, breakdownValuesLoading } = useValues(
         trendsDataLogic(insightProps)
@@ -36,10 +37,24 @@ export function TrendInsight({ view, context, embedded }: Props): JSX.Element {
             display === ChartDisplayType.ActionsAreaGraph ||
             display === ChartDisplayType.ActionsBar
         ) {
-            return <ActionsLineGraph showPersonsModal={showPersonsModal} context={context} inCardView={embedded} />
+            return (
+                <ActionsLineGraph
+                    showPersonsModal={showPersonsModal}
+                    context={context}
+                    inCardView={embedded}
+                    inSharedMode={inSharedMode}
+                />
+            )
         }
         if (display === ChartDisplayType.BoldNumber) {
-            return <BoldNumber showPersonsModal={showPersonsModal} context={context} inCardView={embedded} />
+            return (
+                <BoldNumber
+                    showPersonsModal={showPersonsModal}
+                    context={context}
+                    inCardView={embedded}
+                    inSharedMode={inSharedMode}
+                />
+            )
         }
         if (display === ChartDisplayType.ActionsTable) {
             const ActionsTable = InsightsTable
@@ -53,13 +68,34 @@ export function TrendInsight({ view, context, embedded }: Props): JSX.Element {
             )
         }
         if (display === ChartDisplayType.ActionsPie) {
-            return <ActionsPie showPersonsModal={showPersonsModal} context={context} inCardView={embedded} />
+            return (
+                <ActionsPie
+                    showPersonsModal={showPersonsModal}
+                    context={context}
+                    inCardView={embedded}
+                    inSharedMode={inSharedMode}
+                />
+            )
         }
         if (display === ChartDisplayType.ActionsBarValue) {
-            return <ActionsHorizontalBar showPersonsModal={showPersonsModal} context={context} inCardView={embedded} />
+            return (
+                <ActionsHorizontalBar
+                    showPersonsModal={showPersonsModal}
+                    context={context}
+                    inCardView={embedded}
+                    inSharedMode={inSharedMode}
+                />
+            )
         }
         if (display === ChartDisplayType.WorldMap) {
-            return <WorldMap showPersonsModal={showPersonsModal} context={context} inCardView={embedded} />
+            return (
+                <WorldMap
+                    showPersonsModal={showPersonsModal}
+                    context={context}
+                    inCardView={embedded}
+                    inSharedMode={inSharedMode}
+                />
+            )
         }
     }
 
