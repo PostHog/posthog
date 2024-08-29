@@ -13,7 +13,7 @@ use serde_json::json;
 use serde_json::Value;
 use tracing::instrument;
 
-use crate::limiters::billing::QuotaResource;
+use crate::limiters::redis::QuotaResource;
 use crate::prometheus::report_dropped_events;
 use crate::v0_request::{Compression, ProcessingContext, RawRequest};
 use crate::{
@@ -117,7 +117,7 @@ async fn handle_common(
     };
 
     let billing_limited = state
-        .billing
+        .billing_limiter
         .is_limited(context.token.as_str(), quota_resource)
         .await;
 
