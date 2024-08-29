@@ -17,9 +17,7 @@ export const OnboardingDashboardTemplateSelectStep = ({
 
     // TODO: this is hacky, find a better way to clear the active template when coming back to this screen
     useEffect(() => {
-        return () => {
-            clearActiveDashboardTemplate()
-        }
+        clearActiveDashboardTemplate()
     }, [])
 
     return (
