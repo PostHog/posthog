@@ -9,12 +9,12 @@
     "packageManager": "pnpm@8.3.1",
     "scripts": {
         "test": "jest --runInBand --forceExit",
+        "clean": "rm -rf dist .parcel-cache",
         "build": "pnpm clean && pnpm build:stl && pnpm build:parcel && pnpm build:cli",
         "build:stl": "cd ../.. && python3 -m hogvm.stl.compile",
         "build:parcel": "parcel build",
         "build:compile": "tsc -p tsconfig.build.json",
         "build:cli": "cp ./src/cli.js ./dist/cli.js",
-        "clean": "rm -rf dist .parce-cache",
         "check": "tsc -p tsconfig.build.json --noEmit",
         "prettier": "prettier --write src",
         "prettier:check": "prettier --check src",

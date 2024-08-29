@@ -7,13 +7,13 @@ export function execHog(code: any[] | VMState, options?: ExecOptions): ExecResul
         external: {
             crypto, // TODO: switch to webcrypto and polyfill on the node side
             regex: {
-                match: (regex: string, str: string): boolean => {
+                match: (regex: string, value: string): boolean => {
                     const { regex: newRegex, insensitive, multiline, dotall } = gatherRegExModifiers(regex, 's')
                     const flags =
                         (insensitive ? RE2JS.CASE_INSENSITIVE : 0) |
                         (multiline ? RE2JS.MULTILINE : 0) |
                         (dotall ? RE2JS.DOTALL : 0)
-                    return RE2JS.compile(newRegex, flags).matcher(str).find()
+                    return RE2JS.compile(newRegex, flags).matcher(value).find()
                 },
             },
         },
