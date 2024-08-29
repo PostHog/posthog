@@ -37,7 +37,7 @@ pub struct PropertyFilter {
     pub operator: Option<OperatorType>,
     #[serde(rename = "type")]
     pub prop_type: String,
-    pub group_type_index: Option<i8>,
+    pub group_type_index: Option<i32>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

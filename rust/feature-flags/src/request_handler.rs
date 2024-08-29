@@ -1,8 +1,8 @@
 use crate::{
-    api::{FlagError, FlagValue, FlagsResponse},
+    api::{FlagError, FlagsResponse},
     database::Client,
     flag_definitions::FeatureFlagList,
-    flag_matching::FeatureFlagMatcher,
+    flag_matching::{FeatureFlagMatcher, GroupTypeMappingCache},
     flag_request::FlagRequest,
     geoip::GeoIpClient,
     router,
@@ -13,7 +13,6 @@ use serde::Deserialize;
 use serde_json::Value;
 use std::sync::Arc;
 use std::{collections::HashMap, net::IpAddr};
-use tracing::error;
 
 #[derive(Deserialize, Default)]
 pub enum Compression {
@@ -160,54 +159,27 @@ pub async fn evaluate_feature_flags(
     person_property_overrides: Option<HashMap<String, Value>>,
     group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
 ) -> FlagsResponse {
-    let mut feature_flags = HashMap::new();
-    let mut error_while_computing_flags = false;
-    let mut matcher = FeatureFlagMatcher::new(
+    let group_type_mapping_cache =
+        Arc::new(GroupTypeMappingCache::new(team_id, database_client.clone()));
+    let mut feature_flag_matcher = FeatureFlagMatcher::new(
         distinct_id.clone(),
         team_id,
         database_client,
         person_property_overrides,
         group_property_overrides,
+        Some(group_type_mapping_cache),
         None,
     );
-    let feature_flag_list = feature_flags_from_cache_or_pg.flags;
 
-    for flag in feature_flag_list {
-        if !flag.active || flag.deleted {
-            continue;
-        }
-
-        match matcher.get_match(&flag).await {
-            Ok(flag_match) => {
-                let flag_value = if flag_match.matches {
-                    match flag_match.variant {
-                        Some(variant) => FlagValue::String(variant),
-                        None => FlagValue::Boolean(true),
-                    }
-                } else {
-                    FlagValue::Boolean(false)
-                };
-                feature_flags.insert(flag.key.clone(), flag_value);
-            }
-            Err(e) => {
-                error_while_computing_flags = true;
-                error!(
-                    "Error evaluating feature flag '{}' for distinct_id '{}': {:?}",
-                    flag.key, distinct_id, e
-                );
-            }
-        }
-    }
-
-    FlagsResponse {
-        error_while_computing_flags,
-        feature_flags,
-    }
+    feature_flag_matcher
+        .evaluate_feature_flags(feature_flags_from_cache_or_pg)
+        .await
 }
 
 #[cfg(test)]
 mod tests {
     use crate::{
+        api::FlagValue,
         config::Config,
         flag_definitions::{FeatureFlag, FlagFilters, FlagGroupType, OperatorType, PropertyFilter},
         test_utils::setup_pg_client,
