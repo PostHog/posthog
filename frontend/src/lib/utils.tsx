@@ -613,7 +613,7 @@ export function isURL(input: any): boolean {
     if (!input || typeof input !== 'string') {
         return false
     }
-    const regexp = /^http(s)?:\/\/[\w*.-]+[\w*.-]+[\w\-._~:/?#[\]@%!$&'()*+,;=]+$/
+    const regexp = /^(http(s)|capacitor)?:\/\/[\w*.-]+[\w*.-]+[\w\-._~:/?#[\]@%!$&'()*+,;=]+$/
     return !!input.trim().match(regexp)
 }
 
