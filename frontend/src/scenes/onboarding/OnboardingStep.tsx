@@ -22,6 +22,7 @@ export const OnboardingStep = ({
     continueOverride,
     hideHeader,
     breadcrumbHighlightName,
+    fullWidth = false,
 }: {
     stepKey: OnboardingStepKey
     title: string
@@ -35,6 +36,7 @@ export const OnboardingStep = ({
     continueOverride?: JSX.Element
     hideHeader?: boolean
     breadcrumbHighlightName?: OnboardingStepKey
+    fullWidth?: boolean
 }): JSX.Element => {
     const { hasNextStep, onboardingStepKeys, currentOnboardingStep } = useValues(onboardingLogic)
     const { completeOnboarding, goToNextStep, setStepKey } = useActions(onboardingLogic)
@@ -83,8 +85,16 @@ export const OnboardingStep = ({
                     </h1>
                 </div>
             </div>
-            <div className={`${stepKey !== 'product_intro' && 'p-2 max-w-screen-md mx-auto'}`}>
-                {subtitle && <p>{subtitle}</p>}
+            <div
+                className={`${stepKey !== 'product_intro' && 'p-2'} ${
+                    stepKey !== 'product_intro' && !fullWidth && 'max-w-screen-md mx-auto'
+                }`}
+            >
+                {subtitle && (
+                    <div className="max-w-screen-md mx-auto">
+                        <p>{subtitle}</p>
+                    </div>
+                )}
                 {children}
                 <div className="mt-8 flex justify-end gap-x-2">
                     {showHelpButton && (
