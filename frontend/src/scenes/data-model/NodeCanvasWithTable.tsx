@@ -184,9 +184,15 @@ interface ScrollableDraggableCanvasProps {
     nodes: Node[]
     fixedFields: FixedField[]
     joinedFields: JoinedField[]
+    tableName: string
 }
 
-const NodeCanvasWithTable = ({ nodes, fixedFields, joinedFields }: ScrollableDraggableCanvasProps): JSX.Element => {
+const NodeCanvasWithTable = ({
+    nodes,
+    fixedFields,
+    joinedFields,
+    tableName,
+}: ScrollableDraggableCanvasProps): JSX.Element => {
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const [isDragging, setIsDragging] = useState(false)
     const [offset, setOffset] = useState({ x: 0, y: 0 })
@@ -366,6 +372,7 @@ const NodeCanvasWithTable = ({ nodes, fixedFields, joinedFields }: ScrollableDra
                     joinedFields={joinedFields}
                     nodeRef={tableNodeRef}
                     rowsRefs={rowsRefs}
+                    tableName={tableName}
                 />
             </div>
         </div>
@@ -379,12 +386,18 @@ interface TableFieldNodeProps {
     joinedFields: JoinedField[]
     rowsRefs: React.MutableRefObject<(HTMLDivElement | null)[]>
     nodeRef: React.MutableRefObject<HTMLDivElement | null>
+    tableName: string
 }
 
-function TableFieldNode({ nodeRef, rowsRefs, fixedFields, joinedFields }: TableFieldNodeProps): JSX.Element {
+function TableFieldNode({ nodeRef, rowsRefs, fixedFields, joinedFields, tableName }: TableFieldNodeProps): JSX.Element {
     return (
         <div ref={nodeRef} className="w-[500px] bg-white border border-black border-2 rounded-lg">
-            <TableFields fixedFields={fixedFields} joinedFields={joinedFields} rowsRefs={rowsRefs} />
+            <TableFields
+                fixedFields={fixedFields}
+                joinedFields={joinedFields}
+                rowsRefs={rowsRefs}
+                tableName={tableName}
+            />
         </div>
     )
 }

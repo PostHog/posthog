@@ -55,5 +55,7 @@ export function DataModelScene(): JSX.Element {
         { nodeId: 'another_column_2', type: 'string', table: 'prod_stripe_account' },
     ]
 
-    return <NodeCanvasWithTable nodes={nodes} fixedFields={fixedFields} joinedFields={joinedFields} />
+    return (
+        <NodeCanvasWithTable nodes={nodes} fixedFields={fixedFields} joinedFields={joinedFields} tableName="person" />
+    )
 }

@@ -14,14 +14,15 @@ export interface TableFieldsProps {
     fixedFields: FixedField[]
     joinedFields: JoinedField[]
     rowsRefs: React.MutableRefObject<(HTMLDivElement | null)[]>
+    tableName: string
 }
 
-export function TableFields({ fixedFields, joinedFields, rowsRefs }: TableFieldsProps): JSX.Element {
+export function TableFields({ fixedFields, joinedFields, rowsRefs, tableName }: TableFieldsProps): JSX.Element {
     return (
         <div className="">
             <div>
                 <div className="pl-4 mt-4">
-                    <h3>person</h3>
+                    <h3>{tableName}</h3>
                 </div>
             </div>
             <div className="flex flex-col gap-1">
