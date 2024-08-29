@@ -64,6 +64,21 @@ pub struct Config {
     #[envconfig(default = "10000")]
     pub update_count_skip_threshold: usize,
 
+    // Do everything except actually write to the DB
+    #[envconfig(default = "true")]
+    pub skip_writes: bool,
+
+    // Do everything except actually read or write from the DB
+    #[envconfig(default = "true")]
+    pub skip_reads: bool,
+
+    // We maintain a small cache for mapping from group names to group type indexes.
+    // You have very few reasons to ever change this... group type index resolution
+    // is done as a final step before writing an update, and is low-cost even without
+    // caching, compared to the rest of the process.
+    #[envconfig(default = "100000")]
+    pub group_type_cache_size: usize,
+
     #[envconfig(from = "BIND_HOST", default = "::")]
     pub host: String,
 
