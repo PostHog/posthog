@@ -159,7 +159,7 @@ export type HogFunctionInvocation = {
     team_id: Team['id']
     hogFunction: HogFunctionType
     queue: 'hog' | 'fetch'
-    queueParameters?: any
+    queueParameters?: Record<string, any>
     // The current vmstate (set if the invocation is paused)
     vmState?: VMState
     timings: HogFunctionTiming[]
