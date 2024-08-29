@@ -17,7 +17,7 @@ import { loaders } from 'kea-loaders'
 import { encodeParams, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
-import { isDomain, isURL } from 'lib/utils'
+import { isDomain, isURL, sanitizePossibleWildCardedURL } from 'lib/utils'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -81,20 +81,21 @@ export function appEditorUrl(
     return '/api/user/redirect_to_site/' + encodeParams(params, '?')
 }
 
-export const checkUrlIsAuthorized = (url: string, authorizedUrls: string[]): boolean => {
+export const checkUrlIsAuthorized = (url: string | URL, authorizedUrls: string[]): boolean => {
     try {
-        const parsedUrl = new URL(url)
+        const parsedUrl = typeof url === 'string' ? sanitizePossibleWildCardedURL(url) : url
         const urlWithoutPath = parsedUrl.protocol + '//' + parsedUrl.host
         // Is this domain already in the list of urls?
-        const exactMatch = authorizedUrls.filter((url) => url.indexOf(urlWithoutPath) > -1).length > 0
+        const exactMatch =
+            authorizedUrls.filter((authorizedUrl) => authorizedUrl.indexOf(urlWithoutPath) > -1).length > 0
 
         if (exactMatch) {
             return true
         }
 
-        const wildcardMatch = !!authorizedUrls.find((url) => {
+        const wildcardMatch = !!authorizedUrls.find((authorizedUrl) => {
             // Matches something like `https://*.example.com` against the urlWithoutPath
-            const regex = new RegExp(url.replace(/\./g, '\\.').replace(/\*/g, '.*'))
+            const regex = new RegExp(authorizedUrl.replace(/\./g, '\\.').replace(/\*/g, '.*'))
             return urlWithoutPath.match(regex)
         })
 
@@ -112,14 +113,14 @@ export const filterNotAuthorizedUrls = (urls: string[], authorizedUrls: string[]
     const suggestedDomains: string[] = []
 
     urls.forEach((url) => {
-        const parsedUrl = new URL(url)
+        const parsedUrl = sanitizePossibleWildCardedURL(url)
         const urlWithoutPath = parsedUrl.protocol + '//' + parsedUrl.host
         // Have we already added this domain?
         if (suggestedDomains.indexOf(urlWithoutPath) > -1) {
             return
         }
 
-        if (!checkUrlIsAuthorized(url, authorizedUrls)) {
+        if (!checkUrlIsAuthorized(parsedUrl, authorizedUrls)) {
             suggestedDomains.push(urlWithoutPath)
         }
     })

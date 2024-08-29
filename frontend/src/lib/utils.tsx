@@ -594,13 +594,19 @@ export function stripHTTP(url: string): string {
     return url
 }
 
+/**
+ * Firefox does not allow you construct a new URL with e.g. https://*.example.com (which is to be fair more standards compliant than Chrome)
+ * we only care if the proposed URL has a path so
+ * https://*.example.com, https://example.com/*, https://x.example.com, and https://example.com/x are all equivalent as a probe
+ */
+export function sanitizePossibleWildCardedURL(url: string): URL {
+    const deWildCardedURL = url.replace(/\*/g, 'x')
+    return new URL(deWildCardedURL)
+}
+
 export function isDomain(url: string): boolean {
     try {
-        // Firefox does not allow you construct a new URL with e.g. https://*.example.com (which is to be fair more standards compliant than Chrome)
-        // we only care if the proposed URL has a path so
-        // https://*.example.com, https://example.com/*, https://x.example.com, and https://example.com/x are all equivalent as a probe
-        const dewildcardedURL = url.replace(/\*/g, 'x')
-        const parsedUrl = new URL(dewildcardedURL)
+        const parsedUrl = sanitizePossibleWildCardedURL(url)
         if (parsedUrl.protocol.includes('http') && (!parsedUrl.pathname || parsedUrl.pathname === '/')) {
             return true
         }
