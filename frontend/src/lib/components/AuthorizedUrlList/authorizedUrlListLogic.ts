@@ -37,6 +37,16 @@ export enum AuthorizedUrlListType {
     RECORDING_DOMAINS = 'RECORDING_DOMAINS',
 }
 
+/**
+ * Firefox does not allow you construct a new URL with e.g. https://*.example.com (which is to be fair more standards compliant than Chrome)
+ * when used to probe for e.g. for authorized urls we only care if the proposed URL has a path so we can safely replace the wildcard with a character
+ * NB this changes its input and shouldn't be used for general purpose URL parsing
+ */
+export function sanitizePossibleWildCardedURL(url: string): URL {
+    const deWildCardedURL = url.replace(/\*/g, 'x')
+    return new URL(deWildCardedURL)
+}
+
 export const validateProposedUrl = (
     proposedUrl: string,
     currentUrls: string[],
@@ -46,7 +56,7 @@ export const validateProposedUrl = (
         return 'Please enter a valid URL'
     }
 
-    if (onlyAllowDomains && !isDomain(proposedUrl)) {
+    if (onlyAllowDomains && !isDomain(sanitizePossibleWildCardedURL(proposedUrl))) {
         return "Please enter a valid domain (URLs with a path aren't allowed)"
     }
 
