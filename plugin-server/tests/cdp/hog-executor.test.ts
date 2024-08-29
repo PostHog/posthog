@@ -94,7 +94,7 @@ describe('Hog Executor', () => {
                 {
                     timestamp: expect.any(DateTime),
                     level: 'debug',
-                    message: "Suspending function due to async function call 'fetch'. Payload: 1740 bytes",
+                    message: "Suspending function due to async function call 'fetch'. Payload: 1768 bytes",
                 },
             ])
         })
@@ -130,26 +130,27 @@ describe('Hog Executor', () => {
                     url: 'https://example.com/posthog-webhook',
                     method: 'POST',
                     headers: { version: 'v=1.2.3' },
-                    body: JSON.stringify({
-                        event: {
-                            uuid: 'uuid',
-                            name: 'test',
-                            distinct_id: 'distinct_id',
-                            url: 'http://localhost:8000/events/1',
-                            properties: { $lib_version: '1.2.3' },
-                            timestamp: '2024-06-07T12:00:00.000Z',
-                        },
-                        groups: {},
-                        nested: { foo: 'http://localhost:8000/events/1' },
-                        person: {
-                            uuid: 'person-uuid',
-                            name: 'person',
-                            url: 'http://localhost:8000/persons/1',
-                            properties: {},
-                        },
-                        event_url: 'http://localhost:8000/events/1-test',
-                    }),
                 },
+            })
+
+            expect(JSON.parse(result.invocation.queueParameters!.body)).toEqual({
+                event: {
+                    uuid: 'uuid',
+                    name: 'test',
+                    distinct_id: 'distinct_id',
+                    url: 'http://localhost:8000/events/1',
+                    properties: { $lib_version: '1.2.3' },
+                    timestamp: '2024-06-07T12:00:00.000Z',
+                },
+                groups: {},
+                nested: { foo: 'http://localhost:8000/events/1' },
+                person: {
+                    uuid: 'uuid',
+                    name: 'test',
+                    url: 'http://localhost:8000/persons/1',
+                    properties: { email: 'test@posthog.com' },
+                },
+                event_url: 'http://localhost:8000/events/1-test',
             })
         })
 
@@ -170,13 +171,15 @@ describe('Hog Executor', () => {
 
             expect(secondResult.finished).toBe(true)
             expect(secondResult.error).toBeUndefined()
-            expect(logs.map((log) => log.message)).toEqual([
-                'Executing function',
-                "Suspending function due to async function call 'fetch'. Payload: 1740 bytes",
-                'Resuming function',
-                'Fetch response:, {"status":200,"body":"success"}',
-                'Function completed in 100ms. Sync: 0ms. Mem: 722 bytes. Ops: 22.',
-            ])
+            expect(logs.map((log) => log.message)).toMatchInlineSnapshot(`
+                Array [
+                  "Executing function",
+                  "Suspending function due to async function call 'fetch'. Payload: 1768 bytes",
+                  "Resuming function",
+                  "Fetch response:, {\\"status\\":200,\\"body\\":\\"success\\"}",
+                  "Function completed in 100ms. Sync: 0ms. Mem: 750 bytes. Ops: 22.",
+                ]
+            `)
         })
 
         it('parses the responses body if a string', () => {
@@ -190,13 +193,15 @@ describe('Hog Executor', () => {
             const secondResult = executor.execute(result.invocation)
             logs.push(...secondResult.logs)
 
-            expect(logs.map((log) => log.message)).toEqual([
-                'Executing function',
-                "Suspending function due to async function call 'fetch'. Payload: 1740 bytes",
-                'Resuming function',
-                'Fetch response:, {"status":200,"body":{"foo":"bar"}}',
-                'Function completed in 100ms. Sync: 0ms. Mem: 722 bytes. Ops: 22.',
-            ])
+            expect(logs.map((log) => log.message)).toMatchInlineSnapshot(`
+                Array [
+                  "Executing function",
+                  "Suspending function due to async function call 'fetch'. Payload: 1768 bytes",
+                  "Resuming function",
+                  "Fetch response:, {\\"status\\":200,\\"body\\":{\\"foo\\":\\"bar\\"}}",
+                  "Function completed in 100ms. Sync: 0ms. Mem: 750 bytes. Ops: 22.",
+                ]
+            `)
         })
     })
 

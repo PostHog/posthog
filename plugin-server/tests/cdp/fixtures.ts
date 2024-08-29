@@ -108,19 +108,13 @@ export const createHogExecutionGlobals = (
 ): HogFunctionInvocationGlobals => {
     return {
         groups: {},
-        person: {
-            uuid: 'person-uuid',
-            name: 'person',
-            url: 'http://localhost:8000/persons/1',
-            properties: {},
-        },
         ...data,
         person: {
             uuid: 'uuid',
             name: 'test',
             url: 'http://localhost:8000/persons/1',
             properties: {
-                $lib_version: '1.2.3',
+                email: 'test@posthog.com',
             },
             ...(data.person ?? {}),
         },
