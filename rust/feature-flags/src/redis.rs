@@ -34,6 +34,7 @@ pub trait Client {
 
     async fn get(&self, k: String) -> Result<String, CustomRedisError>;
     async fn set(&self, k: String, v: String) -> Result<()>;
+    async fn del(&self, k: String) -> Result<(), CustomRedisError>;
 }
 
 pub struct RedisClient {
@@ -92,5 +93,15 @@ impl Client for RedisClient {
         let fut = timeout(Duration::from_secs(REDIS_TIMEOUT_MILLISECS), results).await?;
 
         Ok(fut?)
+    }
+
+    async fn del(&self, k: String) -> Result<(), CustomRedisError> {
+        let mut conn = self.client.get_async_connection().await?;
+
+        let results = conn.del(k);
+        let fut: Result<(), RedisError> =
+            timeout(Duration::from_secs(REDIS_TIMEOUT_MILLISECS), results).await?;
+
+        fut.map_err(CustomRedisError::from)
     }
 }

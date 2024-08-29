@@ -683,7 +683,7 @@ class Tuple(Expr):
 @dataclass(kw_only=True)
 class Lambda(Expr):
     args: list[str]
-    expr: Expr
+    expr: Expr | Block
 
 
 @dataclass(kw_only=True)
@@ -716,6 +716,12 @@ class Call(Expr):
     https://clickhouse.com/docs/en/sql-reference/aggregate-functions/parametric-functions
     """
     distinct: bool = False
+
+
+@dataclass(kw_only=True)
+class ExprCall(Expr):
+    expr: Expr
+    args: list[Expr]
 
 
 @dataclass(kw_only=True)

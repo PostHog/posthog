@@ -15,7 +15,7 @@ import {
 import { filterInspectorListItems } from 'scenes/session-recordings/player/inspector/inspectorListFiltering'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import {
-    convertUniversalFiltersToLegacyFilters,
+    convertUniversalFiltersToRecordingsQuery,
     MatchingEventsMatchType,
 } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
@@ -152,7 +152,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
         values: [
             playerSettingsLogic,
-            ['showOnlyMatching', 'tab', 'miniFiltersByKey', 'searchQuery'],
+            ['showOnlyMatching', 'showSeekbarTicks', 'tab', 'miniFiltersByKey', 'searchQuery'],
             sessionRecordingDataLogic(props),
             [
                 'sessionPlayerData',
@@ -229,7 +229,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         throw new Error('Backend matching events type must include its filters')
                     }
                     const params = toParams({
-                        ...convertUniversalFiltersToLegacyFilters(filters),
+                        ...convertUniversalFiltersToRecordingsQuery(filters),
                         session_ids: [props.sessionRecordingId],
                     })
                     const response = await api.recordings.getMatchingEvents(params)
@@ -575,10 +575,14 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
 
         seekbarItems: [
-            (s) => [s.allItems, s.showOnlyMatching, s.showMatchingEventsFilter],
-            (allItems, showOnlyMatching, showMatchingEventsFilter): InspectorListItemEvent[] => {
+            (s) => [s.allItems, s.showOnlyMatching, s.showSeekbarTicks, s.showMatchingEventsFilter],
+            (allItems, showOnlyMatching, showSeekbarTicks, showMatchingEventsFilter): InspectorListItemEvent[] => {
                 let items = allItems.filter((item) => {
                     if (item.type !== SessionRecordingPlayerTab.EVENTS) {
+                        return false
+                    }
+
+                    if (!showSeekbarTicks && ['$pageview', '$screen'].includes(item.data.event)) {
                         return false
                     }
 

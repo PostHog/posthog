@@ -41,6 +41,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
         kafka_producer_linger_ms: 0, // Send messages as soon as possible
         kafka_producer_queue_mib: 10,
         kafka_message_timeout_ms: 10000, // 10s, ACKs can be slow on low volumes, should be tuned
+        kafka_producer_message_max_bytes: 1000000, // 1MB, rdkafka default
         kafka_compression_codec: "none".to_string(),
         kafka_hosts: "kafka:9092".to_string(),
         kafka_topic: "events_plugin_ingestion".to_string(),
@@ -152,7 +153,7 @@ impl EphemeralTopic {
         // TODO: check for name collision?
         let topic_name = random_string("events_", 16);
         let admin = AdminClient::from_config(&config).expect("failed to create admin client");
-        admin
+        let created = admin
             .create_topics(
                 &[NewTopic {
                     name: &topic_name,
@@ -164,6 +165,10 @@ impl EphemeralTopic {
             )
             .await
             .expect("failed to create topic");
+
+        for result in created {
+            result.expect("failed to create topic");
+        }
 
         let consumer: BaseConsumer = config.create().expect("failed to create consumer");
         let mut assignment = TopicPartitionList::new();
