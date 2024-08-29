@@ -131,6 +131,10 @@ impl KafkaSink {
             .set("partitioner", "murmur2_random") // Compatibility with python-kafka
             .set("linger.ms", config.kafka_producer_linger_ms.to_string())
             .set(
+                "message.max.bytes",
+                config.kafka_producer_message_max_bytes.to_string(),
+            )
+            .set(
                 "message.timeout.ms",
                 config.kafka_message_timeout_ms.to_string(),
             )
@@ -139,6 +143,10 @@ impl KafkaSink {
                 "queue.buffering.max.kbytes",
                 (config.kafka_producer_queue_mib * 1024).to_string(),
             );
+
+        if !&config.kafka_client_id.is_empty() {
+            client_config.set("client.id", &config.kafka_client_id);
+        }
 
         if config.kafka_tls {
             client_config
@@ -328,7 +336,9 @@ mod tests {
     use std::num::NonZeroU32;
     use time::Duration;
 
-    async fn start_on_mocked_sink() -> (MockCluster<'static, DefaultProducerContext>, KafkaSink) {
+    async fn start_on_mocked_sink(
+        message_max_bytes: Option<u32>,
+    ) -> (MockCluster<'static, DefaultProducerContext>, KafkaSink) {
         let registry = HealthRegistry::new("liveness");
         let handle = registry
             .register("one".to_string(), Duration::seconds(30))
@@ -343,6 +353,7 @@ mod tests {
             kafka_producer_linger_ms: 0,
             kafka_producer_queue_mib: 50,
             kafka_message_timeout_ms: 500,
+            kafka_producer_message_max_bytes: message_max_bytes.unwrap_or(1000000),
             kafka_compression_codec: "none".to_string(),
             kafka_hosts: cluster.bootstrap_servers(),
             kafka_topic: "events_plugin_ingestion".to_string(),
@@ -351,6 +362,7 @@ mod tests {
             kafka_exceptions_topic: "events_plugin_ingestion".to_string(),
             kafka_heatmaps_topic: "events_plugin_ingestion".to_string(),
             kafka_tls: false,
+            kafka_client_id: "".to_string(),
         };
         let sink = KafkaSink::new(config, handle, limiter).expect("failed to create sink");
         (cluster, sink)
@@ -361,7 +373,7 @@ mod tests {
         // Uses a mocked Kafka broker that allows injecting write errors, to check error handling.
         // We test different cases in a single test to amortize the startup cost of the producer.
 
-        let (cluster, sink) = start_on_mocked_sink().await;
+        let (cluster, sink) = start_on_mocked_sink(Some(3000000)).await;
         let event: ProcessedEvent = ProcessedEvent {
             data_type: DataType::AnalyticsMain,
             uuid: uuid_v7(),
@@ -389,10 +401,31 @@ mod tests {
             .await
             .expect("failed to send initial event batch");
 
-        // Producer should reject a 2MB message, twice the default `message.max.bytes`
+        // Producer should accept a 2MB message as we set message.max.bytes to 3MB
         let big_data = rand::thread_rng()
             .sample_iter(Alphanumeric)
             .take(2_000_000)
+            .map(char::from)
+            .collect();
+        let big_event: ProcessedEvent = ProcessedEvent {
+            data_type: DataType::AnalyticsMain,
+            uuid: uuid_v7(),
+            distinct_id: "id1".to_string(),
+            ip: "".to_string(),
+            data: big_data,
+            now: "".to_string(),
+            sent_at: None,
+            token: "token1".to_string(),
+            session_id: None,
+        };
+        sink.send(big_event)
+            .await
+            .expect("failed to send event larger than default max size");
+
+        // Producer should reject a 4MB message
+        let big_data = rand::thread_rng()
+            .sample_iter(Alphanumeric)
+            .take(4_000_000)
             .map(char::from)
             .collect();
         let big_event: ProcessedEvent = ProcessedEvent {

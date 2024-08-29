@@ -27,6 +27,11 @@ if "--run" in modifiers:
     for line in response.stdout:
         print(line)  # noqa: T201
 
+elif "--out" in modifiers:
+    if len(args) != 2:
+        raise ValueError("Must specify exactly one filename")
+    print(json.dumps(bytecode))  # noqa: T201
+
 elif "--compile" in modifiers:
     if len(args) == 3:
         target = args[2]

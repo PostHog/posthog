@@ -9,7 +9,7 @@ from loginas.utils import is_impersonated_session
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework import exceptions, request, response, serializers, viewsets
-from rest_framework.decorators import action
+from posthog.api.utils import action
 
 from posthog.api.geoip import get_geoip_properties
 from posthog.api.routing import TeamAndOrgViewSetMixin

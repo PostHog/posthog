@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use chrono::{Duration, Utc};
 
-use cyclotron_core::{Job, JobInit, QueueError, Worker};
+use cyclotron_core::{Bytes, Job, JobInit, QueueError, Worker};
 use cyclotron_fetch::{
     config::AppConfig,
     context::AppContext,
@@ -29,6 +29,7 @@ pub async fn get_app_test_context(db: PgPool) -> AppContext {
         host: "localhost".to_string(),
         port: 16,
         worker_id: "test".to_string(),
+        shard_id: "test".to_string(),
         job_poll_interval: Duration::seconds(10),
         max_retry_attempts: 3,
         queue_served: FETCH_QUEUE.to_string(),
@@ -44,6 +45,7 @@ pub async fn get_app_test_context(db: PgPool) -> AppContext {
         concurrency_limit,
         liveness,
         config,
+        metric_labels: Default::default(),
     }
 }
 
@@ -53,13 +55,12 @@ pub fn construct_params(url: String, method: HttpMethod) -> FetchParameters {
         method,
         return_queue: RETURN_QUEUE.to_string(),
         headers: None,
-        body: None,
         max_tries: None,
         on_finish: None,
     }
 }
 
-pub fn construct_job(parameters: FetchParameters) -> JobInit {
+pub fn construct_job(parameters: FetchParameters, body: Option<Bytes>) -> JobInit {
     JobInit {
         team_id: 1,
         queue_name: FETCH_QUEUE.to_string(),
@@ -67,7 +68,8 @@ pub fn construct_job(parameters: FetchParameters) -> JobInit {
         scheduled: Utc::now() - Duration::seconds(1),
         function_id: None,
         vm_state: None,
-        parameters: Some(serde_json::to_string(&parameters).unwrap()),
+        parameters: Some(serde_json::to_vec(&parameters).unwrap()),
+        blob: body,
         metadata: None,
     }
 }

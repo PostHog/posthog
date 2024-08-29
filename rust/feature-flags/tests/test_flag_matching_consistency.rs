@@ -107,9 +107,10 @@ async fn it_is_consistent_with_rollout_calculation_for_simple_flags() {
     for i in 0..1000 {
         let distinct_id = format!("distinct_id_{}", i);
 
-        let feature_flag_match = FeatureFlagMatcher::new(distinct_id, None)
+        let feature_flag_match = FeatureFlagMatcher::new(distinct_id, None, None)
             .get_match(&flags[0])
-            .await;
+            .await
+            .unwrap();
 
         if results[i] {
             assert_eq!(
@@ -1188,9 +1189,10 @@ async fn it_is_consistent_with_rollout_calculation_for_multivariate_flags() {
     for i in 0..1000 {
         let distinct_id = format!("distinct_id_{}", i);
 
-        let feature_flag_match = FeatureFlagMatcher::new(distinct_id, None)
+        let feature_flag_match = FeatureFlagMatcher::new(distinct_id, None, None)
             .get_match(&flags[0])
-            .await;
+            .await
+            .unwrap();
 
         if results[i].is_some() {
             assert_eq!(

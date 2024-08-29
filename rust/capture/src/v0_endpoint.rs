@@ -13,7 +13,7 @@ use serde_json::json;
 use serde_json::Value;
 use tracing::instrument;
 
-use crate::limiters::billing::QuotaResource;
+use crate::limiters::redis::QuotaResource;
 use crate::prometheus::report_dropped_events;
 use crate::v0_request::{Compression, ProcessingContext, RawRequest};
 use crate::{
@@ -117,7 +117,7 @@ async fn handle_common(
     };
 
     let billing_limited = state
-        .billing
+        .billing_limiter
         .is_limited(context.token.as_str(), quota_resource)
         .await;
 
@@ -336,7 +336,9 @@ pub async fn process_replay_events<'a>(
     let snapshot_items: Vec<Value> = events
         .iter()
         .map(|e| match e.properties.get("$snapshot_data") {
+            // We can either have an array or single object
             Some(Value::Array(value)) => Ok(value.to_vec()),
+            // Wrap a single object in a vec to simplify processing.
             Some(Value::Object(value)) => Ok([Value::Object(value.clone())].to_vec()),
             _ => Err(CaptureError::MissingSnapshotData),
         })
@@ -348,13 +350,8 @@ pub async fn process_replay_events<'a>(
     let session_id = events[0]
         .properties
         .get("$session_id")
-        .ok_or(CaptureError::MissingSessionId)?
-        .as_str()
-        .ok_or(CaptureError::InvalidSessionId)?;
-    let window_id = events[0]
-        .properties
-        .get("$window_id")
-        .ok_or(CaptureError::MissingWindowId)?;
+        .ok_or(CaptureError::MissingSessionId)?;
+    let window_id = events[0].properties.get("$window_id").unwrap_or(session_id);
     let event = ProcessedEvent {
         data_type: DataType::SnapshotMain,
         uuid: events[0].uuid.unwrap_or_else(uuid_v7),
@@ -373,7 +370,9 @@ pub async fn process_replay_events<'a>(
         now: context.now.clone(),
         sent_at: context.sent_at,
         token: context.token.clone(),
-        session_id: Some(session_id.to_string()),
+        session_id: Some(session_id
+            .as_str()
+            .ok_or(CaptureError::InvalidSessionId)?.to_string()),
     };
 
     sink.send(event).await

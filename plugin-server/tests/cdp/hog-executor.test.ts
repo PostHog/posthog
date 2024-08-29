@@ -58,9 +58,9 @@ describe('Hog Executor', () => {
         })
 
         it('can execute messages', () => {
-            const globals = createHogExecutionGlobals()
+            const globals = createHogExecutionGlobals({ groups: {} })
             const results = executor
-                .findMatchingFunctions(createHogExecutionGlobals())
+                .findMatchingFunctions(createHogExecutionGlobals({ groups: {} }))
                 .matchingFunctions.map((x) => executor.executeFunction(globals, x) as HogFunctionInvocationResult)
             expect(results).toHaveLength(1)
             expect(results[0]).toMatchObject({
@@ -74,9 +74,9 @@ describe('Hog Executor', () => {
         })
 
         it('collects logs from the function', () => {
-            const globals = createHogExecutionGlobals()
+            const globals = createHogExecutionGlobals({ groups: {} })
             const results = executor
-                .findMatchingFunctions(createHogExecutionGlobals())
+                .findMatchingFunctions(createHogExecutionGlobals({ groups: {} }))
                 .matchingFunctions.map((x) => executor.executeFunction(globals, x) as HogFunctionInvocationResult)
             expect(results[0].logs).toMatchObject([
                 {
@@ -87,7 +87,7 @@ describe('Hog Executor', () => {
                 {
                     timestamp: expect.any(DateTime),
                     level: 'debug',
-                    message: "Suspending function due to async function call 'fetch'. Payload: 1299 bytes",
+                    message: "Suspending function due to async function call 'fetch'. Payload: 1814 bytes",
                 },
             ])
         })
@@ -100,7 +100,10 @@ describe('Hog Executor', () => {
 
             mockFunctionManager.getTeamHogFunctions.mockReturnValue([fn])
 
-            const result = executor.executeFunction(createHogExecutionGlobals(), fn) as HogFunctionInvocationResult
+            const result = executor.executeFunction(
+                createHogExecutionGlobals({ groups: {} }),
+                fn
+            ) as HogFunctionInvocationResult
             expect(result.logs.map((x) => x.message)).toMatchInlineSnapshot(`
                 Array [
                   "Executing function",
@@ -115,9 +118,9 @@ describe('Hog Executor', () => {
         })
 
         it('queues up an async function call', () => {
-            const globals = createHogExecutionGlobals()
+            const globals = createHogExecutionGlobals({ groups: {} })
             const results = executor
-                .findMatchingFunctions(createHogExecutionGlobals())
+                .findMatchingFunctions(createHogExecutionGlobals({ groups: {} }))
                 .matchingFunctions.map((x) => executor.executeFunction(globals, x) as HogFunctionInvocationResult)
             expect(results[0]).toMatchObject({
                 invocation: {
@@ -163,9 +166,14 @@ describe('Hog Executor', () => {
                                     properties: { $lib_version: '1.2.3' },
                                     timestamp: '2024-06-07T12:00:00.000Z',
                                 },
-                                groups: null,
+                                groups: {},
                                 nested: { foo: 'http://localhost:8000/events/1' },
-                                person: null,
+                                person: {
+                                    uuid: 'uuid',
+                                    name: 'test',
+                                    url: 'http://localhost:8000/persons/1',
+                                    properties: { $lib_version: '1.2.3' },
+                                },
                                 event_url: 'http://localhost:8000/events/1-test',
                             },
                             method: 'POST',
@@ -177,9 +185,9 @@ describe('Hog Executor', () => {
 
         it('executes the full function in a loop', () => {
             const logs: LogEntry[] = []
-            const globals = createHogExecutionGlobals()
+            const globals = createHogExecutionGlobals({ groups: {} })
             const results = executor
-                .findMatchingFunctions(createHogExecutionGlobals())
+                .findMatchingFunctions(createHogExecutionGlobals({ groups: {} }))
                 .matchingFunctions.map((x) => executor.executeFunction(globals, x) as HogFunctionInvocationResult)
             const splicedLogs = results[0].logs.splice(0, 100)
             logs.push(...splicedLogs)
@@ -191,18 +199,18 @@ describe('Hog Executor', () => {
             expect(asyncExecResult.finished).toBe(true)
             expect(logs.map((log) => log.message)).toEqual([
                 'Executing function',
-                "Suspending function due to async function call 'fetch'. Payload: 1299 bytes",
+                "Suspending function due to async function call 'fetch'. Payload: 1814 bytes",
                 'Resuming function',
                 'Fetch response:, {"status":200,"body":"success"}',
-                'Function completed in 100ms. Sync: 0ms. Mem: 589 bytes. Ops: 22.',
+                'Function completed in 100ms. Sync: 0ms. Mem: 746 bytes. Ops: 22.',
             ])
         })
 
         it('parses the responses body if a string', () => {
             const logs: LogEntry[] = []
-            const globals = createHogExecutionGlobals()
+            const globals = createHogExecutionGlobals({ groups: {} })
             const results = executor
-                .findMatchingFunctions(createHogExecutionGlobals())
+                .findMatchingFunctions(createHogExecutionGlobals({ groups: {} }))
                 .matchingFunctions.map((x) => executor.executeFunction(globals, x) as HogFunctionInvocationResult)
             const splicedLogs = results[0].logs.splice(0, 100)
             logs.push(...splicedLogs)
@@ -219,10 +227,10 @@ describe('Hog Executor', () => {
             expect(asyncExecResult.finished).toBe(true)
             expect(logs.map((log) => log.message)).toEqual([
                 'Executing function',
-                "Suspending function due to async function call 'fetch'. Payload: 1299 bytes",
+                "Suspending function due to async function call 'fetch'. Payload: 1814 bytes",
                 'Resuming function',
                 'Fetch response:, {"status":200,"body":{"foo":"bar"}}', // The body is parsed
-                'Function completed in 100ms. Sync: 0ms. Mem: 589 bytes. Ops: 22.',
+                'Function completed in 100ms. Sync: 0ms. Mem: 746 bytes. Ops: 22.',
             ])
         })
     })
@@ -237,12 +245,13 @@ describe('Hog Executor', () => {
 
             mockFunctionManager.getTeamHogFunctions.mockReturnValue([fn])
 
-            const resultsShouldntMatch = executor.findMatchingFunctions(createHogExecutionGlobals())
+            const resultsShouldntMatch = executor.findMatchingFunctions(createHogExecutionGlobals({ groups: {} }))
             expect(resultsShouldntMatch.matchingFunctions).toHaveLength(0)
             expect(resultsShouldntMatch.nonMatchingFunctions).toHaveLength(1)
 
             const resultsShouldMatch = executor.findMatchingFunctions(
                 createHogExecutionGlobals({
+                    groups: {},
                     event: {
                         name: '$pageview',
                         properties: {
@@ -267,9 +276,9 @@ describe('Hog Executor', () => {
             mockFunctionManager.getTeamHogFunctions.mockReturnValue([fn])
 
             // Simulate the recusive loop
-            const globals = createHogExecutionGlobals()
+            const globals = createHogExecutionGlobals({ groups: {} })
             const results = executor
-                .findMatchingFunctions(createHogExecutionGlobals())
+                .findMatchingFunctions(createHogExecutionGlobals({ groups: {} }))
                 .matchingFunctions.map((x) => executor.executeFunction(globals, x) as HogFunctionInvocationResult)
             expect(results).toHaveLength(1)
 
@@ -305,9 +314,9 @@ describe('Hog Executor', () => {
 
             mockFunctionManager.getTeamHogFunctions.mockReturnValue([fn])
 
-            const globals = createHogExecutionGlobals()
+            const globals = createHogExecutionGlobals({ groups: {} })
             const results = executor
-                .findMatchingFunctions(createHogExecutionGlobals())
+                .findMatchingFunctions(createHogExecutionGlobals({ groups: {} }))
                 .matchingFunctions.map((x) => executor.executeFunction(globals, x) as HogFunctionInvocationResult)
             expect(results).toHaveLength(1)
             expect(results[0].error).toContain('Execution timed out after 0.1 seconds. Performed ')
@@ -339,7 +348,7 @@ describe('Hog Executor', () => {
                 ...HOG_FILTERS_EXAMPLES.no_filters,
             })
 
-            const globals = createHogExecutionGlobals()
+            const globals = createHogExecutionGlobals({ groups: {} })
             const result = executor.executeFunction(globals, fn)
             expect(result?.capturedPostHogEvents).toEqual([
                 {
@@ -362,6 +371,7 @@ describe('Hog Executor', () => {
             })
 
             const globals = createHogExecutionGlobals({
+                groups: {},
                 event: {
                     properties: {
                         $hog_function_execution_count: 1,

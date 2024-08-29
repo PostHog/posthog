@@ -28,6 +28,7 @@ PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING = {
     ExternalDataSource.Type.SNOWFLAKE: (),
     ExternalDataSource.Type.SALESFORCE: SALESFORCE_ENDPOINTS,
     ExternalDataSource.Type.MYSQL: (),
+    ExternalDataSource.Type.MSSQL: (),
 }
 
 PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING = {
@@ -38,6 +39,7 @@ PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING = {
     ExternalDataSource.Type.SNOWFLAKE: (),
     ExternalDataSource.Type.SALESFORCE: SALESFORCE_INCREMENTAL_ENDPOINTS,
     ExternalDataSource.Type.MYSQL: (),
+    ExternalDataSource.Type.MSSQL: (),
 }
 
 PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING: dict[ExternalDataSource.Type, dict[str, list[IncrementalField]]] = {
@@ -48,4 +50,5 @@ PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING: dict[ExternalDataSource.Type, dict[str
     ExternalDataSource.Type.SNOWFLAKE: {},
     ExternalDataSource.Type.SALESFORCE: SALESFORCE_INCREMENTAL_FIELDS,
     ExternalDataSource.Type.MYSQL: {},
+    ExternalDataSource.Type.MSSQL: {},
 }

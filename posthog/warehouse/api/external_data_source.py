@@ -6,7 +6,7 @@ from psycopg2 import OperationalError
 from sentry_sdk import capture_exception
 import structlog
 from rest_framework import filters, serializers, status, viewsets
-from rest_framework.decorators import action
+from posthog.api.utils import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -33,6 +33,8 @@ from posthog.temporal.data_imports.pipelines.hubspot.auth import (
     get_hubspot_access_token_from_code,
 )
 from posthog.warehouse.models.external_data_schema import (
+    filter_mssql_incremental_fields,
+    filter_mysql_incremental_fields,
     filter_postgres_incremental_fields,
     filter_snowflake_incremental_fields,
     get_sql_schemas_for_source_type,
@@ -264,7 +266,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             new_source_model = self._handle_zendesk_source(request, *args, **kwargs)
         elif source_type == ExternalDataSource.Type.SALESFORCE:
             new_source_model = self._handle_salesforce_source(request, *args, **kwargs)
-        elif source_type in [ExternalDataSource.Type.POSTGRES, ExternalDataSource.Type.MYSQL]:
+        elif source_type in [
+            ExternalDataSource.Type.POSTGRES,
+            ExternalDataSource.Type.MYSQL,
+            ExternalDataSource.Type.MSSQL,
+        ]:
             try:
                 new_source_model, sql_schemas = self._handle_sql_source(request, *args, **kwargs)
             except InternalPostgresError:
@@ -280,7 +286,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         payload = request.data["payload"]
         schemas = payload.get("schemas", None)
-        if source_type in [ExternalDataSource.Type.POSTGRES, ExternalDataSource.Type.MYSQL]:
+        if source_type in [
+            ExternalDataSource.Type.POSTGRES,
+            ExternalDataSource.Type.MYSQL,
+            ExternalDataSource.Type.MSSQL,
+        ]:
             default_schemas = sql_schemas
         elif source_type == ExternalDataSource.Type.SNOWFLAKE:
             default_schemas = snowflake_schemas
@@ -668,7 +678,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
 
         # Get schemas and validate SQL credentials
-        if source_type in [ExternalDataSource.Type.POSTGRES, ExternalDataSource.Type.MYSQL]:
+        if source_type in [
+            ExternalDataSource.Type.POSTGRES,
+            ExternalDataSource.Type.MYSQL,
+            ExternalDataSource.Type.MSSQL,
+        ]:
             host = request.data.get("host", None)
             port = request.data.get("port", None)
             database = request.data.get("dbname", None)
@@ -775,9 +789,18 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     data={"message": get_generic_sql_error(source_type)},
                 )
 
-            filtered_results = [
-                (table_name, filter_postgres_incremental_fields(columns)) for table_name, columns in result.items()
-            ]
+            if source_type == ExternalDataSource.Type.POSTGRES:
+                filtered_results = [
+                    (table_name, filter_postgres_incremental_fields(columns)) for table_name, columns in result.items()
+                ]
+            elif source_type == ExternalDataSource.Type.MYSQL:
+                filtered_results = [
+                    (table_name, filter_mysql_incremental_fields(columns)) for table_name, columns in result.items()
+                ]
+            elif source_type == ExternalDataSource.Type.MSSQL:
+                filtered_results = [
+                    (table_name, filter_mssql_incremental_fields(columns)) for table_name, columns in result.items()
+                ]
 
             result_mapped_to_options = [
                 {

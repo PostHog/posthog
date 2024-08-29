@@ -40,6 +40,7 @@ async fn main() {
             vm_state: None,
             parameters: None,
             metadata: None,
+            blob: None,
         };
 
         manager.create_job(test_job).await.unwrap();

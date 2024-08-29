@@ -99,7 +99,8 @@ jobs:
                         "release": "posthog",
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": ${{ toJson(github.repository) }},
-                        "labels": ${{ steps.labels.outputs.labels }}
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
 
             - name: Check for changes in plugins directory
@@ -124,7 +125,8 @@ jobs:
                         "release": "ingestion",
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": ${{ toJson(github.repository) }},
-                        "labels": ${{ toJson(steps.labels.outputs.labels) }}
+                        "labels": ${{ toJson(steps.labels.outputs.labels) }},
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
 
             - name: Check for changes that affect batch exports temporal worker
@@ -149,7 +151,8 @@ jobs:
                         "release": "temporal-worker",
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": ${{ toJson(github.repository) }},
-                        "labels": ${{ steps.labels.outputs.labels }}
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
 
             - name: Check for changes that affect general purpose temporal worker
@@ -174,7 +177,8 @@ jobs:
                         "release": "temporal-worker-general-purpose",
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": ${{ toJson(github.repository) }},
-                        "labels": ${{ steps.labels.outputs.labels }}
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
 
             - name: Check for changes that affect data warehouse temporal worker
@@ -199,5 +203,6 @@ jobs:
                         "release": "temporal-worker-data-warehouse",
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": ${{ toJson(github.repository) }},
-                        "labels": ${{ steps.labels.outputs.labels }}
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
