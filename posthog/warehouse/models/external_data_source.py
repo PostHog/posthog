@@ -22,6 +22,7 @@ class ExternalDataSource(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
         SNOWFLAKE = "Snowflake", "Snowflake"
         SALESFORCE = "Salesforce", "Salesforce"
         MYSQL = "MySQL", "MySQL"
+        MSSQL = "MSSQL", "MSSQL"
 
     class Status(models.TextChoices):
         RUNNING = "Running", "Running"

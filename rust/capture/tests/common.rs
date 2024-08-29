@@ -153,7 +153,7 @@ impl EphemeralTopic {
         // TODO: check for name collision?
         let topic_name = random_string("events_", 16);
         let admin = AdminClient::from_config(&config).expect("failed to create admin client");
-        admin
+        let created = admin
             .create_topics(
                 &[NewTopic {
                     name: &topic_name,
@@ -165,6 +165,10 @@ impl EphemeralTopic {
             )
             .await
             .expect("failed to create topic");
+
+        for result in created {
+            result.expect("failed to create topic");
+        }
 
         let consumer: BaseConsumer = config.create().expect("failed to create consumer");
         let mut assignment = TopicPartitionList::new();

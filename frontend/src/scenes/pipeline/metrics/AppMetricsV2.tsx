@@ -8,9 +8,7 @@ import { humanFriendlyNumber, inStorybookTestRunner } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 
-import { pipelineNodeLogic } from './pipelineNodeLogic'
-import { pipelineNodeMetricsV2Logic } from './pipelineNodeMetricsV2Logic'
-import { PipelineBackend } from './types'
+import { appMetricsV2Logic, AppMetricsV2LogicProps } from './appMetricsV2Logic'
 
 const METRICS_INFO = {
     succeeded: 'Total number of events processed successfully',
@@ -22,10 +20,8 @@ const METRICS_INFO = {
         'Total number of events that were skipped due to the destination being permanently disabled (due to prolonged issues with the destination)',
 }
 
-export function PipelineNodeMetricsV2(): JSX.Element {
-    const { node } = useValues(pipelineNodeLogic)
-
-    const logic = pipelineNodeMetricsV2Logic({ id: `${node.id}` })
+export function AppMetricsV2({ id }: AppMetricsV2LogicProps): JSX.Element {
+    const logic = appMetricsV2Logic({ id })
 
     const { filters } = useValues(logic)
     const { setFilters, loadMetrics, loadMetricsTotals } = useActions(logic)
@@ -35,12 +31,8 @@ export function PipelineNodeMetricsV2(): JSX.Element {
         loadMetricsTotals()
     }, [])
 
-    if (node.backend !== PipelineBackend.HogFunction) {
-        return <div>Metrics not available for this node</div>
-    }
-
     return (
-        <BindLogic logic={pipelineNodeMetricsV2Logic} props={{ id: node.id }}>
+        <BindLogic logic={appMetricsV2Logic} props={{ id }}>
             <div className="space-y-4">
                 <AppMetricsTotals />
 
@@ -96,7 +88,7 @@ function AppMetricBigNumber({
 }
 
 function AppMetricsTotals(): JSX.Element {
-    const { appMetricsTotals, appMetricsTotalsLoading } = useValues(pipelineNodeMetricsV2Logic)
+    const { appMetricsTotals, appMetricsTotalsLoading } = useValues(appMetricsV2Logic)
 
     return (
         <div className="space-y-4">
@@ -116,7 +108,7 @@ function AppMetricsTotals(): JSX.Element {
 }
 
 function AppMetricsGraph(): JSX.Element {
-    const { appMetrics, appMetricsLoading } = useValues(pipelineNodeMetricsV2Logic)
+    const { appMetrics, appMetricsLoading } = useValues(appMetricsV2Logic)
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const [popoverContent, setPopoverContent] = useState<JSX.Element | null>(null)
     const [tooltipState, setTooltipState] = useState({ x: 0, y: 0, visible: false })

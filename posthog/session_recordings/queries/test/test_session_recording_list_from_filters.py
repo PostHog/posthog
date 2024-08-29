@@ -1028,12 +1028,17 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         self.create_event(
             user,
             self.an_hour_ago,
-            properties={"$session_id": session_id, "$window_id": "1"},
+            properties={"$session_id": session_id, "$window_id": "1", "foo": "bar"},
         )
         self.create_event(
             user,
             self.an_hour_ago,
-            properties={"$session_id": session_id, "$window_id": "1"},
+            properties={"$session_id": session_id, "$window_id": "1", "bar": "foo"},
+        )
+        self.create_event(
+            user,
+            self.an_hour_ago,
+            properties={"$session_id": session_id, "$window_id": "1", "bar": "foo"},
             event_name="new-event",
         )
         produce_replay_summary(
@@ -1084,6 +1089,94 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             }
         )
         assert session_recordings == []
+
+        # it uses hasAny instead of hasAll because of the OR filter
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                    },
+                    {
+                        "id": "new-event2",
+                        "type": "events",
+                        "order": 0,
+                        "name": "new-event2",
+                    },
+                ],
+                "operand": "OR",
+            }
+        )
+        assert len(session_recordings) == 1
+
+        # two events with the same name
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "name": "$pageview",
+                        "properties": [{"key": "foo", "value": ["bar"], "operator": "exact", "type": "event"}],
+                    },
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "name": "$pageview",
+                        "properties": [{"key": "bar", "value": ["foo"], "operator": "exact", "type": "event"}],
+                    },
+                ],
+                "operand": "AND",
+            }
+        )
+        assert len(session_recordings) == 1
+
+        # two events with different names
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "name": "$pageview",
+                        "properties": [{"key": "foo", "value": ["bar"], "operator": "exact", "type": "event"}],
+                    },
+                    {
+                        "id": "new-event",
+                        "type": "events",
+                        "name": "new-event",
+                        "properties": [{"key": "foo", "value": ["bar"], "operator": "exact", "type": "event"}],
+                    },
+                ],
+                "operand": "AND",
+            }
+        )
+        assert len(session_recordings) == 0
+
+        # two events with different names
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "name": "$pageview",
+                        "properties": [{"key": "foo", "value": ["bar"], "operator": "exact", "type": "event"}],
+                    },
+                    {
+                        "id": "new-event",
+                        "type": "events",
+                        "name": "new-event",
+                        "properties": [{"key": "foo", "value": ["bar"], "operator": "exact", "type": "event"}],
+                    },
+                ],
+                "operand": "OR",
+            }
+        )
+        assert len(session_recordings) == 1
 
     @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(["$session_id", "$browser"], person_properties=["email"])

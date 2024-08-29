@@ -2043,6 +2043,9 @@ const api = {
         ): Promise<void> {
             await new ApiRequest().dataWarehouseTable(tableId).withAction('update_schema').create({ data: { updates } })
         },
+        async refreshSchema(tableId: DataWarehouseTable['id']): Promise<void> {
+            await new ApiRequest().dataWarehouseTable(tableId).withAction('refresh_schema').create()
+        },
     },
 
     dataWarehouseSavedQueries: {
