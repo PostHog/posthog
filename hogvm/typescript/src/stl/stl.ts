@@ -18,7 +18,6 @@ import {
     toUnixTimestampMilli,
 } from './date'
 import { printHogStringOutput } from './print'
-import { match } from './regex'
 
 function STLToString(args: any[]): string {
     if (isHogDate(args[0])) {
@@ -41,7 +40,12 @@ export const STL: Record<string, STLFunction> = {
         maxArgs: undefined,
     },
     match: {
-        fn: (args, _name, options) => match(args[1], args[0], options),
+        fn: (args, _name, options) => {
+            if (!options?.external?.regex?.match) {
+                throw new Error('Set options.external.regex.match for RegEx support')
+            }
+            return options.external.regex.match(args[1], args[0])
+        },
         minArgs: 2,
         maxArgs: 2,
     },

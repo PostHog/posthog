@@ -1,7 +1,6 @@
 import { DEFAULT_MAX_ASYNC_STEPS, DEFAULT_MAX_MEMORY, DEFAULT_TIMEOUT_MS, MAX_FUNCTION_ARGS_LENGTH } from './constants'
 import { isHogCallable, isHogClosure, isHogError, isHogUpValue, newHogCallable, newHogClosure } from './objects'
 import { Operation } from './operation'
-import { match, matchInsensitive } from './stl/regex'
 import { BYTECODE_STL } from './stl/bytecode'
 import { ASYNC_STL, STL } from './stl/stl'
 import { CallFrame, ExecOptions, ExecResult, HogUpValue, ThrowFrame, VMState } from './types'
@@ -213,6 +212,13 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
         return createdUpValue
     }
 
+    function regexMatch(): (regex: string, value: string) => boolean {
+        if (!options?.external?.regex?.match) {
+            throw new HogVMException('Set options.external.regex.match for RegEx support')
+        }
+        return options.external.regex.match
+    }
+
     while (frame.ip < chunkBytecode.length) {
         ops += 1
         if ((ops & 127) === 0) {
@@ -313,19 +319,19 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 break
             case Operation.REGEX:
                 temp = popStack()
-                pushStack(match(popStack(), temp))
+                pushStack(regexMatch()(popStack(), temp))
                 break
             case Operation.NOT_REGEX:
                 temp = popStack()
-                pushStack(!match(popStack(), temp))
+                pushStack(!regexMatch()(popStack(), temp))
                 break
             case Operation.IREGEX:
                 temp = popStack()
-                pushStack(matchInsensitive(popStack(), temp))
+                pushStack(regexMatch()(popStack(), temp + '(?i)'))
                 break
             case Operation.NOT_IREGEX:
                 temp = popStack()
-                pushStack(!matchInsensitive(popStack(), temp))
+                pushStack(!regexMatch()(popStack(), temp + '(?i)'))
                 break
             case Operation.GET_GLOBAL: {
                 const count = next()

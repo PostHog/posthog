@@ -289,6 +289,9 @@ dependencies:
   rc-trigger:
     specifier: ^5.2.5
     version: 5.3.3(react-dom@18.2.0)(react@18.2.0)
+  re2js:
+    specifier: ^0.4.1
+    version: 0.4.1
   react:
     specifier: ^18.2.0
     version: 18.2.0
@@ -18203,6 +18206,10 @@ packages:
       react-dom: 18.2.0(react@18.2.0)
       react-is: 16.13.1
       shallowequal: 1.1.0
+    dev: false
+
+  /re2js@0.4.1:
+    resolution: {integrity: sha512-Kxb+OKXrEPowP4bXAF07NDXtgYX07S8HeVGgadx5/D/R41LzWg1kgTD2szIv2iHJM3vrAPnDKaBzfUE/7QWX9w==}
     dev: false
 
   /react-base16-styling@0.6.0:

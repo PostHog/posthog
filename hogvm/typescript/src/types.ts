@@ -1,5 +1,4 @@
 import type crypto from 'crypto'
-import type RE2 from 're2'
 
 export interface VMState {
     /** Bytecode running in the VM */
@@ -37,8 +36,10 @@ export interface ExecOptions {
     memoryLimit?: number
     /** External libraries */
     external?: {
-        /** Pass in the proper RE2 library */
-        re2?: typeof RE2
+        /** RegEx (RE2) matching. Uses '(?ism)' and '(?-ism)' on the regex as modifiers */
+        regex?: {
+            match: (regex: string, str: string) => boolean
+        }
         /** NodeJS crypto */
         crypto?: typeof crypto
     }

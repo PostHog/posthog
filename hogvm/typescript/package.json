@@ -13,7 +13,7 @@
         "build:stl": "cd ../.. && python3 -m hogvm.stl.compile",
         "build:parcel": "parcel build",
         "build:compile": "tsc -p tsconfig.build.json",
-        "build:cli": "cp src/cli.js dist/cli.js",
+        "build:cli": "cp ./src/cli.js ./dist/cli.js",
         "clean": "rm -rf dist .parce-cache",
         "check": "tsc -p tsconfig.build.json --noEmit",
         "prettier": "prettier --write src",
