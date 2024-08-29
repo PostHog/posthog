@@ -5,6 +5,9 @@ import GenericNode from './Node'
 import { FixedField, JoinedField, TableFields } from './TableFields'
 import { Edge, Node, NodePosition, NodePositionWithBounds, NodeWithDepth, Position } from './types'
 
+const VERTICAL_SPACING = 150
+const HORIZONTAL_SPACING = 200
+
 const assignDepths = (nodes: Node[]): NodeWithDepth[] => {
     const nodeMap: { [id: string]: NodeWithDepth } = {}
 
@@ -41,8 +44,6 @@ const assignDepths = (nodes: Node[]): NodeWithDepth[] => {
 
 const calculateNodePositions = (nodesWithDepth: NodeWithDepth[]): NodePosition[] => {
     const padding = 50
-    const verticalSpacing = 150
-    const horizontalSpacing = 300
     // Order nodes by depth
     nodesWithDepth.sort((a, b) => a.depth - b.depth)
 
@@ -71,8 +72,8 @@ const calculateNodePositions = (nodesWithDepth: NodeWithDepth[]): NodePosition[]
         return {
             ...node,
             position: {
-                x: padding + col * horizontalSpacing,
-                y: padding + row * verticalSpacing,
+                x: padding + col * HORIZONTAL_SPACING,
+                y: padding + row * VERTICAL_SPACING,
             },
         }
     })
@@ -307,7 +308,7 @@ const NodeCanvasWithTable = ({
     }
 
     return (
-        <div className="relative w-full h-[95vh]">
+        <div className="w-full h-[100vh]">
             <canvas
                 ref={canvasRef}
                 onMouseDown={handleMouseDown}

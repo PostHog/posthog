@@ -219,6 +219,7 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         projectBased: true,
         name: 'Data model',
         defaultDocsPath: '/docs/data-datawarehouse',
+        layout: 'app-canvas',
     },
     [Scene.DataWarehouse]: {
         projectBased: true,
