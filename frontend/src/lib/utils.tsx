@@ -609,8 +609,8 @@ export function isDomain(url: string | URL): boolean {
     return false
 }
 
-export function isURL(input: any): boolean {
-    if (!input || typeof input !== 'string') {
+export function isURL(input: unknown): boolean {
+    if (!input || typeof input !== 'string' || !input.trim().length) {
         return false
     }
     const regexp = /^http(s)?:\/\/[\w*.-]+[\w*.-]+[\w\-._~:/?#[\]@%!$&'()*+,;=]+$/
