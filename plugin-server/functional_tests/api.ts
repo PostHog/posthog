@@ -64,8 +64,6 @@ export const capture = async ({
     $set_once = undefined,
     topic = ['$performance_event', '$snapshot_items'].includes(event)
         ? KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
-        : ['$$client_ingestion_warning'].includes(event)
-        ? 'client_iwarnings_ingestion'
         : 'events_plugin_ingestion',
 }: {
     teamId: number | null
