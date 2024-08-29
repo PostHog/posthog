@@ -136,10 +136,8 @@ runs:
           run: bin/check_kafka_clickhouse_up
 
         - name: Wait for Temporal
-          if: ${{ inputs.segment == 'Temporal' }}
           shell: bash
-          run: |
-              bin/check_temporal_up
+          run: bin/check_temporal_up
 
         - name: Determine if --snapshot-update should be on
           # Skip on forks (due to GITHUB_TOKEN being read-only in PRs coming from them) except for persons-on-events
