@@ -32,7 +32,7 @@ const nodes = [
     {
         id: 'stripe-account',
         name: 'Stripe account',
-        leaf: ['account_size', 'customer_email'],
+        leaf: ['account_size', 'customer_email', 'stripe-view'],
     },
 ]
 
