@@ -210,11 +210,11 @@ export type HogFunctionInvocationAsyncRequest = {
     asyncFunctionRequest?: HogFunctionAsyncFunctionRequest
 }
 
-export type HogFunctionInvocationAsyncResponse = {
+export type HogHooksFetchResponse = {
     state: string // Serialized HogFunctionInvocation
     teamId: number
     hogFunctionId: HogFunctionType['id']
-    asyncFunctionResponse: HogFunctionAsyncFunctionResponse
+    asyncFunctionResponse: HogFunctionQueueParametersFetchResponse
 }
 
 export type HogFunctionInvocationSerialized = {
@@ -271,11 +271,7 @@ export type IntegrationType = {
 
 export type HogFunctionMessageToProduce = {
     topic: string
-    value:
-        | HogFunctionLogEntrySerialized
-        | HogFunctionInvocationAsyncResponse
-        | AppMetric2Type
-        | HogFunctionInvocationSerialized
+    value: HogFunctionLogEntrySerialized | HogHooksFetchResponse | AppMetric2Type | HogFunctionInvocationSerialized
     key: string
 }
 

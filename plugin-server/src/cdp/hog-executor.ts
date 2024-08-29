@@ -147,7 +147,6 @@ export class HogExecutor {
 
         try {
             // If the queueParameter is set then we have an expected format that we want to parse and add to the stack
-            console.log('EXEC', invocation.queue, invocation.queueParameters)
             if (invocation.queueParameters) {
                 const {
                     logs = [],
@@ -187,7 +186,6 @@ export class HogExecutor {
                     }
                 }
 
-                console.log('Addding to vmstate!', response)
                 // Add the response to the stack to continue execution
                 invocation.vmState!.stack.push(response)
                 invocation.timings.push(...timings)

@@ -30,12 +30,12 @@ import { HogWatcher, HogWatcherState } from './hog-watcher'
 import { CdpRedis, createCdpRedisPool } from './redis'
 import {
     HogFunctionInvocation,
-    HogFunctionInvocationAsyncResponse,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationResult,
     HogFunctionInvocationSerialized,
     HogFunctionMessageToProduce,
     HogFunctionType,
+    HogHooksFetchResponse,
 } from './types'
 import {
     convertToCaptureEvent,
@@ -473,8 +473,14 @@ export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
             func: async () => {
                 // TODO: Handle if the invocation step is not "hog" so we should do fetch instead...
 
-                const results = await this.runManyWithHeartbeat(invocations, (item) => this.hogExecutor.execute(item))
-                return results
+                const fetchQueue = invocations.filter((item) => item.queue === 'fetch')
+                const fetchResults = await this.runManyWithHeartbeat(fetchQueue, (item) =>
+                    this.fetchExecutor.execute(item)
+                )
+
+                const hogQueue = invocations.filter((item) => item.queue === 'hog')
+                const hogResults = await this.runManyWithHeartbeat(hogQueue, (item) => this.hogExecutor.execute(item))
+                return [...hogResults, ...(fetchResults.filter(Boolean) as HogFunctionInvocationResult[])]
             },
         })
 
@@ -541,7 +547,7 @@ export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
                     const invocations: HogFunctionInvocation[] = []
 
                     // Parse the base message value
-                    const entries: (HogFunctionInvocationAsyncResponse | HogFunctionInvocationSerialized)[] = messages
+                    const entries: (HogHooksFetchResponse | HogFunctionInvocationSerialized)[] = messages
                         .map((message) => {
                             try {
                                 return JSON.parse(message.value!.toString())

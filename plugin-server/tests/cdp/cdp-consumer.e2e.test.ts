@@ -211,15 +211,13 @@ describe('CDP Consumers E2E', () => {
                     },
                 },
             ])
-            expect(kafkaMessages.logs.map((x) => x.value.message)).toMatchInlineSnapshot(`
-                Array [
-                  "Executing function",
-                  "Suspending function due to async function call 'fetch'. Payload: 1852 bytes",
-                  "Resuming function",
-                  "Fetch response:, null",
-                  "Function completed in 1.1098760068416595ms. Sync: 0ms. Mem: 834 bytes. Ops: 22.",
-                ]
-            `)
+            expect(kafkaMessages.logs.map((x) => x.value.message)).toEqual([
+                'Executing function',
+                "Suspending function due to async function call 'fetch'. Payload: 1852 bytes",
+                'Resuming function',
+                'Fetch response:, {"status":200,"body":{"success":true}}',
+                expect.stringContaining('Function completed'),
+            ])
         })
     })
 })
