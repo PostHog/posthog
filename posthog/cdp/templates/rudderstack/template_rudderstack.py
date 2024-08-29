@@ -6,7 +6,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     id="template-rudderstack",
     name="Send data to RudderStack",
     description="Send data to RudderStack",
-    icon_url="/api/projects/@current/hog_functions/icon/?id=rudderstack.com",
+    icon_url="/static/services/rudderstack.png",
     hog="""
 let host := inputs.host
 let token := inputs.token
