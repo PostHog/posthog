@@ -15,3 +15,4 @@ pub const UPDATE_ISSUE_TIME: &str = "prop_defs_update_issue_time_ms";
 pub const CACHE_CONSUMED: &str = "prop_defs_cache_space";
 pub const RECV_DEQUEUED: &str = "prop_defs_recv_dequeued";
 pub const COMPACTED_UPDATES: &str = "prop_defs_compaction_dropped_updates";
+pub const CACHE_WARMING_STATE: &str = "prop_defs_cache_state";

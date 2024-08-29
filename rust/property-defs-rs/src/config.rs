@@ -36,6 +36,17 @@ pub struct Config {
     #[envconfig(default = "1000000")]
     pub cache_capacity: usize,
 
+    // We impose a slow-start, where each batch update operation is delayed by
+    // this many ms times the % of remaining cache space (so with a 50% full cache,
+    // we delay by e.g. 500ms, at 90% full, we delay by 100ms)
+    #[envconfig(default = "1000")]
+    pub cache_warming_delay_ms: u32,
+
+    // This is the slow-start cutoff. Once the cache is this full, we
+    // don't delay the batch updates any more
+    #[envconfig(default = "0.5")]
+    pub cache_warming_cutoff: f64,
+
     // Each worker maintains a small local batch of updates, which it
     // flushes to the main thread (updating/filtering by the
     // cross-thread cache while it does). This is that batch size.
