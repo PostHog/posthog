@@ -1333,6 +1333,7 @@ export type CachedWebStatsTableQueryResponse = CachedQueryResponse<WebStatsTable
 export interface WebGoalsQuery extends WebAnalyticsQueryBase<WebGoalsQueryResponse> {
     kind: NodeKind.WebGoalsQuery
     limit?: integer
+    actionsIds: number[]
 }
 
 export interface WebGoalsQueryResponse extends AnalyticsQueryResponseBase<unknown[]> {

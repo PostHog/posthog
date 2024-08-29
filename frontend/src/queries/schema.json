@@ -10013,6 +10013,12 @@
         "WebGoalsQuery": {
             "additionalProperties": false,
             "properties": {
+                "actionsIds": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
@@ -10053,7 +10059,7 @@
                     "type": "boolean"
                 }
             },
-            "required": ["kind", "properties"],
+            "required": ["actionsIds", "kind", "properties"],
             "type": "object"
         },
         "WebGoalsQueryResponse": {

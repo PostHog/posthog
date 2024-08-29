@@ -11,6 +11,7 @@ import { getDefaultInterval, isNotNil, updateDatesWithInterval } from 'lib/utils
 import { errorTrackingQuery } from 'scenes/error-tracking/queries'
 import { urls } from 'scenes/urls'
 
+import { actionsModel } from '~/models/actionsModel'
 import {
     NodeKind,
     QuerySchema,
@@ -200,7 +201,7 @@ const getDashboardItemId = (section: TileId, tab: string | undefined, isModal?: 
 export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     path(['scenes', 'webAnalytics', 'webAnalyticsSceneLogic']),
     connect(() => ({
-        values: [featureFlagLogic, ['featureFlags']],
+        values: [featureFlagLogic, ['featureFlags'], actionsModel, ['actionsSorted']],
     })),
     actions({
         setWebAnalyticsFilters: (webAnalyticsFilters: WebAnalyticsPropertyFilters) => ({ webAnalyticsFilters }),
@@ -460,6 +461,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 () => values.isGreaterThanMd,
                 () => values.shouldShowGeographyTile,
                 () => values.featureFlags,
+                () => values.actionsSorted,
             ],
             (
                 webAnalyticsFilters,
@@ -471,7 +473,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 _statusCheck,
                 isGreaterThanMd,
                 shouldShowGeographyTile,
-                featureFlags
+                featureFlags,
+                actionsSorted
             ): WebDashboardTile[] => {
                 const dateRange = {
                     date_from: dateFrom,
@@ -1156,6 +1159,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       sampling,
                                       limit: 10,
                                       filterTestAccounts,
+                                      actionsIds: actionsSorted.map((action) => action.id),
                                   },
                                   embedded: true,
                               },
