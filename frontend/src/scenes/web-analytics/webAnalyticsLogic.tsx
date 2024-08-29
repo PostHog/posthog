@@ -919,37 +919,20 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 title: 'Device type',
                                 linkText: 'Device type',
                                 query: {
-                                    kind: NodeKind.InsightVizNode,
+                                    full: true,
+                                    kind: NodeKind.DataTableNode,
                                     source: {
-                                        kind: NodeKind.TrendsQuery,
-                                        breakdownFilter: { breakdown: '$device_type', breakdown_type: 'event' },
-                                        dateRange,
-                                        series: [
-                                            {
-                                                event: '$pageview',
-                                                name: 'Pageview',
-                                                kind: NodeKind.EventsNode,
-                                                math: BaseMathType.UniqueUsers,
-                                            },
-                                        ],
-                                        trendsFilter: {
-                                            display: ChartDisplayType.ActionsPie,
-                                            showLabelsOnSeries: true,
-                                        },
-                                        filterTestAccounts,
+                                        kind: NodeKind.WebStatsTableQuery,
                                         properties: webAnalyticsFilters,
+                                        breakdownBy: WebStatsBreakdown.DeviceType,
+                                        dateRange,
+                                        sampling,
+                                        limit: 10,
+                                        filterTestAccounts,
                                     },
-                                    hidePersonsModal: true,
-                                    vizSpecificOptions: {
-                                        [ChartDisplayType.ActionsPie]: {
-                                            disableHoverOffset: true,
-                                            hideAggregation: true,
-                                        },
-                                    },
-                                    embedded: true,
                                 },
                                 insightProps: createInsightProps(TileId.DEVICES, DeviceTab.DEVICE_TYPE),
-                                canOpenInsight: true,
+                                canOpenModal: true,
                             },
                             {
                                 id: DeviceTab.BROWSER,
