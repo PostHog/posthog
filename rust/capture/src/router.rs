@@ -35,6 +35,7 @@ async fn index() -> &'static str {
     "capture"
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn router<
     TZ: TimeSource + Send + Sync + 'static,
     S: sinks::Event + Send + Sync + 'static,
