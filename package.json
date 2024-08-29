@@ -254,6 +254,7 @@
         "cypress-axe": "^1.5.0",
         "cypress-terminal-report": "^6.1.0",
         "esbuild-visualizer": "^0.6.0",
+        "esbuild-plugin-polyfill-node": "^0.3.0",
         "eslint": "^8.57.0",
         "eslint-config-prettier": "^9.1.0",
         "eslint-plugin-compat": "^4.2.0",

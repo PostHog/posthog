@@ -55,6 +55,7 @@ export interface ExecResult {
 export interface CallFrame {
     closure: HogClosure
     ip: number
+    chunk: string
     stackStart: number
     argCount: number
 }
