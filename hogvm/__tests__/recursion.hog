@@ -8,7 +8,7 @@ let fibonacci := (number) -> {
 
 print(fibonacci(6))
 
-fn hogonacci(number) {
+fun hogonacci(number) {
     if (number < 2) {
         return number;
     } else {

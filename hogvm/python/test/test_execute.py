@@ -492,7 +492,7 @@ class TestBytecodeExecute:
     def test_bytecode_functions(self):
         program = parse_program(
             """
-            fn add(a, b) {
+            fun add(a, b) {
                 return a + b;
             }
             return add(3, 4);
@@ -533,7 +533,7 @@ class TestBytecodeExecute:
         assert (
             self._run_program(
                 """
-                fn add(a, b) {
+                fun add(a, b) {
                     return a + b;
                 }
                 return add(3, 4) + 100 + add(1, 1);
@@ -545,10 +545,10 @@ class TestBytecodeExecute:
         assert (
             self._run_program(
                 """
-                fn add(a, b) {
+                fun add(a, b) {
                     return a + b;
                 }
-                fn divide(a, b) {
+                fun divide(a, b) {
                     return a / b;
                 }
                 return divide(add(3, 4) + 100 + add(2, 1), 2);
@@ -560,11 +560,11 @@ class TestBytecodeExecute:
         assert (
             self._run_program(
                 """
-                fn add(a, b) {
+                fun add(a, b) {
                     let c := a + b;
                     return c;
                 }
-                fn divide(a, b) {
+                fun divide(a, b) {
                     return a / b;
                 }
                 return divide(add(3, 4) + 100 + add(2, 1), 10);
@@ -577,7 +577,7 @@ class TestBytecodeExecute:
         assert (
             self._run_program(
                 """
-                fn fibonacci(number) {
+                fun fibonacci(number) {
                     if (number < 2) {
                         return number;
                     } else {
@@ -594,7 +594,7 @@ class TestBytecodeExecute:
         assert (
             self._run_program(
                 """
-                fn doIt(a) {
+                fun doIt(a) {
                     let url := 'basdfasdf';
                     let second := 2 + 3;
                     return second;
@@ -609,7 +609,7 @@ class TestBytecodeExecute:
         assert (
             self._run_program(
                 """
-                fn doIt() {
+                fun doIt() {
                     let url := 'basdfasdf';
                     let second := 2 + 3;
                     return second;

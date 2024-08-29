@@ -1,4 +1,4 @@
-fn test(val) {
+fun test(val) {
   print(jsonStringify(val))
 }
 
