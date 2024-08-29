@@ -220,7 +220,7 @@ impl FeatureFlagMatcher {
         &mut self,
         feature_flag: &FeatureFlag,
     ) -> Result<FeatureFlagMatch, FlagError> {
-        if self.hashed_identifier(feature_flag).await?.is_none() {
+        if self.hashed_identifier(feature_flag).await?.is_empty() {
             return Ok(FeatureFlagMatch {
                 matches: false,
                 variant: None,
@@ -405,18 +405,18 @@ impl FeatureFlagMatcher {
 
     /// This function takes a feature flag and returns the hashed identifier for the flag.
     /// If the flag has a group type index, it returns the group type name, otherwise it returns the distinct_id.
-    pub async fn hashed_identifier(
-        &self,
-        feature_flag: &FeatureFlag,
-    ) -> Result<Option<String>, FlagError> {
+    pub async fn hashed_identifier(&self, feature_flag: &FeatureFlag) -> Result<String, FlagError> {
         if let Some(group_type_index) = feature_flag.get_group_type_index() {
             let indexes_to_names = self
                 .flag_matcher_cache
                 .group_type_index_to_group_type_map()
                 .await?;
-            Ok(indexes_to_names.get(&group_type_index).cloned())
+            Ok(indexes_to_names
+                .get(&group_type_index)
+                .cloned()
+                .unwrap_or_default())
         } else {
-            Ok(Some(self.distinct_id.clone()))
+            Ok(self.distinct_id.clone())
         }
     }
 
@@ -425,10 +425,7 @@ impl FeatureFlagMatcher {
     /// uniformly distributed between 0 and 1, so if we want to show this feature to 20% of traffic
     /// we can do _hash(key, identifier) < 0.2
     pub async fn get_hash(&self, feature_flag: &FeatureFlag, salt: &str) -> Result<f64, FlagError> {
-        let hashed_identifier = self
-            .hashed_identifier(feature_flag)
-            .await?
-            .ok_or(FlagError::InvalidHashedIdentifier)?; // NB: this should never happen, but we'll throw a 500 if it does for some reason
+        let hashed_identifier = self.hashed_identifier(feature_flag).await?;
         let hash_key = format!("{}.{}{}", feature_flag.key, hashed_identifier, salt);
         let mut hasher = Sha1::new();
         hasher.update(hash_key.as_bytes());
@@ -732,7 +729,7 @@ mod tests {
         );
         assert_eq!(
             matcher.hashed_identifier(&flag).await.unwrap(),
-            Some("test_user".to_string())
+            "test_user".to_string()
         );
 
         // Test with a group type index
@@ -740,7 +737,7 @@ mod tests {
         group_flag.filters.aggregation_group_type_index = Some(1);
         assert_eq!(
             matcher.hashed_identifier(&group_flag).await.unwrap(),
-            Some("group_type_1".to_string())
+            "group_type_1".to_string()
         );
     }
 
@@ -857,11 +854,11 @@ mod tests {
 
         assert_eq!(
             matcher.hashed_identifier(&flag).await.unwrap(),
-            Some("test_user".to_string())
+            "test_user".to_string()
         );
         assert_eq!(
             matcher.hashed_identifier(&group_flag).await.unwrap(),
-            Some("organization".to_string())
+            "organization".to_string()
         );
     }
 

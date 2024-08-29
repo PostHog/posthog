@@ -96,8 +96,8 @@ pub enum FlagError {
     DatabaseUnavailable,
     #[error("Timed out while fetching data")]
     TimeoutError,
-    #[error("Invalid hashed identifier")]
-    InvalidHashedIdentifier,
+    #[error("Failed to find group type for hashed identifier")]
+    NoHashedIdentifier,
 }
 
 impl IntoResponse for FlagError {
@@ -169,7 +169,7 @@ impl IntoResponse for FlagError {
                     "The request timed out. This could be due to high load or network issues. Please try again later.".to_string(),
                 )
             }
-            FlagError::InvalidHashedIdentifier => {
+            FlagError::NoHashedIdentifier => {
                 tracing::error!("Invalid hashed identifier: {:?}", self);
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
