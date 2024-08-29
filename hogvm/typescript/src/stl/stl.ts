@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { isHogDate, isHogDateTime, isHogError, newHogError } from '../objects'
+import { isHogCallable, isHogClosure, isHogDate, isHogDateTime, isHogError, newHogError } from '../objects'
 import { md5Hex, sha256Hex, sha256HmacChainHex } from './crypto'
 import {
     formatDateTime,
@@ -189,6 +189,8 @@ export const STL: Record<string, STLFunction> = {
                         return toHogDate(x.year, x.month, x.day)
                     } else if (x.__hogError__) {
                         return newHogError(x.type, x.message, x.payload)
+                    } else if (x.__hogCallable__ || x.__hogClosure__) {
+                        return x
                     }
                     // All other objects will
                     const map = new Map()
@@ -227,7 +229,7 @@ export const STL: Record<string, STLFunction> = {
                         if (Array.isArray(x)) {
                             return x.map((v) => convert(v, marked))
                         }
-                        if (isHogDateTime(x) || isHogDate(x) || isHogError(x)) {
+                        if (isHogDateTime(x) || isHogDate(x) || isHogError(x) || isHogCallable(x) || isHogClosure(x)) {
                             return x
                         }
                         const obj: Record<string, any> = {}

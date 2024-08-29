@@ -45,7 +45,7 @@ export function printHogValue(obj: any, marked: Set<any> | undefined = undefined
     if (!marked) {
         marked = new Set()
     }
-    if (typeof obj === 'object' && obj !== null) {
+    if (typeof obj === 'object' && obj !== null && obj !== undefined) {
         if (marked.has(obj) && !isHogDateTime(obj) && !isHogDate(obj) && !isHogError(obj)) {
             return 'null'
         }
@@ -91,7 +91,7 @@ export function printHogValue(obj: any, marked: Set<any> | undefined = undefined
         }
     } else if (typeof obj === 'boolean') {
         return obj ? 'true' : 'false'
-    } else if (obj === null) {
+    } else if (obj === null || obj === undefined) {
         return 'null'
     } else if (typeof obj === 'string') {
         return escapeString(obj)

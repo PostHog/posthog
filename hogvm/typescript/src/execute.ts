@@ -175,8 +175,8 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
     const setChunkBytecode = (): void => {
         if (!frame.chunk || frame.chunk === 'root') {
             chunkBytecode = bytecode
-        } else if (frame.chunk.startsWith('stl/')) {
-            chunkBytecode = BYTECODE_STL[frame.chunk.substring(4)]?.[1] ?? []
+        } else if (frame.chunk.startsWith('stl/') && frame.chunk.substring(4) in BYTECODE_STL) {
+            chunkBytecode = BYTECODE_STL[frame.chunk.substring(4)][1]
         } else {
             throw new HogVMException(`Unknown chunk: ${frame.chunk}`)
         }
@@ -268,10 +268,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
         return createdUpValue
     }
 
-    while (true) {
-        if (frame.ip >= chunkBytecode.length) {
-            break
-        }
+    while (frame.ip < chunkBytecode.length) {
         ops += 1
         if ((ops & 127) === 0) {
             checkTimeout()
@@ -628,16 +625,16 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                     }
                     frame = {
                         ip: funcIp,
-                        chunk: 'root',
+                        chunk: frame.chunk,
                         stackStart: stack.length - argLen,
                         argCount: argLen,
                         closure: newHogClosure(
-                            newHogCallable('stl', {
+                            newHogCallable('local', {
                                 name: name,
                                 argCount: argLen,
                                 upvalueCount: 0,
-                                ip: -1,
-                                chunk: 'stl',
+                                ip: funcIp,
+                                chunk: frame.chunk,
                             })
                         ),
                     } satisfies CallFrame
@@ -768,7 +765,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                     frame.ip += 1 // advance for when we return
                     frame = {
                         ip: closure.callable.ip,
-                        chunk: 'root',
+                        chunk: closure.callable.chunk,
                         stackStart: stack.length - closure.callable.argCount,
                         argCount: closure.callable.argCount,
                         closure,
