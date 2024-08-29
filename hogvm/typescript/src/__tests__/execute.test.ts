@@ -544,13 +544,30 @@ describe('hogvm execute', () => {
             state: {
                 bytecode,
                 asyncSteps: 1,
-                callStack: [],
+                callStack: [
+                    {
+                        ip: 8,
+                        stackStart: 0,
+                        argCount: 0,
+                        closure: {
+                            __hogClosure__: true,
+                            callable: {
+                                __hogCallable__: 'main',
+                                name: '',
+                                argCount: 0,
+                                upvalueCount: 0,
+                                ip: 1,
+                            },
+                            upvalues: [],
+                        },
+                    },
+                ],
                 throwStack: [],
                 declaredFunctions: {},
-                ip: 8,
                 maxMemUsed: 16,
                 ops: 3,
                 stack: [4.2],
+                upvalues: [],
                 syncDuration: expect.any(Number),
             },
         })
@@ -572,10 +589,10 @@ describe('hogvm execute', () => {
                 bytecode: [],
                 callStack: [],
                 declaredFunctions: {},
-                ip: -1,
                 maxMemUsed: 13,
                 ops: 2,
                 stack: [],
+                upvalues: [],
                 throwStack: [],
                 syncDuration: expect.any(Number),
             },
@@ -599,10 +616,10 @@ describe('hogvm execute', () => {
                 bytecode: [],
                 callStack: [],
                 declaredFunctions: {},
-                ip: -1,
                 maxMemUsed: 13,
                 ops: 3,
                 stack: [],
+                upvalues: [],
                 throwStack: [],
                 syncDuration: expect.any(Number),
             },
@@ -1899,7 +1916,8 @@ describe('hogvm execute', () => {
             'fetch',
             1,
         ]
-        expect(exec(bytecode, { asyncFunctions: { fetch: async () => null } })).toEqual({
+        const result = exec(bytecode, { asyncFunctions: { fetch: async () => null } })
+        expect(result).toEqual({
             asyncFunctionArgs: [{ key: 'value' }], // not a Map
             asyncFunctionName: 'fetch',
             finished: false,
@@ -1907,14 +1925,493 @@ describe('hogvm execute', () => {
             state: {
                 asyncSteps: 1,
                 bytecode: bytecode,
-                callStack: [],
+                callStack: [
+                    {
+                        ip: 12,
+                        stackStart: 0,
+                        argCount: 0,
+                        closure: {
+                            __hogClosure__: true,
+                            callable: {
+                                __hogCallable__: 'main',
+                                name: '',
+                                argCount: 0,
+                                upvalueCount: 0,
+                                ip: 1,
+                            },
+                            upvalues: [],
+                        },
+                    },
+                ],
                 declaredFunctions: {},
-                ip: 12,
                 maxMemUsed: 64,
                 ops: 5,
                 stack: [{ key: 'value' }], // is not a Map
                 syncDuration: 0,
                 throwStack: [],
+                upvalues: [],
+            },
+        })
+    })
+
+    test('can serialize/unserialize lambdas', () => {
+        // let x := 2
+        // let l := (a, b) -> a + b + x
+        // sleep(2)
+        // x := 10
+        // return l(4, 3)
+        const bytecode = [
+            '_H',
+            1,
+            33,
+            2,
+            52,
+            'lambda',
+            2,
+            1,
+            9,
+            55,
+            0,
+            36,
+            1,
+            36,
+            0,
+            6,
+            6,
+            38,
+            53,
+            1,
+            true,
+            0,
+            33,
+            2,
+            2,
+            'sleep',
+            1,
+            35,
+            33,
+            10,
+            37,
+            0,
+            33,
+            4,
+            33,
+            3,
+            36,
+            1,
+            54,
+            2,
+            38,
+            35,
+            57,
+        ]
+        const options = {
+            asyncFunctions: {
+                sleep: async (seconds: number) => new Promise((resolve) => setTimeout(resolve, seconds)),
+            },
+        }
+        const result = exec(bytecode, options)
+
+        expect(result).toEqual({
+            result: undefined,
+            finished: false,
+            asyncFunctionName: 'sleep',
+            asyncFunctionArgs: [2],
+            state: {
+                bytecode,
+                stack: [
+                    2,
+                    {
+                        __hogClosure__: true,
+                        callable: {
+                            __hogCallable__: 'local',
+                            name: 'lambda',
+                            argCount: 2,
+                            upvalueCount: 1,
+                            ip: 9,
+                        },
+                        upvalues: [1],
+                    },
+                ],
+                upvalues: [
+                    {
+                        __hogUpValue__: true,
+                        location: 0,
+                        id: 1,
+                        closed: false,
+                        value: null,
+                    },
+                ],
+                callStack: [
+                    {
+                        ip: 27,
+                        stackStart: 0,
+                        argCount: 0,
+                        closure: {
+                            __hogClosure__: true,
+                            callable: {
+                                __hogCallable__: 'main',
+                                name: '',
+                                argCount: 0,
+                                upvalueCount: 0,
+                                ip: 1,
+                            },
+                            upvalues: [],
+                        },
+                    },
+                ],
+                throwStack: [],
+                declaredFunctions: {},
+                ops: 5,
+                asyncSteps: 1,
+                syncDuration: expect.any(Number),
+                maxMemUsed: 242,
+            },
+        })
+        result.state!.stack.push(null)
+        const result2 = exec(result.state!, options)
+        expect(result2).toEqual({
+            result: 17,
+            finished: true,
+            state: {
+                bytecode: [],
+                stack: [],
+                upvalues: [],
+                callStack: [],
+                throwStack: [],
+                declaredFunctions: {},
+                ops: 19,
+                asyncSteps: 1,
+                syncDuration: expect.any(Number),
+                maxMemUsed: 476,
+            },
+        })
+    })
+
+    test('can serialize/unserialize upvalues', () => {
+        // fn outer() {
+        //   let x := 'outside'
+        //   fn inner() {
+        //     print(x)
+        //   }
+        //
+        //   return inner
+        // }
+        //
+        // let closure := outer()
+        // sleep(2)
+        // return closure()
+        const bytecode = [
+            '_H',
+            1,
+            52,
+            'outer',
+            0,
+            0,
+            19,
+            32,
+            'outside',
+            52,
+            'inner',
+            0,
+            1,
+            3,
+            55,
+            0,
+            38,
+            53,
+            1,
+            true,
+            0,
+            36,
+            1,
+            38,
+            35,
+            57,
+            53,
+            0,
+            36,
+            0,
+            54,
+            0,
+            33,
+            2,
+            2,
+            'sleep',
+            1,
+            35,
+            36,
+            1,
+            54,
+            0,
+            38,
+            35,
+            35,
+        ]
+
+        const options = {
+            asyncFunctions: {
+                sleep: async (seconds: number) => new Promise((resolve) => setTimeout(resolve, seconds)),
+            },
+        }
+        const result = exec(bytecode, options)
+
+        expect(result).toEqual({
+            finished: false,
+            asyncFunctionName: 'sleep',
+            asyncFunctionArgs: [2],
+            state: {
+                bytecode,
+                stack: [
+                    {
+                        __hogClosure__: true,
+                        callable: {
+                            __hogCallable__: 'local',
+                            name: 'outer',
+                            argCount: 0,
+                            upvalueCount: 0,
+                            ip: 7,
+                        },
+                        upvalues: [],
+                    },
+                    {
+                        __hogClosure__: true,
+                        callable: {
+                            __hogCallable__: 'local',
+                            name: 'inner',
+                            argCount: 0,
+                            upvalueCount: 1,
+                            ip: 14,
+                        },
+                        upvalues: [1],
+                    },
+                ],
+                upvalues: [
+                    {
+                        __hogUpValue__: true,
+                        id: 1,
+                        location: 1,
+                        closed: true,
+                        value: 'outside',
+                    },
+                ],
+                callStack: [
+                    {
+                        ip: 37,
+                        stackStart: 0,
+                        argCount: 0,
+                        closure: {
+                            __hogClosure__: true,
+                            callable: {
+                                __hogCallable__: 'main',
+                                name: '',
+                                argCount: 0,
+                                upvalueCount: 0,
+                                ip: 1,
+                            },
+                            upvalues: [],
+                        },
+                    },
+                ],
+                throwStack: [],
+                declaredFunctions: {},
+                ops: 11,
+                asyncSteps: 1,
+                syncDuration: expect.any(Number),
+                maxMemUsed: 682,
+            },
+        })
+        result.state!.stack.push(null)
+        const result2 = exec(result.state!, options)
+        expect(result2).toEqual({
+            result: 'outside',
+            finished: true,
+            state: {
+                bytecode: [],
+                stack: [],
+                upvalues: [],
+                callStack: [],
+                throwStack: [],
+                declaredFunctions: {},
+                ops: 17,
+                asyncSteps: 1,
+                syncDuration: expect.any(Number),
+                maxMemUsed: 682,
+            },
+        })
+    })
+
+    test('can serialize/unserialize upvalues v2', () => {
+        // fn outer() {
+        //   let x := 'outside'
+        //   fn inner() {
+        //     print(x)
+        //     sleep(2)
+        //     return x
+        //   }
+        //   return inner
+        // }
+        //
+        // let closure := outer()
+        // return closure()
+        const bytecode = [
+            '_H',
+            1,
+            52,
+            'outer',
+            0,
+            0,
+            31,
+            32,
+            'outside',
+            52,
+            'inner',
+            0,
+            1,
+            15,
+            55,
+            0,
+            2,
+            'print',
+            1,
+            35,
+            33,
+            2,
+            2,
+            'sleep',
+            1,
+            35,
+            55,
+            0,
+            38,
+            53,
+            1,
+            true,
+            0,
+            36,
+            1,
+            38,
+            35,
+            57,
+            53,
+            0,
+            36,
+            0,
+            54,
+            0,
+            36,
+            1,
+            54,
+            0,
+            38,
+            35,
+            35,
+        ]
+
+        const options = {
+            asyncFunctions: {
+                sleep: async (seconds: number) => new Promise((resolve) => setTimeout(resolve, seconds)),
+            },
+        }
+        const result = exec(bytecode, options)
+
+        expect(result).toEqual({
+            finished: false,
+            asyncFunctionName: 'sleep',
+            asyncFunctionArgs: [2],
+            state: {
+                bytecode: bytecode,
+                stack: [
+                    {
+                        __hogClosure__: true,
+                        callable: {
+                            __hogCallable__: 'local',
+                            name: 'outer',
+                            argCount: 0,
+                            upvalueCount: 0,
+                            ip: 7,
+                        },
+                        upvalues: [],
+                    },
+                    {
+                        __hogClosure__: true,
+                        callable: {
+                            __hogCallable__: 'local',
+                            name: 'inner',
+                            argCount: 0,
+                            upvalueCount: 1,
+                            ip: 14,
+                        },
+                        upvalues: [1],
+                    },
+                ],
+                upvalues: [
+                    {
+                        __hogUpValue__: true,
+                        id: 1,
+                        location: 1,
+                        closed: true,
+                        value: 'outside',
+                    },
+                ],
+                callStack: [
+                    {
+                        ip: 48,
+                        stackStart: 0,
+                        argCount: 0,
+                        closure: {
+                            __hogClosure__: true,
+                            callable: {
+                                __hogCallable__: 'main',
+                                name: '',
+                                argCount: 0,
+                                upvalueCount: 0,
+                                ip: 1,
+                            },
+                            upvalues: [],
+                        },
+                    },
+                    {
+                        ip: 25,
+                        stackStart: 2,
+                        argCount: 0,
+                        closure: {
+                            __hogClosure__: true,
+                            callable: {
+                                __hogCallable__: 'local',
+                                name: 'inner',
+                                argCount: 0,
+                                upvalueCount: 1,
+                                ip: 14,
+                            },
+                            upvalues: [1],
+                        },
+                    },
+                ],
+                throwStack: [],
+                declaredFunctions: {},
+                ops: 16,
+                asyncSteps: 1,
+                syncDuration: expect.any(Number),
+                maxMemUsed: 682,
+            },
+        })
+        result.state!.stack.push(null)
+        const result2 = exec(result.state!, options)
+        expect(result2).toEqual({
+            result: 'outside',
+            finished: true,
+            state: {
+                bytecode: [],
+                stack: [],
+                upvalues: [],
+                callStack: [],
+                throwStack: [],
+                declaredFunctions: {},
+                ops: 20,
+                asyncSteps: 1,
+                syncDuration: expect.any(Number),
+                maxMemUsed: 682,
             },
         })
     })

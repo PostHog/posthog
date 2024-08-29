@@ -4,7 +4,11 @@ from collections.abc import Callable
 
 
 from hogvm.python.execute import execute_bytecode, get_nested_value
-from hogvm.python.operation import Operation as op, HOGQL_BYTECODE_IDENTIFIER as _H, HOGQL_BYTECODE_VERSION as VERSION
+from hogvm.python.operation import (
+    Operation as op,
+    HOGQL_BYTECODE_IDENTIFIER as _H,
+    HOGQL_BYTECODE_VERSION as VERSION,
+)
 from hogvm.python.utils import UncaughtHogVMException
 from posthog.hogql.bytecode import create_bytecode
 from posthog.hogql.parser import parse_expr, parse_program
@@ -497,10 +501,11 @@ class TestBytecodeExecute:
         bytecode = create_bytecode(program)
         assert bytecode == [
             "_H",
-            1,
-            op.DECLARE_FN,
+            VERSION,
+            op.CALLABLE,
             "add",
             2,
+            0,
             6,
             op.GET_LOCAL,
             1,
@@ -508,14 +513,18 @@ class TestBytecodeExecute:
             0,
             op.PLUS,
             op.RETURN,
+            op.CLOSURE,
+            0,
             op.INTEGER,
             3,
             op.INTEGER,
             4,
-            op.CALL_GLOBAL,
-            "add",
+            op.GET_LOCAL,
+            0,
+            op.CALL_LOCAL,
             2,
             op.RETURN,
+            op.POP,
         ]
 
         response = execute_bytecode(bytecode).result

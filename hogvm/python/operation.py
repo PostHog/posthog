@@ -62,3 +62,9 @@ class Operation(int, Enum):
     THROW = 49
     TRY = 50
     POP_TRY = 51
+    CALLABLE = 52
+    CLOSURE = 53
+    CALL_LOCAL = 54
+    GET_UPVALUE = 55
+    SET_UPVALUE = 56
+    CLOSE_UPVALUE = 57
