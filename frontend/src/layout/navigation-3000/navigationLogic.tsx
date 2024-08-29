@@ -410,12 +410,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                               icon: <IconLive />,
                               to: featureFlags[FEATURE_FLAGS.LIVE_EVENTS] ? urls.activity() : urls.events(),
                           },
-                          {
-                              identifier: Scene.DataWarehouse,
-                              label: 'SQL editor',
-                              icon: <IconServer />,
-                              to: isUsingSidebar ? undefined : urls.dataWarehouse(),
-                          },
                       ]
                     : [
                           {
@@ -492,25 +486,26 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             icon: <IconChat />,
                             to: urls.surveys(),
                         },
-                        !hasOnboardedAnyProduct
-                            ? {
-                                  identifier: Scene.DataWarehouse,
-                                  label: 'Data warehouse',
-                                  icon: <IconServer />,
-                                  to: isUsingSidebar ? undefined : urls.dataWarehouse(),
-                              }
-                            : {
-                                  identifier: Scene.DataModel,
-                                  label: 'Data model',
-                                  icon: <IconServer />,
-                                  to: isUsingSidebar ? undefined : urls.dataModel(),
-                              },
                         featureFlags[FEATURE_FLAGS.PRODUCT_INTRO_PAGES] !== 'test' || hasOnboardedFeatureFlags
                             ? {
                                   identifier: Scene.EarlyAccessFeatures,
                                   label: 'Early access features',
                                   icon: <IconRocket />,
                                   to: urls.earlyAccessFeatures(),
+                              }
+                            : null,
+                        {
+                            identifier: Scene.DataWarehouse,
+                            label: 'Data warehouse',
+                            icon: <IconServer />,
+                            to: isUsingSidebar ? undefined : urls.dataWarehouse(),
+                        },
+                        featureFlags[FEATURE_FLAGS.DATA_MODELING] && hasOnboardedAnyProduct
+                            ? {
+                                  identifier: Scene.DataModel,
+                                  label: 'Data model',
+                                  icon: <IconServer />,
+                                  to: isUsingSidebar ? undefined : urls.dataModel(),
                               }
                             : null,
                         hasOnboardedAnyProduct
