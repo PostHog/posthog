@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Any, Optional
 import dlt
 from dlt.sources.helpers.rest_client.paginators import BasePaginator
 from dlt.sources.helpers.requests import Response, Request
@@ -264,7 +264,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
 
 
 class StripePaginator(BasePaginator):
-    def update_state(self, response: Response) -> None:
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         res = response.json()
 
         self._starting_after = None
