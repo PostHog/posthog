@@ -135,7 +135,7 @@ distro==1.9.0
     # via openai
 dj-database-url==0.5.0
     # via -r requirements.in
-django==4.2.14
+django==4.2.15
     # via
     #   -r requirements.in
     #   django-axes
@@ -456,10 +456,14 @@ pyjwt==2.4.0
     #   simple-salesforce
     #   snowflake-connector-python
     #   social-auth-core
+pymssql==2.3.0
+    # via -r requirements.in
 pymysql==1.1.1
     # via -r requirements.in
 pynacl==1.5.0
     # via paramiko
+pyodbc==5.1.0
+    # via -r requirements.in
 pyopenssl==23.0.0
     # via
     #   snowflake-connector-python

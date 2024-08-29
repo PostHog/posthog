@@ -21,8 +21,9 @@ import { urls } from 'scenes/urls'
 
 import { AvailableFeature, PipelineNodeTab, PipelineStage, ProductKey } from '~/types'
 
-import { AppMetricSparkLine, AppMetricSparkLineV2 } from '../AppMetricSparkLine'
+import { AppMetricSparkLine } from '../AppMetricSparkLine'
 import { HogFunctionIcon } from '../hogfunctions/HogFunctionIcon'
+import { AppMetricSparkLineV2 } from '../metrics/AppMetricsV2Sparkline'
 import { NewButton } from '../NewButton'
 import { pipelineAccessLogic } from '../pipelineAccessLogic'
 import { Destination, PipelineBackend } from '../types'
@@ -55,8 +56,9 @@ export function Destinations(): JSX.Element {
 }
 
 export function DestinationsTable({ ...props }: PipelineDestinationsLogicProps): JSX.Element {
+    const { canConfigurePlugins, canEnableDestination } = useValues(pipelineAccessLogic)
     const { loading, filteredDestinations, filters, destinations } = useValues(pipelineDestinationsLogic(props))
-    const { setFilters, resetFilters } = useActions(pipelineDestinationsLogic(props))
+    const { setFilters, resetFilters, toggleNode, deleteNode } = useActions(pipelineDestinationsLogic(props))
 
     const hasHogFunctions = !!useFeatureFlag('HOG_FUNCTIONS')
 
@@ -168,7 +170,7 @@ export function DestinationsTable({ ...props }: PipelineDestinationsLogicProps):
                                         )}
                                     >
                                         {destination.backend === PipelineBackend.HogFunction ? (
-                                            <AppMetricSparkLineV2 pipelineNode={destination} />
+                                            <AppMetricSparkLineV2 id={destination.hog_function.id} />
                                         ) : (
                                             <AppMetricSparkLine pipelineNode={destination} />
                                         )}
@@ -201,7 +203,36 @@ export function DestinationsTable({ ...props }: PipelineDestinationsLogicProps):
                         {
                             width: 0,
                             render: function Render(_, destination) {
-                                return <More overlay={<DestinationMoreOverlay destination={destination} />} />
+                                return (
+                                    <More
+                                        overlay={
+                                            <LemonMenuOverlay
+                                                items={[
+                                                    {
+                                                        label: destination.enabled
+                                                            ? 'Pause destination'
+                                                            : 'Unpause destination',
+                                                        onClick: () => toggleNode(destination, !destination.enabled),
+                                                        disabledReason: !canConfigurePlugins
+                                                            ? 'You do not have permission to toggle destinations.'
+                                                            : !canEnableDestination(destination) && !destination.enabled
+                                                            ? 'Data pipelines add-on is required for enabling new destinations'
+                                                            : undefined,
+                                                    },
+                                                    ...pipelineNodeMenuCommonItems(destination),
+                                                    {
+                                                        label: 'Delete destination',
+                                                        status: 'danger' as const, // for typechecker happiness
+                                                        onClick: () => deleteNode(destination),
+                                                        disabledReason: canConfigurePlugins
+                                                            ? undefined
+                                                            : 'You do not have permission to delete destinations.',
+                                                    },
+                                                ]}
+                                            />
+                                        }
+                                    />
+                                )
                             },
                         },
                     ]}
@@ -218,35 +249,5 @@ export function DestinationsTable({ ...props }: PipelineDestinationsLogicProps):
                 />
             </BindLogic>
         </>
-    )
-}
-
-const DestinationMoreOverlay = ({ destination }: { destination: Destination }): JSX.Element => {
-    const { canConfigurePlugins, canEnableDestination } = useValues(pipelineAccessLogic)
-    const { toggleNode, deleteNode } = useActions(pipelineDestinationsLogic)
-
-    return (
-        <LemonMenuOverlay
-            items={[
-                {
-                    label: destination.enabled ? 'Pause destination' : 'Unpause destination',
-                    onClick: () => toggleNode(destination, !destination.enabled),
-                    disabledReason: !canConfigurePlugins
-                        ? 'You do not have permission to toggle destinations.'
-                        : !canEnableDestination(destination) && !destination.enabled
-                        ? 'Data pipelines add-on is required for enabling new destinations'
-                        : undefined,
-                },
-                ...pipelineNodeMenuCommonItems(destination),
-                {
-                    label: 'Delete destination',
-                    status: 'danger' as const, // for typechecker happiness
-                    onClick: () => deleteNode(destination),
-                    disabledReason: canConfigurePlugins
-                        ? undefined
-                        : 'You do not have permission to delete destinations.',
-                },
-            ]}
-        />
     )
 }
