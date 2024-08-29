@@ -203,9 +203,7 @@ abstract class CdpConsumerBase {
     }
 
     protected async queueInvocation(invocation: HogFunctionInvocation) {
-        // Depending on flags we enqueue either to kafka or to cyclotron
-
-        // TODO: Add cylcotron check here
+        // TODO: Add cylcotron check here and enqueue that way
         // For now we just enqueue to kafka
         // For kafka style this is overkill to enqueue this way but it simplifies migrating to the new system
 
@@ -588,29 +586,23 @@ export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
 
 // // TODO: Split out non-Kafka specific parts of CdpConsumerBase so that it can be used by the
 // // Cyclotron worker below. Or maybe we can just wait, and rip the Kafka bits out once Cyclotron is
-// // shipped (and rename it something other than consomer, probably). For now, this is an easy way to
+// // shipped (and rename it something other than consumer, probably). For now, this is an easy way to
 // // use existing code and get an end-to-end demo shipped.
-// export class CdpCyclotronWorker extends CdpConsumerBase {
+// export class CdpCyclotronWorker extends CdpFunctionCallbackConsumer {
 //     protected name = 'CdpCyclotronWorker'
 //     protected topic = 'UNUSED-CdpCyclotronWorker'
 //     protected consumerGroupId = 'UNUSED-CdpCyclotronWorker'
 //     private runningWorker: Promise<void> | undefined
 //     private isUnhealthy = false
 
-//     public async _handleEachBatch(_: Message[]): Promise<void> {
-//         // Not called, we override `start` below to use Cyclotron instead.
-//     }
-
 //     private async innerStart() {
 //         try {
 //             const limit = 100 // TODO: Make configurable.
 //             while (!this.isStopping) {
 //                 const jobs = await cyclotron.dequeueJobsWithVmState('hog', limit)
-//                 for (const job of jobs) {
-//                     // TODO: Reassemble a HogFunctionInvocationAsyncResponse (or whatever proper type)
-//                     // from the fields on the job, and then execute the next Hog step.
-//                     console.log(job.id)
-//                 }
+//                 // TODO: Decode jobs into the right types
+
+//                 await this.processBatch(jobs)
 //             }
 //         } catch (err) {
 //             this.isUnhealthy = true
