@@ -210,12 +210,13 @@ describe('Hog Executor', () => {
 
             mockFunctionManager.getTeamHogFunctions.mockReturnValue([fn])
 
-            const resultsShouldntMatch = executor.findMatchingFunctions(createHogExecutionGlobals())
+            const resultsShouldntMatch = executor.findMatchingFunctions(createHogExecutionGlobals({ groups: {} }))
             expect(resultsShouldntMatch.matchingFunctions).toHaveLength(0)
             expect(resultsShouldntMatch.nonMatchingFunctions).toHaveLength(1)
 
             const resultsShouldMatch = executor.findMatchingFunctions(
                 createHogExecutionGlobals({
+                    groups: {},
                     event: {
                         name: '$pageview',
                         properties: {
@@ -329,6 +330,7 @@ describe('Hog Executor', () => {
             })
 
             const globals = createHogExecutionGlobals({
+                groups: {},
                 event: {
                     properties: {
                         $hog_function_execution_count: 1,

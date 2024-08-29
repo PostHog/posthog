@@ -656,6 +656,7 @@ class PersonsOnEventsMode(StrEnum):
 class PropertyGroupsMode(StrEnum):
     ENABLED = "enabled"
     DISABLED = "disabled"
+    OPTIMIZED = "optimized"
 
 
 class SessionTableVersion(StrEnum):
@@ -761,6 +762,13 @@ class LifecycleToggle(StrEnum):
     DORMANT = "dormant"
 
 
+class MatchedRecordingEvent(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    uuid: str
+
+
 class MinimalHedgehogConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -792,6 +800,7 @@ class NodeKind(StrEnum):
     FUNNELS_ACTORS_QUERY = "FunnelsActorsQuery"
     FUNNEL_CORRELATION_ACTORS_QUERY = "FunnelCorrelationActorsQuery"
     SESSIONS_TIMELINE_QUERY = "SessionsTimelineQuery"
+    RECORDINGS_QUERY = "RecordingsQuery"
     SESSION_ATTRIBUTION_EXPLORER_QUERY = "SessionAttributionExplorerQuery"
     ERROR_TRACKING_QUERY = "ErrorTrackingQuery"
     DATA_TABLE_NODE = "DataTableNode"
@@ -868,6 +877,19 @@ class PathsFilterLegacy(BaseModel):
     paths_hogql_expression: Optional[str] = None
     start_point: Optional[str] = None
     step_limit: Optional[int] = None
+
+
+class PersonType(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    created_at: Optional[str] = None
+    distinct_ids: list[str]
+    id: Optional[str] = None
+    is_identified: Optional[bool] = None
+    name: Optional[str] = None
+    properties: dict[str, Any]
+    uuid: Optional[str] = None
 
 
 class PropertyFilterType(StrEnum):
@@ -1099,6 +1121,17 @@ class SessionPropertyFilter(BaseModel):
     operator: PropertyOperator
     type: Literal["session"] = "session"
     value: Optional[Union[str, float, list[Union[str, float]]]] = None
+
+
+class SnapshotSource(StrEnum):
+    WEB = "web"
+    MOBILE = "mobile"
+    UNKNOWN = "unknown"
+
+
+class Storage(StrEnum):
+    OBJECT_STORAGE_LTS = "object_storage_lts"
+    OBJECT_STORAGE = "object_storage"
 
 
 class StepOrderValue(StrEnum):
@@ -2599,6 +2632,14 @@ class LogEntryPropertyFilter(BaseModel):
     value: Optional[Union[str, float, list[Union[str, float]]]] = None
 
 
+class MatchedRecording(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    events: list[MatchedRecordingEvent]
+    session_id: Optional[str] = None
+
+
 class MultipleBreakdownOptions(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3305,6 +3346,35 @@ class SessionAttributionExplorerQuery(BaseModel):
     )
     offset: Optional[int] = None
     response: Optional[SessionAttributionExplorerQueryResponse] = None
+
+
+class SessionRecordingType(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    active_seconds: Optional[float] = None
+    click_count: Optional[float] = None
+    console_error_count: Optional[float] = None
+    console_log_count: Optional[float] = None
+    console_warn_count: Optional[float] = None
+    distinct_id: Optional[str] = None
+    email: Optional[str] = None
+    end_time: str = Field(..., description="When the recording ends in ISO format.")
+    id: str
+    inactive_seconds: Optional[float] = None
+    keypress_count: Optional[float] = None
+    matching_events: Optional[list[MatchedRecording]] = Field(default=None, description="List of matching events. *")
+    mouse_activity_count: Optional[float] = Field(
+        default=None, description="count of all mouse activity in the recording, not just clicks"
+    )
+    person: Optional[PersonType] = None
+    recording_duration: float = Field(..., description="Length of recording in seconds.")
+    snapshot_source: SnapshotSource
+    start_time: str = Field(..., description="When the recording starts in ISO format.")
+    start_url: Optional[str] = None
+    storage: Optional[Storage] = Field(default=None, description="Where this recording information was loaded from")
+    summary: Optional[str] = None
+    viewed: bool = Field(..., description="Whether this recording has been viewed already.")
 
 
 class SessionsTimelineQueryResponse(BaseModel):
@@ -4140,6 +4210,14 @@ class QueryResponseAlternative24(BaseModel):
     )
 
 
+class RecordingsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    has_next: bool
+    results: list[SessionRecordingType]
+
+
 class RetentionQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4295,6 +4373,67 @@ class PropertyGroupFilter(BaseModel):
     )
     type: FilterLogicalOperator
     values: list[PropertyGroupFilterValue]
+
+
+class RecordingsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    actions: Optional[list[dict[str, Any]]] = None
+    console_log_filters: Optional[list[LogEntryPropertyFilter]] = None
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    events: Optional[list[dict[str, Any]]] = None
+    filter_test_accounts: Optional[bool] = None
+    having_predicates: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+            ]
+        ]
+    ] = None
+    kind: Literal["RecordingsQuery"] = "RecordingsQuery"
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    operand: Optional[FilterLogicalOperator] = None
+    order: Union[DurationType, str]
+    person_uuid: Optional[str] = None
+    properties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+            ]
+        ]
+    ] = None
+    response: Optional[RecordingsQueryResponse] = None
+    session_ids: Optional[list[str]] = None
 
 
 class RetentionQuery(BaseModel):

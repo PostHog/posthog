@@ -346,6 +346,7 @@
                   "fields": [
                       "id",
                       "session_id",
+                      "session_id_v7",
                       "team_id",
                       "distinct_id",
                       "$start_timestamp",
@@ -354,8 +355,8 @@
                       "$num_uniq_urls",
                       "$entry_current_url",
                       "$entry_pathname",
-                      "$exit_current_url",
-                      "$exit_pathname",
+                      "$end_current_url",
+                      "$end_pathname",
                       "$entry_utm_source",
                       "$entry_utm_campaign",
                       "$entry_utm_medium",
@@ -364,13 +365,15 @@
                       "$entry_referring_domain",
                       "$entry_gclid",
                       "$entry_gad_source",
-                      "$event_count_map",
                       "$pageview_count",
                       "$autocapture_count",
+                      "$screen_count",
                       "$channel_type",
                       "$session_duration",
                       "duration",
-                      "$is_bounce"
+                      "$is_bounce",
+                      "$last_external_click_url",
+                      "$page_screen_autocapture_count_up_to"
                   ],
                   "hogql_value": "session",
                   "name": "session",
@@ -832,6 +835,7 @@
                   "fields": [
                       "id",
                       "session_id",
+                      "session_id_v7",
                       "team_id",
                       "distinct_id",
                       "$start_timestamp",
@@ -840,8 +844,8 @@
                       "$num_uniq_urls",
                       "$entry_current_url",
                       "$entry_pathname",
-                      "$exit_current_url",
-                      "$exit_pathname",
+                      "$end_current_url",
+                      "$end_pathname",
                       "$entry_utm_source",
                       "$entry_utm_campaign",
                       "$entry_utm_medium",
@@ -850,13 +854,15 @@
                       "$entry_referring_domain",
                       "$entry_gclid",
                       "$entry_gad_source",
-                      "$event_count_map",
                       "$pageview_count",
                       "$autocapture_count",
+                      "$screen_count",
                       "$channel_type",
                       "$session_duration",
                       "duration",
-                      "$is_bounce"
+                      "$is_bounce",
+                      "$last_external_click_url",
+                      "$page_screen_autocapture_count_up_to"
                   ],
                   "hogql_value": "session",
                   "name": "session",
@@ -1054,6 +1060,15 @@
                   "table": null,
                   "type": "string"
               },
+              "session_id_v7": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "session_id_v7",
+                  "name": "session_id_v7",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
               "distinct_id": {
                   "chain": null,
                   "fields": null,
@@ -1117,20 +1132,20 @@
                   "table": null,
                   "type": "string"
               },
-              "$exit_current_url": {
+              "$end_current_url": {
                   "chain": null,
                   "fields": null,
-                  "hogql_value": "`$exit_current_url`",
-                  "name": "$exit_current_url",
+                  "hogql_value": "`$end_current_url`",
+                  "name": "$end_current_url",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
               },
-              "$exit_pathname": {
+              "$end_pathname": {
                   "chain": null,
                   "fields": null,
-                  "hogql_value": "`$exit_pathname`",
-                  "name": "$exit_pathname",
+                  "hogql_value": "`$end_pathname`",
+                  "name": "$end_pathname",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
@@ -1225,6 +1240,15 @@
                   "table": null,
                   "type": "integer"
               },
+              "$screen_count": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$screen_count`",
+                  "name": "$screen_count",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
               "$channel_type": {
                   "chain": null,
                   "fields": null,
@@ -1260,6 +1284,15 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "boolean"
+              },
+              "$last_external_click_url": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$last_external_click_url`",
+                  "name": "$last_external_click_url",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
               }
           },
           "id": "sessions",
@@ -1703,6 +1736,7 @@
                   "fields": [
                       "id",
                       "session_id",
+                      "session_id_v7",
                       "team_id",
                       "distinct_id",
                       "$start_timestamp",
@@ -1711,8 +1745,8 @@
                       "$num_uniq_urls",
                       "$entry_current_url",
                       "$entry_pathname",
-                      "$exit_current_url",
-                      "$exit_pathname",
+                      "$end_current_url",
+                      "$end_pathname",
                       "$entry_utm_source",
                       "$entry_utm_campaign",
                       "$entry_utm_medium",
@@ -1721,13 +1755,15 @@
                       "$entry_referring_domain",
                       "$entry_gclid",
                       "$entry_gad_source",
-                      "$event_count_map",
                       "$pageview_count",
                       "$autocapture_count",
+                      "$screen_count",
                       "$channel_type",
                       "$session_duration",
                       "duration",
-                      "$is_bounce"
+                      "$is_bounce",
+                      "$last_external_click_url",
+                      "$page_screen_autocapture_count_up_to"
                   ],
                   "hogql_value": "session",
                   "name": "session",
@@ -2189,6 +2225,7 @@
                   "fields": [
                       "id",
                       "session_id",
+                      "session_id_v7",
                       "team_id",
                       "distinct_id",
                       "$start_timestamp",
@@ -2197,8 +2234,8 @@
                       "$num_uniq_urls",
                       "$entry_current_url",
                       "$entry_pathname",
-                      "$exit_current_url",
-                      "$exit_pathname",
+                      "$end_current_url",
+                      "$end_pathname",
                       "$entry_utm_source",
                       "$entry_utm_campaign",
                       "$entry_utm_medium",
@@ -2207,13 +2244,15 @@
                       "$entry_referring_domain",
                       "$entry_gclid",
                       "$entry_gad_source",
-                      "$event_count_map",
                       "$pageview_count",
                       "$autocapture_count",
+                      "$screen_count",
                       "$channel_type",
                       "$session_duration",
                       "duration",
-                      "$is_bounce"
+                      "$is_bounce",
+                      "$last_external_click_url",
+                      "$page_screen_autocapture_count_up_to"
                   ],
                   "hogql_value": "session",
                   "name": "session",
@@ -2411,6 +2450,15 @@
                   "table": null,
                   "type": "string"
               },
+              "session_id_v7": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "session_id_v7",
+                  "name": "session_id_v7",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
               "distinct_id": {
                   "chain": null,
                   "fields": null,
@@ -2474,20 +2522,20 @@
                   "table": null,
                   "type": "string"
               },
-              "$exit_current_url": {
+              "$end_current_url": {
                   "chain": null,
                   "fields": null,
-                  "hogql_value": "`$exit_current_url`",
-                  "name": "$exit_current_url",
+                  "hogql_value": "`$end_current_url`",
+                  "name": "$end_current_url",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
               },
-              "$exit_pathname": {
+              "$end_pathname": {
                   "chain": null,
                   "fields": null,
-                  "hogql_value": "`$exit_pathname`",
-                  "name": "$exit_pathname",
+                  "hogql_value": "`$end_pathname`",
+                  "name": "$end_pathname",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
@@ -2582,6 +2630,15 @@
                   "table": null,
                   "type": "integer"
               },
+              "$screen_count": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$screen_count`",
+                  "name": "$screen_count",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
               "$channel_type": {
                   "chain": null,
                   "fields": null,
@@ -2617,6 +2674,15 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "boolean"
+              },
+              "$last_external_click_url": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$last_external_click_url`",
+                  "name": "$last_external_click_url",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
               }
           },
           "id": "sessions",

@@ -19,9 +19,9 @@ checksum = "f26201604c87b1e01bd3d98f8d5d9a8fcbb815e8cedb41ffccbeb4bf593a35fe"
 
 [[package]]
 name = "ahash"
-version = "0.8.7"
+version = "0.8.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77c3a9648d43b9cd48db467b3f87fdd6e146bcc88ab0180006cef2179fe11d01"
+checksum = "e89da841a80418a9b391ebaea17f5c112ffaaa96f621d2c285b5174da76b9011"
 dependencies = [
  "cfg-if",
  "getrandom",
@@ -641,6 +641,7 @@ dependencies = [
  "thiserror",
  "time",
  "tokio",
+ "tower",
  "tower-http",
  "tracing",
  "tracing-opentelemetry",
@@ -1132,6 +1133,7 @@ dependencies = [
  "axum-client-ip",
  "bytes",
  "envconfig",
+ "maxminddb",
  "once_cell",
  "rand",
  "redis",
@@ -2142,6 +2144,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0e7465ac9959cc2b1404e8e2367b43684a6d13790fe23056cc8c6c5a6b7bcb94"
 
 [[package]]
+name = "maxminddb"
+version = "0.17.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d13fa57adcc4f3aca91e511b3cdaa58ed8cbcbf97f20e342a11218c76e127f51"
+dependencies = [
+ "log",
+ "serde",
+]
+
+[[package]]
 name = "md-5"
 version = "0.10.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2809,12 +2821,15 @@ dependencies = [
 name = "property-defs-rs"
 version = "0.1.0"
 dependencies = [
+ "ahash",
  "axum 0.7.5",
  "chrono",
+ "common-metrics",
  "envconfig",
  "futures",
  "health",
  "metrics",
+ "quick_cache",
  "rdkafka",
  "serde",
  "serde_json",
@@ -2824,7 +2839,6 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
- "uuid",
 ]
 
 [[package]]
@@ -2879,6 +2893,18 @@ dependencies = [
  "wasi 0.11.0+wasi-snapshot-preview1",
  "web-sys",
  "winapi",
+]
+
+[[package]]
+name = "quick_cache"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "27a893a83255c587d31137bc7e350387b49267b0deac44120fd8fa8bd0d61645"
+dependencies = [
+ "ahash",
+ "equivalent",
+ "hashbrown 0.14.3",
+ "parking_lot",
 ]
 
 [[package]]

@@ -1,21 +1,33 @@
-use std::{collections::HashSet, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
+use ahash::AHashSet;
 use axum::{routing::get, Router};
 use envconfig::Envconfig;
 use futures::future::ready;
 use property_defs_rs::{
     app_context::AppContext,
     config::Config,
-    metrics_consts::{BATCH_SKIPPED, EVENTS_RECEIVED, FORCED_SMALL_BATCH, SMALL_BATCH_SLEEP},
-    types::{Event, Update},
+    message_to_event,
+    metrics_consts::{
+        BATCH_ACQUIRE_TIME, CACHE_CONSUMED, COMPACTED_UPDATES, EVENTS_RECEIVED, FORCED_SMALL_BATCH,
+        PERMIT_WAIT_TIME, RECV_DEQUEUED, TRANSACTION_LIMIT_SATURATION, UPDATES_FILTERED_BY_CACHE,
+        UPDATES_PER_EVENT, UPDATES_SEEN, UPDATE_ISSUE_TIME, WORKER_BLOCKED,
+    },
+    types::Update,
 };
+use quick_cache::sync::Cache;
 use rdkafka::{
     consumer::{Consumer, StreamConsumer},
-    message::BorrowedMessage,
-    ClientConfig, Message,
+    ClientConfig,
 };
 use serve_metrics::{serve, setup_metrics_routes};
-use tokio::{select, task::JoinHandle, time::sleep};
+use tokio::{
+    sync::{
+        mpsc::{self, error::TrySendError},
+        Semaphore,
+    },
+    task::JoinHandle,
+};
 use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
@@ -50,6 +62,65 @@ fn start_health_liveness_server(config: &Config, context: Arc<AppContext>) -> Jo
     })
 }
 
+async fn spawn_producer_loop(
+    consumer: Arc<StreamConsumer>,
+    channel: mpsc::Sender<Update>,
+    shared_cache: Arc<Cache<Update, ()>>,
+    skip_threshold: usize,
+    compaction_batch_size: usize,
+) {
+    let mut batch = AHashSet::with_capacity(compaction_batch_size);
+    let mut last_send = tokio::time::Instant::now();
+    loop {
+        let message = consumer
+            .recv()
+            .await
+            .expect("TODO - workers panic on kafka recv fail");
+
+        let Some(event) = message_to_event(message) else {
+            continue;
+        };
+
+        let updates = event.into_updates(skip_threshold);
+
+        metrics::counter!(EVENTS_RECEIVED).increment(1);
+        metrics::counter!(UPDATES_SEEN).increment(updates.len() as u64);
+        metrics::histogram!(UPDATES_PER_EVENT).record(updates.len() as f64);
+
+        for update in updates {
+            if batch.contains(&update) {
+                metrics::counter!(COMPACTED_UPDATES).increment(1);
+                continue;
+            }
+            batch.insert(update);
+
+            if batch.len() >= compaction_batch_size || last_send.elapsed() > Duration::from_secs(10)
+            {
+                last_send = tokio::time::Instant::now();
+                for update in batch.drain() {
+                    if shared_cache.get(&update).is_some() {
+                        metrics::counter!(UPDATES_FILTERED_BY_CACHE).increment(1);
+                        continue;
+                    }
+                    shared_cache.insert(update.clone(), ());
+                    match channel.try_send(update) {
+                        Ok(_) => {}
+                        Err(TrySendError::Full(update)) => {
+                            warn!("Worker blocked");
+                            metrics::counter!(WORKER_BLOCKED).increment(1);
+                            channel.send(update).await.unwrap();
+                        }
+                        Err(e) => {
+                            warn!("Coordinator send failed: {:?}", e);
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     setup_tracing();
@@ -59,7 +130,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let kafka_config: ClientConfig = (&config.kafka).into();
 
-    let consumer: StreamConsumer = kafka_config.create()?;
+    let consumer: Arc<StreamConsumer> = Arc::new(kafka_config.create()?);
 
     let context = Arc::new(AppContext::new(&config).await?);
 
@@ -69,77 +140,72 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     start_health_liveness_server(&config, context.clone());
 
-    let mut batch = Vec::with_capacity(config.max_batch_size);
+    let (tx, mut rx) = mpsc::channel(config.update_batch_size * config.channel_slots_per_worker);
+    let transaction_limit = Arc::new(Semaphore::new(config.max_concurrent_transactions));
+    let cache = Arc::new(Cache::new(config.cache_capacity));
 
-    let mut sleep_count = 0;
-    loop {
-        context.worker_liveness.report_healthy().await;
-
-        while batch.len() < config.max_batch_size {
-            // Try to grab from the consumer, but use a select! to timeout if we'd block for more than some time
-            select! {
-                res = consumer.recv() => {
-                    batch.push(res?); // Workers die on an kafka error
-                }
-                _ = sleep(Duration::from_millis(config.next_event_wait_timeout_ms)) => {
-                    break;
-                }
-            }
-        }
-
-        // We only process batches over a certain threshold, unless we haven't received anything in a while, to reduce DB load
-        if batch.len() < config.min_batch_size {
-            sleep_count += 1;
-            info!("Batch size is less than min_batch_size, sleeping for 2 seconds");
-            metrics::counter!(BATCH_SKIPPED).increment(1);
-            sleep(Duration::from_millis(2000)).await;
-            if sleep_count > 10 {
-                warn!("Slept too many times, continuing with a small batch");
-                metrics::counter!(FORCED_SMALL_BATCH).increment(1);
-            } else {
-                metrics::counter!(SMALL_BATCH_SLEEP).increment(1);
-                continue;
-            }
-        }
-        sleep_count = 0;
-
-        metrics::counter!(EVENTS_RECEIVED).increment(batch.len() as u64);
-
-        let updates: HashSet<Update> = batch
-            .drain(..)
-            .filter_map(message_to_event)
-            .flat_map(Event::into_updates)
-            .filter_map(filter_cached)
-            .collect();
-
-        context.issue(updates).await?;
+    for _ in 0..config.worker_loop_count {
+        tokio::spawn(spawn_producer_loop(
+            consumer.clone(),
+            tx.clone(),
+            cache.clone(),
+            config.update_count_skip_threshold,
+            config.compaction_batch_size,
+        ));
     }
-}
 
-// This copies event properties, which means the total resident memory usage is higher than we'd like, and that constrains
-// our batch size. serde_json provides no zero-copy way to parse a JSON object, so we're stuck with this for now.
-fn message_to_event(msg: BorrowedMessage) -> Option<Event> {
-    let Some(payload) = msg.payload() else {
-        warn!("Received empty event");
-        metrics::counter!("empty_event").increment(1);
-        return None;
-    };
+    loop {
+        let mut batch = Vec::with_capacity(config.update_batch_size);
 
-    let event = serde_json::from_slice::<Event>(payload);
-    let event = match event {
-        Ok(e) => e,
-        Err(e) => {
-            metrics::counter!("event_parse_error").increment(1);
-            warn!("Failed to parse event: {:?}", e);
-            return None;
+        let batch_start = tokio::time::Instant::now();
+        let batch_time = common_metrics::timing_guard(BATCH_ACQUIRE_TIME, &[]);
+        while batch.len() < config.update_batch_size {
+            context.worker_liveness.report_healthy().await;
+
+            let remaining_capacity = config.update_batch_size - batch.len();
+            // We race these two, so we can escape this loop and do a small batch if we've been waiting too long
+            let recv = rx.recv_many(&mut batch, remaining_capacity);
+            let sleep = tokio::time::sleep(Duration::from_secs(1));
+
+            tokio::select! {
+                got = recv => {
+                    if got == 0 {
+                        warn!("Coordinator recv failed, dying");
+                        return Ok(());
+                    }
+                    metrics::gauge!(RECV_DEQUEUED).set(got as f64);
+                    continue;
+                }
+                _ = sleep => {
+                    if batch_start.elapsed() > Duration::from_secs(config.max_issue_period) {
+                        warn!("Forcing small batch due to time limit");
+                        metrics::counter!(FORCED_SMALL_BATCH).increment(1);
+                        break;
+                    }
+                }
+            }
         }
-    };
-    Some(event)
-}
+        batch_time.fin();
 
-// TODO: this is where caching would go, if we had any. Could probably use a bloom filter or something,
-// rather than storing the entire update in memory, if we wanted to store some HUGE number of updates and
-// be /really/ good about not hitting the DB when we don't need to. Right now this is just a no-op.
-fn filter_cached(update: Update) -> Option<Update> {
-    Some(update)
+        metrics::gauge!(CACHE_CONSUMED).set(cache.len() as f64);
+
+        metrics::gauge!(TRANSACTION_LIMIT_SATURATION).set(
+            (config.max_concurrent_transactions - transaction_limit.available_permits()) as f64,
+        );
+
+        // We unconditionally wait to acquire a transaction permit - this is our backpressure mechanism. If we
+        // fail to acquire a permit for long enough, we will fail liveness checks (but that implies our ongoing
+        // transactions are halted, at which point DB health is a concern).
+        let permit_acquire_time = common_metrics::timing_guard(PERMIT_WAIT_TIME, &[]);
+        let permit = transaction_limit.clone().acquire_owned().await.unwrap();
+        permit_acquire_time.fin();
+
+        let context = context.clone();
+        tokio::spawn(async move {
+            let _permit = permit;
+            let issue_time = common_metrics::timing_guard(UPDATE_ISSUE_TIME, &[]);
+            context.issue(batch).await.unwrap();
+            issue_time.fin();
+        });
+    }
 }

@@ -13,10 +13,10 @@ import { urls } from 'scenes/urls'
 import { ActivityScope, PipelineNodeTab, PipelineStage, PipelineTab } from '~/types'
 
 import { BatchExportRuns } from './BatchExportRuns'
+import { AppMetricsV2 } from './metrics/AppMetricsV2'
 import { PipelineNodeConfiguration } from './PipelineNodeConfiguration'
 import { pipelineNodeLogic, PipelineNodeLogicProps } from './pipelineNodeLogic'
 import { PipelineNodeMetrics } from './PipelineNodeMetrics'
-import { PipelineNodeMetricsV2 } from './PipelineNodeMetricsV2'
 import { PipelineBackend } from './types'
 
 export const PIPELINE_TAB_TO_NODE_STAGE: Partial<Record<PipelineTab, PipelineStage>> = {
@@ -67,7 +67,7 @@ export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.
                   [PipelineNodeTab.Configuration]: <PipelineNodeConfiguration />,
                   [PipelineNodeTab.Metrics]:
                       node.backend === PipelineBackend.HogFunction ? (
-                          <PipelineNodeMetricsV2 />
+                          <AppMetricsV2 id={node.id} />
                       ) : (
                           <PipelineNodeMetrics id={id} />
                       ),

@@ -17,3 +17,4 @@ dist/
 node_modules/
 pnpm-lock.yaml
 posthog/templates/email/*
+hogvm/typescript/src/stl/bytecode.ts

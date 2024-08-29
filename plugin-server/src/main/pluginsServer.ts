@@ -2,7 +2,7 @@ import * as Sentry from '@sentry/node'
 import fs from 'fs'
 import { Server } from 'http'
 import { BatchConsumer } from 'kafka/batch-consumer'
-import { CompressionCodecs, CompressionTypes, Consumer, KafkaJSProtocolError } from 'kafkajs'
+import { CompressionCodecs, CompressionTypes, KafkaJSProtocolError } from 'kafkajs'
 // @ts-expect-error no type definitions
 import SnappyCodec from 'kafkajs-snappy'
 import * as schedule from 'node-schedule'
@@ -99,37 +99,12 @@ export async function startPluginsServer(
     // A Node Worker Thread pool
     let piscina: Piscina | undefined
 
-    // Ingestion Kafka consumer. Handles both analytics events and screen
-    // recording events. The functionality roughly looks like:
-    //
-    // 1. events come in via the /e/ and friends endpoints and published to the
-    //    plugin_events_ingestion Kafka topic.
-    // 2. this queue consumes from the plugin_events_ingestion topic.
-    // 3. update or creates people in the Persons table in pg with the new event
-    //    data.
-    // 4. passes the event through `processEvent` on any plugins that the team
-    //    has enabled.
-    // 5. publishes the resulting event to a Kafka topic on which ClickHouse is
-    //    listening.
-    let analyticsEventsIngestionConsumer: IngestionConsumer | undefined
-    let analyticsEventsIngestionOverflowConsumer: IngestionConsumer | undefined
-    let analyticsEventsIngestionHistoricalConsumer: IngestionConsumer | undefined
-    let eventsIngestionConsumer: Map<string, IngestionConsumer> | undefined
-    let onEventHandlerConsumer: KafkaJSIngestionConsumer | undefined
-    let stopWebhooksHandlerConsumer: () => Promise<void> | undefined
-
-    const shutdownCallbacks: (() => Promise<void>)[] = []
+    const shutdownCallbacks: (() => Promise<any>)[] = []
 
     // Kafka consumer. Handles events that we couldn't find an existing person
     // to associate. The buffer handles delaying the ingestion of these events
     // (default 60 seconds) to allow for the person to be created in the
     // meantime.
-    let bufferConsumer: Consumer | undefined
-    let stopSessionRecordingBlobConsumer: (() => void) | undefined
-    let stopSessionRecordingBlobOverflowConsumer: (() => void) | undefined
-    let jobsConsumer: Consumer | undefined
-    let schedulerTasksConsumer: Consumer | undefined
-
     let httpServer: Server | undefined // server
 
     let graphileWorker: GraphileWorker | undefined
@@ -159,17 +134,6 @@ export async function startPluginsServer(
         await Promise.allSettled([
             pubSub?.stop(),
             graphileWorker?.stop(),
-            analyticsEventsIngestionConsumer?.stop(),
-            analyticsEventsIngestionOverflowConsumer?.stop(),
-            analyticsEventsIngestionHistoricalConsumer?.stop(),
-            ...Array.from(eventsIngestionConsumer?.values() || []).map((consumer) => consumer.stop()),
-            onEventHandlerConsumer?.stop(),
-            stopWebhooksHandlerConsumer?.(),
-            bufferConsumer?.disconnect(),
-            jobsConsumer?.disconnect(),
-            stopSessionRecordingBlobConsumer?.(),
-            stopSessionRecordingBlobOverflowConsumer?.(),
-            schedulerTasksConsumer?.disconnect(),
             ...shutdownCallbacks.map((cb) => cb()),
             posthog.shutdownAsync(),
         ])
@@ -299,22 +263,24 @@ export async function startPluginsServer(
             status.info('👷', 'Graphile worker is ready!')
 
             if (capabilities.pluginScheduledTasks) {
-                schedulerTasksConsumer = await startScheduledTasksConsumer({
+                const schedulerTasksConsumer = await startScheduledTasksConsumer({
                     piscina: piscina,
                     producer: hub.kafkaProducer,
                     kafka: hub.kafka,
                     serverConfig,
                     partitionConcurrency: serverConfig.KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY,
                 })
+                shutdownCallbacks.push(async () => await schedulerTasksConsumer.disconnect())
             }
 
             if (capabilities.processPluginJobs) {
-                jobsConsumer = await startJobsConsumer({
+                const jobsConsumer = await startJobsConsumer({
                     kafka: hub.kafka,
                     producer: hub.kafkaProducer,
                     graphileWorker: graphileWorker,
                     serverConfig,
                 })
+                shutdownCallbacks.push(async () => await jobsConsumer.disconnect())
             }
         }
 
@@ -323,15 +289,14 @@ export async function startPluginsServer(
             serverInstance = serverInstance ? serverInstance : { hub }
 
             piscina = piscina ?? (await makePiscina(serverConfig, hub))
-            const { queue, isHealthy: isAnalyticsEventsIngestionHealthy } = await startAnalyticsEventsIngestionConsumer(
-                {
-                    hub: hub,
-                }
-            )
+            const { queue, isHealthy } = await startAnalyticsEventsIngestionConsumer({
+                hub: hub,
+            })
 
-            analyticsEventsIngestionConsumer = queue
-            shutdownOnConsumerExit(analyticsEventsIngestionConsumer.consumer!)
-            healthChecks['analytics-ingestion'] = isAnalyticsEventsIngestionHealthy
+            serverInstance.queue = queue // only used by tests
+            shutdownOnConsumerExit(queue.consumer!)
+            healthChecks['analytics-ingestion'] = isHealthy
+            shutdownCallbacks.push(async () => await queue.stop())
         }
 
         if (capabilities.ingestionHistorical) {
@@ -339,14 +304,13 @@ export async function startPluginsServer(
             serverInstance = serverInstance ? serverInstance : { hub }
 
             piscina = piscina ?? (await makePiscina(serverConfig, hub))
-            const { queue, isHealthy: isAnalyticsEventsIngestionHistoricalHealthy } =
-                await startAnalyticsEventsIngestionHistoricalConsumer({
-                    hub: hub,
-                })
+            const { queue, isHealthy } = await startAnalyticsEventsIngestionHistoricalConsumer({
+                hub: hub,
+            })
 
-            analyticsEventsIngestionHistoricalConsumer = queue
-            shutdownOnConsumerExit(analyticsEventsIngestionHistoricalConsumer.consumer!)
-            healthChecks['analytics-ingestion-historical'] = isAnalyticsEventsIngestionHistoricalHealthy
+            shutdownOnConsumerExit(queue.consumer!)
+            healthChecks['analytics-ingestion-historical'] = isHealthy
+            shutdownCallbacks.push(async () => await queue.stop())
         }
 
         if (capabilities.eventsIngestionPipelines) {
@@ -359,9 +323,8 @@ export async function startPluginsServer(
                     pipeline: pipeline,
                 })
 
-                eventsIngestionConsumer = eventsIngestionConsumer ?? new Map<string, IngestionConsumer>()
-                eventsIngestionConsumer.set(pipelineKey, queue)
-                shutdownOnConsumerExit(eventsIngestionConsumer.get(pipelineKey)!.consumer!)
+                shutdownCallbacks.push(async () => await queue.stop())
+                shutdownOnConsumerExit(queue!.consumer!)
                 healthChecks[`events-ingestion-pipeline-${pipelineKey}`] = isHealthy
             }
             if (serverConfig.PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE === null) {
@@ -384,12 +347,13 @@ export async function startPluginsServer(
             serverInstance = serverInstance ? serverInstance : { hub }
 
             piscina = piscina ?? (await makePiscina(serverConfig, hub))
-            const queue = await startAnalyticsEventsIngestionOverflowConsumer({
+            const { queue, isHealthy } = await startAnalyticsEventsIngestionOverflowConsumer({
                 hub: hub,
             })
 
-            analyticsEventsIngestionOverflowConsumer = queue
-            shutdownOnConsumerExit(analyticsEventsIngestionOverflowConsumer.consumer!)
+            shutdownCallbacks.push(async () => await queue.stop())
+            shutdownOnConsumerExit(queue.consumer!)
+            healthChecks['analytics-ingestion-overflow'] = isHealthy
         }
 
         if (capabilities.processAsyncOnEventHandlers) {
@@ -397,14 +361,12 @@ export async function startPluginsServer(
             serverInstance = serverInstance ? serverInstance : { hub }
 
             piscina = piscina ?? (await makePiscina(serverConfig, hub))
-            const { queue: onEventQueue, isHealthy: isOnEventsIngestionHealthy } =
-                await startAsyncOnEventHandlerConsumer({
-                    hub: hub,
-                })
+            const { queue, isHealthy } = await startAsyncOnEventHandlerConsumer({
+                hub: hub,
+            })
 
-            onEventHandlerConsumer = onEventQueue
-
-            healthChecks['on-event-ingestion'] = isOnEventsIngestionHealthy
+            shutdownCallbacks.push(async () => await queue.stop())
+            healthChecks['on-event-ingestion'] = isHealthy
         }
 
         if (capabilities.processAsyncWebhooksHandlers) {
@@ -428,23 +390,21 @@ export async function startPluginsServer(
             const actionMatcher = hub?.actionMatcher ?? new ActionMatcher(postgres, actionManager, teamManager)
             const groupTypeManager = new GroupTypeManager(postgres, teamManager, serverConfig.SITE_URL)
 
-            const { stop: webhooksStopConsumer, isHealthy: isWebhooksIngestionHealthy } =
-                await startAsyncWebhooksHandlerConsumer({
-                    postgres,
-                    kafka,
-                    teamManager,
-                    organizationManager,
-                    serverConfig,
-                    rustyHook,
-                    appMetrics,
-                    actionMatcher,
-                    actionManager,
-                    groupTypeManager,
-                })
+            const { stop, isHealthy } = await startAsyncWebhooksHandlerConsumer({
+                postgres,
+                kafka,
+                teamManager,
+                organizationManager,
+                serverConfig,
+                rustyHook,
+                appMetrics,
+                actionMatcher,
+                actionManager,
+                groupTypeManager,
+            })
 
-            stopWebhooksHandlerConsumer = webhooksStopConsumer
-
-            healthChecks['webhooks-ingestion'] = isWebhooksIngestionHealthy
+            shutdownCallbacks.push(async () => await stop())
+            healthChecks['webhooks-ingestion'] = isHealthy
         }
 
         if (capabilities.syncInlinePlugins) {
@@ -486,7 +446,6 @@ export async function startPluginsServer(
             }
 
             serverInstance.piscina = piscina
-            serverInstance.queue = analyticsEventsIngestionConsumer
             serverInstance.stop = closeJobs
 
             pluginServerStartupTimeMs.inc(Date.now() - timer.valueOf())
@@ -511,7 +470,7 @@ export async function startPluginsServer(
             const batchConsumer = ingester.batchConsumer
 
             if (batchConsumer) {
-                stopSessionRecordingBlobConsumer = () => ingester.stop()
+                shutdownCallbacks.push(async () => await ingester.stop())
                 shutdownOnConsumerExit(batchConsumer)
                 healthChecks['session-recordings-blob'] = () => ingester.isHealthy() ?? false
             }
@@ -533,7 +492,7 @@ export async function startPluginsServer(
             const batchConsumer = ingester.batchConsumer
 
             if (batchConsumer) {
-                stopSessionRecordingBlobOverflowConsumer = () => ingester.stop()
+                shutdownCallbacks.push(async () => await ingester.stop())
                 shutdownOnConsumerExit(batchConsumer)
                 healthChecks['session-recordings-blob-overflow'] = () => ingester.isHealthy() ?? false
             }
@@ -588,7 +547,7 @@ export async function startPluginsServer(
         }
 
         if (capabilities.http) {
-            const app = setupCommonRoutes(healthChecks, analyticsEventsIngestionConsumer)
+            const app = setupCommonRoutes(healthChecks, serverInstance?.queue ?? undefined)
 
             httpServer = app.listen(serverConfig.HTTP_SERVER_PORT, () => {
                 status.info('🩺', `Status server listening on port ${serverConfig.HTTP_SERVER_PORT}`)

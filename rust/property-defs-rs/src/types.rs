@@ -4,7 +4,6 @@ use chrono::{DateTime, Duration, DurationRound, RoundingError, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use tracing::warn;
-use uuid::Uuid;
 
 use crate::metrics_consts::EVENTS_SKIPPED;
 
@@ -69,7 +68,6 @@ pub enum GroupType {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PropertyDefinition {
-    pub id: Uuid,
     pub team_id: i32,
     pub name: String,
     pub is_numerical: bool,
@@ -83,7 +81,6 @@ pub struct PropertyDefinition {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EventDefinition {
-    pub id: Uuid,
     pub name: String,
     pub team_id: i32,
     pub last_seen_at: DateTime<Utc>,
@@ -105,7 +102,7 @@ pub enum Update {
     EventProperty(EventProperty),
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Event {
     pub team_id: i32,
     pub event: String,
@@ -115,7 +112,6 @@ pub struct Event {
 impl From<&Event> for EventDefinition {
     fn from(event: &Event) -> Self {
         EventDefinition {
-            id: Uuid::now_v7(),
             name: sanitize_event_name(&event.event),
             team_id: event.team_id,
             // We round last seen to the nearest day, as per the TS impl. Unwrap is safe here because we
@@ -126,12 +122,12 @@ impl From<&Event> for EventDefinition {
 }
 
 impl Event {
-    pub fn into_updates(self) -> Vec<Update> {
+    pub fn into_updates(self, skip_threshold: usize) -> Vec<Update> {
         let team_id = self.team_id;
         let event = self.event.clone();
 
         let updates = self.into_updates_inner();
-        if updates.len() > 10_000 {
+        if updates.len() > skip_threshold {
             warn!(
                 "Event {} for team {} has more than 10,000 properties, skipping",
                 event, team_id
@@ -223,7 +219,6 @@ impl Event {
             let is_numerical = matches!(property_type, Some(PropertyValueType::Numeric));
 
             let def = PropertyDefinition {
-                id: Uuid::now_v7(),
                 team_id: self.team_id,
                 name: key.clone(),
                 is_numerical,
@@ -274,8 +269,8 @@ fn detect_property_type(key: &str, value: &Value) -> Option<PropertyValueType> {
 
     match value {
         Value::String(s) => {
-            let s = &s.trim().to_lowercase();
-            if s == "true" || s == "false" {
+            let s = &s.trim();
+            if *s == "true" || *s == "false" || *s == "TRUE" || *s == "FALSE" {
                 Some(PropertyValueType::Boolean)
             } else {
                 // TODO - we should try to auto-detect datetime strings here, but I'm skipping the chunk of regex necessary to do it for v0
@@ -287,7 +282,11 @@ fn detect_property_type(key: &str, value: &Value) -> Option<PropertyValueType> {
             // "likely" to be a unix timestamp on the basis of the number of characters. I have mixed feelings about this,
             // so I'm going to leave it as just checking the key for now. This means we're being /less/ strict with datetime
             // detection here than in the TS
-            if key.to_lowercase().contains("timestamp") || key.to_lowercase().contains("time") {
+            if key.contains("timestamp")
+                || key.contains("TIMESTAMP")
+                || key.contains("time")
+                || key.contains("TIME")
+            {
                 Some(PropertyValueType::DateTime)
             } else {
                 Some(PropertyValueType::Numeric)
