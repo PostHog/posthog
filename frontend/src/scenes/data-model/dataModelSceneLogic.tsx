@@ -11,7 +11,7 @@ import { Node } from './types'
 export const dataModelSceneLogic = kea<dataModelSceneLogicType>([
     path(['scenes', 'data-model', 'dataModelSceneLogic']),
     connect(() => ({
-        values: [databaseTableListLogic, ['posthogTablesMap']],
+        values: [databaseTableListLogic, ['posthogTablesMap', 'viewsMapById']],
     })),
     actions({
         traverseAncestors: (viewId: DataWarehouseSavedQuery['id'], level: number) => ({ viewId, level }),
@@ -28,13 +28,12 @@ export const dataModelSceneLogic = kea<dataModelSceneLogicType>([
     listeners(({ actions, values }) => ({
         traverseAncestors: async ({ viewId, level }) => {
             const result = await api.dataWarehouseSavedQueries.ancestors(viewId, level)
-
             result.ancestors.forEach((ancestor) => {
                 actions.setNodes({
                     ...values.nodeMap,
                     [ancestor]: {
                         nodeId: ancestor,
-                        name: ancestor,
+                        name: values.viewsMapById[ancestor]?.name || ancestor,
                         leaf: [...(values.nodeMap[ancestor]?.leaf || []), viewId],
                     },
                 })
@@ -86,7 +85,7 @@ export const dataModelSceneLogic = kea<dataModelSceneLogicType>([
                     ...values.nodeMap,
                     [field.id]: {
                         nodeId: field.id,
-                        name: field.id,
+                        name: values.viewsMapById[field.id]?.name || field.id,
                         leaf: [field.name],
                     },
                 })

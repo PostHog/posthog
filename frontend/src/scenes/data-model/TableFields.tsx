@@ -61,7 +61,7 @@ export function TableFields({ fixedFields, joinedFields, rowsRefs, tableName }: 
                     columns={[
                         {
                             key: 'name',
-                            render: (_, { nodeId, table }, idx) => (
+                            render: (_, { nodeId }, idx) => (
                                 <div
                                     ref={(el) => {
                                         rowsRefs.current[idx] = el
@@ -70,13 +70,8 @@ export function TableFields({ fixedFields, joinedFields, rowsRefs, tableName }: 
                                     className="flex flex-col"
                                 >
                                     <span className="font-bold">{nodeId}</span>
-                                    <span className="text-muted">{table}</span>
                                 </div>
                             ),
-                        },
-                        {
-                            key: 'type',
-                            render: (_, { type }) => type,
                         },
                     ]}
                     loading={false}
