@@ -82,7 +82,14 @@ async def minio_client():
 
 
 async def _run(
-    team: Team, schema_name: str, table_name: str, source_type: str, job_inputs: dict[str, str], mock_data_response: Any
+    team: Team,
+    schema_name: str,
+    table_name: str,
+    source_type: str,
+    job_inputs: dict[str, str],
+    mock_data_response: Any,
+    sync_type: Optional[ExternalDataSchema.SyncType] = None,
+    sync_type_config: Optional[dict] = None,
 ):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         source_id=uuid.uuid4(),
@@ -98,6 +105,8 @@ async def _run(
         name=schema_name,
         team_id=team.pk,
         source_id=source.pk,
+        sync_type=sync_type,
+        sync_type_config=sync_type_config,
     )
 
     workflow_id = str(uuid.uuid4())
@@ -560,3 +569,65 @@ async def test_delta_wrapper_files(team, stripe_balance_transaction, minio_clien
     )
 
     assert len(s3_objects["Contents"]) != 0
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_postgres_schema_evolution(team, postgres_config, postgres_connection):
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.test_table (id integer)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.test_table (id) VALUES (1)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.commit()
+
+    _workflow_id, inputs = await _run(
+        team=team,
+        schema_name="test_table",
+        table_name="postgres_test_table",
+        source_type="Postgres",
+        job_inputs={
+            "host": postgres_config["host"],
+            "port": postgres_config["port"],
+            "database": postgres_config["database"],
+            "user": postgres_config["user"],
+            "password": postgres_config["password"],
+            "schema": postgres_config["schema"],
+            "ssh_tunnel_enabled": "False",
+        },
+        mock_data_response=[],
+        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
+    )
+
+    res = await sync_to_async(execute_hogql_query)("SELECT * FROM postgres_test_table", team)
+    columns = res.columns
+
+    assert columns is not None
+    assert len(columns) == 3
+    assert any(x == "id" for x in columns)
+    assert any(x == "_dlt_id" for x in columns)
+    assert any(x == "_dlt_load_id" for x in columns)
+
+    # Evole schema
+    await postgres_connection.execute(
+        "ALTER TABLE {schema}.test_table ADD new_col integer".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.test_table (id, new_col) VALUES (2, 2)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.commit()
+
+    # Execute the same schema again - load
+    await _execute_run(str(uuid.uuid4()), inputs, [])
+
+    res = await sync_to_async(execute_hogql_query)("SELECT * FROM postgres_test_table", team)
+    columns = res.columns
+
+    assert columns is not None
+    assert len(columns) == 4
+    assert any(x == "id" for x in columns)
+    assert any(x == "new_col" for x in columns)
+    assert any(x == "_dlt_id" for x in columns)
+    assert any(x == "_dlt_load_id" for x in columns)
