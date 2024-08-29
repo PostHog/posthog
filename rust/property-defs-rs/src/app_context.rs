@@ -6,7 +6,8 @@ use time::Duration;
 use crate::{
     config::Config,
     metrics_consts::{
-        CACHE_WARMING_STATE, GROUP_TYPE_RESOLVE_TIME, UPDATES_ISSUED, UPDATE_TRANSACTION_TIME,
+        CACHE_WARMING_STATE, GROUP_TYPE_READS, GROUP_TYPE_RESOLVE_TIME, UPDATES_ISSUED,
+        UPDATE_TRANSACTION_TIME,
     },
     types::{GroupType, Update},
 };
@@ -101,6 +102,8 @@ impl AppContext {
                     update.group_type_index.take().map(|gti| gti.resolve(index));
                 continue;
             }
+
+            metrics::counter!(GROUP_TYPE_READS).increment(1);
 
             let found = sqlx::query_scalar!(
                     "SELECT group_type_index FROM posthog_grouptypemapping WHERE group_type = $1 AND team_id = $2",

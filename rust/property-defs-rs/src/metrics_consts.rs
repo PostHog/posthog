@@ -19,3 +19,4 @@ pub const CACHE_WARMING_STATE: &str = "prop_defs_cache_state";
 pub const UPDATE_TRANSACTION_TIME: &str = "prop_defs_update_transaction_time_ms";
 pub const GROUP_TYPE_RESOLVE_TIME: &str = "prop_defs_group_type_resolve_time_ms";
 pub const UPDATES_SKIPPED: &str = "prop_defs_skipped_updates";
+pub const GROUP_TYPE_READS: &str = "prop_defs_group_type_reads";
