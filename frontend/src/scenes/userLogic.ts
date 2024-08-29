@@ -131,7 +131,6 @@ export const userLogic = kea<userLogicType>([
 
                     posthog.register({
                         is_demo_project: user.team?.is_demo,
-                        is_impersonated: user.is_impersonated,
                     })
 
                     if (user.team) {
