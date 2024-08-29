@@ -39,16 +39,22 @@ export type NewDestinationItemType = {
 export type NewDestinationFilters = {
     search?: string
     kind?: PipelineBackend
+    sub_template?: string
+}
+
+export type NewDestinationsLogicProps = {
+    defaultFilters?: NewDestinationFilters
+    forceFilters?: NewDestinationFilters
 }
 
 // Helping kea-typegen navigate the exported default class for Fuse
 export interface Fuse extends FuseClass<NewDestinationItemType> {}
 
 export const newDestinationsLogic = kea<newDestinationsLogicType>([
+    path(() => ['scenes', 'pipeline', 'destinations', 'newDestinationsLogic']),
     connect({
         values: [userLogic, ['user'], featureFlagLogic, ['featureFlags']],
     }),
-    path(() => ['scenes', 'pipeline', 'destinations', 'newDestinationsLogic']),
     actions({
         setFilters: (filters: Partial<NewDestinationFilters>) => ({ filters }),
         resetFilters: true,

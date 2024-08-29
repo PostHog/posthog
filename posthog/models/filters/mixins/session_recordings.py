@@ -20,13 +20,6 @@ class SessionRecordingsMixin(PropertyMixin, BaseParamMixin):
     def order(self) -> str:
         return self._data.get("order", "start_time")
 
-    # Supports a legacy use case where events were ORed not ANDed
-    # Can be removed and replaced with ast_operand once the new universal replay filtering is out
-    @cached_property
-    def events_operand(self) -> type[Union[ast.And, ast.Or]]:
-        operand = self._data.get("operand", "OR")
-        return ast.And if operand == "AND" else ast.Or
-
     @cached_property
     def console_log_filters(self) -> PropertyGroup:
         property_group = self._parse_data(key="console_log_filters")

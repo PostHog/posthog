@@ -102,7 +102,11 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
             schema=schema,
             reset_pipeline=reset_pipeline,
         )
-    elif model.pipeline.source_type in [ExternalDataSource.Type.POSTGRES, ExternalDataSource.Type.MYSQL]:
+    elif model.pipeline.source_type in [
+        ExternalDataSource.Type.POSTGRES,
+        ExternalDataSource.Type.MYSQL,
+        ExternalDataSource.Type.MSSQL,
+    ]:
         from posthog.temporal.data_imports.pipelines.sql_database import sql_source_for_type
 
         host = model.pipeline.job_inputs.get("host")

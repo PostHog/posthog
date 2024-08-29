@@ -93,3 +93,27 @@ async fn it_rejects_bad_session_id() -> Result<()> {
     assert_eq!(StatusCode::BAD_REQUEST, res.status());
     Ok(())
 }
+
+#[tokio::test]
+async fn it_defaults_window_id_to_session_id() -> Result<()> {
+    setup_tracing();
+    let token = random_string("token", 16);
+    let distinct_id = random_string("id", 16);
+    let session_id = random_string("id", 16);
+
+    let main_topic = EphemeralTopic::new().await;
+    let server = ServerHandle::for_recordings(&main_topic).await;
+
+    let event = json!({
+        "token": token,
+        "event": "testing",
+        "distinct_id": distinct_id,
+        "properties": {
+            "$session_id": session_id,
+            "$snapshot_data": [],
+        }
+    });
+    let res = server.capture_recording(event.to_string()).await;
+    assert_eq!(StatusCode::OK, res.status());
+    Ok(())
+}

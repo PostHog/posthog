@@ -179,7 +179,7 @@ dlt==0.5.3
 dnspython==2.2.1
 drf-exceptions-hog==0.4.0
 drf-extensions==0.7.0
-drf-spectacular==0.27.1
+drf-spectacular==0.27.2
 et-xmlfile==1.1.0
     # via openpyxl
 filelock==3.12.0
@@ -235,7 +235,6 @@ h11==0.13.0
 hexbytes==1.0.0
     # via dlt
 hogql-parser==1.0.38
-    # via -r requirements.in
 httpcore==1.0.2
     # via httpx
 httpx==0.26.0
@@ -383,9 +382,11 @@ pyjwt==2.4.0
     #   simple-salesforce
     #   snowflake-connector-python
     #   social-auth-core
+pymssql==2.3.0
 pymysql==1.1.1
 pynacl==1.5.0
     # via paramiko
+pyodbc==5.1.0
 pyopenssl==23.0.0
     # via
     #   snowflake-connector-python
