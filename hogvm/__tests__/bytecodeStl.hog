@@ -1,4 +1,4 @@
-print('--- arrayMap ----')
+1print('--- arrayMap ----')
 print(arrayMap(x -> x * 2, [1,2,3]))
 
 print('--- arrayExists ----')
