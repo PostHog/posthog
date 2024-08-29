@@ -23,7 +23,7 @@ from .date import (
     is_hog_date,
 )
 from .crypto import sha256Hex, md5Hex, sha256HmacChainHex
-from ..objects import is_hog_error, new_hog_error
+from ..objects import is_hog_error, new_hog_error, is_hog_callable, is_hog_closure
 from ..utils import like
 
 if TYPE_CHECKING:
@@ -130,12 +130,16 @@ def jsonStringify(args: list[Any], team: Optional["Team"], stdout: Optional[list
 
     def json_safe(obj):
         if isinstance(obj, dict) or isinstance(obj, list) or isinstance(obj, tuple):
-            if id(obj) in marked:
+            if id(obj) in marked and not is_hog_callable(obj) and not is_hog_closure(obj):
                 return None
             else:
                 marked.add(id(obj))
                 try:
                     if isinstance(obj, dict):
+                        if is_hog_callable(obj):
+                            return f"fn<{obj['name']}({obj['argCount']})>"
+                        if is_hog_closure(obj):
+                            return f"fn<{obj['callable']['name']}({obj['callable']['argCount']})>"
                         return {json_safe(k): json_safe(v) for k, v in obj.items()}
                     elif isinstance(obj, list):
                         return [json_safe(v) for v in obj]

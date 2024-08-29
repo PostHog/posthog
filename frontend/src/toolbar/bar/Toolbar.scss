@@ -102,7 +102,9 @@
 .Toolbar {
     --toolbar-button-x: 0;
     --toolbar-button-y: 0;
-    --toolbar-translate: translate(var(--toolbar-button-x), var(--toolbar-button-y));
+    --toolbar-width-minimized: 40px;
+    --toolbar-width-expanded: 292px;
+    --toolbar-translate: translate(calc(var(--toolbar-button-x) - 50%), calc(var(--toolbar-button-y) - 50%));
 
     position: fixed;
     z-index: 1;
@@ -111,7 +113,7 @@
     justify-content: space-between;
 
     // fixed width so that animations work when changing width
-    width: 18.2rem;
+    width: var(--toolbar-width-expanded);
     overflow: hidden;
     color: var(--text-3000);
     background-color: var(--bg-3000);
@@ -138,7 +140,7 @@
     }
 
     &--minimized {
-        width: calc(2.5rem + 1px); // Account for border
+        width: var(--toolbar-width-minimized); // Account for border
 
         &.Toolbar--hedgehog-mode {
             transform: var(--toolbar-translate) scale(0);

@@ -58,6 +58,8 @@ pub struct Config {
 
     #[envconfig(default = "events")]
     pub capture_mode: CaptureMode,
+
+    pub concurrency_limit: Option<usize>,
 }
 
 #[derive(Envconfig, Clone)]
@@ -85,4 +87,6 @@ pub struct KafkaConfig {
     pub kafka_heatmaps_topic: String,
     #[envconfig(default = "false")]
     pub kafka_tls: bool,
+    #[envconfig(default = "")]
+    pub kafka_client_id: String,
 }
