@@ -12,3 +12,7 @@ cow
 --------
 moo
 cow
+-------- lambdas do not survive json --------
+fn<lambda(1)>
+"fn<lambda(1)>"
+fn<lambda(1)>

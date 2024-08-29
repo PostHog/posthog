@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { isHogDate, isHogDateTime, isHogError, newHogError } from '../objects'
+import { isHogCallable, isHogClosure, isHogDate, isHogDateTime, isHogError, newHogError } from '../objects'
 import { md5Hex, sha256Hex, sha256HmacChainHex } from './crypto'
 import {
     formatDateTime,
@@ -229,6 +229,11 @@ export const STL: Record<string, STLFunction> = {
                         }
                         if (isHogDateTime(x) || isHogDate(x) || isHogError(x)) {
                             return x
+                        }
+                        if (isHogCallable(x) || isHogClosure(x)) {
+                            // we don't support serializing callables
+                            const callable = isHogCallable(x) ? x : x.callable
+                            return `fn<${callable.name || 'lambda'}(${callable.argCount})>`
                         }
                         const obj: Record<string, any> = {}
                         for (const key in x) {
