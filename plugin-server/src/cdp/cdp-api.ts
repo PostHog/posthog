@@ -8,7 +8,8 @@ import { AsyncFunctionExecutor } from './async-function-executor'
 import { HogExecutor } from './hog-executor'
 import { HogFunctionManager } from './hog-function-manager'
 import { HogWatcher, HogWatcherState } from './hog-watcher'
-import { HogFunctionInvocation, HogFunctionInvocationAsyncRequest, HogFunctionType, LogEntry } from './types'
+import { HogFunctionInvocationAsyncRequest, HogFunctionType, LogEntry } from './types'
+import { createInvocation } from './utils'
 
 export class CdpApi {
     private hogExecutor: HogExecutor
@@ -104,14 +105,6 @@ export class CdpApi {
                 return
             }
 
-            const invocation: HogFunctionInvocation = {
-                id,
-                globals: globals,
-                teamId: team.id,
-                hogFunctionId: id,
-                timings: [],
-            }
-
             // We use the provided config if given, otherwise the function's config
             // We use the provided config if given, otherwise the function's config
             const compoundConfiguration: HogFunctionType = {
@@ -119,35 +112,45 @@ export class CdpApi {
                 ...(configuration ?? {}),
             }
 
-            // TODO: Type the configuration better so we don't make mistakes here
             await this.hogFunctionManager.enrichWithIntegrations([compoundConfiguration])
 
-            let response = this.hogExecutor.execute(compoundConfiguration, invocation)
+            const invocation = createInvocation(
+                {
+                    ...globals,
+                    project: {
+                        id: team.id,
+                        name: team.name,
+                        url: `${this.hub.SITE_URL ?? 'http://localhost:8000'}/project/${team.id}`,
+                    },
+                },
+                compoundConfiguration
+            )
+            let response = this.hogExecutor.execute(invocation)
             const logs: LogEntry[] = []
 
-            while (response.asyncFunctionRequest) {
+            while (!response.finished && response.invocation.queue === 'fetch') {
                 invocation.vmState = response.invocation.vmState
 
-                const asyncFunctionRequest = response.asyncFunctionRequest
+                const fetchParams = response.invocation.queueParameters
 
-                if (mock_async_functions || asyncFunctionRequest.name !== 'fetch') {
+                if (mock_async_functions) {
                     response.logs.push({
                         level: 'info',
                         timestamp: DateTime.now(),
-                        message: `Async function '${asyncFunctionRequest.name}' was mocked with arguments:`,
+                        message: `Async function 'fetch' was mocked with arguments:`,
                     })
 
                     response.logs.push({
                         level: 'info',
                         timestamp: DateTime.now(),
-                        message: `${asyncFunctionRequest.name}(${asyncFunctionRequest.args
-                            .map((x) => JSON.stringify(x, null, 2))
-                            .join(', ')})`,
+                        message: `fetch(${JSON.stringify(fetchParams, null, 2)})`,
                     })
 
                     // Add the state, simulating what executeAsyncResponse would do
-                    invocation.vmState!.stack.push({ status: 200, body: {} })
+                    invocation.queue = 'hog'
+                    invocation.queueParameters = { response: { status: 200, body: {} } }
                 } else {
+                    // TODO
                     const asyncInvocationRequest: HogFunctionInvocationAsyncRequest = {
                         state: '', // WE don't care about the state for this level of testing
                         teamId: team.id,
@@ -169,7 +172,7 @@ export class CdpApi {
                 }
 
                 logs.push(...response.logs)
-                response = this.hogExecutor.execute(compoundConfiguration, invocation)
+                response = this.hogExecutor.execute(invocation)
             }
 
             logs.push(...response.logs)

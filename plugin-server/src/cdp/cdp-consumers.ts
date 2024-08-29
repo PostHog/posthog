@@ -19,7 +19,7 @@ import { createKafkaProducerWrapper } from '../utils/db/hub'
 import { KafkaProducerWrapper } from '../utils/db/kafka-producer-wrapper'
 import { captureTeamEvent } from '../utils/posthog'
 import { status } from '../utils/status'
-import { castTimestampOrNow, UUIDT } from '../utils/utils'
+import { castTimestampOrNow } from '../utils/utils'
 import { RustyHook } from '../worker/rusty-hook'
 import { AsyncFunctionExecutor } from './async-function-executor'
 import { GroupsManager } from './groups-manager'
@@ -40,6 +40,7 @@ import {
 import {
     convertToCaptureEvent,
     convertToHogFunctionInvocationGlobals,
+    createInvocation,
     gzipObject,
     prepareLogEntriesForClickhouse,
     unGzipObject,
@@ -69,26 +70,6 @@ const counterFunctionInvocation = new Counter({
 export interface TeamIDWithConfig {
     teamId: TeamId | null
     consoleLogIngestionEnabled: boolean
-}
-
-function createInvocation(globals: HogFunctionInvocationGlobals, hogFunction: HogFunctionType): HogFunctionInvocation {
-    // Add the source of the trigger to the globals
-    const modifiedGlobals: HogFunctionInvocationGlobals = {
-        ...globals,
-        source: {
-            name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
-            url: `${globals.project.url}/pipeline/destinations/hog-${hogFunction.id}/configuration/`,
-        },
-    }
-
-    return {
-        id: new UUIDT().toString(),
-        globals: modifiedGlobals,
-        teamId: hogFunction.team_id,
-        hogFunction,
-        queue: 'hog',
-        timings: [],
-    }
 }
 
 abstract class CdpConsumerBase {
@@ -339,9 +320,9 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
     protected topic = KAFKA_EVENTS_JSON
     protected consumerGroupId = 'cdp-processed-events-consumer'
 
-    public async processBatch(invocationGlobals: HogFunctionInvocationGlobals[]): Promise<void> {
+    public async processBatch(invocationGlobals: HogFunctionInvocationGlobals[]): Promise<HogFunctionInvocation[]> {
         if (!invocationGlobals.length) {
-            return
+            return []
         }
 
         const invocationsToBeQueued = await this.runWithHeartbeat(() =>
@@ -349,6 +330,8 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
         )
         await this.queueInvocations(invocationsToBeQueued)
         await this.produceQueuedMessages()
+
+        return invocationsToBeQueued
     }
 
     /**
@@ -424,17 +407,6 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
                 })
 
                 return notMaskedInvocations
-
-                // TODO: Option for routing to cyclotron instead of kafka
-                // TODO: Include "priority" in the job so that we can prioritize certain functions
-                // const results = (
-                //     await this.runManyWithHeartbeat(notMaskedInvocations, (item) =>
-                //         this.hogExecutor.executeFunction(item.globals, item.hogFunction)
-                //     )
-                // ).filter((x) => !!x) as HogFunctionInvocationResult[]
-
-                // await this.hogWatcher.observeResults(results)
-                // return results
             },
         })
     }

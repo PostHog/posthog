@@ -3,7 +3,7 @@ import supertest from 'supertest'
 
 import { CdpApi } from '../../src/cdp/cdp-api'
 import { CdpFunctionCallbackConsumer } from '../../src/cdp/cdp-consumers'
-import { HogFunctionType } from '../../src/cdp/types'
+import { HogFunctionInvocationGlobals, HogFunctionType } from '../../src/cdp/types'
 import { Hub, Team } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { getFirstTeam, resetTestDatabase } from '../helpers/sql'
@@ -64,7 +64,7 @@ const mockFetch: jest.Mock = require('../../src/utils/fetch').trackedFetch
 
 jest.setTimeout(1000)
 
-describe('CDP Processed Events Consuner', () => {
+describe('CDP API', () => {
     let processor: CdpFunctionCallbackConsumer
     let hub: Hub
     let closeHub: () => Promise<void>
@@ -103,10 +103,22 @@ describe('CDP Processed Events Consuner', () => {
         let app: express.Express
         let hogFunction: HogFunctionType
 
-        const globals = {
+        const globals: Partial<HogFunctionInvocationGlobals> = {
+            groups: {},
+            person: {
+                uuid: '123',
+                name: 'Jane Doe',
+                url: 'https://example.com/person/123',
+                properties: {
+                    email: 'example@posthog.com',
+                },
+            },
             event: {
                 uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0',
                 name: '$pageview',
+                distinct_id: '123',
+                timestamp: '2021-09-28T14:00:00Z',
+                url: 'https://example.com/events/b3a1fe86-b10c-43cc-acaf-d208977608d0/2021-09-28T14:00:00Z',
                 properties: {
                     $lib_version: '1.0.0',
                 },
@@ -151,6 +163,7 @@ describe('CDP Processed Events Consuner', () => {
                 .send({ globals, mock_async_functions: true })
 
             expect(res.status).toEqual(200)
+            console.log(res.body.logs[3].message)
             expect(res.body).toMatchObject({
                 status: 'success',
                 error: 'undefined',
@@ -161,7 +174,7 @@ describe('CDP Processed Events Consuner', () => {
                     },
                     {
                         level: 'debug',
-                        message: "Suspending function due to async function call 'fetch'. Payload: 1140 bytes",
+                        message: "Suspending function due to async function call 'fetch'. Payload: 1960 bytes",
                     },
                     {
                         level: 'info',
@@ -169,7 +182,7 @@ describe('CDP Processed Events Consuner', () => {
                     },
                     {
                         level: 'info',
-                        message: expect.stringContaining('fetch("https://example.com/posthog-webhook",'),
+                        message: expect.stringContaining('fetch({'),
                     },
                     {
                         level: 'debug',
