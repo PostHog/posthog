@@ -85,4 +85,6 @@ pub struct KafkaConfig {
     pub kafka_heatmaps_topic: String,
     #[envconfig(default = "false")]
     pub kafka_tls: bool,
+    #[envconfig(default = "")]
+    pub kafka_client_id: String,
 }
