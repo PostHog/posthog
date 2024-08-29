@@ -1,13 +1,12 @@
 from django.conf import settings
+from datetime import datetime, timedelta, UTC
 from django.db.models import F
-from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Optional, cast
 
 import jwt
 import requests
 import structlog
-from django.utils import timezone
 from sentry_sdk import capture_message
 from requests import JSONDecodeError  # type: ignore[attr-defined]
 from rest_framework.exceptions import NotAuthenticated
@@ -37,7 +36,7 @@ def build_billing_token(license: License, organization: Organization):
 
     encoded_jwt = jwt.encode(
         {
-            "exp": datetime.now(tz=timezone.utc) + timedelta(minutes=15),
+            "exp": datetime.now(UTC) + timedelta(minutes=15),
             "id": license_id,
             "organization_id": str(organization.id),
             "organization_name": organization.name,
@@ -202,9 +201,9 @@ class BillingManager:
 
         data = billing_status["license"]
 
-        if not self.license.valid_until or self.license.valid_until < timezone.now() + timedelta(days=29):
+        if not self.license.valid_until or self.license.valid_until < datetime.now(UTC) + timedelta(days=29):
             # NOTE: License validity is a legacy concept. For now we always extend the license validity by 30 days.
-            self.license.valid_until = timezone.now() + timedelta(days=30)
+            self.license.valid_until = datetime.now(UTC) + timedelta(days=30)
             license_modified = True
 
         if self.license.plan != data["type"]:

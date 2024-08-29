@@ -331,8 +331,8 @@ class ClickhouseEventSerializer(serializers.Serializer):
         return event["event"]
 
     def get_timestamp(self, event):
-        dt = event["timestamp"].replace(tzinfo=timezone.utc)
-        return dt.astimezone().isoformat()
+        date = event["timestamp"].replace(tzinfo=dt.UTC)
+        return date.astimezone().isoformat()
 
     def get_person(self, event):
         if not self.context.get("people") or event["distinct_id"] not in self.context["people"]:

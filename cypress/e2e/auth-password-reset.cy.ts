@@ -1,10 +1,10 @@
+import { auth } from '../support'
+
 const VALID_PASSWORD = 'hedgE-hog-123%'
 
 describe('Password Reset', () => {
     beforeEach(() => {
-        cy.get('[data-attr=menu-item-me]').click()
-        cy.get('[data-attr=top-menu-item-logout]').click()
-        cy.location('pathname').should('eq', '/login')
+        auth.logout()
     })
 
     it('Can request password reset', () => {

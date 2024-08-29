@@ -24,4 +24,10 @@ declare global {
     }
 }
 
-export {}
+export const auth = {
+    logout: (): void => {
+        cy.get('[data-attr=menu-item-me]').click()
+        cy.get('[data-attr=top-menu-item-logout]').click()
+        cy.location('pathname').should('include', '/login')
+    },
+}

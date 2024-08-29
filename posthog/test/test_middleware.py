@@ -80,9 +80,7 @@ class TestAccessMiddleware(APIBaseTest):
         ):
             with self.settings(TRUSTED_PROXIES="10.0.0.1"):
                 response = self.client.get(
-                    "/",
-                    REMOTE_ADDR="10.0.0.1",
-                    HTTP_X_FORWARDED_FOR="192.168.0.1,10.0.0.1",
+                    "/", REMOTE_ADDR="10.0.0.1", headers={"x-forwarded-for": "192.168.0.1,10.0.0.1"}
                 )
                 self.assertNotIn(b"IP is not allowed", response.content)
 
@@ -93,9 +91,7 @@ class TestAccessMiddleware(APIBaseTest):
         ):
             with self.settings(TRUSTED_PROXIES="10.0.0.1"):
                 response = self.client.get(
-                    "/",
-                    REMOTE_ADDR="10.0.0.1",
-                    HTTP_X_FORWARDED_FOR="192.168.0.1,10.0.0.2",
+                    "/", REMOTE_ADDR="10.0.0.1", headers={"x-forwarded-for": "192.168.0.1,10.0.0.2"}
                 )
                 self.assertIn(b"IP is not allowed", response.content)
 
@@ -106,9 +102,7 @@ class TestAccessMiddleware(APIBaseTest):
         ):
             with self.settings(TRUST_ALL_PROXIES=True):
                 response = self.client.get(
-                    "/",
-                    REMOTE_ADDR="10.0.0.1",
-                    HTTP_X_FORWARDED_FOR="192.168.0.1,10.0.0.1",
+                    "/", REMOTE_ADDR="10.0.0.1", headers={"x-forwarded-for": "192.168.0.1,10.0.0.1"}
                 )
                 self.assertNotIn(b"IP is not allowed", response.content)
 
@@ -124,7 +118,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls.base_app_num_queries = 40
+        cls.base_app_num_queries = 39
         # Create another team that the user does have access to
         cls.second_team = create_team(organization=cls.organization, name="Second Life")
 
@@ -412,8 +406,7 @@ class TestPostHogTokenCookieMiddleware(APIBaseTest):
         }
 
         response = self.client.get(
-            "/e/?data={}".format(quote(json.dumps(data))),
-            HTTP_ORIGIN="https://localhost",
+            "/e/?data={}".format(quote(json.dumps(data))), headers={"origin": "https://localhost"}
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(0, len(response.cookies))  # no cookies are set
@@ -467,7 +460,8 @@ class TestPostHogTokenCookieMiddleware(APIBaseTest):
         self.assertEqual(response.cookies["ph_current_instance"].value, SITE_URL)
         self.assertEqual(response.cookies["ph_current_instance"]["max-age"], 31536000)
 
-        response = self.client.get("/logout")
+        response = self.client.post("/logout")
+        self.client.logout()
 
         # Check that the local cookies will be removed by having 'expires' in the past
         self.assertTrue(response.cookies["ph_current_project_token"]["expires"] == "Thu, 01 Jan 1970 00:00:00 GMT")
@@ -548,7 +542,7 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
             assert res.status_code == 302
             assert res.headers["Location"] == "/logout/"
 
-            res = self.client.get("/logout/")
+            res = self.client.post("/logout/")
             assert res.status_code == 302
             assert res.headers["Location"] == "/admin/"
 

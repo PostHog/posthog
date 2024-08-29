@@ -1,5 +1,13 @@
 import { urls } from 'scenes/urls'
 
+export const auth = {
+    logout: (): void => {
+        cy.get('[data-attr=menu-item-me]').click()
+        cy.get('[data-attr=top-menu-item-logout]').click()
+        cy.location('pathname').should('include', '/login')
+    },
+}
+
 export const savedInsights = {
     checkInsightIsInListView: (insightName: string): void => {
         cy.visit(urls.savedInsights())

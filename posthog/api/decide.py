@@ -44,7 +44,7 @@ FLAG_EVALUATION_COUNTER = Counter(
 def on_permitted_recording_domain(team: Team, request: HttpRequest) -> bool:
     origin = parse_domain(request.headers.get("Origin"))
     referer = parse_domain(request.headers.get("Referer"))
-    user_agent = request.META.get("HTTP_USER_AGENT")
+    user_agent = request.headers.get("user-agent")
 
     is_authorized_web_client: bool = hostname_in_allowed_url_list(
         team.recording_domains, origin

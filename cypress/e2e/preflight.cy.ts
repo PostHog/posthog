@@ -1,3 +1,5 @@
+import { auth } from '../support'
+
 const preflightSuccessResponse = {
     django: true,
     redis: true,
@@ -22,7 +24,7 @@ describe('Preflight', () => {
     it('Preflight experimentation', () => {
         cy.intercept('GET', '/_preflight', preflightSuccessResponse)
 
-        cy.visit('/logout')
+        auth.logout()
         cy.visit('/preflight')
 
         cy.get('[data-attr=preflight-experimentation]').click()
@@ -37,7 +39,7 @@ describe('Preflight', () => {
     it('Preflight live mode', () => {
         cy.intercept('GET', '/_preflight', preflightSuccessResponse)
 
-        cy.visit('/logout')
+        auth.logout()
         cy.visit('/preflight')
 
         cy.get('[data-attr=preflight-live]').click()
@@ -53,7 +55,7 @@ describe('Preflight', () => {
     it('Preflight can have errors too', () => {
         cy.intercept('GET', '/_preflight', { ...preflightSuccessResponse, celery: false })
 
-        cy.visit('/logout')
+        auth.logout()
         cy.visit('/preflight')
 
         cy.get('[data-attr=preflight-live]').click()

@@ -48,13 +48,12 @@ class TestUserAPI(APIBaseTest):
         for _ in range(5):
             response = self.client.get(
                 f"/api/projects/{self.team.pk}/feature_flags",
-                HTTP_AUTHORIZATION=f"Bearer {self.personal_api_key}",
+                headers={"authorization": f"Bearer {self.personal_api_key}"},
             )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response = self.client.get(
-            f"/api/projects/{self.team.pk}/feature_flags",
-            HTTP_AUTHORIZATION=f"Bearer {self.personal_api_key}",
+            f"/api/projects/{self.team.pk}/feature_flags", headers={"authorization": f"Bearer {self.personal_api_key}"}
         )
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
@@ -84,7 +83,7 @@ class TestUserAPI(APIBaseTest):
             with freeze_time(base_time):
                 response = self.client.get(
                     f"/api/projects/{self.team.pk}/feature_flags",
-                    HTTP_AUTHORIZATION=f"Bearer {self.personal_api_key}",
+                    headers={"authorization": f"Bearer {self.personal_api_key}"},
                 )
                 base_time += timedelta(seconds=61)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -93,7 +92,7 @@ class TestUserAPI(APIBaseTest):
             for _ in range(2):
                 response = self.client.get(
                     f"/api/projects/{self.team.pk}/feature_flags",
-                    HTTP_AUTHORIZATION=f"Bearer {self.personal_api_key}",
+                    headers={"authorization": f"Bearer {self.personal_api_key}"},
                 )
                 self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
             self.assertEqual(
@@ -119,22 +118,20 @@ class TestUserAPI(APIBaseTest):
         for _ in range(10):
             response = self.client.get(
                 f"/api/projects/{self.team.pk}/feature_flags",
-                HTTP_AUTHORIZATION=f"Bearer {self.personal_api_key}",
+                headers={"authorization": f"Bearer {self.personal_api_key}"},
             )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         assert call("rate_limit_exceeded", tags=ANY) not in incr_mock.mock_calls
 
         for _ in range(5):
             response = self.client.get(
-                f"/api/projects/{self.team.pk}/events",
-                HTTP_AUTHORIZATION=f"Bearer {self.personal_api_key}",
+                f"/api/projects/{self.team.pk}/events", headers={"authorization": f"Bearer {self.personal_api_key}"}
             )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # Does not actually block the request, but increments the counter
         response = self.client.get(
-            f"/api/projects/{self.team.pk}/events",
-            HTTP_AUTHORIZATION=f"Bearer {self.personal_api_key}",
+            f"/api/projects/{self.team.pk}/events", headers={"authorization": f"Bearer {self.personal_api_key}"}
         )
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
@@ -161,14 +158,13 @@ class TestUserAPI(APIBaseTest):
         for _ in range(5):
             response = self.client.get(
                 f"/api/projects/{self.team.pk}/feature_flags",
-                HTTP_AUTHORIZATION=f"Bearer {self.personal_api_key}",
+                headers={"authorization": f"Bearer {self.personal_api_key}"},
             )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # First user gets rate limited
         response = self.client.get(
-            f"/api/projects/{self.team.pk}/feature_flags",
-            HTTP_AUTHORIZATION=f"Bearer {self.personal_api_key}",
+            f"/api/projects/{self.team.pk}/feature_flags", headers={"authorization": f"Bearer {self.personal_api_key}"}
         )
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
         self.assertEqual(
@@ -196,8 +192,7 @@ class TestUserAPI(APIBaseTest):
 
         # Second user gets rate limited after a single request
         response = self.client.get(
-            f"/api/projects/{self.team.pk}/feature_flags",
-            HTTP_AUTHORIZATION=f"Bearer {new_personal_api_key}",
+            f"/api/projects/{self.team.pk}/feature_flags", headers={"authorization": f"Bearer {new_personal_api_key}"}
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -211,8 +206,7 @@ class TestUserAPI(APIBaseTest):
 
         # Requests to the new team are not rate limited
         response = self.client.get(
-            f"/api/projects/{new_team.pk}/feature_flags",
-            HTTP_AUTHORIZATION=f"Bearer {new_personal_api_key}",
+            f"/api/projects/{new_team.pk}/feature_flags", headers={"authorization": f"Bearer {new_personal_api_key}"}
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
@@ -224,7 +218,7 @@ class TestUserAPI(APIBaseTest):
         for _ in range(5):
             response = self.client.get(
                 f"/api/projects/{new_team.pk}/feature_flags",
-                HTTP_AUTHORIZATION=f"Bearer {new_personal_api_key}",
+                headers={"authorization": f"Bearer {new_personal_api_key}"},
             )
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
         self.assertEqual(
@@ -240,13 +234,13 @@ class TestUserAPI(APIBaseTest):
         for _ in range(5):
             response = self.client.get(
                 f"/api/organizations/{self.organization.pk}/plugins",
-                HTTP_AUTHORIZATION=f"Bearer {self.personal_api_key}",
+                headers={"authorization": f"Bearer {self.personal_api_key}"},
             )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response = self.client.get(
             f"/api/organizations/{self.organization.pk}/plugins",
-            HTTP_AUTHORIZATION=f"Bearer {self.personal_api_key}",
+            headers={"authorization": f"Bearer {self.personal_api_key}"},
         )
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
@@ -274,7 +268,7 @@ class TestUserAPI(APIBaseTest):
         for _ in range(6):
             response = self.client.get(
                 f"/api/organizations/{self.organization.pk}/plugins",
-                HTTP_AUTHORIZATION=f"Bearer {self.personal_api_key}",
+                headers={"authorization": f"Bearer {self.personal_api_key}"},
             )
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
         # got rate limited with personal API key
@@ -336,7 +330,9 @@ class TestUserAPI(APIBaseTest):
             "properties": {"distinct_id": 2, "token": self.team.api_token},
         }
         for _ in range(6):
-            response = self.client.get("/e/?data={}".format(quote(json.dumps(data))), HTTP_ORIGIN="https://localhost")
+            response = self.client.get(
+                "/e/?data={}".format(quote(json.dumps(data))), headers={"origin": "https://localhost"}
+            )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         assert call("rate_limit_exceeded", tags=ANY) not in incr_mock.mock_calls
 
@@ -382,7 +378,7 @@ class TestUserAPI(APIBaseTest):
                     for _ in range(10):
                         self.client.get(
                             f"/api/projects/{self.team.pk}/feature_flags",
-                            HTTP_AUTHORIZATION=f"Bearer {self.personal_api_key}",
+                            headers={"authorization": f"Bearer {self.personal_api_key}"},
                         )
 
                     assert wrapped_get_instance_setting.call_count == 1
@@ -391,7 +387,7 @@ class TestUserAPI(APIBaseTest):
                     for _ in range(10):
                         self.client.get(
                             f"/api/projects/{self.team.pk}/feature_flags",
-                            HTTP_AUTHORIZATION=f"Bearer {self.personal_api_key}",
+                            headers={"authorization": f"Bearer {self.personal_api_key}"},
                         )
                     assert wrapped_get_instance_setting.call_count == 2
 
@@ -404,7 +400,7 @@ class TestUserAPI(APIBaseTest):
                 for _ in range(10):
                     response = self.client.get(
                         f"/api/projects/{self.team.pk}/feature_flags",
-                        HTTP_AUTHORIZATION=f"Bearer {self.personal_api_key}",
+                        headers={"authorization": f"Bearer {self.personal_api_key}"},
                     )
                     self.assertEqual(response.status_code, status.HTTP_200_OK)
                 assert call("rate_limit_exceeded", tags=ANY) not in incr_mock.mock_calls

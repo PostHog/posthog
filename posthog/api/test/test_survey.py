@@ -2494,7 +2494,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
         return self.client.get(
             "/api/surveys/",
             data={"token": token or self.team.api_token},
-            HTTP_ORIGIN=origin,
+            headers={"origin": origin},
             REMOTE_ADDR=ip,
         )
 
