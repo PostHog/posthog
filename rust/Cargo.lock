@@ -717,10 +717,12 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "envconfig",
+ "futures",
  "health",
  "rdkafka",
  "serde",
  "serde_json",
+ "thiserror",
  "time",
  "tracing",
  "uuid",

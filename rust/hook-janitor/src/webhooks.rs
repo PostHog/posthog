@@ -3,10 +3,9 @@ use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use futures::future::join_all;
 use hook_common::webhook::WebhookJobError;
 use rdkafka::error::KafkaError;
-use rdkafka::producer::{FutureProducer, FutureRecord};
+use rdkafka::producer::FutureProducer;
 use serde::Serialize;
 use serde_json::error::Error as SerdeError;
 use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions, Postgres};
@@ -19,7 +18,7 @@ use crate::cleanup::Cleaner;
 
 use common_kafka::kafka_messages::app_metrics::{AppMetric, AppMetricCategory};
 use common_kafka::kafka_messages::app_metrics2::{self, AppMetric2};
-use common_kafka::kafka_producer::KafkaContext;
+use common_kafka::kafka_producer::{send_iter_to_kafka, KafkaContext, KafkaProduceError};
 use common_metrics::get_current_timestamp_seconds;
 
 #[derive(Error, Debug)]
@@ -204,8 +203,6 @@ struct QueueDepth {
     count_retries: i64,
 }
 
-// TODO: Extract this to a more generic function that produces any iterable that can be
-// serialized, and returns more generic errors.
 async fn send_metrics_to_kafka<T>(
     kafka_producer: &FutureProducer<KafkaContext>,
     topic: &str,
@@ -214,46 +211,18 @@ async fn send_metrics_to_kafka<T>(
 where
     T: Serialize,
 {
-    let mut payloads = Vec::new();
-
-    for metric in metrics {
-        let payload = serde_json::to_string(&metric)
-            .map_err(|e| WebhookCleanerError::SerializeRowsError { error: e })?;
-        payloads.push(payload);
-    }
-
-    if payloads.is_empty() {
-        return Ok(());
-    }
-
-    let mut delivery_futures = Vec::new();
-
-    for payload in payloads {
-        match kafka_producer.send_result(FutureRecord {
-            topic,
-            payload: Some(&payload),
-            partition: None,
-            key: None::<&str>,
-            timestamp: None,
-            headers: None,
-        }) {
-            Ok(future) => delivery_futures.push(future),
-            Err((error, _)) => return Err(WebhookCleanerError::KafkaProduceError { error }),
+    match send_iter_to_kafka(kafka_producer, topic, metrics).await {
+        Ok(()) => Ok(()),
+        Err(KafkaProduceError::SerializationError { error }) => {
+            Err(WebhookCleanerError::SerializeRowsError { error })
+        }
+        Err(KafkaProduceError::KafkaProduceError { error }) => {
+            Err(WebhookCleanerError::KafkaProduceError { error })
+        }
+        Err(KafkaProduceError::KafkaProduceCanceled) => {
+            Err(WebhookCleanerError::KafkaProduceCanceled)
         }
     }
-
-    for result in join_all(delivery_futures).await {
-        match result {
-            Ok(Ok(_)) => {}
-            Ok(Err((error, _))) => return Err(WebhookCleanerError::KafkaProduceError { error }),
-            Err(_) => {
-                // Cancelled due to timeout while retrying
-                return Err(WebhookCleanerError::KafkaProduceCanceled);
-            }
-        }
-    }
-
-    Ok(())
 }
 
 // A simple wrapper type that ensures we don't use any old Transaction object when we need one
