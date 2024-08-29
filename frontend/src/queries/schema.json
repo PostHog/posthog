@@ -2305,6 +2305,20 @@
             },
             "type": "object"
         },
+        "ConditionalFormatting": {
+            "additionalProperties": false,
+            "properties": {
+                "bytecode": {
+                    "items": {},
+                    "type": "array"
+                },
+                "columnName": {
+                    "type": "string"
+                }
+            },
+            "required": ["columnName", "bytecode"],
+            "type": "object"
+        },
         "CountPerActorMathType": {
             "enum": [
                 "avg_count_per_actor",
@@ -4865,6 +4879,17 @@
         "HedgehogColorOptions": {
             "enum": ["green", "red", "blue", "purple", "dark", "light", "sepia", "invert", "invert-hue", "greyscale"],
             "type": "string"
+        },
+        "HogCompileResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "bytecode": {
+                    "items": {},
+                    "type": "array"
+                }
+            },
+            "required": ["bytecode"],
+            "type": "object"
         },
         "HogLanguage": {
             "enum": ["hog", "hogJson", "hogQL", "hogQLExpr", "hogTemplate"],
@@ -9268,6 +9293,12 @@
                 "columns": {
                     "items": {
                         "$ref": "#/definitions/ChartAxis"
+                    },
+                    "type": "array"
+                },
+                "conditionalFormatting": {
+                    "items": {
+                        "$ref": "#/definitions/ConditionalFormatting"
                     },
                     "type": "array"
                 }

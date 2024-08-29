@@ -1,3 +1,4 @@
+import { exec } from '@posthog/hogvm'
 import { LemonTable, LemonTableColumn } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
@@ -17,12 +18,31 @@ interface TableProps {
 }
 
 export const Table = (props: TableProps): JSX.Element => {
-    const { tabularData, tabularColumns, responseLoading, responseError, queryCancelled, response } =
-        useValues(dataVisualizationLogic)
+    const {
+        tabularData,
+        tabularColumns,
+        conditionalFormatting,
+        responseLoading,
+        responseError,
+        queryCancelled,
+        response,
+    } = useValues(dataVisualizationLogic)
 
     const tableColumns: LemonTableColumn<any[], any>[] = tabularColumns.map(({ column, settings }, index) => ({
         title: settings?.display?.label || column.name,
         render: (_, data, recordIndex: number) => {
+            const cf = conditionalFormatting.map((n) => {
+                const res = exec(n.bytecode, {
+                    globals: {
+                        value: data[index],
+                    },
+                    maxAsyncSteps: 0,
+                })
+                return res.result
+            })
+
+            console.log(cf)
+
             return renderColumn(column.name, data[index], data, recordIndex, {
                 kind: NodeKind.DataTableNode,
                 source: props.query.source,

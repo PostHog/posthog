@@ -624,8 +624,14 @@ export interface ChartSettings {
     stackBars100?: boolean
 }
 
+export interface ConditionalFormatting {
+    columnName: string
+    bytecode: any[]
+}
+
 export interface TableSettings {
     columns?: ChartAxis[]
+    conditionalFormatting?: ConditionalFormatting[]
 }
 
 export interface DataVisualizationNode extends Node<never> {
@@ -1760,4 +1766,8 @@ export interface AlertType extends AlertTypeBase {
     state: string
     last_notified_at: string
     checks: AlertCheck[]
+}
+
+export interface HogCompileResponse {
+    bytecode: any[]
 }

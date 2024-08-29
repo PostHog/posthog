@@ -11,6 +11,7 @@ import {
     ChartSettings,
     ChartSettingsDisplay,
     ChartSettingsFormatting,
+    ConditionalFormatting,
     DataVisualizationNode,
 } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
@@ -23,6 +24,7 @@ import type { dataVisualizationLogicType } from './dataVisualizationLogicType'
 export enum SideBarTab {
     Series = 'series',
     Display = 'display',
+    ConditionalFormatting = 'conditional_formatting',
 }
 
 export interface ColumnType {
@@ -207,7 +209,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 setVisualizationType: (_, { visualizationType }) => visualizationType,
             },
         ],
-        selectedTabularSeries: [
+        tabularColumnSettings: [
             null as (SelectedYAxis | null)[] | null,
             {
                 clearAxis: () => null,
@@ -588,39 +590,21 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             },
         ],
         tabularColumns: [
-            (state) => [state.selectedTabularSeries, state.response, state.columns],
-            (selectedTabularSeries, response, columns): AxisSeries<any>[] => {
+            (state) => [state.tabularColumnSettings, state.response, state.columns],
+            (tabularColumnSettings, response, columns): AxisSeries<any>[] => {
                 if (!response) {
                     return []
                 }
 
-                const selectedColumns = (selectedTabularSeries || [])
-                    .map((series): AxisSeries<any> | null => {
-                        if (!series) {
-                            return null
-                        }
+                return columns.map((col) => {
+                    const series = (tabularColumnSettings || []).find((n) => n?.name === col.name)
 
-                        const column = columns.find((n) => n.name === series.name)
-                        if (!column) {
-                            return null
-                        }
-
-                        return {
-                            column,
-                            data: [],
-                            settings: series.settings,
-                        }
-                    })
-                    .filter((series): series is AxisSeries<any> => Boolean(series))
-
-                if (selectedColumns.length === 0) {
-                    return columns.map((column) => ({
-                        column,
+                    return {
+                        column: col,
                         data: [],
-                        settings: { formatting: { prefix: '', suffix: '' } },
-                    }))
-                }
-                return selectedColumns
+                        settings: series?.settings ?? DefaultAxisSettings(),
+                    }
+                })
             },
         ],
         dataVisualizationProps: [() => [(_, props) => props], (props): DataVisualizationLogicProps => props],
@@ -633,6 +617,12 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             (visualizationType): boolean =>
                 visualizationType === ChartDisplayType.ActionsTable ||
                 visualizationType === ChartDisplayType.BoldNumber,
+        ],
+        conditionalFormatting: [
+            (state) => [state.query],
+            (query): ConditionalFormatting[] => {
+                return query.tableSettings?.conditionalFormatting ?? []
+            },
         ],
     }),
     listeners(({ props, actions }) => ({
@@ -688,8 +678,10 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 return
             }
 
-            const oldSelectedSeries: (SelectedYAxis | null)[] | null = JSON.parse(
-                JSON.stringify(values.selectedTabularSeries)
+            // When query columns update, clear all internal values and re-setup tabular columns and chart series
+
+            const oldTabularColumnSettings: (SelectedYAxis | null)[] | null = JSON.parse(
+                JSON.stringify(values.tabularColumnSettings)
             )
 
             if (oldValue && oldValue.length) {
@@ -698,11 +690,11 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 }
             }
 
-            // Set up table series
-            if (values.response && values.selectedTabularSeries === null) {
+            // Set up table columns
+            if (values.response && values.tabularColumnSettings === null) {
                 value.forEach((column) => {
-                    if (oldSelectedSeries) {
-                        const lastValue = oldSelectedSeries.find((n) => n?.name === column.name)
+                    if (oldTabularColumnSettings) {
+                        const lastValue = oldTabularColumnSettings.find((n) => n?.name === column.name)
                         return actions.addSeries(column.name, lastValue?.settings)
                     }
 
@@ -717,8 +709,8 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
                 if (yAxisTypes) {
                     yAxisTypes.forEach((y) => {
-                        if (oldSelectedSeries) {
-                            const lastValue = oldSelectedSeries.find((n) => n?.name === y.name)
+                        if (oldTabularColumnSettings) {
+                            const lastValue = oldTabularColumnSettings.find((n) => n?.name === y.name)
                             return actions.addYSeries(y.name, lastValue?.settings)
                         }
 
@@ -767,7 +759,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 },
             })
         },
-        selectedTabularSeries: (value: (SelectedYAxis | null)[] | null) => {
+        tabularColumnSettings: (value: (SelectedYAxis | null)[] | null) => {
             if (!values.isTableVisualization) {
                 return
             }
