@@ -1,6 +1,8 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { BlushingHog } from 'lib/components/hedgehogs'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import useResizeObserver from 'use-resize-observer'
 
 import { billingLogic } from './billingLogic'
@@ -11,9 +13,12 @@ export const CreditCTAHero = (): JSX.Element | null => {
 
     const { selfServeCreditEligibility, isPurchaseCreditsModalOpen } = useValues(billingLogic)
     const { showPurchaseCreditsModal } = useActions(billingLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
-    // if (!selfServeCreditEligibility.eligible || selfServeCreditEligibility.status === "paid") {
-    if (!selfServeCreditEligibility.eligible) {
+    if (!selfServeCreditEligibility.eligible || selfServeCreditEligibility.status === 'paid') {
+        return null
+    }
+    if (!featureFlags[FEATURE_FLAGS.PURCHASE_CREDITS]) {
         return null
     }
 
@@ -33,7 +38,10 @@ export const CreditCTAHero = (): JSX.Element | null => {
                         {selfServeCreditEligibility.invoice_url && (
                             <LemonButton
                                 type="primary"
-                                onClick={() => window.open(selfServeCreditEligibility.invoice_url, '_blank')}
+                                onClick={() =>
+                                    selfServeCreditEligibility.invoice_url &&
+                                    window.open(selfServeCreditEligibility.invoice_url, '_blank')
+                                }
                                 className="mt-4"
                             >
                                 View invoice
@@ -41,20 +49,18 @@ export const CreditCTAHero = (): JSX.Element | null => {
                         )}
                     </>
                 )}
-                {/* {selfServeCreditEligibility.eligible && selfServeCreditEligibility.status === "none" && ( */}
-                {selfServeCreditEligibility.eligible &&
-                    (selfServeCreditEligibility.status === 'none' || selfServeCreditEligibility.status === 'paid') && (
-                        <>
-                            <h1 className="mb-0">You're eligible to purchase credits</h1>
-                            <p className="mt-2 mb-0 max-w-xl">
-                                You're eligible to purchase credits. Buy credits upfront to get a discount and make your
-                                PostHog payments more predictable.
-                            </p>
-                            <LemonButton type="primary" onClick={() => showPurchaseCreditsModal(true)} className="mt-4">
-                                Purchase credits
-                            </LemonButton>
-                        </>
-                    )}
+                {selfServeCreditEligibility.eligible && selfServeCreditEligibility.status === 'none' && (
+                    <>
+                        <h1 className="mb-0">You're eligible to purchase credits</h1>
+                        <p className="mt-2 mb-0 max-w-xl">
+                            You're eligible to purchase credits. Buy credits upfront to get a discount and make your
+                            PostHog payments more predictable.
+                        </p>
+                        <LemonButton type="primary" onClick={() => showPurchaseCreditsModal(true)} className="mt-4">
+                            Purchase credits
+                        </LemonButton>
+                    </>
+                )}
             </div>
             {width && width > 500 && (
                 <div className="shrink-0 relative w-50 pt-4 overflow-hidden">

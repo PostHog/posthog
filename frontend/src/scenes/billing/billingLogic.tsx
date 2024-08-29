@@ -305,7 +305,7 @@ export const billingLogic = kea<billingLogicType>([
                 loadSelfServeCreditEligible: async () => {
                     const response = await api.get('api/billing/credits/eligibility')
                     if (!values.creditForm.creditInput) {
-                        actions.setcreditFormValue('creditInput', response.estimated_credit_amount_usd * 12)
+                        actions.setCreditFormValue('creditInput', response.estimated_credit_amount_usd * 12)
                     }
                     return response
                 },
