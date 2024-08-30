@@ -230,7 +230,7 @@ class TestSavedQuery(APIBaseTest):
 
         self.assertEqual(response.status_code, 200, response.content)
         child_ancestors = response.json()["ancestors"]
-        self.assertEqual(child_ancestors, [uuid.UUID(saved_query_parent_id).hex])
+        self.assertEqual(child_ancestors, [uuid.UUID(saved_query_parent_id)])
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/warehouse_saved_queries/{saved_query_child_id}/ancestors", {"level": 2}

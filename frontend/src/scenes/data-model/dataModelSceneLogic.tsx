@@ -3,6 +3,7 @@ import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
+import { DatabaseSchemaTable } from '~/queries/schema'
 import { DataWarehouseSavedQuery } from '~/types'
 
 import type { dataModelSceneLogicType } from './dataModelSceneLogicType'
@@ -80,7 +81,7 @@ export const dataModelSceneLogic = kea<dataModelSceneLogicType>([
     }),
     subscriptions(({ actions, values }) => ({
         joinedFields: (joinedFields) => {
-            joinedFields.forEach((field) => {
+            joinedFields.forEach((field: DatabaseSchemaTable) => {
                 actions.setNodes({
                     ...values.nodeMap,
                     [field.id]: {
