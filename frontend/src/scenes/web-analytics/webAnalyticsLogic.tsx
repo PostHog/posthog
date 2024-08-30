@@ -1222,7 +1222,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 const { tileId, tabId } = modalTileAndTab
                 const tile = tiles.find((tile) => tile.tileId === tileId)
                 if (!tile) {
-                    throw new Error('Developer Error, tile not found')
+                    return null
                 }
 
                 const extendQuery = (query: QuerySchema): QuerySchema => {
@@ -1241,7 +1241,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 if (tile.kind === 'tabs') {
                     const tab = tile.tabs.find((tab) => tab.id === tabId)
                     if (!tab) {
-                        throw new Error('Developer Error, tab not found')
+                        return null
                     }
                     return {
                         tileId,
@@ -1348,12 +1348,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
                     const tile = tiles.find((tile) => tile.tileId === tileId)
                     if (!tile) {
-                        throw new Error('Developer Error, tile not found')
+                        return undefined
                     }
                     if (tile.kind === 'tabs') {
                         const tab = tile.tabs.find((tab) => tab.id === tabId)
                         if (!tab) {
-                            throw new Error('Developer Error, tab not found')
+                            return undefined
                         }
                         return urls.insightNew(undefined, undefined, formatQueryForNewInsight(tab.query))
                     } else if (tile.kind === 'query') {
