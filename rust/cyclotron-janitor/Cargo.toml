@@ -24,3 +24,4 @@ rdkafka = { workspace = true }
 
 [dev-dependencies]
 sqlx = { workspace = true }
+serde_json = { workspace = true }

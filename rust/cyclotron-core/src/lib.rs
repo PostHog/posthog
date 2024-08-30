@@ -4,6 +4,7 @@ mod ops;
 
 // Types
 mod types;
+pub use types::AggregatedDelete;
 pub use types::BulkInsertResult;
 pub use types::Bytes;
 pub use types::Job;
