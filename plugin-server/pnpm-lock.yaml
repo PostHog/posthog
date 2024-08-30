@@ -47,8 +47,8 @@ dependencies:
     specifier: file:../rust/cyclotron-node
     version: file:../rust/cyclotron-node
   '@posthog/hogvm':
-    specifier: ^1.0.41
-    version: 1.0.41(luxon@3.4.4)
+    specifier: ^1.0.42
+    version: 1.0.42(luxon@3.4.4)
   '@posthog/plugin-scaffold':
     specifier: 1.4.4
     version: 1.4.4
@@ -3116,8 +3116,8 @@ packages:
     engines: {node: '>=12'}
     dev: false
 
-  /@posthog/hogvm@1.0.41(luxon@3.4.4):
-    resolution: {integrity: sha512-VNIE6YeClbXCappyTxDxH31FsxeoDv8glquFV9jMIP5njLuJfor+eATcKpnREc4fPrTtzi0/l0aXTn/3J/mI/Q==}
+  /@posthog/hogvm@1.0.42(luxon@3.4.4):
+    resolution: {integrity: sha512-vrIl2XVtlBqkPOmF65pd8WYFFnv+Mtc2kgmJga9CDo8obsn/aMcYf4UrKNcXsK9XAz4vxw7ItwcgrD/Hb6WjuQ==}
     peerDependencies:
       luxon: ^3.4.4
     dependencies:
