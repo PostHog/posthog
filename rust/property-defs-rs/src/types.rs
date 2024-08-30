@@ -50,7 +50,7 @@ pub enum PropertyValueType {
     String,
     Numeric,
     Boolean,
-    Duration,
+    Duration, // Unused, but exists.
 }
 
 impl fmt::Display for PropertyValueType {
@@ -173,7 +173,7 @@ impl Event {
                 "Event {} for team {} has more than 10,000 properties, skipping",
                 event, team_id
             );
-            metrics::counter!(EVENTS_SKIPPED).increment(1);
+            metrics::counter!(EVENTS_SKIPPED, &[("reason", "too_many_properties")]).increment(1);
             return vec![];
         }
 
@@ -383,7 +383,10 @@ impl Hash for GroupType {
     }
 }
 
-fn floor_datetime(dt: DateTime<Utc>, duration: Duration) -> Result<DateTime<Utc>, RoundingError> {
+pub fn floor_datetime(
+    dt: DateTime<Utc>,
+    duration: Duration,
+) -> Result<DateTime<Utc>, RoundingError> {
     let rounded = dt.duration_round(duration)?;
 
     // If we rounded up

@@ -37,13 +37,21 @@ pub struct Config {
     pub cache_capacity: usize,
 
     // We impose a slow-start, where each batch update operation is delayed by
-    // this many ms times the % of remaining cache space (so with a 50% full cache,
-    // we delay by e.g. 500ms, at 90% full, we delay by 100ms)
+    // this many milliseconds, multiplied by the % of the cache currently unused. The idea
+    // is that we want to drip-feed updates to the DB during warmup, since
+    // cache fill rate is highest when it's most empty, and cache fill rate
+    // is exactly equivalent to the rate at which we can issue updates to the DB.
+    // The maths here is:
+    //     max(writes/s) = max_concurrent_transactions * update_batch_size / transaction_seconds
+    // By artificially inflating transaction_time, we put a cap on writes/s. This cap is
+    // then loosened as the cache fills, until we're operating in "normal" mode and
+    // only presenting "true" DB backpressure (in the form of write time) to the main loop.
     #[envconfig(default = "1000")]
     pub cache_warming_delay_ms: u32,
 
     // This is the slow-start cutoff. Once the cache is this full, we
-    // don't delay the batch updates any more
+    // don't delay the batch updates any more. 50% is fine for testing,
+    // in production you want to be using closer to 80-90%
     #[envconfig(default = "0.5")]
     pub cache_warming_cutoff: f64,
 

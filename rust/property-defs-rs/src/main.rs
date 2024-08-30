@@ -108,6 +108,8 @@ async fn spawn_producer_loop(
                         Err(TrySendError::Full(update)) => {
                             warn!("Worker blocked");
                             metrics::counter!(WORKER_BLOCKED).increment(1);
+                            // Workers should just die if the channel is dropped, since that indicates
+                            // the main loop is dead.
                             channel.send(update).await.unwrap();
                         }
                         Err(e) => {
@@ -198,6 +200,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // fail to acquire a permit for long enough, we will fail liveness checks (but that implies our ongoing
         // transactions are halted, at which point DB health is a concern).
         let permit_acquire_time = common_metrics::timing_guard(PERMIT_WAIT_TIME, &[]);
+        // This semaphore will never be closed.
         let permit = transaction_limit.clone().acquire_owned().await.unwrap();
         permit_acquire_time.fin();
 
