@@ -6,8 +6,8 @@ import { ExperimentalAITrendsQuery } from '~/queries/schema'
 import type { maxLogicType } from './maxLogicType'
 
 interface TrendGenerationResult {
-    reasoning_steps: string[]
-    answer: ExperimentalAITrendsQuery
+    reasoning_steps?: string[]
+    answer?: ExperimentalAITrendsQuery
 }
 
 export interface ThreadMessage {

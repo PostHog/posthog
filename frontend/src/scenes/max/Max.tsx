@@ -63,26 +63,30 @@ export function Max(): JSX.Element {
 
                     return (
                         <React.Fragment key={index}>
-                            <Message role={message.role}>
-                                <ul className="list-disc ml-4">
-                                    {message.content.reasoning_steps.map((step, index) => (
-                                        <li key={index}>{step}</li>
-                                    ))}
-                                </ul>
-                            </Message>
-                            <Message role={message.role}>
-                                {!threadLoading && <Query query={query} readOnly embedded />}
-                                <LemonButton
-                                    className="mt-4 w-fit"
-                                    type="primary"
-                                    to={`/insights/new#filters=${JSON.stringify(
-                                        queryNodeToFilter(message.content.answer)
-                                    )}`}
-                                    targetBlank
-                                >
-                                    Edit Query
-                                </LemonButton>
-                            </Message>
+                            {message.content.reasoning_steps && (
+                                <Message role={message.role}>
+                                    <ul className="list-disc ml-4">
+                                        {message.content.reasoning_steps.map((step, index) => (
+                                            <li key={index}>{step}</li>
+                                        ))}
+                                    </ul>
+                                </Message>
+                            )}
+                            {!threadLoading && message.content.answer && (
+                                <Message role={message.role}>
+                                    <Query query={query} readOnly embedded />
+                                    <LemonButton
+                                        className="mt-4"
+                                        type="primary"
+                                        to={`/insights/new#filters=${JSON.stringify(
+                                            queryNodeToFilter(message.content.answer)
+                                        )}`}
+                                        targetBlank
+                                    >
+                                        Edit Query
+                                    </LemonButton>
+                                </Message>
+                            )}
                         </React.Fragment>
                     )
                 })}

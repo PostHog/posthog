@@ -36,18 +36,20 @@ class GenerateTrendsAgent:
     def __init__(self, team: Team):
         self._team = team
 
-    def bootstrap(self, messages: list[ChatMessage]):
+    def bootstrap(self, messages: list[ChatMessage], user_prompt: str | None = None):
         llm = ChatOpenAI(model="gpt-4o").bind_tools(
             [TrendsFunction().generate_function()], tool_choice="output_insight_schema"
         )
+        user_prompt = (
+            user_prompt
+            or "Answer to my question:\n<question>{{question}}</question>\nHere is the only information you know:\n"
+            + TeamPrompt(self._team).generate_prompt()
+        )
+
         prompts = ChatPromptTemplate.from_messages(
             [
                 ("system", trends_system_prompt),
-                (
-                    "user",
-                    "Answer to my question:\n<question>{{question}}</question>\nHere is the only information you know:\n"
-                    + TeamPrompt(self._team).generate_prompt(),
-                ),
+                ("user", user_prompt),
                 *[(message.role, message.content) for message in messages[1:]],
             ],
             template_format="mustache",

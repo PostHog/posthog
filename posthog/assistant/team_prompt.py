@@ -1,54 +1,15 @@
 import collections
-import json
+from datetime import timedelta
 
-from attr import dataclass
+from django.utils import timezone
 
-from posthog.models.property_definition import PropertyDefinition, PropertyType
+from posthog.models.cohort.cohort import Cohort
+from posthog.models.event_definition import EventDefinition
+from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models.property_definition import PropertyDefinition
 from posthog.models.team.team import Team
 
 from .hardcoded_definitions import hardcoded_prop_defs
-
-
-@dataclass
-class Event:
-    name: str
-
-
-def _hardcoded_events() -> list[Event]:
-    with open("posthog/assistant/events.json") as f:
-        events = json.load(f)
-    return [Event(name=event["name"]) for event in events]
-
-
-@dataclass
-class Cohort:
-    name: str
-    id: int
-
-
-def _hardcoded_cohorts() -> list[Cohort]:
-    with open("posthog/assistant/cohorts.json") as f:
-        return [Cohort(name=cohort["name"], id=cohort["id"].replace(",", "")) for cohort in json.load(f)]
-
-
-@dataclass
-class Property:
-    type: PropertyDefinition.Type
-    name: str
-    property_type: PropertyType
-
-
-def _hardcoded_properties() -> list[Property]:
-    with open("posthog/assistant/properties.json") as f:
-        properties = json.load(f)
-    return [
-        Property(
-            type=PropertyDefinition.Type(int(prop["type"])),
-            name=prop["name"],
-            property_type=PropertyType(prop["property_type"]),
-        )
-        for prop in properties
-    ]
 
 
 class TeamPrompt:
@@ -69,20 +30,21 @@ class TeamPrompt:
         return f"\n<{tag_name}>\n{content.strip()}\n</{tag_name}>\n"
 
     def _generate_cohorts_prompt(self) -> str:
+        cohorts = Cohort.objects.filter(team=self._team, last_calculation__gte=timezone.now() - timedelta(days=60))
         return self._get_xml_tag(
             "list of defined cohorts",
-            "\n".join([f'name "{cohort.name}", ID {cohort.id}' for cohort in _hardcoded_cohorts()]),
+            "\n".join([f'name "{cohort.name}", ID {cohort.id}' for cohort in cohorts]),
         )
 
     def _generate_events_prompt(self) -> str:
-        events = _hardcoded_events()
-
         event_description_mapping = {
             "$identify": "Identifies an anonymous user. This event doesn't show how many users you have but rather how many users used an account."
         }
 
-        tags = []
-        for event in events:
+        tags: list[str] = []
+        for event in EventDefinition.objects.filter(
+            team=self._team, last_seen_at__gte=timezone.now() - timedelta(days=60)
+        ):
             event_tag = event.name
             if event.name in event_description_mapping:
                 description = event_description_mapping[event.name]
@@ -98,9 +60,10 @@ class TeamPrompt:
         return self._get_xml_tag(tag_name, "\n".join(sorted(tags)))
 
     def _generate_groups_prompt(self) -> str:
-        user_groups = [("organization", 0), ("instance", 1), ("project", 2)]
+        user_groups = GroupTypeMapping.objects.filter(team=self._team).order_by("group_type_index")
         return self._get_xml_tag(
-            "list of defined groups", "\n".join([f'name "{name}", index {index}' for name, index in user_groups])
+            "list of defined groups",
+            "\n".join([f'name "{group.group_type}", index {group.group_type_index}' for group in user_groups]),
         )
 
     def _join_property_tags(self, tag_name: str, properties_by_type: dict[str, list[str]]) -> str:
@@ -111,24 +74,19 @@ class TeamPrompt:
             return self._get_xml_tag(tag_name, tags) + "\n"
         return ""
 
-    def _get_property_type(self, prop: Property) -> str:
+    def _get_property_type(self, prop: PropertyDefinition) -> str:
         if prop.name.startswith("$feature/"):
             return "feature"
-        return prop.type.label.lower()
+        return PropertyDefinition.Type(prop.type).label.lower()
 
     def _generate_properties_prompt(self) -> str:
-        # props = (
-        #     PropertyDefinition.objects.filter(team=self._team, type=property_type)
-        #     .exclude(name__icontains="__")
-        #     .exclude(name__icontains="phjs")
-        #     .exclude(name__startswith="$survey_dismissed/")
-        #     .exclude(name__startswith="$survey_responded/")
-        #     .exclude(name__startswith="partial_filter_chosen_")
-        #     .exclude(name__startswith="changed_action_")
-        #     .exclude(name__icontains="window-id-")
-        #     .exclude(name__startswith="changed_event_")
-        # )
-        properties = _hardcoded_properties()
+        properties = (
+            PropertyDefinition.objects.filter(team=self._team)
+            .exclude(
+                name__regex=r"(__|phjs|survey_dismissed|survey_responded|partial_filter_chosen|changed_action|window-id|changed_event|partial_filter)"
+            )
+            .distinct("name")
+        ).iterator(chunk_size=2500)
 
         key_mapping = {
             "event": "event_properties",
@@ -138,7 +96,9 @@ class TeamPrompt:
 
         for prop in properties:
             category = self._get_property_type(prop)
-            if category in ["group", "session"]:
+            property_type = prop.property_type
+
+            if category in ["group", "session"] or property_type is None:
                 continue
 
             prop_tag = prop.name
@@ -152,14 +112,14 @@ class TeamPrompt:
                 if "examples" in data:
                     prop_tag += f" Examples: {data['examples']}."
 
-            tags[category][prop.property_type].append(self._clean_line(prop_tag))
+            tags[category][property_type].append(self._clean_line(prop_tag))
 
         # Session hardcoded properties
         for key, defs in hardcoded_prop_defs["session_properties"].items():
             prop_tag += f"{key} - {defs['label']}. {defs['description']}."
             if "examples" in defs:
                 prop_tag += f" Examples: {defs['examples']}."
-            tags["session"][prop.property_type].append(self._clean_line(prop_tag))
+            tags["session"][defs["type"]].append(self._clean_line(prop_tag))
 
         prompt = "\n".join(
             [self._join_property_tags(self.get_properties_tag_name(category), tags[category]) for category in tags],
