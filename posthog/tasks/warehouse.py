@@ -78,6 +78,9 @@ def check_synced_row_limits_of_team(team_id: int) -> None:
             job.status = ExternalDataJob.Status.CANCELLED
             job.save()
 
+            job.pipeline.status = ExternalDataSource.Status.PAUSED
+            job.pipeline.save()
+
             if job.schema:
                 job.schema.status = ExternalDataSchema.Status.PAUSED
                 job.schema.save()
@@ -94,6 +97,9 @@ def check_synced_row_limits_of_team(team_id: int) -> None:
 
             schema.status = ExternalDataSchema.Status.PAUSED
             schema.save()
+
+            schema.source.status = ExternalDataSource.Status.PAUSED
+            schema.source.save()
     else:
         all_schemas = ExternalDataSchema.objects.filter(team_id=team_id, status=ExternalDataSchema.Status.PAUSED)
         for schema in all_schemas:
@@ -104,6 +110,9 @@ def check_synced_row_limits_of_team(team_id: int) -> None:
 
             schema.status = ExternalDataSchema.Status.COMPLETED
             schema.save()
+
+            schema.source.status = ExternalDataSource.Status.RUNNING
+            schema.source.save()
 
 
 @shared_task(ignore_result=True)
