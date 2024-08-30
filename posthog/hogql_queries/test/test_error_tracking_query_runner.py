@@ -148,7 +148,6 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
             query=ErrorTrackingQuery(
                 kind="ErrorTrackingQuery",
                 fingerprint=["SyntaxError"],
-                eventColumns=["uuid", "distinct_id", "person"],
                 dateRange=DateRange(),
                 filterTestAccounts=True,
             ),
@@ -187,7 +186,6 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
             query=ErrorTrackingQuery(
                 kind="ErrorTrackingQuery",
                 fingerprint=fingerprint,
-                eventColumns=["uuid", "distinct_id", "person"],
                 dateRange=DateRange(),
                 filterTestAccounts=True,
             ),

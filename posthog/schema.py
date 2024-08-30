@@ -408,7 +408,6 @@ class ErrorTrackingGroup(BaseModel):
     )
     assignee: Optional[float] = None
     description: Optional[str] = None
-    events: Optional[list[dict[str, Any]]] = None
     exception_type: Optional[str] = None
     fingerprint: list[str]
     first_seen: AwareDatetime
@@ -1023,7 +1022,7 @@ class RecordingPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["recording"] = "recording"
-    value: Optional[Union[str, float, list[Union[str, float]]]] = None
+    value: Optional[Union[str, float, list[Union[str, float, list[str]]]]] = None
 
 
 class Kind1(StrEnum):
@@ -1120,7 +1119,7 @@ class SessionPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["session"] = "session"
-    value: Optional[Union[str, float, list[Union[str, float]]]] = None
+    value: Optional[Union[str, float, list[Union[str, float, list[str]]]]] = None
 
 
 class SnapshotSource(StrEnum):
@@ -2263,7 +2262,7 @@ class DataWarehousePersonPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["data_warehouse_person_property"] = "data_warehouse_person_property"
-    value: Optional[Union[str, float, list[Union[str, float]]]] = None
+    value: Optional[Union[str, float, list[Union[str, float, list[str]]]]] = None
 
 
 class DataWarehousePropertyFilter(BaseModel):
@@ -2274,7 +2273,7 @@ class DataWarehousePropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["data_warehouse"] = "data_warehouse"
-    value: Optional[Union[str, float, list[Union[str, float]]]] = None
+    value: Optional[Union[str, float, list[Union[str, float, list[str]]]]] = None
 
 
 class DatabaseSchemaField(BaseModel):
@@ -2318,7 +2317,7 @@ class ElementPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["element"] = "element"
-    value: Optional[Union[str, float, list[Union[str, float]]]] = None
+    value: Optional[Union[str, float, list[Union[str, float, list[str]]]]] = None
 
 
 class ErrorTrackingQueryResponse(BaseModel):
@@ -2354,7 +2353,7 @@ class EventPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: Optional[PropertyOperator] = PropertyOperator.EXACT
     type: Literal["event"] = Field(default="event", description="Event properties")
-    value: Optional[Union[str, float, list[Union[str, float]]]] = None
+    value: Optional[Union[str, float, list[Union[str, float, list[str]]]]] = None
 
 
 class EventsQueryResponse(BaseModel):
@@ -2391,7 +2390,7 @@ class FeaturePropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["feature"] = Field(default="feature", description='Event property with "$feature/" prepended')
-    value: Optional[Union[str, float, list[Union[str, float]]]] = None
+    value: Optional[Union[str, float, list[Union[str, float, list[str]]]]] = None
 
 
 class FunnelCorrelationResponse(BaseModel):
@@ -2485,7 +2484,7 @@ class GroupPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["group"] = "group"
-    value: Optional[Union[str, float, list[Union[str, float]]]] = None
+    value: Optional[Union[str, float, list[Union[str, float, list[str]]]]] = None
 
 
 class HogQLAutocompleteResponse(BaseModel):
@@ -2518,7 +2517,7 @@ class HogQLPropertyFilter(BaseModel):
     key: str
     label: Optional[str] = None
     type: Literal["hogql"] = "hogql"
-    value: Optional[Union[str, float, list[Union[str, float]]]] = None
+    value: Optional[Union[str, float, list[Union[str, float, list[str]]]]] = None
 
 
 class HogQLQueryResponse(BaseModel):
@@ -2629,7 +2628,7 @@ class LogEntryPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["log_entry"] = "log_entry"
-    value: Optional[Union[str, float, list[Union[str, float]]]] = None
+    value: Optional[Union[str, float, list[Union[str, float, list[str]]]]] = None
 
 
 class MatchedRecording(BaseModel):
@@ -2676,7 +2675,7 @@ class PersonPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["person"] = Field(default="person", description="Person properties")
-    value: Optional[Union[str, float, list[Union[str, float]]]] = None
+    value: Optional[Union[str, float, list[Union[str, float, list[str]]]]] = None
 
 
 class QueryResponseAlternative1(BaseModel):
@@ -4580,7 +4579,6 @@ class ErrorTrackingQuery(BaseModel):
     )
     assignee: Optional[int] = None
     dateRange: DateRange
-    eventColumns: Optional[list[str]] = None
     filterGroup: Optional[PropertyGroupFilter] = None
     filterTestAccounts: Optional[bool] = None
     fingerprint: Optional[list[str]] = None
@@ -4589,7 +4587,6 @@ class ErrorTrackingQuery(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    offset: Optional[int] = None
     order: Optional[Order] = None
     response: Optional[ErrorTrackingQueryResponse] = None
     select: Optional[list[str]] = None

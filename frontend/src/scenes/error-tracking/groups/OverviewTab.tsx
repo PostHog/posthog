@@ -10,7 +10,7 @@ import { dayjs } from 'lib/dayjs'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { PropertyIcons } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 
-import { ErrorTrackingGroupEvent, errorTrackingGroupSceneLogic } from '../errorTrackingGroupSceneLogic'
+import { ErrorTrackingEvent, errorTrackingGroupSceneLogic } from '../errorTrackingGroupSceneLogic'
 
 export const OverviewTab = (): JSX.Element => {
     const { group, events, groupLoading } = useValues(errorTrackingGroupSceneLogic)
@@ -38,7 +38,7 @@ export const OverviewTab = (): JSX.Element => {
                                     <ViewSessionButton event={event} />
                                 </div>
                                 <div className="pl-2">
-                                    <ErrorDisplay eventProperties={JSON.parse(event.properties)} />
+                                    <ErrorDisplay eventProperties={event.properties} />
                                 </div>
                             </div>
                         ) : (
@@ -57,21 +57,19 @@ export const OverviewTab = (): JSX.Element => {
     )
 }
 
-const ViewSessionButton = ({ event }: { event: ErrorTrackingGroupEvent }): JSX.Element | null => {
+const ViewSessionButton = ({ event }: { event: ErrorTrackingEvent }): JSX.Element | null => {
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
 
-    const properties = JSON.parse(event.properties)
+    const sessionId = event.properties.$session_id
 
     return (
         <LemonButton
             size="small"
             onClick={() => {
                 const fiveSecondsBeforeEvent = dayjs(event.timestamp).valueOf() - 5000
-                openSessionPlayer({ id: properties.$session_id }, Math.max(fiveSecondsBeforeEvent, 0))
+                openSessionPlayer({ id: sessionId }, Math.max(fiveSecondsBeforeEvent, 0))
             }}
-            disabledReason={
-                !properties.$session_id ? 'There was no $session_id associated with this exception' : undefined
-            }
+            disabledReason={!sessionId ? 'There was no Session ID associated with this exception' : undefined}
         >
             View recording
         </LemonButton>
@@ -79,14 +77,12 @@ const ViewSessionButton = ({ event }: { event: ErrorTrackingGroupEvent }): JSX.E
 }
 
 const ListItemException = ({
-    item: event,
+    item: { timestamp, properties, person },
     isActive,
 }: {
-    item: ErrorTrackingGroupEvent
+    item: ErrorTrackingEvent
     isActive: boolean
 }): JSX.Element => {
-    const properties = JSON.parse(event.properties)
-
     const recordingProperties = ['$browser', '$device_type', '$os']
         .flatMap((property) => {
             let value = properties[property]
@@ -103,14 +99,14 @@ const ListItemException = ({
         <div className={clsx('cursor-pointer p-2 space-y-1', isActive && 'border-l-4 border-primary-3000')}>
             <div className="flex justify-between items-center space-x-3">
                 <div className="line-clamp-1">
-                    <PersonDisplay person={event.person} withIcon noPopover noLink />
+                    <PersonDisplay person={person} withIcon noPopover noLink />
                 </div>
                 <PropertyIcons recordingProperties={recordingProperties} iconClassNames="text-muted" />
             </div>
             {properties.$current_url && <div className="text-xs text-muted truncate">{properties.$current_url}</div>}
             <TZLabel
                 className="overflow-hidden text-ellipsis text-xs text-muted shrink-0"
-                time={event.timestamp}
+                time={timestamp}
                 placement="right"
                 showPopover={false}
             />

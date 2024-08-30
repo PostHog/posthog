@@ -3523,12 +3523,6 @@
                 "description": {
                     "type": ["string", "null"]
                 },
-                "events": {
-                    "items": {
-                        "type": "object"
-                    },
-                    "type": "array"
-                },
                 "exception_type": {
                     "type": ["string", "null"]
                 },
@@ -3601,12 +3595,6 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
-                "eventColumns": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
                 "filterGroup": {
                     "$ref": "#/definitions/PropertyGroupFilter"
                 },
@@ -3629,9 +3617,6 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
-                },
-                "offset": {
-                    "type": "integer"
                 },
                 "order": {
                     "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
@@ -6604,7 +6589,20 @@
                 },
                 {
                     "items": {
-                        "type": ["string", "number"]
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            }
+                        ]
                     },
                     "type": "array"
                 },
