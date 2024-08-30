@@ -371,7 +371,7 @@ export const WebStatsTableTile = ({
 
     const pathCleaningSettingsUrl = urls.settings('project-product-analytics', 'path-cleaning')
     return (
-        <div className="border rounded bg-bg-light flex-1">
+        <div className="border rounded bg-bg-light flex-1 flex flex-col">
             {showPathCleaningControls && (
                 <div className="flex flex-row items-center justify-end m-2 mr-4">
                     <div className="flex flex-row items-center space-x-2">
@@ -390,7 +390,7 @@ export const WebStatsTableTile = ({
                                     />
                                 </div>
                             }
-                            checked={isPathCleaningEnabled}
+                            checked={!!isPathCleaningEnabled}
                             onChange={setIsPathCleaningEnabled}
                             className="h-full"
                         />

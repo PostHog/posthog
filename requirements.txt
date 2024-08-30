@@ -117,7 +117,7 @@ defusedxml==0.6.0
     # via
     #   python3-openid
     #   social-auth-core
-deltalake==0.18.2
+deltalake==0.19.1
     # via dlt
 distro==1.9.0
     # via openai
@@ -175,7 +175,7 @@ djangorestframework==3.15.1
     #   drf-spectacular
 djangorestframework-csv==2.1.1
 djangorestframework-dataclasses==1.2.0
-dlt==0.5.3
+dlt==0.5.4
 dnspython==2.2.1
 drf-exceptions-hog==0.4.0
 drf-extensions==0.7.0
@@ -234,7 +234,7 @@ h11==0.13.0
     #   wsproto
 hexbytes==1.0.0
     # via dlt
-hogql-parser==1.0.38
+hogql-parser==1.0.40
 httpcore==1.0.2
     # via httpx
 httpx==0.26.0
@@ -363,8 +363,6 @@ pyarrow==17.0.0
     # via
     #   deltalake
     #   dlt
-pyarrow-hotfix==0.6
-    # via deltalake
 pyasn1==0.5.0
     # via
     #   pyasn1-modules

@@ -1,4 +1,4 @@
-fn returnCallable(a) {
+fun returnCallable(a) {
   return x -> x * a
 }
 
@@ -10,9 +10,9 @@ print(triple(2)) // 6
 
 print('----------')
 
-fn outer() {
+fun outer() {
   let x := 'outside'
-  fn inner() {
+  fun inner() {
     print(x)
   }
 

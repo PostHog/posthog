@@ -465,6 +465,16 @@ GROUP BY day_start,
     multiIf(and(ifNull(greaterOrEquals(e__session.`$session_duration`, 2.0), 0), ifNull(less(e__session.`$session_duration`, 4.5), 0)), %(hogql_val_10)s, and(ifNull(greaterOrEquals(e__session.`$session_duration`, 4.5), 0), ifNull(less(e__session.`$session_duration`, 27.0), 0)), %(hogql_val_11)s, and(ifNull(greaterOrEquals(e__session.`$session_duration`, 27.0), 0), ifNull(less(e__session.`$session_duration`, 44.0), 0)), %(hogql_val_12)s, and(ifNull(greaterOrEquals(e__session.`$session_duration`, 44.0), 0), ifNull(less(e__session.`$session_duration`, 48.0), 0)), %(hogql_val_13)s, and(ifNull(greaterOrEquals(e__session.`$session_duration`, 48.0), 0), ifNull(less(e__session.`$session_duration`, 57.5), 0)), %(hogql_val_14)s, and(ifNull(greaterOrEquals(e__session.`$session_duration`, 57.5), 0), ifNull(less(e__session.`$session_duration`, 61.0), 0)), %(hogql_val_15)s, and(ifNull(greaterOrEquals(e__session.`$session_duration`, 61.0), 0), ifNull(less(e__session.`$session_duration`, 74.0), 0)), %(hogql_val_16)s, and(ifNull(greaterOrEquals(e__session.`$session_duration`, 74.0), 0), ifNull(less(e__session.`$session_duration`, 90.0), 0)), %(hogql_val_17)s, and(ifNull(greaterOrEquals(e__session.`$session_duration`, 90.0), 0), ifNull(less(e__session.`$session_duration`, 98.5), 0)), %(hogql_val_18)s, and(ifNull(greaterOrEquals(e__session.`$session_duration`, 98.5), 0), ifNull(less(e__session.`$session_duration`, 167.01), 0)), %(hogql_val_19)s, %(hogql_val_20)s) AS breakdown_value
 FROM
     events AS e SAMPLE 1
+    LEFT JOIN (SELECT
+        dateDiff(%(hogql_val_0)s, min(toTimeZone(sessions.min_timestamp, %(hogql_val_1)s)), max(toTimeZone(sessions.max_timestamp, %(hogql_val_2)s))) AS `$session_duration`,
+        sessions.session_id AS session_id
+    FROM
+        sessions
+    WHERE
+        and(equals(sessions.team_id, {self.team.id}), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, %(hogql_val_3)s), toIntervalDay(3)), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_4)s, 6, %(hogql_val_5)s)))), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, %(hogql_val_6)s), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_7)s, 6, %(hogql_val_8)s))), 0))
+    GROUP BY
+        sessions.session_id,
+        sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
     INNER JOIN (SELECT
         argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
         person_distinct_id2.distinct_id AS distinct_id
@@ -477,16 +487,6 @@ FROM
     HAVING
         ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)
     SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-    LEFT JOIN (SELECT
-        dateDiff(%(hogql_val_0)s, min(toTimeZone(sessions.min_timestamp, %(hogql_val_1)s)), max(toTimeZone(sessions.max_timestamp, %(hogql_val_2)s))) AS `$session_duration`,
-        sessions.session_id AS session_id
-    FROM
-        sessions
-    WHERE
-        and(equals(sessions.team_id, {self.team.id}), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, %(hogql_val_3)s), toIntervalDay(3)), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_4)s, 6, %(hogql_val_5)s)))), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, %(hogql_val_6)s), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_7)s, 6, %(hogql_val_8)s))), 0))
-    GROUP BY
-        sessions.session_id,
-        sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
 WHERE
     and(equals(e.team_id, {self.team.id}), and(greaterOrEquals(toTimeZone(e.timestamp, %(hogql_val_21)s), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_22)s, 6, %(hogql_val_23)s)))), lessOrEquals(toTimeZone(e.timestamp, %(hogql_val_24)s), assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_25)s, 6, %(hogql_val_26)s))), equals(e.event, %(hogql_val_27)s), ifNull(in(e__pdi.person_id, (SELECT
                     cohortpeople.person_id AS person_id

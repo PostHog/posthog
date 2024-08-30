@@ -81,7 +81,7 @@ export function InsightVizDisplay({
     const BlockingEmptyState = (() => {
         if (insightDataLoading) {
             return (
-                <div className="flex flex-col flex-1 justify-center items-center">
+                <div className="flex flex-col flex-1 justify-center items-center p-2">
                     <InsightLoadingState queryId={queryId} key={queryId} insightProps={insightProps} />
                 </div>
             )

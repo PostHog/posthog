@@ -35,9 +35,12 @@ class TableLoader:
             try:
                 self.cursor_column: Optional[Column[Any]] = table.c[incremental.cursor_path]
             except KeyError as e:
-                raise KeyError(
-                    f"Cursor column '{incremental.cursor_path}' does not exist in table '{table.name}'"
-                ) from e
+                try:
+                    self.cursor_column = table.c[incremental.cursor_path.lower()]
+                except KeyError:
+                    raise KeyError(
+                        f"Cursor column '{incremental.cursor_path}' does not exist in table '{table.name}'"
+                    ) from e
             self.last_value = incremental.last_value
         else:
             self.cursor_column = None

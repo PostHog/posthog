@@ -26,7 +26,7 @@ use tokio::time::timeout;
 use tracing::{debug, warn};
 
 use capture::config::{CaptureMode, Config, KafkaConfig};
-use capture::limiters::billing::QuotaResource;
+use capture::limiters::redis::QuotaResource;
 use capture::server::serve;
 
 pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
@@ -50,6 +50,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
         kafka_exceptions_topic: "events_plugin_ingestion".to_string(),
         kafka_heatmaps_topic: "events_plugin_ingestion".to_string(),
         kafka_tls: false,
+        kafka_client_id: "".to_string(),
     },
     otel_url: None,
     otel_sampling_rate: 0.0,
@@ -57,6 +58,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     export_prometheus: false,
     redis_key_prefix: None,
     capture_mode: CaptureMode::Events,
+    concurrency_limit: None,
 });
 
 static TRACING_INIT: Once = Once::new();
