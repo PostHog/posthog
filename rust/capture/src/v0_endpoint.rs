@@ -245,7 +245,8 @@ pub async fn recording(
         })),
         Err(err) => Err(err),
         Ok((context, events)) => {
-            if let Err(err) = process_replay_events(state.sink.clone(), &events, &context).await {
+            let count = events.len() as u64;
+            if let Err(err) = process_replay_events(state.sink.clone(), events, &context).await {
                 let cause = match err {
                     CaptureError::EmptyDistinctId => "empty_distinct_id",
                     CaptureError::MissingDistinctId => "missing_distinct_id",
@@ -260,7 +261,7 @@ pub async fn recording(
                     CaptureError::MissingSnapshotData => "missing_snapshot_data",
                     _ => "process_events_error",
                 };
-                report_dropped_events(cause, events.len() as u64);
+                report_dropped_events(cause, count);
                 tracing::log::warn!("rejected invalid payload: {}", err);
                 return Err(err);
             }
@@ -337,22 +338,26 @@ pub async fn process_events<'a>(
 #[instrument(skip_all, fields(events = events.len()))]
 pub async fn process_replay_events<'a>(
     sink: Arc<dyn sinks::Event + Send + Sync>,
-    events: &'a [RawEvent],
+    mut events: Vec<RawEvent>,
     context: &'a ProcessingContext,
 ) -> Result<(), CaptureError> {
-    let snapshot_items: Vec<Value> = events
-        .iter()
-        .map(|e| match e.properties.get("$snapshot_data") {
-            // We can either have an array or single object
-            Some(Value::Array(value)) => Ok(value.to_vec()),
-            // Wrap a single object in a vec to simplify processing.
-            Some(Value::Object(value)) => Ok([Value::Object(value.clone())].to_vec()),
-            _ => Err(CaptureError::MissingSnapshotData),
-        })
-        .collect::<Result<Vec<Vec<_>>, CaptureError>>()?
-        .into_iter()
-        .flatten()
-        .collect();
+    let mut snapshot_items: Vec<Value> = Vec::with_capacity(events.len());
+    for mut event in events.drain(..) {
+        let Some(snapshot_data) = event.properties.remove("$snapshot_data") else {
+            return Err(CaptureError::MissingSnapshotData);
+        };
+        match snapshot_data {
+            Value::Array(value) => {
+                snapshot_items.extend(value);
+            }
+            Value::Object(value) => {
+                snapshot_items.push(Value::Object(value));
+            }
+            _ => {
+                return Err(CaptureError::MissingSnapshotData);
+            }
+        }
+    }
 
     let session_id = events[0]
         .properties
