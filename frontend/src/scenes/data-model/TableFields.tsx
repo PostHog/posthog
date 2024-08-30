@@ -1,4 +1,7 @@
-import { LemonTable } from '@posthog/lemon-ui'
+import { IconPlus } from '@posthog/icons'
+import { LemonButton, LemonTable } from '@posthog/lemon-ui'
+import { useActions } from 'kea'
+import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 export interface FixedField {
     column: string
     type: string
@@ -18,6 +21,8 @@ export interface TableFieldsProps {
 }
 
 export function TableFields({ fixedFields, joinedFields, rowsRefs, tableName }: TableFieldsProps): JSX.Element {
+    const { toggleJoinTableModal, selectSourceTable } = useActions(viewLinkLogic)
+
     return (
         <div className="">
             <div>
@@ -53,8 +58,19 @@ export function TableFields({ fixedFields, joinedFields, rowsRefs, tableName }: 
                 />
             </div>
             <div>
-                <div className="pl-4 mt-4">
+                <div className="px-4 my-4 flex flex-row justify-between">
                     <h4>Joined Tables</h4>
+                    <LemonButton
+                        type="primary"
+                        size="xsmall"
+                        icon={<IconPlus />}
+                        onClick={() => {
+                            selectSourceTable(tableName)
+                            toggleJoinTableModal()
+                        }}
+                    >
+                        Add join
+                    </LemonButton>
                 </div>
                 <LemonTable
                     className="bg-[white] rounded-none"

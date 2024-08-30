@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import { ViewLinkModal } from 'scenes/data-warehouse/ViewLinkModal'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { dataModelSceneLogic } from './dataModelSceneLogic'
@@ -13,11 +14,14 @@ export function DataModelScene(): JSX.Element {
     const { simplifiedPersonFields, joinedFieldsAsNodes, allNodes } = useValues(dataModelSceneLogic)
 
     return (
-        <NodeCanvasWithTable
-            nodes={allNodes}
-            fixedFields={simplifiedPersonFields}
-            joinedFields={joinedFieldsAsNodes}
-            tableName="person"
-        />
+        <>
+            <NodeCanvasWithTable
+                nodes={allNodes}
+                fixedFields={simplifiedPersonFields}
+                joinedFields={joinedFieldsAsNodes}
+                tableName="persons"
+            />
+            <ViewLinkModal />
+        </>
     )
 }
