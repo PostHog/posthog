@@ -1368,6 +1368,7 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     eventColumns?: string[]
     order?: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
     dateRange: DateRange
+    assignee?: integer | null
     filterGroup?: PropertyGroupFilter
     filterTestAccounts?: boolean
     limit?: integer

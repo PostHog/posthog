@@ -1,3 +1,4 @@
+import RE2 from 're2'
 import { exec, execAsync, execSync } from '../execute'
 import { Operation as op } from '../operation'
 import { UncaughtHogVMException } from '../utils'
@@ -17,7 +18,14 @@ const tuple = (array: any[]): any[] => {
 describe('hogvm execute', () => {
     test('execution results', async () => {
         const globals = { properties: { foo: 'bar', nullValue: null } }
-        const options = { globals }
+        const options = {
+            globals,
+            external: {
+                regex: {
+                    match: (regex: string, value: string) => new RE2(regex).test(value),
+                },
+            },
+        }
         expect(execSync(['_h'], options)).toBe(null)
         expect(execSync(['_h', op.INTEGER, 2, op.INTEGER, 1, op.PLUS], options)).toBe(3)
         expect(execSync(['_h', op.INTEGER, 2, op.INTEGER, 1, op.MINUS], options)).toBe(-1)
@@ -61,6 +69,12 @@ describe('hogvm execute', () => {
         expect(execSync(['_h', op.STRING, '.*', op.STRING, 'kala', op.NOT_IREGEX], options)).toBe(false)
         expect(execSync(['_h', op.STRING, 'b', op.STRING, 'kala', op.NOT_IREGEX], options)).toBe(true)
         expect(execSync(['_h', op.STRING, 'AL', op.STRING, 'kala', op.NOT_IREGEX], options)).toBe(false)
+
+        expect(execSync(['_h', op.STRING, '(?i)AL', op.STRING, 'kala', op.REGEX], options)).toBe(true)
+        expect(execSync(['_h', op.STRING, '(?i)AL', op.STRING, 'kala', op.IREGEX], options)).toBe(true)
+        expect(execSync(['_h', op.STRING, '(?-i)AL', op.STRING, 'kala', op.REGEX], options)).toBe(false)
+        expect(execSync(['_h', op.STRING, '(?-i)AL', op.STRING, 'kala', op.IREGEX], options)).toBe(false)
+
         expect(execSync(['_h', op.STRING, 'bla', op.STRING, 'properties', op.GET_GLOBAL, 2], options)).toBe(null)
         expect(execSync(['_h', op.STRING, 'foo', op.STRING, 'properties', op.GET_GLOBAL, 2], options)).toBe('bar')
         expect(execSync(['_h', op.STRING, 'another', op.STRING, 'arg', op.CALL_GLOBAL, 'concat', 2], options)).toBe(
@@ -93,7 +107,7 @@ describe('hogvm execute', () => {
         await expect(execAsync([], options)).rejects.toThrow("Invalid HogQL bytecode, must start with '_H'")
 
         expect(() => execSync(['_h', op.INTEGER, 2, op.INTEGER, 1, 'InvalidOp'], options)).toThrow(
-            'Unexpected node while running bytecode: InvalidOp'
+            'Unexpected node while running bytecode in chunk "root": InvalidOp'
         )
         expect(() =>
             execSync(['_h', op.STRING, 'another', op.STRING, 'arg', op.CALL_GLOBAL, 'invalidFunc', 2], options)
@@ -105,7 +119,7 @@ describe('hogvm execute', () => {
         )
 
         expect(() => execSync(['_H', 1, op.INTEGER, 2, op.INTEGER, 1, 'InvalidOp'], options)).toThrow(
-            'Unexpected node while running bytecode: InvalidOp'
+            'Unexpected node while running bytecode in chunk "root": InvalidOp'
         )
         expect(() =>
             execSync(['_H', 1, op.STRING, 'another', op.STRING, 'arg', op.CALL_GLOBAL, 'invalidFunc', 2], options)
@@ -549,12 +563,14 @@ describe('hogvm execute', () => {
                         ip: 8,
                         stackStart: 0,
                         argCount: 0,
+                        chunk: 'root',
                         closure: {
                             __hogClosure__: true,
                             callable: {
                                 __hogCallable__: 'main',
                                 name: '',
                                 argCount: 0,
+                                chunk: 'root',
                                 upvalueCount: 0,
                                 ip: 1,
                             },
@@ -1930,12 +1946,14 @@ describe('hogvm execute', () => {
                         ip: 12,
                         stackStart: 0,
                         argCount: 0,
+                        chunk: 'root',
                         closure: {
                             __hogClosure__: true,
                             callable: {
                                 __hogCallable__: 'main',
                                 name: '',
                                 argCount: 0,
+                                chunk: 'root',
                                 upvalueCount: 0,
                                 ip: 1,
                             },
@@ -1947,7 +1965,7 @@ describe('hogvm execute', () => {
                 maxMemUsed: 64,
                 ops: 5,
                 stack: [{ key: 'value' }], // is not a Map
-                syncDuration: 0,
+                syncDuration: expect.any(Number),
                 throwStack: [],
                 upvalues: [],
             },
@@ -2029,6 +2047,7 @@ describe('hogvm execute', () => {
                             argCount: 2,
                             upvalueCount: 1,
                             ip: 9,
+                            chunk: 'root',
                         },
                         upvalues: [1],
                     },
@@ -2045,6 +2064,7 @@ describe('hogvm execute', () => {
                 callStack: [
                     {
                         ip: 27,
+                        chunk: 'root',
                         stackStart: 0,
                         argCount: 0,
                         closure: {
@@ -2055,6 +2075,7 @@ describe('hogvm execute', () => {
                                 argCount: 0,
                                 upvalueCount: 0,
                                 ip: 1,
+                                chunk: 'root',
                             },
                             upvalues: [],
                         },
@@ -2065,7 +2086,7 @@ describe('hogvm execute', () => {
                 ops: 5,
                 asyncSteps: 1,
                 syncDuration: expect.any(Number),
-                maxMemUsed: 242,
+                maxMemUsed: 267,
             },
         })
         result.state!.stack.push(null)
@@ -2083,7 +2104,7 @@ describe('hogvm execute', () => {
                 ops: 19,
                 asyncSteps: 1,
                 syncDuration: expect.any(Number),
-                maxMemUsed: 476,
+                maxMemUsed: 526,
             },
         })
     })
@@ -2171,6 +2192,7 @@ describe('hogvm execute', () => {
                             argCount: 0,
                             upvalueCount: 0,
                             ip: 7,
+                            chunk: 'root',
                         },
                         upvalues: [],
                     },
@@ -2182,6 +2204,7 @@ describe('hogvm execute', () => {
                             argCount: 0,
                             upvalueCount: 1,
                             ip: 14,
+                            chunk: 'root',
                         },
                         upvalues: [1],
                     },
@@ -2198,6 +2221,7 @@ describe('hogvm execute', () => {
                 callStack: [
                     {
                         ip: 37,
+                        chunk: 'root',
                         stackStart: 0,
                         argCount: 0,
                         closure: {
@@ -2208,6 +2232,7 @@ describe('hogvm execute', () => {
                                 argCount: 0,
                                 upvalueCount: 0,
                                 ip: 1,
+                                chunk: 'root',
                             },
                             upvalues: [],
                         },
@@ -2218,7 +2243,7 @@ describe('hogvm execute', () => {
                 ops: 11,
                 asyncSteps: 1,
                 syncDuration: expect.any(Number),
-                maxMemUsed: 682,
+                maxMemUsed: 757,
             },
         })
         result.state!.stack.push(null)
@@ -2236,7 +2261,7 @@ describe('hogvm execute', () => {
                 ops: 17,
                 asyncSteps: 1,
                 syncDuration: expect.any(Number),
-                maxMemUsed: 682,
+                maxMemUsed: 757,
             },
         })
     })
@@ -2330,6 +2355,7 @@ describe('hogvm execute', () => {
                             argCount: 0,
                             upvalueCount: 0,
                             ip: 7,
+                            chunk: 'root',
                         },
                         upvalues: [],
                     },
@@ -2341,6 +2367,7 @@ describe('hogvm execute', () => {
                             argCount: 0,
                             upvalueCount: 1,
                             ip: 14,
+                            chunk: 'root',
                         },
                         upvalues: [1],
                     },
@@ -2357,6 +2384,7 @@ describe('hogvm execute', () => {
                 callStack: [
                     {
                         ip: 48,
+                        chunk: 'root',
                         stackStart: 0,
                         argCount: 0,
                         closure: {
@@ -2367,12 +2395,14 @@ describe('hogvm execute', () => {
                                 argCount: 0,
                                 upvalueCount: 0,
                                 ip: 1,
+                                chunk: 'root',
                             },
                             upvalues: [],
                         },
                     },
                     {
                         ip: 25,
+                        chunk: 'root',
                         stackStart: 2,
                         argCount: 0,
                         closure: {
@@ -2383,6 +2413,7 @@ describe('hogvm execute', () => {
                                 argCount: 0,
                                 upvalueCount: 1,
                                 ip: 14,
+                                chunk: 'root',
                             },
                             upvalues: [1],
                         },
@@ -2393,7 +2424,7 @@ describe('hogvm execute', () => {
                 ops: 16,
                 asyncSteps: 1,
                 syncDuration: expect.any(Number),
-                maxMemUsed: 682,
+                maxMemUsed: 757,
             },
         })
         result.state!.stack.push(null)
@@ -2411,7 +2442,7 @@ describe('hogvm execute', () => {
                 ops: 20,
                 asyncSteps: 1,
                 syncDuration: expect.any(Number),
-                maxMemUsed: 682,
+                maxMemUsed: 757,
             },
         })
     })

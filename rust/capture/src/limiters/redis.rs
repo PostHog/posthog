@@ -3,10 +3,13 @@ use std::{collections::HashSet, ops::Sub, sync::Arc};
 
 use crate::redis::Client;
 
-/// Limit accounts by team ID if they hit a billing limit
+/// Limit events by checking if a value is present in Redis
 ///
 /// We have an async celery worker that regularly checks on accounts + assesses if they are beyond
 /// a billing limit. If this is the case, a key is set in redis.
+///
+/// For replay sessions we also check if too many events are coming in in ingestion for a single session
+/// and set a redis key to redirect further events to overflow.
 ///
 /// Requirements
 ///
@@ -50,7 +53,7 @@ pub enum LimiterError {
 }
 
 #[derive(Clone)]
-pub struct BillingLimiter {
+pub struct RedisLimiter {
     limited: Arc<RwLock<HashSet<String>>>,
     redis: Arc<dyn Client + Send + Sync>,
     redis_key_prefix: String,
@@ -58,8 +61,8 @@ pub struct BillingLimiter {
     updated: Arc<RwLock<OffsetDateTime>>,
 }
 
-impl BillingLimiter {
-    /// Create a new BillingLimiter.
+impl RedisLimiter {
+    /// Create a new RedisLimiter.
     ///
     /// This connects to a redis cluster - pass in a vec of addresses for the initial nodes.
     ///
@@ -71,14 +74,14 @@ impl BillingLimiter {
         interval: Duration,
         redis: Arc<dyn Client + Send + Sync>,
         redis_key_prefix: Option<String>,
-    ) -> anyhow::Result<BillingLimiter> {
+    ) -> anyhow::Result<RedisLimiter> {
         let limited = Arc::new(RwLock::new(HashSet::new()));
 
         // Force an update immediately if we have any reasonable interval
         let updated = OffsetDateTime::from_unix_timestamp(0)?;
         let updated = Arc::new(RwLock::new(updated));
 
-        Ok(BillingLimiter {
+        Ok(RedisLimiter {
             interval,
             limited,
             updated,
@@ -172,7 +175,7 @@ mod tests {
     use time::Duration;
 
     use crate::{
-        limiters::billing::{BillingLimiter, QuotaResource},
+        limiters::redis::{QuotaResource, RedisLimiter},
         redis::MockRedisClient,
     };
 
@@ -182,7 +185,7 @@ mod tests {
             .zrangebyscore_ret("@posthog/quota-limits/events", vec![String::from("banana")]);
         let client = Arc::new(client);
 
-        let limiter = BillingLimiter::new(Duration::microseconds(1), client, None)
+        let limiter = RedisLimiter::new(Duration::microseconds(1), client, None)
             .expect("Failed to create billing limiter");
 
         assert!(
@@ -202,12 +205,12 @@ mod tests {
         let client = Arc::new(client);
 
         // Default lookup without prefix fails
-        let limiter = BillingLimiter::new(Duration::microseconds(1), client.clone(), None)
+        let limiter = RedisLimiter::new(Duration::microseconds(1), client.clone(), None)
             .expect("Failed to create billing limiter");
         assert!(!limiter.is_limited("banana", QuotaResource::Events).await);
 
         // Limiter using the correct prefix
-        let prefixed_limiter = BillingLimiter::new(
+        let prefixed_limiter = RedisLimiter::new(
             Duration::microseconds(1),
             client,
             Some("prefix//".to_string()),

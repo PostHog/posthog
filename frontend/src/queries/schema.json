@@ -3602,6 +3602,16 @@
         "ErrorTrackingQuery": {
             "additionalProperties": false,
             "properties": {
+                "assignee": {
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
