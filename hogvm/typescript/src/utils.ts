@@ -3,7 +3,7 @@ import { toHogDate, toHogDateTime } from './stl/date'
 export class HogVMException extends Error {
     constructor(message: string) {
         super(message)
-        this.name = this.constructor.name
+        this.name = 'HogVMException'
     }
 }
 
@@ -13,6 +13,7 @@ export class UncaughtHogVMException extends HogVMException {
 
     constructor(type: string, message: string, payload: any = null) {
         super(message)
+        this.name = 'UncaughtHogVMException'
         this.type = type
         this.payload = payload
     }
