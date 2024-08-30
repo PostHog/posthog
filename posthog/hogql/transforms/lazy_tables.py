@@ -41,17 +41,6 @@ class FieldChainReplacer(TraversingVisitor):
                 node.chain = [constraint.table_name, constraint.alias]
 
 
-class FieldFinder(TraversingVisitor):
-    field_chains: list[list[str | int]] = []
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.field_chains = []
-
-    def visit_field(self, node: ast.Field):
-        self.field_chains.append(node.chain)
-
-
 class LazyFinder(TraversingVisitor):
     found_lazy: bool = False
     max_type_visits: int = 1
@@ -348,9 +337,6 @@ class LazyTableResolver(TraversingVisitor):
                     break
                 join_ptr = join_ptr.next_join
 
-        # Store all the constraint fields we've seen for each join to decide where in the order of joins the next join should be added
-        field_chain_finder = FieldFinder()
-
         # For all the collected joins, create the join subqueries, and add them to the table.
         for to_table, join_scope in joins_to_add.items():
             join_to_add: ast.JoinExpr = join_scope.lazy_join.join_function(
@@ -380,31 +366,14 @@ class LazyTableResolver(TraversingVisitor):
             if join_to_add.type is not None:
                 select_type.tables[to_table] = join_to_add.type
 
-            field_chain_finder.visit(join_to_add.constraint)
-
-            select_from_alias: str | int | None = None
-            if node.select_from and node.select_from.alias:
-                select_from_alias = node.select_from.alias
-            else:
-                if node.select_from and node.select_from.table and isinstance(node.select_from.table, ast.Field):
-                    select_from_alias = node.select_from.table.chain[0]
-
-            constraint_tables = [x[0] for x in field_chain_finder.field_chains if x[0] != select_from_alias]
-
             join_ptr = node.select_from
             added = False
             while join_ptr:
                 if join_scope.from_table == join_ptr.alias or (
                     isinstance(join_ptr.table, ast.Field) and join_scope.from_table == join_ptr.table.chain[0]
                 ):
-                    # If the `join_to_add` is reliant on the existing `next_join`, then just append after instead of before
-                    if join_ptr.next_join and join_ptr.next_join.alias in constraint_tables:
-                        if join_ptr.next_join.next_join:
-                            join_to_add.next_join = join_ptr.next_join.next_join
-                        join_ptr.next_join.next_join = join_to_add
-                    else:
-                        join_to_add.next_join = join_ptr.next_join
-                        join_ptr.next_join = join_to_add
+                    join_to_add.next_join = join_ptr.next_join
+                    join_ptr.next_join = join_to_add
                     added = True
                     break
                 if join_ptr.next_join:
