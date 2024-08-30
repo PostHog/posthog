@@ -1965,7 +1965,7 @@ describe('hogvm execute', () => {
                 maxMemUsed: 64,
                 ops: 5,
                 stack: [{ key: 'value' }], // is not a Map
-                syncDuration: 0,
+                syncDuration: expect.any(Number),
                 throwStack: [],
                 upvalues: [],
             },
