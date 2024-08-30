@@ -102,6 +102,7 @@ async fn handle_common(
     tracing::Span::current().record("batch_size", events.len());
 
     if events.is_empty() {
+        tracing::log::warn!("rejected empty batch");
         return Err(CaptureError::EmptyBatch);
     }
 
