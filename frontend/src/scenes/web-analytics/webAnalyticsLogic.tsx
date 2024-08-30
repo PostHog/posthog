@@ -263,6 +263,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     reducers({
         webAnalyticsFilters: [
             initialWebAnalyticsFilter,
+            { persist: true },
             {
                 setWebAnalyticsFilters: (_, { webAnalyticsFilters }) => webAnalyticsFilters,
                 togglePropertyFilter: (oldPropertyFilters, { key, value, type }): WebAnalyticsPropertyFilters => {
@@ -335,6 +336,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
         _graphsTab: [
             null as string | null,
+            { persist: true },
             {
                 setGraphsTab: (_, { tab }) => tab,
                 setStateFromUrl: (_, { state }) => state.graphsTab,
@@ -343,6 +345,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
         _sourceTab: [
             null as string | null,
+            { persist: true },
             {
                 setSourceTab: (_, { tab }) => tab,
                 setStateFromUrl: (_, { state }) => state.sourceTab,
@@ -351,6 +354,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
         _deviceTab: [
             null as string | null,
+            { persist: true },
             {
                 setDeviceTab: (_, { tab }) => tab,
                 setStateFromUrl: (_, { state }) => state.deviceTab,
@@ -359,6 +363,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
         _pathTab: [
             null as string | null,
+            { persist: true },
             {
                 setPathTab: (_, { tab }) => tab,
                 setStateFromUrl: (_, { state }) => state.pathTab,
@@ -367,6 +372,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
         _geographyTab: [
             null as string | null,
+            { persist: true },
             {
                 setGeographyTab: (_, { tab }) => tab,
                 setStateFromUrl: (_, { state }) => state.geographyTab,
@@ -374,7 +380,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
         ],
         isPathCleaningEnabled: [
-            false as boolean,
+            null as boolean | null,
+            { persist: true },
             {
                 setIsPathCleaningEnabled: (_, { isPathCleaningEnabled }) => isPathCleaningEnabled,
                 setStateFromUrl: (_, { state }) => state.isPathCleaningEnabled || false,
@@ -396,6 +403,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 dateTo: initialDateTo,
                 interval: initialInterval,
             },
+            { persist: true },
             {
                 setDates: (_, { dateTo, dateFrom }) => ({
                     dateTo,
@@ -425,6 +433,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
         shouldFilterTestAccounts: [
             false as boolean,
+            { persist: true },
             {
                 setShouldFilterTestAccounts: (_, { shouldFilterTestAccounts }) => shouldFilterTestAccounts,
             },
@@ -1401,12 +1410,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             const {
                 webAnalyticsFilters,
                 dateFilter: { dateTo, dateFrom, interval },
-                sourceTab,
-                deviceTab,
-                pathTab,
-                geographyTab,
-                graphsTab,
+                _sourceTab,
+                _deviceTab,
+                _pathTab,
+                _geographyTab,
+                _graphsTab,
                 isPathCleaningEnabled,
+                shouldFilterTestAccounts,
             } = values
 
             const urlParams = new URLSearchParams()
@@ -1418,23 +1428,26 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 urlParams.set('date_to', dateTo ?? '')
                 urlParams.set('interval', interval ?? '')
             }
-            if (deviceTab) {
-                urlParams.set('device_tab', deviceTab)
+            if (_deviceTab) {
+                urlParams.set('device_tab', _deviceTab)
             }
-            if (sourceTab) {
-                urlParams.set('source_tab', sourceTab)
+            if (_sourceTab) {
+                urlParams.set('source_tab', _sourceTab)
             }
-            if (graphsTab) {
-                urlParams.set('graphs_tab', graphsTab)
+            if (_graphsTab) {
+                urlParams.set('graphs_tab', _graphsTab)
             }
-            if (pathTab) {
-                urlParams.set('path_tab', pathTab)
+            if (_pathTab) {
+                urlParams.set('path_tab', _pathTab)
             }
-            if (geographyTab) {
-                urlParams.set('geography_tab', geographyTab)
+            if (_geographyTab) {
+                urlParams.set('geography_tab', _geographyTab)
             }
-            if (isPathCleaningEnabled) {
+            if (isPathCleaningEnabled != null) {
                 urlParams.set('path_cleaning', isPathCleaningEnabled.toString())
+            }
+            if (shouldFilterTestAccounts != null) {
+                urlParams.set('filter_test_accounts', shouldFilterTestAccounts.toString())
             }
             return `/web?${urlParams.toString()}`
         }
@@ -1466,22 +1479,41 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 path_tab,
                 geography_tab,
                 path_cleaning,
+                filter_test_accounts,
             }
         ) => {
-            const parsedFilters = isWebAnalyticsPropertyFilters(filters) ? filters : initialWebAnalyticsFilter
+            const parsedFilters = isWebAnalyticsPropertyFilters(filters) ? filters : undefined
 
-            actions.setStateFromUrl({
-                filters: parsedFilters,
-                dateFrom: date_from || null,
-                dateTo: date_to || null,
-                interval: interval || null,
-                deviceTab: device_tab || null,
-                sourceTab: source_tab || null,
-                graphsTab: graphs_tab || null,
-                pathTab: path_tab || null,
-                geographyTab: geography_tab || null,
-                isPathCleaningEnabled: [true, 'true', 1, '1'].includes(path_cleaning),
-            })
+            if (parsedFilters) {
+                actions.setWebAnalyticsFilters(parsedFilters)
+            }
+            if (date_from || date_to) {
+                actions.setDates(date_from, date_to)
+            }
+            if (interval) {
+                actions.setInterval(interval)
+            }
+            if (device_tab) {
+                actions.setDeviceTab(device_tab)
+            }
+            if (source_tab) {
+                actions.setSourceTab(source_tab)
+            }
+            if (graphs_tab) {
+                actions.setGraphsTab(graphs_tab)
+            }
+            if (path_tab) {
+                actions.setPathTab(path_tab)
+            }
+            if (geography_tab) {
+                actions.setGeographyTab(geography_tab)
+            }
+            if (path_cleaning) {
+                actions.setIsPathCleaningEnabled([true, 'true', 1, '1'].includes(path_cleaning))
+            }
+            if (filter_test_accounts) {
+                actions.setShouldFilterTestAccounts([true, 'true', 1, '1'].includes(filter_test_accounts))
+            }
         },
     })),
 ])

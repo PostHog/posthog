@@ -390,7 +390,7 @@ export const WebStatsTableTile = ({
                                     />
                                 </div>
                             }
-                            checked={isPathCleaningEnabled}
+                            checked={!!isPathCleaningEnabled}
                             onChange={setIsPathCleaningEnabled}
                             className="h-full"
                         />
