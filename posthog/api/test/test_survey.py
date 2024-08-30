@@ -2559,6 +2559,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                                         "team_id": self.team.id,
                                         "is_action": True,
                                         "bytecode_error": None,
+                                        "pinned_at": None,
                                         "tags": [],
                                     }
                                 ]
