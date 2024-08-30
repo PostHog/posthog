@@ -59,7 +59,7 @@ const localOptions: Record<string, PropValue[]> = {
         { id: 0, name: 'web' },
         { id: 1, name: 'mobile' },
     ],
-    'session/console_log_level': [
+    'log_entry/level': [
         { id: 0, name: 'info' },
         { id: 1, name: 'warn' },
         { id: 2, name: 'error' },
@@ -344,8 +344,6 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             if (!propertyKey || values.currentTeamId === null) {
                 return
             }
-
-            console.log(getPropertyKey(type, propertyKey))
 
             if (localOptions[getPropertyKey(type, propertyKey)]) {
                 actions.setOptions(propertyKey, localOptions[getPropertyKey(type, propertyKey)], false)
