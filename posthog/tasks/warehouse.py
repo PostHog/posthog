@@ -78,8 +78,9 @@ def check_synced_row_limits_of_team(team_id: int) -> None:
             job.status = ExternalDataJob.Status.CANCELLED
             job.save()
 
-            job.schema.status = ExternalDataSchema.Status.PAUSED
-            job.schema.save()
+            if job.schema:
+                job.schema.status = ExternalDataSchema.Status.PAUSED
+                job.schema.save()
 
         # pause active schemas
         all_schemas = ExternalDataSchema.objects.filter(
