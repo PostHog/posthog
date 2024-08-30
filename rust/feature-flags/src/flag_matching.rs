@@ -287,24 +287,20 @@ impl FeatureFlagMatcher {
             .await?;
 
         let query = r#"
-            WITH person_props AS (
-                SELECT "posthog_person"."properties" as person_properties
-                FROM "posthog_person"
-                INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
-                WHERE ("posthog_persondistinctid"."distinct_id" = $1
+            SELECT 
+                (SELECT "posthog_person"."properties"
+                 FROM "posthog_person"
+                 INNER JOIN "posthog_persondistinctid" 
+                 ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
+                 WHERE ("posthog_persondistinctid"."distinct_id" = $1
                         AND "posthog_persondistinctid"."team_id" = $2
                         AND "posthog_person"."team_id" = $2)
-                LIMIT 1
-            ),
-            group_props AS (
-                SELECT "posthog_group"."group_type_index", "posthog_group"."group_properties"
-                FROM "posthog_group"
-                WHERE ("posthog_group"."team_id" = $2
-                        AND "posthog_group"."group_type_index" = ANY($3))
-            )
-            SELECT 
-                (SELECT person_properties FROM person_props) as person_properties,
-                (SELECT json_object_agg(group_type_index, group_properties) FROM group_props) as group_properties
+                 LIMIT 1) as person_properties,
+                
+                (SELECT json_object_agg("posthog_group"."group_type_index", "posthog_group"."group_properties")
+                 FROM "posthog_group"
+                 WHERE ("posthog_group"."team_id" = $2
+                        AND "posthog_group"."group_type_index" = ANY($3))) as group_properties
         "#;
 
         let group_type_indexes_vec: Vec<GroupTypeIndex> =
