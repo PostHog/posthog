@@ -377,6 +377,10 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         projectBased: true,
         name: 'Session attribution explorer (beta)',
     },
+    [Scene.NotebookTest]: {
+        projectBased: true,
+        name: 'Notebook Test',
+    },
 }
 
 // NOTE: These redirects will fully replace the URL. If you want to keep support for query and hash params then you should use the above `preserveParams` function.
@@ -552,4 +556,5 @@ export const routes: Record<string, Scene> = {
     [urls.moveToPostHogCloud()]: Scene.MoveToPostHogCloud,
     [urls.heatmaps()]: Scene.Heatmaps,
     [urls.sessionAttributionExplorer()]: Scene.SessionAttributionExplorer,
+    '/hogbooks': Scene.NotebookTest,
 }

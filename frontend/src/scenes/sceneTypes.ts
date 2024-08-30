@@ -78,6 +78,7 @@ export enum Scene {
     MoveToPostHogCloud = 'MoveToPostHogCloud',
     Heatmaps = 'Heatmaps',
     SessionAttributionExplorer = 'SessionAttributionExplorer',
+    NotebookTest = 'NotebookTest',
 }
 
 export type SceneProps = Record<string, any>

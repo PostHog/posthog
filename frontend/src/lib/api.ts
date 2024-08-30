@@ -14,6 +14,7 @@ import {
     AlertTypeWrite,
     DatabaseSerializedFieldType,
     ErrorTrackingGroup,
+    HogCompileResponse,
     QuerySchema,
     QueryStatusResponse,
     RecordingsQuery,
@@ -340,6 +341,10 @@ class ApiRequest {
 
     public hogFunctions(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('hog_functions')
+    }
+
+    public hog(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('hog')
     }
 
     public hogFunction(id: HogFunctionType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1644,7 +1649,11 @@ const api = {
             return results
         },
     },
-
+    hog: {
+        async create(hog: string): Promise<HogCompileResponse> {
+            return await new ApiRequest().hog().create({ data: { hog } })
+        },
+    },
     hogFunctions: {
         async list(params?: { filters?: any }): Promise<PaginatedResponse<HogFunctionType>> {
             return await new ApiRequest().hogFunctions().withQueryString(params).get()

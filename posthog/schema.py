@@ -597,6 +597,13 @@ class HedgehogColorOptions(StrEnum):
     GREYSCALE = "greyscale"
 
 
+class HogCompileResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    bytecode: list
+
+
 class HogLanguage(StrEnum):
     HOG = "hog"
     HOG_JSON = "hogJson"

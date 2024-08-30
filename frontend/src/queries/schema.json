@@ -4876,6 +4876,17 @@
             "enum": ["green", "red", "blue", "purple", "dark", "light", "sepia", "invert", "invert-hue", "greyscale"],
             "type": "string"
         },
+        "HogCompileResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "bytecode": {
+                    "items": {},
+                    "type": "array"
+                }
+            },
+            "required": ["bytecode"],
+            "type": "object"
+        },
         "HogLanguage": {
             "enum": ["hog", "hogJson", "hogQL", "hogQLExpr", "hogTemplate"],
             "type": "string"
