@@ -341,15 +341,22 @@ pub async fn process_replay_events<'a>(
     mut events: Vec<RawEvent>,
     context: &'a ProcessingContext,
 ) -> Result<(), CaptureError> {
+    // Grab metadata about the whole batch from the first event before
+    // we drop all the events as we rip out the snapshot data
     let session_id = events[0]
         .properties
         .remove("$session_id")
         .ok_or(CaptureError::MissingSessionId)?;
-
     let window_id = events[0]
         .properties
         .remove("$window_id")
         .unwrap_or(session_id.clone());
+    let uuid = events[0].uuid.unwrap_or_else(uuid_v7);
+    let distinct_id = events[0].extract_distinct_id()?;
+    let snapshot_source = events[0]
+        .properties
+        .remove("$snapshot_source")
+        .unwrap_or(Value::String(String::from("web")));
 
     let mut snapshot_items: Vec<Value> = Vec::with_capacity(events.len());
     for mut event in events.drain(..) {
@@ -369,27 +376,33 @@ pub async fn process_replay_events<'a>(
         }
     }
 
+    drop(events);
+
     let event = ProcessedEvent {
         data_type: DataType::SnapshotMain,
-        uuid: events[0].uuid.unwrap_or_else(uuid_v7),
-        distinct_id: events[0].extract_distinct_id()?,
+        uuid,
+        distinct_id: distinct_id.clone(),
         ip: context.client_ip.clone(),
         data: json!({
             "event": "$snapshot_items",
             "properties": {
-                "distinct_id": events[0].extract_distinct_id()?,
+                "distinct_id": distinct_id,
                 "$session_id": session_id,
                 "$window_id": window_id,
-                "$snapshot_source": events[0].properties.get("$snapshot_source").unwrap_or(&Value::String(String::from("web"))),
+                "$snapshot_source": snapshot_source,
                 "$snapshot_items": snapshot_items,
             }
-        }).to_string(),
+        })
+        .to_string(),
         now: context.now.clone(),
         sent_at: context.sent_at,
         token: context.token.clone(),
-        session_id: Some(session_id
-            .as_str()
-            .ok_or(CaptureError::InvalidSessionId)?.to_string()),
+        session_id: Some(
+            session_id
+                .as_str()
+                .ok_or(CaptureError::InvalidSessionId)?
+                .to_string(),
+        ),
     };
 
     sink.send(event).await
