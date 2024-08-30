@@ -170,6 +170,7 @@ pub async fn evaluate_feature_flags(
         Some(group_type_mapping_cache),
         None,
     );
+    // filter out flags that are not active or have been deleted
 
     feature_flag_matcher
         .evaluate_feature_flags(feature_flags_from_cache_or_pg)

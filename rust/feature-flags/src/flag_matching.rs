@@ -21,7 +21,6 @@ use tracing::error;
 
 type TeamId = i32;
 type DatabaseClientArc = Arc<dyn DatabaseClient + Send + Sync>;
-
 /// This is an i32 because the group_type_index stored in Postgres is an INT and I wanted to map the Rust
 /// type as closely as possible to the database schema so that serialization and deserialization is easy.
 /// However, this type really _should_ be an enum, since in Postgres we constaint the values of this field
@@ -74,19 +73,18 @@ impl GroupTypeMappingCache {
         }
     }
 
-    pub async fn group_type_to_group_type_index_map(
+    async fn group_type_to_group_type_index_map(
         &self,
     ) -> Result<HashMap<String, GroupTypeIndex>, FlagError> {
         if self.database_client.is_none() || self.failed_to_fetch_flags.load(Ordering::Relaxed) {
             return Err(FlagError::DatabaseUnavailable);
         }
 
-        // Use a single read lock check
         if let Some(cached) = self.group_types_to_indexes.read().await.as_ref() {
             return Ok(cached.clone());
         }
 
-        // If not cached, acquire write lock and check again (double-checked locking pattern)
+        // double-checked locking pattern
         let mut cache = self.group_types_to_indexes.write().await;
         if let Some(cached) = cache.as_ref() {
             return Ok(cached.clone());
@@ -104,10 +102,9 @@ impl GroupTypeMappingCache {
         }
     }
 
-    pub async fn group_type_index_to_group_type_map(
+    async fn group_type_index_to_group_type_map(
         &self,
     ) -> Result<HashMap<GroupTypeIndex, String>, FlagError> {
-        // Use a single read lock check
         if let Some(cached) = self.group_indexes_to_types.read().await.as_ref() {
             return Ok(cached.clone());
         }
@@ -155,8 +152,6 @@ impl GroupTypeMappingCache {
 
 #[derive(Default, Debug)]
 pub struct PropertiesCache {
-    // TODO include an atomic bool to keep track of whether we've fetched properties or not
-    // failed_to_fetch_properties: AtomicBool,
     person_properties: Option<HashMap<String, Value>>,
     group_properties: HashMap<GroupTypeIndex, HashMap<String, Value>>,
 }
@@ -217,16 +212,18 @@ impl FeatureFlagMatcher {
         let mut result = HashMap::new();
         let mut error_while_computing_flags = false;
 
-        // Step 1: Collect all unique group type indexes from feature flags
-        let group_type_indexes: HashSet<GroupTypeIndex> = feature_flags
-            .flags
-            .iter()
-            .filter_map(|flag| flag.get_group_type_index())
-            .collect();
-
         // Step 2: Fetch and cache all relevant person and group properties
         // If we fail to fetch properties, we'll return an error response immediately
-        if let Err(e) = self.fetch_and_cache_properties(&group_type_indexes).await {
+        if let Err(e) = self
+            .fetch_and_cache_properties(
+                &feature_flags
+                    .flags
+                    .iter()
+                    .filter_map(|flag| flag.get_group_type_index())
+                    .collect(),
+            )
+            .await
+        {
             error_while_computing_flags = true;
             error!("Error fetching properties: {:?}", e);
             return FlagsResponse {
@@ -241,7 +238,7 @@ impl FeatureFlagMatcher {
                 continue;
             }
 
-            match self.evaluate_flag(&flag).await {
+            match self.get_match(&flag).await {
                 Ok(flag_match) => {
                     let flag_value = if flag_match.matches {
                         match flag_match.variant {
@@ -269,7 +266,7 @@ impl FeatureFlagMatcher {
         }
     }
 
-    pub async fn fetch_and_cache_properties(
+    async fn fetch_and_cache_properties(
         &self,
         group_type_indexes: &HashSet<GroupTypeIndex>,
     ) -> Result<(), FlagError> {
@@ -317,7 +314,6 @@ impl FeatureFlagMatcher {
             .await?
             .unwrap_or((None, None));
 
-        // Update the cache
         let mut cache = self.properties_cache.write().await;
 
         if let Some(person_props) = row.0 {
@@ -354,24 +350,87 @@ impl FeatureFlagMatcher {
         Ok(())
     }
 
-    pub async fn evaluate_flag(
-        &mut self,
-        flag: &FeatureFlag,
-    ) -> Result<FeatureFlagMatch, FlagError> {
+    async fn fetch_person_properties_from_db(&self) -> Result<HashMap<String, Value>, FlagError> {
+        if self.database_client.is_none() {
+            error!("Database client is None");
+            return Err(FlagError::DatabaseUnavailable);
+        }
+
+        let mut conn = self
+            .database_client
+            .as_ref()
+            .expect("client should exist here")
+            .get_connection()
+            .await?;
+
+        let query = r#"
+            SELECT "posthog_person"."properties" as person_properties
+            FROM "posthog_person"
+            INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
+            WHERE ("posthog_persondistinctid"."distinct_id" = $1
+                    AND "posthog_persondistinctid"."team_id" = $2
+                    AND "posthog_person"."team_id" = $2)
+            LIMIT 1
+        "#;
+
+        let row: Option<Value> = sqlx::query_scalar(query)
+            .bind(&self.distinct_id)
+            .bind(self.team_id)
+            .fetch_optional(&mut *conn)
+            .await?;
+
+        Ok(row
+            .and_then(|v| v.as_object().cloned())
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(k, v)| (k, v.clone()))
+            .collect())
+    }
+
+    async fn fetch_group_properties_from_db(
+        &self,
+        group_type_index: GroupTypeIndex,
+    ) -> Result<HashMap<String, Value>, FlagError> {
+        if self.database_client.is_none() {
+            error!("Database client is None");
+            return Err(FlagError::DatabaseUnavailable);
+        }
+
+        let mut conn = self
+            .database_client
+            .as_ref()
+            .expect("client should exist here")
+            .get_connection()
+            .await?;
+
+        let query = r#"
+            SELECT "posthog_group"."group_properties"
+            FROM "posthog_group"
+            WHERE ("posthog_group"."team_id" = $1
+                    AND "posthog_group"."group_type_index" = $2)
+            LIMIT 1
+        "#;
+
+        let row: Option<Value> = sqlx::query_scalar(query)
+            .bind(self.team_id)
+            .bind(group_type_index)
+            .fetch_optional(&mut *conn)
+            .await?;
+
+        Ok(row
+            .and_then(|v| v.as_object().cloned())
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(k, v)| (k, v.clone()))
+            .collect())
+    }
+
+    pub async fn get_match(&mut self, flag: &FeatureFlag) -> Result<FeatureFlagMatch, FlagError> {
         if self.hashed_identifier(flag).await?.is_empty() {
             return Ok(FeatureFlagMatch {
                 matches: false,
                 variant: None,
             });
-        }
-
-        let group_type_indexes: HashSet<GroupTypeIndex> =
-            flag.get_group_type_index().into_iter().collect();
-
-        // only do this if the cache is empty
-        // let properties = self.properties_cache.read().await;
-        if self.database_client.is_some() {
-            self.fetch_and_cache_properties(&group_type_indexes).await?;
         }
 
         for (index, condition) in flag.get_conditions().iter().enumerate() {
@@ -398,55 +457,6 @@ impl FeatureFlagMatcher {
             }
         }
 
-        Ok(FeatureFlagMatch {
-            matches: false,
-            variant: None,
-        })
-    }
-
-    pub async fn get_match(
-        &mut self,
-        feature_flag: &FeatureFlag,
-    ) -> Result<FeatureFlagMatch, FlagError> {
-        if self.hashed_identifier(feature_flag).await?.is_empty() {
-            return Ok(FeatureFlagMatch {
-                matches: false,
-                variant: None,
-            });
-        }
-
-        // TODO: super groups for early access
-        // TODO: Variant overrides condition sort
-
-        for (index, condition) in feature_flag.get_conditions().iter().enumerate() {
-            let (is_match, _evaluation_reason) = self
-                .is_condition_match(feature_flag, condition, index)
-                .await?;
-
-            if is_match {
-                // TODO: this is a bit awkward, we should only handle variants when variant overrides exist
-                // I'll handle this when I implement variant overrides
-                let variant = match condition.variant.clone() {
-                    Some(variant_override) => {
-                        if feature_flag
-                            .get_variants()
-                            .iter()
-                            .any(|v| v.key == variant_override)
-                        {
-                            Some(variant_override)
-                        } else {
-                            self.get_matching_variant(feature_flag).await?
-                        }
-                    }
-                    None => self.get_matching_variant(feature_flag).await?,
-                };
-
-                return Ok(FeatureFlagMatch {
-                    matches: true,
-                    variant,
-                });
-            }
-        }
         Ok(FeatureFlagMatch {
             matches: false,
             variant: None,
@@ -488,7 +498,7 @@ impl FeatureFlagMatcher {
                     self.get_person_properties(flag_property_filters).await?
                 };
 
-            if !self.all_properties_match(flag_property_filters, &target_properties) {
+            if !all_properties_match(flag_property_filters, &target_properties) {
                 return Ok((false, "NO_CONDITION_MATCH".to_string()));
             }
         }
@@ -514,7 +524,7 @@ impl FeatureFlagMatcher {
                 .as_ref()
                 .and_then(|overrides| overrides.get(&group_type))
             {
-                if let Some(local_overrides) = self.can_compute_property_overrides_locally(
+                if let Some(local_overrides) = can_compute_property_overrides_locally(
                     &Some(override_properties.clone()),
                     flag_property_filters,
                 ) {
@@ -524,19 +534,27 @@ impl FeatureFlagMatcher {
         }
 
         let cache = self.properties_cache.read().await;
-        Ok(cache
+        if let Some(properties) = cache.group_properties.get(&group_type_index).cloned() {
+            return Ok(properties);
+        }
+        drop(cache);
+
+        let db_properties = self
+            .fetch_group_properties_from_db(group_type_index)
+            .await?;
+        let mut cache = self.properties_cache.write().await;
+        cache
             .group_properties
-            .get(&group_type_index)
-            .cloned()
-            .unwrap_or_default())
+            .insert(group_type_index, db_properties.clone());
+
+        Ok(db_properties)
     }
 
     async fn get_person_properties(
         &self,
         flag_property_filters: &[PropertyFilter],
     ) -> Result<HashMap<String, Value>, FlagError> {
-        // TODO add some error state here; if we failed to fetch the props initially, try again?
-        if let Some(overrides) = self.can_compute_property_overrides_locally(
+        if let Some(overrides) = can_compute_property_overrides_locally(
             &self.person_property_overrides,
             flag_property_filters,
         ) {
@@ -544,41 +562,16 @@ impl FeatureFlagMatcher {
         }
 
         let cache = self.properties_cache.read().await;
-        Ok(cache.person_properties.clone().unwrap_or_default())
-    }
+        if let Some(properties) = cache.person_properties.clone() {
+            return Ok(properties);
+        }
+        drop(cache);
 
-    /// Check if all required properties are present in the overrides
-    /// and none of them are of type "cohort" – if so, return the overrides,
-    /// otherwise return None, because we can't locally compute cohort properties
-    fn can_compute_property_overrides_locally(
-        &self,
-        property_overrides: &Option<HashMap<String, Value>>,
-        property_filters: &[PropertyFilter],
-    ) -> Option<HashMap<String, Value>> {
-        property_overrides.as_ref().and_then(|person_overrides| {
-            // TODO handle note from Neil: https://github.com/PostHog/posthog/pull/24589#discussion_r1735828561
-            // TL;DR – we'll need to handle cohort properties at the DB level, i.e. we'll need to adjust the cohort query
-            // to account for if a given person is an element of the cohort X, Y, Z, etc
-            let should_prefer_overrides = property_filters
-                .iter()
-                .all(|prop| person_overrides.contains_key(&prop.key) && prop.prop_type != "cohort");
+        let db_properties = self.fetch_person_properties_from_db().await?;
+        let mut cache = self.properties_cache.write().await;
+        cache.person_properties = Some(db_properties.clone());
 
-            if should_prefer_overrides {
-                Some(person_overrides.clone())
-            } else {
-                None
-            }
-        })
-    }
-
-    fn all_properties_match(
-        &self,
-        flag_condition_properties: &[PropertyFilter],
-        target_properties: &HashMap<String, Value>,
-    ) -> bool {
-        flag_condition_properties
-            .iter()
-            .all(|property| match_property(property, target_properties, false).unwrap_or(false))
+        Ok(db_properties)
     }
 
     /// This function takes a feature flag and returns the hashed identifier for the flag.
@@ -603,7 +596,7 @@ impl FeatureFlagMatcher {
     /// Given the same identifier and key, it'll always return the same float. These floats are
     /// uniformly distributed between 0 and 1, so if we want to show this feature to 20% of traffic
     /// we can do _hash(key, identifier) < 0.2
-    pub async fn get_hash(&self, feature_flag: &FeatureFlag, salt: &str) -> Result<f64, FlagError> {
+    async fn get_hash(&self, feature_flag: &FeatureFlag, salt: &str) -> Result<f64, FlagError> {
         let hashed_identifier = self.hashed_identifier(feature_flag).await?;
         let hash_key = format!("{}.{}{}", feature_flag.key, hashed_identifier, salt);
         let mut hasher = Sha1::new();
@@ -636,6 +629,41 @@ impl FeatureFlagMatcher {
         }
         Ok(None)
     }
+}
+
+/// Check if all required properties are present in the overrides
+/// and none of them are of type "cohort" – if so, return the overrides,
+/// otherwise return None, because we can't locally compute cohort properties
+fn can_compute_property_overrides_locally(
+    property_overrides: &Option<HashMap<String, Value>>,
+    property_filters: &[PropertyFilter],
+) -> Option<HashMap<String, Value>> {
+    property_overrides.as_ref().and_then(|person_overrides| {
+        // TODO handle note from Neil: https://github.com/PostHog/posthog/pull/24589#discussion_r1735828561
+        // TL;DR – we'll need to handle cohort properties at the DB level, i.e. we'll need to adjust the cohort query
+        // to account for if a given person is an element of the cohort X, Y, Z, etc
+        let should_prefer_overrides = property_filters
+            .iter()
+            .all(|prop| person_overrides.contains_key(&prop.key) && prop.prop_type != "cohort");
+
+        if should_prefer_overrides {
+            Some(person_overrides.clone())
+        } else {
+            None
+        }
+    })
+}
+
+/// Check if all required properties are present in the overrides
+/// and none of them are of type "cohort" – if so, return the overrides,
+/// otherwise return None, because we can't locally compute cohort properties
+fn all_properties_match(
+    flag_condition_properties: &[PropertyFilter],
+    target_properties: &HashMap<String, Value>,
+) -> bool {
+    flag_condition_properties
+        .iter()
+        .all(|property| match_property(property, target_properties, false).unwrap_or(false))
 }
 
 #[cfg(test)]
@@ -728,7 +756,7 @@ mod tests {
             None,
             None,
         );
-        let match_result = matcher.evaluate_flag(&flag).await.unwrap();
+        let match_result = matcher.get_match(&flag).await.unwrap();
         assert_eq!(match_result.matches, true);
         assert_eq!(match_result.variant, None);
 
@@ -742,7 +770,7 @@ mod tests {
             None,
             None,
         );
-        let match_result = matcher.evaluate_flag(&flag).await.unwrap();
+        let match_result = matcher.get_match(&flag).await.unwrap();
         assert_eq!(match_result.matches, false);
         assert_eq!(match_result.variant, None);
 
@@ -756,7 +784,7 @@ mod tests {
             None,
             None,
         );
-        let match_result = matcher.evaluate_flag(&flag).await.unwrap();
+        let match_result = matcher.get_match(&flag).await.unwrap();
         assert_eq!(match_result.matches, false);
         assert_eq!(match_result.variant, None);
     }
@@ -789,7 +817,7 @@ mod tests {
             None,
         );
 
-        let match_result = matcher.evaluate_flag(&flag).await.unwrap();
+        let match_result = matcher.get_match(&flag).await.unwrap();
         assert_eq!(match_result.matches, true);
     }
 
