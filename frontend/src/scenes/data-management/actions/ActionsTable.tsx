@@ -68,7 +68,7 @@ export function ActionsTable(): JSX.Element {
                     <LemonButton
                         size="small"
                         onClick={pinned ? () => unpinAction(action) : () => pinAction(action)}
-                        tooltip={pinned ? 'Unpin dashboard' : 'Pin dashboard'}
+                        tooltip={pinned ? 'Unpin action' : 'Pin action'}
                         icon={pinned ? <IconPinFilled /> : <IconPin />}
                     />
                 )
