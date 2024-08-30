@@ -1,58 +1,4 @@
-export interface CallFrame {
-    closure: HogClosure
-    ip: number
-    stackStart: number
-    argCount: number
-}
-
-export interface ThrowFrame {
-    callStackLen: number
-    stackLen: number
-    catchIp: number
-}
-
-export interface HogDate {
-    __hogDate__: true
-    year: number
-    month: number
-    day: number
-}
-
-export interface HogDateTime {
-    __hogDateTime__: true
-    /** Timestamp float in seconds */
-    dt: number
-    zone: string
-}
-
-export interface HogError {
-    __hogError__: true
-    type: string
-    message: string
-    payload?: Record<string, any>
-}
-
-export interface HogCallable {
-    __hogCallable__: 'local' | 'stl' | 'async' | 'main'
-    name?: string
-    argCount: number
-    upvalueCount: number
-    ip: number
-}
-
-export interface HogUpValue {
-    __hogUpValue__: true
-    id: number
-    location: number
-    closed: boolean
-    value: any
-}
-
-export interface HogClosure {
-    __hogClosure__: true
-    callable: HogCallable
-    upvalues: number[]
-}
+import { HogCallable, HogClosure, HogDate, HogDateTime, HogError, HogUpValue } from './types'
 
 export function isHogDate(obj: any): obj is HogDate {
     return obj && typeof obj === 'object' && '__hogDate__' in obj && 'year' in obj && 'month' in obj && 'day' in obj
@@ -82,6 +28,7 @@ export function isHogCallable(obj: any): obj is HogCallable {
         '__hogCallable__' in obj &&
         'argCount' in obj &&
         'ip' in obj &&
+        // 'chunk' in obj &&  // TODO: enable after this has been live for some hours
         'upvalueCount' in obj
     )
 }
@@ -102,11 +49,13 @@ export function newHogCallable(
     type: HogCallable['__hogCallable__'],
     {
         name,
+        chunk,
         argCount,
         upvalueCount,
         ip,
     }: {
         name: string
+        chunk: string
         argCount: number
         upvalueCount: number
         ip: number
@@ -115,6 +64,7 @@ export function newHogCallable(
     return {
         __hogCallable__: type,
         name,
+        chunk: chunk,
         argCount,
         upvalueCount,
         ip,

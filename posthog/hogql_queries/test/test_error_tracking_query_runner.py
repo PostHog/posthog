@@ -324,3 +324,33 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 },
             ],
         )
+
+    @snapshot_clickhouse_queries
+    def test_assignee_groups(self):
+        ErrorTrackingGroup.objects.create(
+            team=self.team,
+            fingerprint=["SyntaxError"],
+            assignee=self.user,
+        )
+        ErrorTrackingGroup.objects.create(
+            team=self.team,
+            fingerprint=["custom_fingerprint"],
+            assignee=self.user,
+        )
+        ErrorTrackingGroup.objects.create(
+            team=self.team,
+            fingerprint=["TypeError"],
+        )
+
+        runner = ErrorTrackingQueryRunner(
+            team=self.team,
+            query=ErrorTrackingQuery(
+                kind="ErrorTrackingQuery",
+                dateRange=DateRange(),
+                assignee=self.user.pk,
+            ),
+        )
+
+        results = self._calculate(runner)["results"]
+
+        self.assertEqual(sorted([x["fingerprint"] for x in results]), [["SyntaxError"], ["custom_fingerprint"]])

@@ -88,4 +88,5 @@ tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 url = { version = "2.5.0 " }
 uuid = { version = "1.6.1", features = ["v7", "serde"] }
 neon = "1"
-lru = "0.12.4"
+quick_cache = "0.6.5"
+ahash = "0.8.11"

@@ -58,6 +58,7 @@ gen/
 .antlr
 upgrade/
 hogvm/typescript/dist
+hogvm/typescript/.parcel-cache
 .wokeignore
 plugin-transpiler/dist
 *-esbuild-meta.json

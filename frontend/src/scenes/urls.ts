@@ -21,6 +21,7 @@ import {
 
 import { OnboardingStepKey } from './onboarding/onboardingLogic'
 import { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
+import { SurveysTabs } from './surveys/surveysLogic'
 
 /**
  * To add a new URL to the front end:
@@ -137,7 +138,7 @@ export const urls = {
     errorTracking: (): string => '/error_tracking',
     errorTrackingGroup: (fingerprint: string): string =>
         `/error_tracking/${fingerprint === ':fingerprint' ? fingerprint : encodeURIComponent(fingerprint)}`,
-    surveys: (): string => '/surveys',
+    surveys: (tab?: SurveysTabs): string => `/surveys${tab ? `?tab=${tab}` : ''}`,
     /** @param id A UUID or 'new'. ':id' for routing. */
     survey: (id: string): string => `/surveys/${id}`,
     surveyTemplates: (): string => '/survey_templates',

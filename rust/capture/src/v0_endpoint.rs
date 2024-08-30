@@ -13,7 +13,7 @@ use serde_json::json;
 use serde_json::Value;
 use tracing::instrument;
 
-use crate::limiters::billing::QuotaResource;
+use crate::limiters::redis::QuotaResource;
 use crate::prometheus::report_dropped_events;
 use crate::v0_request::{Compression, ProcessingContext, RawRequest};
 use crate::{
@@ -102,6 +102,7 @@ async fn handle_common(
     tracing::Span::current().record("batch_size", events.len());
 
     if events.is_empty() {
+        tracing::log::warn!("rejected empty batch");
         return Err(CaptureError::EmptyBatch);
     }
 
@@ -117,7 +118,7 @@ async fn handle_common(
     };
 
     let billing_limited = state
-        .billing
+        .billing_limiter
         .is_limited(context.token.as_str(), quota_resource)
         .await;
 
@@ -244,16 +245,23 @@ pub async fn recording(
         })),
         Err(err) => Err(err),
         Ok((context, events)) => {
-            if let Err(err) = process_replay_events(state.sink.clone(), &events, &context).await {
+            let count = events.len() as u64;
+            if let Err(err) = process_replay_events(state.sink.clone(), events, &context).await {
                 let cause = match err {
                     CaptureError::EmptyDistinctId => "empty_distinct_id",
                     CaptureError::MissingDistinctId => "missing_distinct_id",
-                    CaptureError::MissingSessionId => "missing_event_name",
-                    CaptureError::MissingWindowId => "missing_event_name",
+                    CaptureError::MissingSessionId => "missing_session_id",
+                    CaptureError::MissingWindowId => "missing_window_id",
                     CaptureError::MissingEventName => "missing_event_name",
+                    CaptureError::RequestDecodingError(_) => "request_decoding_error",
+                    CaptureError::RequestParsingError(_) => "request_parsing_error",
+                    CaptureError::EventTooBig => "event_too_big",
+                    CaptureError::NonRetryableSinkError => "sink_error",
+                    CaptureError::InvalidSessionId => "invalid_session_id",
+                    CaptureError::MissingSnapshotData => "missing_snapshot_data",
                     _ => "process_events_error",
                 };
-                report_dropped_events(cause, events.len() as u64);
+                report_dropped_events(cause, count);
                 tracing::log::warn!("rejected invalid payload: {}", err);
                 return Err(err);
             }
@@ -330,50 +338,69 @@ pub async fn process_events<'a>(
 #[instrument(skip_all, fields(events = events.len()))]
 pub async fn process_replay_events<'a>(
     sink: Arc<dyn sinks::Event + Send + Sync>,
-    events: &'a [RawEvent],
+    mut events: Vec<RawEvent>,
     context: &'a ProcessingContext,
 ) -> Result<(), CaptureError> {
-    let snapshot_items: Vec<Value> = events
-        .iter()
-        .map(|e| match e.properties.get("$snapshot_data") {
-            Some(Value::Array(value)) => Ok(value.to_vec()),
-            Some(Value::Object(value)) => Ok([Value::Object(value.clone())].to_vec()),
-            _ => Err(CaptureError::MissingSnapshotData),
-        })
-        .collect::<Result<Vec<Vec<_>>, CaptureError>>()?
-        .into_iter()
-        .flatten()
-        .collect();
-
+    // Grab metadata about the whole batch from the first event before
+    // we drop all the events as we rip out the snapshot data
     let session_id = events[0]
         .properties
-        .get("$session_id")
-        .ok_or(CaptureError::MissingSessionId)?
-        .as_str()
-        .ok_or(CaptureError::InvalidSessionId)?;
+        .remove("$session_id")
+        .ok_or(CaptureError::MissingSessionId)?;
     let window_id = events[0]
         .properties
-        .get("$window_id")
-        .ok_or(CaptureError::MissingWindowId)?;
+        .remove("$window_id")
+        .unwrap_or(session_id.clone());
+    let uuid = events[0].uuid.unwrap_or_else(uuid_v7);
+    let distinct_id = events[0].extract_distinct_id()?;
+    let snapshot_source = events[0]
+        .properties
+        .remove("$snapshot_source")
+        .unwrap_or(Value::String(String::from("web")));
+
+    let mut snapshot_items: Vec<Value> = Vec::with_capacity(events.len());
+    for mut event in events {
+        let Some(snapshot_data) = event.properties.remove("$snapshot_data") else {
+            return Err(CaptureError::MissingSnapshotData);
+        };
+        match snapshot_data {
+            Value::Array(value) => {
+                snapshot_items.extend(value);
+            }
+            Value::Object(value) => {
+                snapshot_items.push(Value::Object(value));
+            }
+            _ => {
+                return Err(CaptureError::MissingSnapshotData);
+            }
+        }
+    }
+
     let event = ProcessedEvent {
         data_type: DataType::SnapshotMain,
-        uuid: events[0].uuid.unwrap_or_else(uuid_v7),
-        distinct_id: events[0].extract_distinct_id()?,
+        uuid,
+        distinct_id: distinct_id.clone(),
         ip: context.client_ip.clone(),
         data: json!({
             "event": "$snapshot_items",
             "properties": {
-                "distinct_id": events[0].extract_distinct_id()?,
+                "distinct_id": distinct_id,
                 "$session_id": session_id,
                 "$window_id": window_id,
-                "$snapshot_source": events[0].properties.get("$snapshot_source").unwrap_or(&Value::String(String::from("web"))),
+                "$snapshot_source": snapshot_source,
                 "$snapshot_items": snapshot_items,
             }
-        }).to_string(),
+        })
+        .to_string(),
         now: context.now.clone(),
         sent_at: context.sent_at,
         token: context.token.clone(),
-        session_id: Some(session_id.to_string()),
+        session_id: Some(
+            session_id
+                .as_str()
+                .ok_or(CaptureError::InvalidSessionId)?
+                .to_string(),
+        ),
     };
 
     sink.send(event).await

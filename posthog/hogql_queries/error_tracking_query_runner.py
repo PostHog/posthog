@@ -103,7 +103,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
                         ast.Call(
                             name="has",
                             args=[
-                                self.group_fingerprints(group),
+                                self.group_fingerprints([group]),
                                 self.extracted_fingerprint_property(),
                             ],
                         ),
@@ -131,13 +131,19 @@ class ErrorTrackingQueryRunner(QueryRunner):
             ast.Placeholder(chain=["filters"]),
         ]
 
+        groups = []
+
         if self.query.fingerprint:
-            group = self.group_or_default(self.query.fingerprint)
+            groups.append(self.group_or_default(self.query.fingerprint))
+        elif self.query.assignee:
+            groups.extend(self.error_tracking_groups.values())
+
+        if groups:
             exprs.append(
                 ast.Call(
                     name="has",
                     args=[
-                        self.group_fingerprints(group),
+                        self.group_fingerprints(groups),
                         self.extracted_fingerprint_property(),
                     ],
                 ),
@@ -255,10 +261,12 @@ class ErrorTrackingQueryRunner(QueryRunner):
             },
         )
 
-    def group_fingerprints(self, group):
-        exprs: list[ast.Expr] = [ast.Constant(value=group["fingerprint"])]
-        for fp in group["merged_fingerprints"]:
-            exprs.append(ast.Constant(value=fp))
+    def group_fingerprints(self, groups):
+        exprs: list[ast.Expr] = []
+        for group in groups:
+            exprs.append(ast.Constant(value=group["fingerprint"]))
+            for fp in group["merged_fingerprints"]:
+                exprs.append(ast.Constant(value=fp))
         return ast.Array(exprs=exprs)
 
     def extracted_fingerprint_property(self):
@@ -284,5 +292,6 @@ class ErrorTrackingQueryRunner(QueryRunner):
             if self.query.fingerprint
             else queryset.filter(status__in=[ErrorTrackingGroup.Status.ACTIVE])
         )
+        queryset = queryset.filter(assignee=self.query.assignee) if self.query.assignee else queryset
         groups = queryset.values("fingerprint", "merged_fingerprints", "status", "assignee")
         return {str(item["fingerprint"]): item for item in groups}

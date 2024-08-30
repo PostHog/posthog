@@ -1,7 +1,7 @@
-fn FishError(message) {
+fun FishError(message) {
   return HogError('FishError', message)
 }
-fn FoodError(message) {
+fun FoodError(message) {
   return HogError('FoodError', message)
 }
 

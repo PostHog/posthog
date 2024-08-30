@@ -95,6 +95,7 @@ export enum NodeKind {
     WebOverviewQuery = 'WebOverviewQuery',
     WebTopClicksQuery = 'WebTopClicksQuery',
     WebStatsTableQuery = 'WebStatsTableQuery',
+    WebGoalsQuery = 'WebGoalsQuery',
 
     // Database metadata
     DatabaseSchemaQuery = 'DatabaseSchemaQuery',
@@ -116,6 +117,7 @@ export type AnyDataNode =
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebTopClicksQuery
+    | WebGoalsQuery
     | SessionAttributionExplorerQuery
     | ErrorTrackingQuery
 
@@ -140,6 +142,7 @@ export type QuerySchema =
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebTopClicksQuery
+    | WebGoalsQuery
     | SessionAttributionExplorerQuery
     | ErrorTrackingQuery
 
@@ -558,6 +561,7 @@ export interface DataTableNode
                     | WebOverviewQuery
                     | WebStatsTableQuery
                     | WebTopClicksQuery
+                    | WebGoalsQuery
                     | SessionAttributionExplorerQuery
                     | ErrorTrackingQuery
                 )['response']
@@ -575,6 +579,7 @@ export interface DataTableNode
         | WebOverviewQuery
         | WebStatsTableQuery
         | WebTopClicksQuery
+        | WebGoalsQuery
         | SessionAttributionExplorerQuery
         | ErrorTrackingQuery
     /** Columns shown in the table, unless the `source` provides them. */
@@ -1399,8 +1404,23 @@ export interface WebStatsTableQueryResponse extends AnalyticsQueryResponseBase<u
     limit?: integer
     offset?: integer
 }
-
 export type CachedWebStatsTableQueryResponse = CachedQueryResponse<WebStatsTableQueryResponse>
+
+export interface WebGoalsQuery extends WebAnalyticsQueryBase<WebGoalsQueryResponse> {
+    kind: NodeKind.WebGoalsQuery
+    limit?: integer
+}
+
+export interface WebGoalsQueryResponse extends AnalyticsQueryResponseBase<unknown[]> {
+    types?: unknown[]
+    columns?: unknown[]
+    hogql?: string
+    samplingRate?: SamplingRate
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+}
+export type CachedWebGoalsQueryResponse = CachedQueryResponse<WebGoalsQueryResponse>
 
 export enum SessionAttributionGroupBy {
     ChannelType = 'ChannelType',
@@ -1438,6 +1458,7 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     eventColumns?: string[]
     order?: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
     dateRange: DateRange
+    assignee?: integer | null
     filterGroup?: PropertyGroupFilter
     filterTestAccounts?: boolean
     limit?: integer

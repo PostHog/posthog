@@ -19,6 +19,7 @@ from posthog.models.action.action import ACTION_STEP_MATCHING_OPTIONS
 
 from .forbid_destroy_model import ForbidDestroyModel
 from .tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
+from datetime import datetime, UTC
 
 
 class ActionStepJSONSerializer(serializers.Serializer):
@@ -58,6 +59,7 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
             "team_id",
             "is_action",
             "bytecode_error",
+            "pinned_at",
         ]
         read_only_fields = [
             "team_id",
@@ -77,6 +79,8 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
         else:
             attrs["team_id"] = self.context["view"].team_id
             include_args = {"team_id": attrs["team_id"]}
+        if attrs.get("pinned_at") == "":
+            attrs["pinned_at"] = None
 
         colliding_action_ids = list(
             Action.objects.filter(name=attrs["name"], deleted=False, **include_args)
@@ -104,6 +108,14 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
         return instance
 
     def update(self, instance: Any, validated_data: dict[str, Any]) -> Any:
+        if validated_data.get("pinned_at"):
+            if instance.pinned_at:
+                # drop it from the update
+                del validated_data["pinned_at"]
+            else:
+                # ignore the user-provided timestamp, generate our own
+                validated_data["pinned_at"] = datetime.now(UTC).isoformat()
+
         instance = super().update(instance, validated_data)
 
         report_user_action(

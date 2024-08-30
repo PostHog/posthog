@@ -144,6 +144,10 @@ impl KafkaSink {
                 (config.kafka_producer_queue_mib * 1024).to_string(),
             );
 
+        if !&config.kafka_client_id.is_empty() {
+            client_config.set("client.id", &config.kafka_client_id);
+        }
+
         if config.kafka_tls {
             client_config
                 .set("security.protocol", "ssl")
@@ -358,6 +362,7 @@ mod tests {
             kafka_exceptions_topic: "events_plugin_ingestion".to_string(),
             kafka_heatmaps_topic: "events_plugin_ingestion".to_string(),
             kafka_tls: false,
+            kafka_client_id: "".to_string(),
         };
         let sink = KafkaSink::new(config, handle, limiter).expect("failed to create sink");
         (cluster, sink)
