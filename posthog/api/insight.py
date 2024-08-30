@@ -1090,6 +1090,7 @@ Using the correct cache and enriching the response with dashboard specific confi
         return activity_page_response(activity_page, limit, page, request)
 
     @action(methods=["POST"], detail=False)
+    @monitor(feature=Feature.INSIGHT, endpoint="insight", method="CANCEL")
     def cancel(self, request: request.Request, **kwargs):
         if "client_query_id" not in request.data:
             raise serializers.ValidationError({"client_query_id": "Field is required."})
