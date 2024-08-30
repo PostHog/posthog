@@ -24,7 +24,7 @@ export function TreeRow({ item }: TreeRowProps): JSX.Element {
                 size="xsmall"
                 fullWidth
                 icon={item.icon ? <>{item.icon}</> : null}
-                className="font-normal"
+                className="font-mono"
             >
                 <span className="flex-1 flex justify-between">
                     <span className="truncate">{item.name}</span>
@@ -51,7 +51,7 @@ export function TreeTableRow({ item, onClick, selected }: TreeTableRowProps): JS
         <li>
             <LemonButton
                 size="xsmall"
-                className="font-normal"
+                className="font-mono"
                 fullWidth
                 onClick={_onClick}
                 active={selected}
@@ -86,7 +86,7 @@ export function TreeFolderRow({ item, depth, onClick, selectedRow, dropdownOverl
         <li className="overflow-hidden">
             <LemonButton
                 size="small"
-                className="font-normal"
+                className="font-mono"
                 fullWidth
                 onClick={_onClick}
                 sideAction={
