@@ -1,10 +1,9 @@
 import { PersonDisplay, TZLabel } from '@posthog/apps-common'
-import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
-import { NotFound } from 'lib/components/NotFound'
 import { Playlist } from 'lib/components/Playlist/Playlist'
 import { dayjs } from 'lib/dayjs'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
@@ -13,14 +12,14 @@ import { PropertyIcons } from 'scenes/session-recordings/playlist/SessionRecordi
 import { ErrorTrackingEvent, errorTrackingGroupSceneLogic } from '../errorTrackingGroupSceneLogic'
 
 export const OverviewTab = (): JSX.Element => {
-    const { group, events, groupLoading } = useValues(errorTrackingGroupSceneLogic)
+    const { events, groupLoading, eventsLoading } = useValues(errorTrackingGroupSceneLogic)
+    const { loadEvents } = useActions(errorTrackingGroupSceneLogic)
 
-    return groupLoading ? (
-        <Spinner className="self-align-center justify-self-center" />
-    ) : group ? (
+    return (
         <div className="ErrorTracking__group">
             <div className="h-full space-y-2">
                 <Playlist
+                    loading={groupLoading || eventsLoading}
                     title="Exceptions"
                     sections={[
                         {
@@ -48,12 +47,15 @@ export const OverviewTab = (): JSX.Element => {
                             />
                         )
                     }
+                    onScrollListEdge={(edge) => {
+                        if (edge === 'bottom' && !eventsLoading) {
+                            loadEvents()
+                        }
+                    }}
                     selectInitialItem
                 />
             </div>
         </div>
-    ) : (
-        <NotFound object="exception" />
     )
 }
 

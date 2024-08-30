@@ -90,12 +90,14 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
                         })
                     )
 
-                    return response.results.map((r) => ({
+                    const newResults = response.results.map((r) => ({
                         uuid: r[0],
                         properties: JSON.parse(r[1]),
                         timestamp: dayjs(r[2]),
                         person: r[3],
                     }))
+
+                    return [...values.events, ...newResults]
                 },
             },
         ],
