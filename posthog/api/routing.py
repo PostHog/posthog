@@ -324,8 +324,9 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         parents_query_dict = self.parents_query_dict.copy()
 
         for source, destination in self.filter_rewrite_rules.items():
-            parents_query_dict[destination] = parents_query_dict[source]
-            del parents_query_dict[source]
+            if source in parents_query_dict:
+                parents_query_dict[destination] = parents_query_dict[source]
+                del parents_query_dict[source]
 
         if "project_id" in parents_query_dict:
             # KLUDGE: This rewrite can be removed once the relevant models get that field directly
