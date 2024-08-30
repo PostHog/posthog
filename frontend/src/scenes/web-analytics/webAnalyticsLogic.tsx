@@ -744,7 +744,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                           },
                                           insightProps: createInsightProps(TileId.PATHS, PathTab.END_PATH),
                                           canOpenModal: true,
-                                          showPathCleaningControls: true,
                                       }
                                     : null,
                             ] as (TabsTileTab | undefined)[]
