@@ -141,7 +141,6 @@
         "kea-waitfor": "^0.2.1",
         "kea-window-values": "^3.0.0",
         "lodash.merge": "^4.6.2",
-        "luxon": "^3.5.0",
         "maplibre-gl": "^3.5.1",
         "md5": "^2.3.0",
         "monaco-editor": "^0.49.0",
@@ -157,7 +156,6 @@
         "protomaps-themes-base": "2.0.0-alpha.1",
         "query-selector-shadow-dom": "^1.0.0",
         "rc-trigger": "^5.2.5",
-        "re2": "^1.21.4",
         "react": "^18.2.0",
         "react-dom": "^18.2.0",
         "react-draggable": "^4.2.0",
@@ -255,8 +253,6 @@
         "cypress": "^13.11.0",
         "cypress-axe": "^1.5.0",
         "cypress-terminal-report": "^6.1.0",
-        "esbuild-plugin-polyfill-node": "^0.3.0",
-        "esbuild-plugin-wasm": "^1.1.0",
         "esbuild-visualizer": "^0.6.0",
         "eslint": "^8.57.0",
         "eslint-config-prettier": "^9.1.0",
@@ -316,8 +312,7 @@
     },
     "pnpm": {
         "overrides": {
-            "playwright": "1.45.0",
-            "@posthog/hogvm": "file:./hogvm/typescript/dist"
+            "playwright": "1.45.0"
         },
         "patchedDependencies": {
             "rrweb@2.0.0-alpha.13": "patches/rrweb@2.0.0-alpha.13.patch",
