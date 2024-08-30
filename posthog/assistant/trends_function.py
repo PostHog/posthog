@@ -2,9 +2,7 @@ import json
 from functools import cached_property
 from typing import Any
 
-from openai.types.chat import ChatCompletionToolParam
-
-from posthog.assistant.properties_prompt import PropertiesPrompt
+from posthog.assistant.team_prompt import TeamPrompt
 from posthog.models.property_definition import PropertyDefinition
 from posthog.schema import ExperimentalAITrendsQuery
 
@@ -42,7 +40,7 @@ class TrendsFunction:
         ):
             property_schema = schema["$defs"][key]
             property_schema["properties"]["key"]["description"] = (
-                f"Use one of the properties the user has provided in the <{PropertiesPrompt.get_tag_name(title)}> tag."
+                f"Use one of the properties the user has provided in the <{TeamPrompt.get_properties_tag_name(title)}> tag."
             )
 
         for _ in range(100):
@@ -52,7 +50,7 @@ class TrendsFunction:
         del schema["$defs"]
         return schema
 
-    def generate_function(self) -> ChatCompletionToolParam:
+    def generate_function(self):
         return {
             "type": "function",
             "function": {
@@ -64,7 +62,7 @@ class TrendsFunction:
                         "reasoning_steps": {
                             "type": "array",
                             "items": {"type": "string"},
-                            "description": "The reasoning steps leading to the final conclusion that will be shown to the user. Use 'you' if you want to refer to the user. Explain it with gradually increasing complexity.",
+                            "description": "The reasoning steps leading to the final conclusion that will be shown to the user. Use 'you' if you want to refer to the user.",
                         },
                         "answer": self._flat_schema,
                     },

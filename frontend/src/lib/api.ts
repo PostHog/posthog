@@ -766,6 +766,11 @@ class ApiRequest {
         return apiRequest
     }
 
+    // Chat
+    public chat(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('query').addPathComponent('chat')
+    }
+
     // Notebooks
     public notebooks(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('notebooks')
@@ -2307,6 +2312,16 @@ const api = {
         return await new ApiRequest()
             .query()
             .create({ ...options, data: { query, client_query_id: queryId, refresh: refreshParam } })
+    },
+
+    chatURL: (): string => {
+        return new ApiRequest().chat().assembleFullUrl()
+    },
+
+    async chat(messages: any[]): Promise<Response> {
+        return await api.createResponse(this.chatURL(), {
+            messages,
+        })
     },
 
     /** Fetch data from specified URL. The result already is JSON-parsed. */

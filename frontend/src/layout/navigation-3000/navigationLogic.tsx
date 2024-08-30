@@ -354,14 +354,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                               icon: <IconHome />,
                               to: urls.projectHomepage(),
                           },
-                          featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG]
-                              ? {
-                                    identifier: Scene.Max,
-                                    label: 'Max AI',
-                                    icon: <IconSparkles />,
-                                    to: urls.max(),
-                                }
-                              : null,
                           {
                               identifier: Scene.Dashboards,
                               label: 'Dashboards',
@@ -428,6 +420,15 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                               to: urls.products(),
                           },
                       ]
+
+                if (featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG]) {
+                    sectionOne.splice(1, 0, {
+                        identifier: Scene.Max,
+                        label: 'Max AI',
+                        icon: <IconSparkles />,
+                        to: urls.max(),
+                    })
+                }
 
                 return [
                     sectionOne,

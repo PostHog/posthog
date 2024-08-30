@@ -10,7 +10,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { Query } from '~/queries/Query/Query'
-import { NodeKind, TrendsQuery } from '~/queries/schema'
+import { NodeKind } from '~/queries/schema'
 
 import { maxLogic } from './maxLogic'
 
@@ -48,7 +48,7 @@ export function Max(): JSX.Element {
         <>
             <div className="flex flex-col gap-4 grow p-4">
                 {thread.map((message, index) => {
-                    if (message.role === 'user') {
+                    if (message.role === 'user' || typeof message.content === 'string') {
                         return (
                             <Message key={index} role={message.role}>
                                 {message.content || <i>No text</i>}
@@ -56,28 +56,28 @@ export function Max(): JSX.Element {
                         )
                     }
 
-                    const content = JSON.parse(message.content)
-                    const reasoningSteps = content.reasoning_steps as string[]
                     const query = {
                         kind: NodeKind.InsightVizNode,
-                        source: content.answer as TrendsQuery,
+                        source: message.content.answer,
                     }
 
                     return (
                         <React.Fragment key={index}>
                             <Message role={message.role}>
                                 <ul className="list-disc ml-4">
-                                    {reasoningSteps.map((step, index) => (
+                                    {message.content.reasoning_steps.map((step, index) => (
                                         <li key={index}>{step}</li>
                                     ))}
                                 </ul>
                             </Message>
                             <Message role={message.role}>
-                                <Query query={query} readOnly embedded />
+                                {!threadLoading && <Query query={query} readOnly embedded />}
                                 <LemonButton
                                     className="mt-4 w-fit"
                                     type="primary"
-                                    to={`/insights/new#filters=${JSON.stringify(queryNodeToFilter(content.answer))}`}
+                                    to={`/insights/new#filters=${JSON.stringify(
+                                        queryNodeToFilter(message.content.answer)
+                                    )}`}
                                     targetBlank
                                 >
                                     Edit Query

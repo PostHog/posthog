@@ -1,4 +1,3 @@
-import json
 import re
 import uuid
 
@@ -18,7 +17,7 @@ from posthog.api.monitoring import Feature, monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
 from posthog.api.utils import action
-from posthog.assistant.assistant import Assistant
+from posthog.assistant.generate_trends_agent import Conversation, GenerateTrendsAgent
 from posthog.clickhouse.client.execute_async import (
     cancel_query,
     get_query_status,
@@ -154,33 +153,23 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             raise ValidationError({"prompt": [str(e)]}, code="unclear")
         return Response({"sql": result})
 
-    @action(detail=False, renderer_classes=[ServerSentEventRenderer])
+    @action(detail=False, methods=["POST"], renderer_classes=[ServerSentEventRenderer])
     def chat(self, request: Request, *args, **kwargs):
         assert request.user is not None
-        prompt = request.query_params.get("prompt")
-        thread = request.query_params.get("thread")
-        assistant = Assistant(self.team)
+        validated_body = Conversation.model_validate(request.data)
+        chain = GenerateTrendsAgent(self.team).bootstrap(validated_body.messages)
 
         # if not prompt:
         #     raise ValidationError({"prompt": ["This field is required."]}, code="required")
         # if len(prompt) > 400:
         #     raise ValidationError({"prompt": ["This field is too long."]}, code="too_long")
 
-        def event_stream():
-            if thread:
-                parsed_thread = json.loads(thread)
-            else:
-                parsed_thread = []
+        def generate():
+            for message in chain.stream({"question": validated_body.messages[0].content}):
+                if message:
+                    yield message[0].model_dump_json()
 
-            completions = assistant.create_completion([*parsed_thread, {"role": "user", "content": prompt}])
-            yield f"data: {json.dumps(completions)}\n\n"
-            yield f"data: {json.dumps({})}\n\n"
-
-        response = StreamingHttpResponse(
-            event_stream(),
-            content_type=ServerSentEventRenderer.media_type,
-        )
-        return response
+        return StreamingHttpResponse(generate(), content_type=ServerSentEventRenderer.media_type)
 
     def handle_column_ch_error(self, error):
         if getattr(error, "message", None):
