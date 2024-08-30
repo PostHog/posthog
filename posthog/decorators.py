@@ -44,8 +44,6 @@ def cached_by_filters(f: Callable[[U, Request], T]) -> Callable[[U, Request], T]
 
     @wraps(f)
     def wrapper(self: U, request: Request) -> T:
-        from posthog.caching.insight_cache import update_cached_state
-
         # prepare caching params
         team = self.team
         if not team:
@@ -92,7 +90,6 @@ def cached_by_filters(f: Callable[[U, Request], T]) -> Callable[[U, Request], T]
                 timestamp = now()
                 fresh_result_package["last_refresh"] = timestamp
                 fresh_result_package["is_cached"] = False
-                update_cached_state(team.pk, cache_key, timestamp, fresh_result_package)
 
         return fresh_result_package
 

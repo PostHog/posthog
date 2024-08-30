@@ -14,8 +14,6 @@ from rest_framework import status
 
 from posthog import settings
 from posthog.api.test.dashboards import DashboardAPI
-from posthog.caching.insight_cache import update_cache
-from posthog.caching.insight_caching_state import TargetCacheAge
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import (
@@ -32,7 +30,6 @@ from posthog.models import (
     Text,
     User,
 )
-from posthog.models.insight_caching_state import InsightCachingState
 from posthog.schema import (
     DataTableNode,
     DataVisualizationNode,
@@ -1351,156 +1348,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     0.0,
                 ],
             )
-
-    @patch(
-        "posthog.caching.insight_caching_state.calculate_target_age_insight",
-        # The tested insight normally wouldn't satisfy the criteria for being refreshed in the background,
-        # this patch means it will be treated as if it did satisfy them
-        return_value=TargetCacheAge.MID_PRIORITY,
-    )
-    def test_insight_refreshing_legacy_with_background_update(self, spy_calculate_target_age_insight) -> None:
-        with freeze_time("2012-01-14T03:21:34.000Z"):
-            _create_event(
-                team=self.team,
-                event="$pageview",
-                distinct_id="1",
-                properties={"prop": "val"},
-            )
-            _create_event(
-                team=self.team,
-                event="$pageview",
-                distinct_id="2",
-                properties={"prop": "another_val"},
-            )
-            _create_event(
-                team=self.team,
-                event="$pageview",
-                distinct_id="2",
-                properties={"prop": "val", "another": "never_return_this"},
-            )
-            flush_persons_and_events()
-
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/insights",
-                data={
-                    "filters": {
-                        "events": [{"id": "$pageview"}],
-                        "properties": [
-                            {
-                                "key": "another",
-                                "value": "never_return_this",
-                                "operator": "is_not",
-                            }
-                        ],
-                    },
-                },
-            ).json()
-            self.assertNotIn("code", response)  # Watching out for an error code
-            self.assertEqual(response["last_refresh"], None)
-            insight_id = response["id"]
-
-            response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=true").json()
-            self.assertNotIn("code", response)
-            self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 0])
-            self.assertEqual(response["last_refresh"], "2012-01-15T04:01:34Z")
-            self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")
-            self.assertFalse(response["is_cached"])
-
-        with freeze_time("2012-01-17T05:01:34.000Z"):
-            update_cache(InsightCachingState.objects.get(insight_id=insight_id).id)
-
-        with freeze_time("2012-01-17T06:01:34.000Z"):
-            response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=false").json()
-            self.assertNotIn("code", response)
-            self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 2, 0, 0, 0])
-            self.assertEqual(response["last_refresh"], "2012-01-17T05:01:34Z")  # Got refreshed with `update_cache`!
-            self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")
-            self.assertTrue(response["is_cached"])
-
-    @parameterized.expand(
-        [
-            [  # Property group filter, which is what's actually used these days
-                PropertyGroupFilter(
-                    type=FilterLogicalOperator.AND_,
-                    values=[
-                        PropertyGroupFilterValue(
-                            type=FilterLogicalOperator.OR_,
-                            values=[EventPropertyFilter(key="another", value="never_return_this", operator="is_not")],
-                        )
-                    ],
-                )
-            ],
-            [  # Classic list of filters
-                [EventPropertyFilter(key="another", value="never_return_this", operator="is_not")]
-            ],
-        ]
-    )
-    @patch("posthog.hogql_queries.insights.trends.trends_query_runner.execute_hogql_query", wraps=execute_hogql_query)
-    @patch(
-        "posthog.caching.insight_caching_state.calculate_target_age_insight",
-        # The tested insight normally wouldn't satisfy the criteria for being refreshed in the background,
-        # this patch means it will be treated as if it did satisfy them
-        return_value=TargetCacheAge.MID_PRIORITY,
-    )
-    def test_insight_refreshing_query_with_background_update(
-        self, properties_filter, spy_execute_hogql_query, spy_calculate_target_age_insight
-    ) -> None:
-        with freeze_time("2012-01-14T03:21:34.000Z"):
-            _create_event(
-                team=self.team,
-                event="$pageview",
-                distinct_id="1",
-                properties={"prop": "val"},
-            )
-            _create_event(
-                team=self.team,
-                event="$pageview",
-                distinct_id="2",
-                properties={"prop": "another_val"},
-            )
-            _create_event(
-                team=self.team,
-                event="$pageview",
-                distinct_id="2",
-                properties={"prop": "val", "another": "never_return_this"},
-            )
-            flush_persons_and_events()
-
-        query_dict = TrendsQuery(
-            series=[
-                EventsNode(
-                    event="$pageview",
-                )
-            ],
-            properties=properties_filter,
-        ).model_dump()
-
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            response = self.client.post(f"/api/projects/{self.team.id}/insights", data={"query": query_dict}).json()
-            self.assertNotIn("code", response)  # Watching out for an error code
-            self.assertEqual(response["last_refresh"], None)
-            insight_id = response["id"]
-
-            response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=true").json()
-            self.assertNotIn("code", response)
-            self.assertEqual(spy_execute_hogql_query.call_count, 1)
-            self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 0])
-            self.assertEqual(response["last_refresh"], "2012-01-15T04:01:34Z")
-            self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")
-            self.assertFalse(response["is_cached"])
-
-        with freeze_time("2012-01-17T05:01:34.000Z"):
-            update_cache(InsightCachingState.objects.get(insight_id=insight_id).id)
-
-        with freeze_time("2012-01-17T06:01:34.000Z"):
-            response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=false").json()
-            self.assertNotIn("code", response)
-            self.assertEqual(spy_execute_hogql_query.call_count, 1)
-            self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 2, 0, 0, 0])
-            self.assertEqual(response["last_refresh"], "2012-01-17T05:01:34Z")  # Got refreshed with `update_cache`!
-            self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")
-            self.assertTrue(response["is_cached"])
 
     @parameterized.expand(
         [

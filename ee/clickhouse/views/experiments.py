@@ -24,7 +24,6 @@ from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSe
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
-from posthog.caching.insight_cache import update_cached_state
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import INSIGHT_TRENDS
 from posthog.models.experiment import Experiment
@@ -124,7 +123,6 @@ def _experiment_results_cached(
 
     result = calculate_func()
 
-    timestamp = now()
     fresh_result_package = {"result": result, "last_refresh": now(), "is_cached": False}
 
     # Event to detect experiment significance flip-flopping
@@ -139,14 +137,6 @@ def _experiment_results_cached(
             "significance_code": result.get("significance_code"),
             "probability": result.get("probability"),
         },
-    )
-
-    update_cached_state(
-        experiment.team.pk,
-        cache_key,
-        timestamp,
-        fresh_result_package,
-        ttl=EXPERIMENT_RESULTS_CACHE_DEFAULT_TTL,
     )
 
     return fresh_result_package

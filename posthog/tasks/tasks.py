@@ -1,6 +1,5 @@
 import time
 from typing import Optional
-from uuid import UUID
 
 from celery import shared_task
 from django.conf import settings
@@ -667,46 +666,6 @@ def validate_proxy_domains() -> None:
     from posthog.tasks.validate_proxy_domains import validate_proxy_domains
 
     validate_proxy_domains()
-
-
-@shared_task(ignore_result=True)
-def sync_insight_cache_states_task() -> None:
-    from posthog.caching.insight_caching_state import sync_insight_cache_states
-
-    sync_insight_cache_states()
-
-
-@shared_task(ignore_result=True)
-def schedule_cache_updates_task() -> None:
-    from posthog.caching.insight_cache import schedule_cache_updates
-
-    schedule_cache_updates()
-
-
-@shared_task(
-    ignore_result=True,
-    autoretry_for=(CHQueryErrorTooManySimultaneousQueries,),
-    retry_backoff=10,
-    retry_backoff_max=30,
-    max_retries=3,
-    retry_jitter=True,
-    queue=CeleryQueue.LONG_RUNNING.value,
-)
-def update_cache_task(caching_state_id: UUID) -> None:
-    from posthog.caching.insight_cache import update_cache
-
-    update_cache(caching_state_id)
-
-
-@shared_task(ignore_result=True)
-def sync_insight_caching_state(
-    team_id: int,
-    insight_id: Optional[int] = None,
-    dashboard_tile_id: Optional[int] = None,
-) -> None:
-    from posthog.caching.insight_caching_state import sync_insight_caching_state
-
-    sync_insight_caching_state(team_id, insight_id, dashboard_tile_id)
 
 
 @shared_task(ignore_result=True)
