@@ -1,60 +1,27 @@
 import {
-    IconAIText,
-    IconBug,
-    IconCode,
-    IconMessage,
     IconPencil,
     IconPlus,
-    IconQuestion,
     IconSearch,
     IconTrash
 } from '@posthog/icons'
 import {
-    LemonDivider,
-    LemonSegmentedButton,
-    LemonSegmentedButtonOption,
-    LemonTag,
-    LemonTextArea
+    LemonDivider
 } from '@posthog/lemon-ui'
-import clsx from "clsx";
 import { useActions, useValues } from 'kea'
 import { Field, Form, Group } from 'kea-forms'
-import {SupportTicketKind} from "lib/components/Support/supportLogic";
-import {IconFeedback} from "lib/lemon-ui/icons";
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import {LemonField} from "lib/lemon-ui/LemonField";
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import {useState} from "react";
 
-import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
-import {SelectorCount} from "~/toolbar/actions/SelectorCount";
 import { SelectorEditingModal } from '~/toolbar/actions/SelectorEditingModal'
-import {StepField} from "~/toolbar/actions/StepField";
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import {experimentsTabLogic} from "~/toolbar/experiments/experimentsTabLogic";
 import {WebExperimentTransformField} from "~/toolbar/experiments/WebExperimentTransformField";
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import {WebExperimentTransform} from "~/toolbar/types";
-import { elementToQuery } from '~/toolbar/utils'
+import {LemonSlider} from "lib/lemon-ui/LemonSlider";
+import React from "react";
 
-type elementTransformKind = 'html' | 'text' | 'css'
-const ELEMENT_TRANSFORM_OPTIONS: LemonSegmentedButtonOption<elementTransformKind>[] = [
-    {
-        value: 'html',
-        label: 'HTML',
-        icon: <IconCode />,
-    },
-    {
-        value: 'text',
-        label: 'Text',
-        icon: <IconMessage />,
-    },
-    {
-        value: 'css',
-        label: 'CSS',
-        icon: <IconAIText />,
-    },
-]
+
 
 export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
     const {
@@ -75,11 +42,6 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
         editSelectorWithIndex,
     } = useActions(experimentsTabLogic)
 
-    const [transformSelected, setTransformSelected] = useState('')
-
-    // const experimentVariants = Object.keys(experimentForm.variants!)
-    // console.log(`experimentForm.variants is `, experimentForm.variants)
-    // console.log(`Object.keys(experimentForm.variants!) is `, Object.keys(experimentForm.variants!))
     console.log(`experimentForm is `, experimentForm)
     return (
         <ToolbarMenu>
@@ -139,7 +101,6 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                                 conditions: null,
                                             }
                                         }
-
                                         setExperimentFormValue('variants', experimentForm.variants)
                                     }}
                                 >
@@ -148,30 +109,45 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                 {Object.keys(experimentForm.variants!).map((variant, index) => (
                                     <Group key={variant} name={['variants', index]}>
                                         <div className="p-1 flex flex-col gap-2">
-                                            <h3 className='mb-0'>{variant} </h3>
-                                             <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    sideIcon={<IconPlus/>}
-                                    onClick={() => {
-                                        if (experimentForm.variants) {
-                                            const webVariant = experimentForm.variants[variant]
-                                            if (webVariant) {
-                                                if (webVariant.transforms) {
-                                                    webVariant.transforms.push({
-                                                     text: "Enter text here",
-                                                     html: "Enter HTML here",
-                                                    } as unknown as WebExperimentTransform)
-                                                }
-                                            }
-                                            setExperimentFormValue('variants', experimentForm.variants)
-                                    }}}
-                                >
-                                    Add Another Element
-                                </LemonButton>
-                                            {/*(Rollout Percentage : {experimentForm.variants![variant].rollout_percentage}% )*/}
-                                    <LemonDivider/>
+                                            <h3 className='mb-0'>{variant} ( rollout percentage :  { experimentForm.variants && experimentForm.variants[variant] ? experimentForm.variants[variant].rollout_percentage : 0} ) </h3>
+                                            <LemonSlider
+                                                className="flex-1"
+                                                min={0}
+                                                max={100}
+                                                step={1}
+                                                onChange={(value) => {
+                                                    if (experimentForm.variants) {
+                                                        const webVariant = experimentForm.variants[variant]
+                                                        if(webVariant) {
+                                                            webVariant.rollout_percentage = value
+                                                            setExperimentFormValue('variants', experimentForm.variants)
+                                                        }
+                                                    }
 
+                                                }}
+                                                value={ experimentForm.variants && experimentForm.variants[variant] ? experimentForm.variants[variant].rollout_percentage : 0}
+                                            />
+                                             <LemonButton
+                                                type="secondary"
+                                                size="small"
+                                                sideIcon={<IconPlus/>}
+                                                onClick={() => {
+                                                    if (experimentForm.variants) {
+                                                        const webVariant = experimentForm.variants[variant]
+                                                        if (webVariant) {
+                                                            if (webVariant.transforms) {
+                                                                webVariant.transforms.push({
+                                                                 text: "Enter text here",
+                                                                 html: "Enter HTML here",
+                                                                } as unknown as WebExperimentTransform)
+                                                            }
+                                                        }
+                                                        setExperimentFormValue('variants', experimentForm.variants)
+                                                }}}
+                                            >
+                                                Add Another Element
+                                            </LemonButton>
+                                            <LemonDivider/>
 
                                             {experimentForm.variants![variant].transforms.map((transform, tIndex) => (
                                                 <div key={tIndex}> {transform.selector}

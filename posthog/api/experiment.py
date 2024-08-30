@@ -91,16 +91,21 @@ class ExperimentsAPISerializer(serializers.ModelSerializer):
         print('input to REST API is ', attrs)
         return attrs
 
+    def create(self, validated_data: dict[str, Any]) -> Any:
+        print("creating instance, validated_data is ", validated_data)
+        print("creating instance, transforms is", self.extract_transforms(validated_data))
+
     def update(self, instance: WebExperiment, validated_data: dict[str, Any]) -> Any:
         print("updating instance, validated_data is ", validated_data, " instance is ", instance)
-        variants = validated_data.pop("variants", None)
+        variants = validated_data.get("variants", None)
         if variants is not None and isinstance(variants, dict):
             feature_flag = instance.feature_flag
-
+            multivariant_variants = self.extract_transforms(validated_data)
+            print("multivariant_variants is ", multivariant_variants)
             filters = {
                 'groups': feature_flag.filters.get('groups', None),
-                'payloads': {},
-                'multivariate': feature_flag.filters.get('multivariate', None),
+                'payloads': multivariant_variants.get('payloads', None),
+                'multivariate': multivariant_variants.get('variants', None),
             }
             for variant, transforms in variants.items():
                 filters['payloads'][variant] = json.dumps({"data": transforms.get("transforms", {})})
@@ -111,6 +116,24 @@ class ExperimentsAPISerializer(serializers.ModelSerializer):
 
         instance = super().update(instance, validated_data)
         return instance
+
+    def extract_transforms(self, validated_data: dict[str, Any]):
+        variants = validated_data.pop("variants", None)
+        variant_transforms = {}
+        multivariate_variants = []
+        print("multivariate_variants is ", multivariate_variants)
+        if variants is not None and isinstance(variants, dict):
+            for variant, transforms in variants.items():
+                variant_transforms[variant] = json.dumps({"data": transforms.get("transforms", {})})
+                multivariate_variants.append({'key': variant, 'rollout_percentage': transforms.get('rollout_percentage',0)})
+
+        return {
+                'payloads': variant_transforms,
+                'variants': {
+                    'variants': multivariate_variants
+                    },
+                }
+
 
 class ExperimentViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "experiment"
