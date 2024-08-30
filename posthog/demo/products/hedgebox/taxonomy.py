@@ -17,9 +17,8 @@ URL_ACCOUNT_SETTINGS = f"{SITE_URL}/account/settings/"
 URL_ACCOUNT_BILLING = f"{SITE_URL}/account/billing/"
 URL_ACCOUNT_TEAM = f"{SITE_URL}/account/team/"
 
-URL_PRODUCT_AD_LINK = (
-    f"https://shop.example.com/products/10ft-hedgehog-statue?utm_source=hedgebox&utm_medium=paid&utm_campaign=product"
-)
+URL_PRODUCT_AD_LINK_1 = f"https://shop.example.com/products/10ft-hedgehog-statue?utm_source=hedgebox&utm_medium=paid"
+URL_PRODUCT_AD_LINK_2 = f"https://travel.example.com/cruise/hedge-watching?utm_source=hedgebox&utm_medium=paid"
 
 # Event taxonomy
 

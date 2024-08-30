@@ -43,7 +43,8 @@ from .taxonomy import (
     GROUP_TYPE_ACCOUNT,
     dyn_url_file,
     dyn_url_invite,
-    URL_PRODUCT_AD_LINK,
+    URL_PRODUCT_AD_LINK_1,
+    URL_PRODUCT_AD_LINK_2,
 )
 
 if TYPE_CHECKING:
@@ -358,7 +359,9 @@ class HedgeboxPerson(SimPerson):
             )
             self.go_to_marius_tech_tips(None if entered_url_directly else {"utm_source": "youtube"})
             if self.cluster.random.random() < 0.2:
-                self.click_product_ad()
+                self.click_product_ad_1()
+            elif self.cluster.random.random() < 0.5:
+                self.click_product_ad_2()
         elif self.active_session_intent in (
             HedgeboxSessionIntent.UPLOAD_FILE_S,
             HedgeboxSessionIntent.DELETE_FILE_S,
@@ -814,9 +817,14 @@ class HedgeboxPerson(SimPerson):
             if neighbor.is_invitable
         ]
 
-    def click_product_ad(self):
+    def click_product_ad_1(self):
         self.active_client.capture(
-            EVENT_AUTOCAPTURE, {"$event_type": "click", "$external_click_url": URL_PRODUCT_AD_LINK}
+            EVENT_AUTOCAPTURE, {"$event_type": "click", "$external_click_url": URL_PRODUCT_AD_LINK_1}
+        )
+
+    def click_product_ad_2(self):
+        self.active_client.capture(
+            EVENT_AUTOCAPTURE, {"$event_type": "click", "$external_click_url": URL_PRODUCT_AD_LINK_2}
         )
 
 
