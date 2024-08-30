@@ -162,7 +162,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         s2 = str(uuid7())
         self._visit_web_analytics(p1, s2)
         results = self._run_web_goals_query("all", None).results
-        assert results == [["Contacted Sales", 0, 0, 0], ["Visited Web Analytics", 2, 1, 1], ["Clicked Pay", 0, 0, 0]]
+        assert results == [["Contacted Sales", 0, 0, 0], ["Visited Web Analytics", 1, 2, 1], ["Clicked Pay", 0, 0, 0]]
 
     def test_one_user_two_different_actions(self):
         self._create_actions()
@@ -211,6 +211,6 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._run_web_goals_query("all", None).results
         assert results == [
             ["Contacted Sales", 0, 0, 0],
-            ["Visited Web Analytics", 12, 11, 11 / 15],
-            ["Clicked Pay", 8, 7, 7 / 15],
+            ["Visited Web Analytics", 11, 12, 11 / 15],
+            ["Clicked Pay", 7, 8, 7 / 15],
         ]
