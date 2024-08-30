@@ -296,6 +296,7 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
             },
         )
         self.assertEqual(len(responses), 1)
+
     def test_ignores_empty_lcp(self):
         distinct_id = create_distinct_id()
         session_id = create_session_id()
