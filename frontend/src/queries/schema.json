@@ -6589,20 +6589,7 @@
                 },
                 {
                     "items": {
-                        "anyOf": [
-                            {
-                                "type": "string"
-                            },
-                            {
-                                "type": "number"
-                            },
-                            {
-                                "items": {
-                                    "type": "string"
-                                },
-                                "type": "array"
-                            }
-                        ]
+                        "type": ["string", "number"]
                     },
                     "type": "array"
                 },
