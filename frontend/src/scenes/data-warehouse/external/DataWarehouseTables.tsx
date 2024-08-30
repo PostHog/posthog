@@ -237,7 +237,13 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                 <LemonButton icon={<IconDatabase />} onClick={() => setCollapsed(false)} />
             ) : (
                 <>
-                    <LemonButton size="xsmall" onClick={() => setCollapsed(true)} fullWidth icon={<IconDatabase />}>
+                    <LemonButton
+                        size="xsmall"
+                        onClick={() => setCollapsed(true)}
+                        fullWidth
+                        icon={<IconDatabase />}
+                        className="font-normal"
+                    >
                         <span className="uppercase text-muted-alt tracking-wider">Sources</span>
                     </LemonButton>
                     <DatabaseTableTree onSelectRow={selectRow} items={treeItems()} selectedRow={selectedRow} />
