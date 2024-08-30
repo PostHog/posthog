@@ -16,13 +16,14 @@ use serde_json::Value;
 use std::{collections::HashMap, net::IpAddr};
 use std::{io::Read, sync::Arc};
 
-#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum Compression {
     #[serde(rename = "gzip")]
     #[serde(alias = "gzip-js")]
     Gzip,
     Base64,
+    #[default]
     #[serde(other)]
     Unsupported,
 }
@@ -34,12 +35,6 @@ impl Compression {
             Compression::Base64 => "base64",
             Compression::Unsupported => "unsupported",
         }
-    }
-}
-
-impl Default for Compression {
-    fn default() -> Self {
-        Compression::Unsupported
     }
 }
 
