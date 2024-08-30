@@ -248,9 +248,15 @@ pub async fn recording(
                 let cause = match err {
                     CaptureError::EmptyDistinctId => "empty_distinct_id",
                     CaptureError::MissingDistinctId => "missing_distinct_id",
-                    CaptureError::MissingSessionId => "missing_event_name",
-                    CaptureError::MissingWindowId => "missing_event_name",
+                    CaptureError::MissingSessionId => "missing_session_id",
+                    CaptureError::MissingWindowId => "missing_window_id",
                     CaptureError::MissingEventName => "missing_event_name",
+                    CaptureError::RequestDecodingError(_) => "request_decoding_error",
+                    CaptureError::RequestParsingError(_) => "request_parsing_error",
+                    CaptureError::EventTooBig => "event_too_big",
+                    CaptureError::NonRetryableSinkError => "sink_error",
+                    CaptureError::InvalidSessionId => "invalid_session_id",
+                    CaptureError::MissingSnapshotData => "missing_snapshot_data",
                     _ => "process_events_error",
                 };
                 report_dropped_events(cause, events.len() as u64);
