@@ -433,11 +433,15 @@ impl FeatureFlagMatcher {
             });
         }
 
+        // TODO: super groups for early access
+        // TODO: Variant overrides condition sort
+
         for (index, condition) in flag.get_conditions().iter().enumerate() {
             let (is_match, _evaluation_reason) =
                 self.is_condition_match(flag, condition, index).await?;
 
             if is_match {
+                // TODO: this is a bit awkward, we should only handle variants when overrides exist
                 let variant = match condition.variant.clone() {
                     Some(variant_override)
                         if flag
@@ -631,14 +635,8 @@ impl FeatureFlagMatcher {
         let hash = self.get_hash(feature_flag, "variant").await?;
         let mut cumulative_percentage = 0.0;
 
-        println!("Hash: {}", hash); // Debug print
-
         for variant in feature_flag.get_variants() {
             cumulative_percentage += variant.rollout_percentage / 100.0;
-            println!(
-                "Variant: {}, Cumulative Percentage: {}",
-                variant.key, cumulative_percentage
-            ); // Debug print
             if hash < cumulative_percentage {
                 return Ok(Some(variant.key.clone()));
             }
