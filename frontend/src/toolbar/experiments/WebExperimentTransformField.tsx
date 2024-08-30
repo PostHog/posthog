@@ -33,6 +33,7 @@ const ELEMENT_TRANSFORM_OPTIONS: LemonSegmentedButtonOption<elementTransformKind
 ]
 
 export function WebExperimentTransformField({ variant, tIndex, transform }: WebExperimentTransformFieldProps): JSX.Element {
+
     const [transformSelected, setTransformSelected] = useState(transform.html ? "html": transform.text ? "text" : "css")
     const {
         experimentForm,
@@ -47,8 +48,23 @@ export function WebExperimentTransformField({ variant, tIndex, transform }: WebE
             value ={transformSelected}/>
             { transformSelected == 'text' && (
                 <LemonTextArea
+                    onChange={(value)=>{
+                        console.log(`changing text to ${value}`)
+                        if(experimentForm.variants) {
+                            const webVariant = experimentForm.variants[variant]
+                            if (webVariant) {
+                                webVariant.transforms[tIndex].text = value
+                                if (transform.selector) {
+                                    const element =document.querySelector(transform.selector) as HTMLElement
+                                    if (element) {
+                                        element.innerText = value
+                                    }
+                                }
+                            }
+                        }
+                        setExperimentFormValue('variants', experimentForm.variants )
+                    }}
                     value={transform.text}
-                    stopPropagation={true}
                 />
             )}
 
@@ -61,6 +77,12 @@ export function WebExperimentTransformField({ variant, tIndex, transform }: WebE
                             const webVariant = experimentForm.variants[variant]
                             if (webVariant) {
                                 webVariant.transforms[tIndex].html = value
+                                if (transform.selector) {
+                                    const element =document.querySelector(transform.selector) as HTMLElement
+                                    if (element) {
+                                        element.innerHTML = value
+                                    }
+                                }
                             }
                         }
                         setExperimentFormValue('variants', experimentForm.variants )
@@ -72,10 +94,22 @@ export function WebExperimentTransformField({ variant, tIndex, transform }: WebE
             { transformSelected == 'css' && (
                 <LemonTextArea
                     onChange={(value)=>{
-                        transform.className = value
+                        console.log(`changing className to ${value}`)
+                        if(experimentForm.variants) {
+                            const webVariant = experimentForm.variants[variant]
+                            if (webVariant) {
+                                webVariant.transforms[tIndex].className = value
+                                if (transform.selector) {
+                                    const element =document.querySelector(transform.selector) as HTMLElement
+                                    if (element) {
+                                        element.className = value
+                                    }
+                                }
+                            }
+                        }
+                        setExperimentFormValue('variants', experimentForm.variants )
                     }}
                     value={transform.className}
-                    stopPropagation={true}
                 />
             )}
         </>
