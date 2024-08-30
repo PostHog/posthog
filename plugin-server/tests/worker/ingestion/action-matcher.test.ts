@@ -96,6 +96,7 @@ describe('ActionMatcher', () => {
                       })
                   )
                 : null,
+            pinned_at: null,
         }
         await insertRow(hub.db.postgres, 'posthog_action', action)
         await actionManager.reloadAction(action.team_id, action.id)

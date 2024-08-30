@@ -273,7 +273,7 @@ h11==0.13.0
     #   wsproto
 hexbytes==1.0.0
     # via dlt
-hogql-parser==1.0.38
+hogql-parser==1.0.40
     # via -r requirements.in
 httpcore==1.0.2
     # via httpx

@@ -130,6 +130,8 @@ def sync_execute(
 
         query_type = tags.get("query_type", "Other")
         set_tag("query_type", query_type)
+        if team_id is not None:
+            set_tag("team_id", team_id)
 
         settings = {
             **core_settings,
