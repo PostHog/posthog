@@ -341,6 +341,16 @@ pub async fn process_replay_events<'a>(
     mut events: Vec<RawEvent>,
     context: &'a ProcessingContext,
 ) -> Result<(), CaptureError> {
+    let session_id = events[0]
+        .properties
+        .remove("$session_id")
+        .ok_or(CaptureError::MissingSessionId)?;
+
+    let window_id = events[0]
+        .properties
+        .remove("$window_id")
+        .unwrap_or(session_id.clone());
+
     let mut snapshot_items: Vec<Value> = Vec::with_capacity(events.len());
     for mut event in events.drain(..) {
         let Some(snapshot_data) = event.properties.remove("$snapshot_data") else {
@@ -359,11 +369,6 @@ pub async fn process_replay_events<'a>(
         }
     }
 
-    let session_id = events[0]
-        .properties
-        .get("$session_id")
-        .ok_or(CaptureError::MissingSessionId)?;
-    let window_id = events[0].properties.get("$window_id").unwrap_or(session_id);
     let event = ProcessedEvent {
         data_type: DataType::SnapshotMain,
         uuid: events[0].uuid.unwrap_or_else(uuid_v7),
