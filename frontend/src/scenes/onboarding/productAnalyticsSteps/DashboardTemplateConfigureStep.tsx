@@ -1,11 +1,9 @@
 import { IconArrowRight } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonSkeleton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import {
-    appEditorUrl,
-    authorizedUrlListLogic,
-    AuthorizedUrlListType,
-} from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { IframedToolbarBrowser } from 'lib/components/IframedToolbarBrowser/IframedToolbarBrowser'
+import { iframedToolbarBrowserLogic } from 'lib/components/IframedToolbarBrowser/iframedToolbarBrowserLogic'
 import { useRef, useState } from 'react'
 import { DashboardTemplateVariables } from 'scenes/dashboard/DashboardTemplateVariables'
 import { dashboardTemplateVariablesLogic } from 'scenes/dashboard/dashboardTemplateVariablesLogic'
@@ -21,13 +19,15 @@ export const OnboardingDashboardTemplateConfigureStep = ({
 }: {
     stepKey?: OnboardingStepKey
 }): JSX.Element => {
-    const { activeDashboardTemplate, host } = useValues(onboardingTemplateConfigLogic)
-    const { setHost } = useActions(onboardingTemplateConfigLogic)
+    const iframeRef = useRef<HTMLIFrameElement>(null)
+    const { activeDashboardTemplate } = useValues(onboardingTemplateConfigLogic)
     const { createDashboardFromTemplate } = useActions(newDashboardLogic)
     const { isLoading } = useValues(newDashboardLogic)
     const { variables } = useValues(dashboardTemplateVariablesLogic)
     const { snippetHosts } = useValues(sdksLogic)
     const { addUrl } = useActions(authorizedUrlListLogic({ actionId: null, type: AuthorizedUrlListType.TOOLBAR_URLS }))
+    const { setBrowserUrl } = useActions(iframedToolbarBrowserLogic({ iframeRef, clearBrowserUrlOnUnmount: true }))
+    const { browserUrl } = useValues(iframedToolbarBrowserLogic({ iframeRef, clearBrowserUrlOnUnmount: true }))
 
     const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -45,8 +45,10 @@ export const OnboardingDashboardTemplateConfigureStep = ({
                 <>
                     <div className="grid grid-cols-6 space-x-6 min-h-[80vh]">
                         <div className="col-span-4 relative">
-                            {host ? (
-                                <DashboardTemplateConfigIframe host={host} />
+                            {browserUrl ? (
+                                <div className="border border-1 border-border-bold p-2 rounded h-full w-full">
+                                    <IframedToolbarBrowser iframeRef={iframeRef} userIntent="add-action" />
+                                </div>
                             ) : (
                                 <>
                                     <div className="absolute inset-0 bg-primary-alt-highlight z-10 rounded opacity-80 backdrop-filter backdrop-blur-md flex items-center justify-center" />
@@ -66,7 +68,7 @@ export const OnboardingDashboardTemplateConfigureStep = ({
                                                             status="default"
                                                             onClick={() => {
                                                                 addUrl(host)
-                                                                setHost(host)
+                                                                setBrowserUrl(host)
                                                             }}
                                                             sideIcon={<IconArrowRight />}
                                                         >
@@ -125,32 +127,5 @@ export const OnboardingDashboardTemplateConfigureStep = ({
                 </>
             )}
         </OnboardingStep>
-    )
-}
-
-const DashboardTemplateConfigIframe = ({ host }: { host: string }): JSX.Element => {
-    const iframeRef = useRef<HTMLIFrameElement>(null)
-
-    return (
-        <div className="border border-1 border-border-bold p-2 rounded h-full w-full">
-            <iframe
-                ref={iframeRef}
-                className="w-full h-full rounded"
-                src={appEditorUrl(host, {
-                    userIntent: 'add-action',
-                })}
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{
-                    background: '#FFF',
-                }}
-                // onLoad={onIframeLoad}
-                // these two sandbox values are necessary so that the site and toolbar can run
-                // this is a very loose sandbox,
-                // but we specify it so that at least other capabilities are denied
-                sandbox="allow-scripts allow-same-origin"
-                // we don't allow things such as camera access though
-                allow=""
-            />
-        </div>
     )
 }

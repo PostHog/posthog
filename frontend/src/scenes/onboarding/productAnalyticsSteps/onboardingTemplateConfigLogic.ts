@@ -18,20 +18,12 @@ export const onboardingTemplateConfigLogic = kea<onboardingTemplateConfigLogicTy
             ['goToPreviousStep'],
         ],
     }),
-    actions({
-        setHost: (host: string) => ({ host }),
-    }),
+    actions({}),
     reducers({
         dashboardCreatedDuringOnboarding: [
             null as DashboardType | null,
             {
                 submitNewDashboardSuccessWithResult: (_, { result }) => result,
-            },
-        ],
-        host: [
-            null as string | null,
-            {
-                setHost: (_, { host }) => host,
             },
         ],
     }),
