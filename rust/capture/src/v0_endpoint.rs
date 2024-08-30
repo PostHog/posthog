@@ -359,7 +359,7 @@ pub async fn process_replay_events<'a>(
         .unwrap_or(Value::String(String::from("web")));
 
     let mut snapshot_items: Vec<Value> = Vec::with_capacity(events.len());
-    for mut event in events.drain(..) {
+    for mut event in events {
         let Some(snapshot_data) = event.properties.remove("$snapshot_data") else {
             return Err(CaptureError::MissingSnapshotData);
         };
@@ -375,8 +375,6 @@ pub async fn process_replay_events<'a>(
             }
         }
     }
-
-    drop(events);
 
     let event = ProcessedEvent {
         data_type: DataType::SnapshotMain,
