@@ -95,6 +95,7 @@ from posthog.models.raw_sessions.sql import (
     DISTRIBUTED_RAW_SESSIONS_TABLE_SQL,
     WRITABLE_RAW_SESSIONS_TABLE_SQL,
     RAW_SESSIONS_TABLE_MV_SQL,
+    RAW_SESSIONS_VIEW_SQL,
 )
 from posthog.models.sessions.sql import (
     SESSIONS_TABLE_SQL,
@@ -211,7 +212,7 @@ CREATE_DICTIONARY_QUERIES = (PERSON_OVERRIDES_CREATE_DICTIONARY_SQL, CHANNEL_DEF
 
 CREATE_DATA_QUERIES = (CHANNEL_DEFINITION_DATA_SQL(),)
 
-CREATE_VIEW_QUERIES = (SESSIONS_VIEW_SQL,)
+CREATE_VIEW_QUERIES = (SESSIONS_VIEW_SQL, RAW_SESSIONS_VIEW_SQL)
 
 build_query = lambda query: query if isinstance(query, str) else query()
 get_table_name = lambda query: re.findall(r"[\.\s]`?([a-z0-9_]+)`?\s+ON CLUSTER", build_query(query))[0]

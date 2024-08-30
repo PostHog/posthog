@@ -54,6 +54,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ],
             "created_at": ANY,
             "created_by": ANY,
+            "pinned_at": None,
             "deleted": False,
             "is_calculating": False,
             "last_calculated_at": ANY,
@@ -79,6 +80,8 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "match_url_count": 1,
                 "has_properties": False,
                 "deleted": False,
+                "pinned": False,
+                "pinned_at": None,
             },
         )
 
@@ -128,6 +131,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(Action.objects.count(), count)
 
+    @freeze_time("2021-12-12")
     @patch("posthog.api.action.report_user_action")
     def test_update_action(self, patch_capture, *args):
         user = self._create_user("test_user_update")
@@ -159,6 +163,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "first_name": "person",
                     "email": "person@email.com",
                 },
+                "pinned_at": "2021-12-11T00:00:00Z",
             },
             HTTP_ORIGIN="http://testserver",
         )
@@ -213,6 +218,8 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "has_properties": True,
                 "updated_by_creator": False,
                 "deleted": False,
+                "pinned": True,
+                "pinned_at": "2021-12-12T00:00:00+00:00",
             },
         )
 

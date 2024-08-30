@@ -1,4 +1,4 @@
-fn mandelbrot(re, im, max_iter) {
+fun mandelbrot(re, im, max_iter) {
     let z_re := 0.0
     let z_im := 0.0
     let n := 0
@@ -16,7 +16,7 @@ fn mandelbrot(re, im, max_iter) {
     }
 }
 
-fn main() {
+fun main() {
     let width := 80
     let height := 24
     let xmin := -2.0
