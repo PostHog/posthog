@@ -193,12 +193,6 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
 
                                                             {inspectingElement === tIndex ? (
                                                                 <>
-                                                                    {/*<StepField*/}
-                                                                    {/*    step={step}*/}
-                                                                    {/*    item="selector"*/}
-                                                                    {/*    label="Selector"*/}
-                                                                    {/*    caption="CSS selector that uniquely identifies your element"*/}
-                                                                    {/*/>*/}
                                                                     <div className="flex flex-row justify-end mb-2">
                                                                         <LemonButton
                                                                             size="small"
@@ -226,141 +220,10 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                             </div>
                                     </Group>
                                 ))}
-                                {/*{ Object.keys(experimentForm.variants!).map (variant) => (*/}
-                                {/*    <h3> {variant} </h3>*/}
-                                {/*})) }*/}
                             </div>
                         </Group>
                     </div>
                 </ToolbarMenu.Body>
-                    {/*    { for( const variant in experimentForm.variants?) {*/}
-                    {/*        <Group key={variant} name={['variants', variant]}>*/}
-                    {/*            <LemonDivider/>*/}
-                    {/*            <div key={variant} className="p-1 flex flex-col gap-2">*/}
-                    {/*                <div className="flex flex-row justify-between">*/}
-                    {/*                    <h3>*/}
-                    {/*                        {index > 0 ? 'OR ' : null}Transform #{index + 1}*/}
-                    {/*                    </h3>*/}
-                    {/*                    <LemonButton*/}
-                    {/*                        type="tertiary"*/}
-                    {/*                        size="small"*/}
-                    {/*                        onClick={() =>*/}
-                    {/*                            setExperimentFormValue(*/}
-                    {/*                                'variants',*/}
-                    {/*                                //experimentForm.variants without the variant at index*/}
-                    {/*                                experimentForm.variants?.filter((_, i) => i !== index)*/}
-                    {/*                            )*/}
-                    {/*                        }*/}
-                    {/*                        sideIcon={<IconTrash />}*/}
-                    {/*                    >*/}
-                    {/*                        Remove*/}
-                    {/*                    </LemonButton>*/}
-                    {/*                </div>*/}
-
-                    {/*                <div className="action-inspect">*/}
-                    {/*                    <LemonButton*/}
-                    {/*                        size="small"*/}
-                    {/*                        type={inspectingElement === index ? 'primary' : 'secondary'}*/}
-                    {/*                        onClick={(e) => {*/}
-                    {/*                            e.stopPropagation()*/}
-                    {/*                            inspectForElementWithIndex(inspectingElement === index ? null : index)*/}
-                    {/*                        }}*/}
-                    {/*                        icon={<IconSearch />}*/}
-                    {/*                    >*/}
-                    {/*                        {'Select Element'}*/}
-                    {/*                    </LemonButton>*/}
-                    {/*                </div>*/}
-
-                    {/*                {variant?.event === '$autocapture' || inspectingElement === index ? (*/}
-                    {/*                    <>*/}
-                    {/*                        <StepField*/}
-                    {/*                            variant={variant}*/}
-                    {/*                            item="selector"*/}
-                    {/*                            label="Selector"*/}
-                    {/*                            caption="CSS selector that uniquely identifies your element"*/}
-                    {/*                        />*/}
-                    {/*                        <div className="flex flex-row justify-end mb-2">*/}
-                    {/*                            <LemonButton*/}
-                    {/*                                size="small"*/}
-                    {/*                                type="secondary"*/}
-                    {/*                                icon={<IconPencil />}*/}
-                    {/*                                onClick={(e) => {*/}
-                    {/*                                    e.stopPropagation()*/}
-                    {/*                                    toolbarPosthogJS.capture(*/}
-                    {/*                                        'toolbar_manual_selector_modal_opened',*/}
-                    {/*                                        {*/}
-                    {/*                                            selector: variant?.selector,*/}
-                    {/*                                        }*/}
-                    {/*                                    )*/}
-                    {/*                                    editSelectorWithIndex(index)*/}
-                    {/*                                }}*/}
-                    {/*                            >*/}
-                    {/*                                Edit the selector*/}
-                    {/*                            </LemonButton>*/}
-                    {/*                        </div>*/}
-                    {/*                        <StepField*/}
-                    {/*                            variant={variant}*/}
-                    {/*                            item="href"*/}
-                    {/*                            label="Link target"*/}
-                    {/*                            caption={*/}
-                    {/*                                <>*/}
-                    {/*                                    If your element is a link, the location that the link opens (*/}
-                    {/*                                    <code>href</code> tag)*/}
-                    {/*                                </>*/}
-                    {/*                            }*/}
-                    {/*                        />*/}
-                    {/*                        <LemonTag type="highlight">*/}
-                    {/*                            <span className="uppercase">and</span>*/}
-                    {/*                        </LemonTag>*/}
-                    {/*                        <StepField*/}
-                    {/*                            variant={variant}*/}
-                    {/*                            item="text"*/}
-                    {/*                            label="Text"*/}
-                    {/*                            caption="Text content inside your element"*/}
-                    {/*                        />*/}
-                    {/*                        <LemonTag type="highlight">*/}
-                    {/*                            <span className="uppercase">and</span>*/}
-                    {/*                        </LemonTag>*/}
-                    {/*                        <StepField*/}
-                    {/*                            variant={variant}*/}
-                    {/*                            item="url"*/}
-                    {/*                            label="Page URL"*/}
-                    {/*                            caption="Elements will match only when triggered from the URL."*/}
-                    {/*                        />*/}
-                    {/*                    </>*/}
-                    {/*                ) : null}*/}
-
-                    {/*                {index === (experimentForm.variants?.length || 0) - 1 ? (*/}
-                    {/*                    <div className="text-right mt-4">*/}
-                    {/*                        <LemonButton*/}
-                    {/*                            type="secondary"*/}
-                    {/*                            size="small"*/}
-                    {/*                            sideIcon={<IconPlus />}*/}
-                    {/*                            onClick={() =>*/}
-                    {/*                                setExperimentFormValue('variants', [...(experimentForm.variants || []), {}])*/}
-                    {/*                            }*/}
-                    {/*                        >*/}
-                    {/*                            Add Another Element*/}
-                    {/*                        </LemonButton>*/}
-                    {/*                    </div>*/}
-                    {/*                ) : null}*/}
-                    {/*            </div>*/}
-                    {/*        </Group>*/}
-                    {/*    ))}*/}
-
-                    {/*    {(experimentForm.variants || []).length === 0 ? (*/}
-                    {/*        <LemonButton*/}
-                    {/*            icon={<IconPlus />}*/}
-                    {/*            size="small"*/}
-                    {/*            type="primary"*/}
-                    {/*            onClick={() => setExperimentFormValue('variants', [...(experimentForm.variants || []), {}])}*/}
-                    {/*            className="my-2"*/}
-                    {/*        >*/}
-                    {/*            Add An Element*/}
-                    {/*        </LemonButton>*/}
-                    {/*    ) : null}*/}
-                    {/*</div>*/}
-                {/*</ToolbarMenu.Body>*/}
                 <ToolbarMenu.Footer>
                     <span className="flex-1">
                         {selectedExperimentId !== 'new' ? (
