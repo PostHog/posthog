@@ -80,7 +80,7 @@ export const OnboardingStep = ({
                             )
                         })}
                     </div>
-                    <h1 className="font-bold m-0 mt-3 px-2">
+                    <h1 className={`font-bold m-0 mt-3 px-2 ${fullWidth && 'text-center'}`}>
                         {title || stepKeyToTitle(currentOnboardingStep?.props.stepKey)}
                     </h1>
                 </div>

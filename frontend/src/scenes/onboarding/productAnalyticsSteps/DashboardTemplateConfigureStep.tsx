@@ -37,27 +37,13 @@ export const OnboardingDashboardTemplateConfigureStep = ({
             stepKey={stepKey}
             breadcrumbHighlightName={OnboardingStepKey.DASHBOARD_TEMPLATE}
             fullWidth
-            continueOverride={
-                <LemonButton
-                    type="primary"
-                    onClick={() => {
-                        if (activeDashboardTemplate) {
-                            setIsSubmitting(true)
-                            createDashboardFromTemplate(activeDashboardTemplate, variables, false)
-                        }
-                    }}
-                    loading={isLoading}
-                >
-                    Create dashboard
-                </LemonButton>
-            }
+            continueOverride={<></>}
         >
             {isSubmitting || isLoading ? (
                 <p>Creating dashboard...</p>
             ) : (
                 <>
-                    <p>Select the events or website elements that represent important parts of your funnel.</p>
-                    <div className="grid grid-cols-6 space-x-4">
+                    <div className="grid grid-cols-6 space-x-6 min-h-[80vh]">
                         <div className="col-span-4 relative">
                             {host ? (
                                 <DashboardTemplateConfigIframe host={host} />
@@ -118,6 +104,22 @@ export const OnboardingDashboardTemplateConfigureStep = ({
                         </div>
                         <div className="col-span-2">
                             <DashboardTemplateVariables />
+                            <LemonButton
+                                type="primary"
+                                status="alt"
+                                onClick={() => {
+                                    if (activeDashboardTemplate) {
+                                        setIsSubmitting(true)
+                                        createDashboardFromTemplate(activeDashboardTemplate, variables, false)
+                                    }
+                                }}
+                                loading={isLoading}
+                                fullWidth
+                                center
+                                className="mt-6"
+                            >
+                                Create dashboard
+                            </LemonButton>
                         </div>
                     </div>
                 </>
@@ -128,24 +130,27 @@ export const OnboardingDashboardTemplateConfigureStep = ({
 
 const DashboardTemplateConfigIframe = ({ host }: { host: string }): JSX.Element => {
     const iframeRef = useRef<HTMLIFrameElement>(null)
+
     return (
-        <iframe
-            ref={iframeRef}
-            className="w-full h-full"
-            src={appEditorUrl(host, {
-                userIntent: 'add-action',
-            })}
-            // eslint-disable-next-line react/forbid-dom-props
-            style={{
-                background: '#FFF',
-            }}
-            // onLoad={onIframeLoad}
-            // these two sandbox values are necessary so that the site and toolbar can run
-            // this is a very loose sandbox,
-            // but we specify it so that at least other capabilities are denied
-            sandbox="allow-scripts allow-same-origin"
-            // we don't allow things such as camera access though
-            allow=""
-        />
+        <div className="border border-1 border-border-bold p-2 rounded h-full w-full">
+            <iframe
+                ref={iframeRef}
+                className="w-full h-full rounded"
+                src={appEditorUrl(host, {
+                    userIntent: 'add-action',
+                })}
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{
+                    background: '#FFF',
+                }}
+                // onLoad={onIframeLoad}
+                // these two sandbox values are necessary so that the site and toolbar can run
+                // this is a very loose sandbox,
+                // but we specify it so that at least other capabilities are denied
+                sandbox="allow-scripts allow-same-origin"
+                // we don't allow things such as camera access though
+                allow=""
+            />
+        </div>
     )
 }
