@@ -166,7 +166,7 @@ pub struct PropertiesCache {
 // for all teams. If not, we can have a LRU cache, or a cache that stores only the most recent N keys.
 // But, this can be a future refactor, for now just focusing on getting the basic matcher working, write lots and lots of tests
 // and then we can easily refactor stuff around.
-// #[derive(Debug)]
+#[derive(Clone)]
 pub struct FeatureFlagMatcher {
     pub distinct_id: String,
     pub team_id: TeamId,
@@ -175,6 +175,8 @@ pub struct FeatureFlagMatcher {
     group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
     group_type_mapping_cache: Arc<GroupTypeMappingCache>,
     properties_cache: Arc<RwLock<PropertiesCache>>,
+    #[cfg(test)]
+    test_hash: Option<f64>,
 }
 
 const LONG_SCALE: u64 = 0xfffffffffffffff;
@@ -199,6 +201,8 @@ impl FeatureFlagMatcher {
                 .unwrap_or_else(|| Arc::new(GroupTypeMappingCache::new(team_id, database_client))),
             properties_cache: properties_cache
                 .unwrap_or_else(|| Arc::new(RwLock::new(PropertiesCache::default()))),
+            #[cfg(test)]
+            test_hash: None,
         }
     }
 
@@ -592,11 +596,21 @@ impl FeatureFlagMatcher {
         }
     }
 
+    #[cfg(test)]
+    pub fn with_test_hash(mut self, hash: f64) -> Self {
+        self.test_hash = Some(hash);
+        self
+    }
+
     /// This function takes a identifier and a feature flag key and returns a float between 0 and 1.
     /// Given the same identifier and key, it'll always return the same float. These floats are
     /// uniformly distributed between 0 and 1, so if we want to show this feature to 20% of traffic
     /// we can do _hash(key, identifier) < 0.2
     async fn get_hash(&self, feature_flag: &FeatureFlag, salt: &str) -> Result<f64, FlagError> {
+        #[cfg(test)]
+        if let Some(test_hash) = self.test_hash {
+            return Ok(test_hash);
+        }
         let hashed_identifier = self.hashed_identifier(feature_flag).await?;
         let hash_key = format!("{}.{}{}", feature_flag.key, hashed_identifier, salt);
         let mut hasher = Sha1::new();
@@ -619,11 +633,17 @@ impl FeatureFlagMatcher {
         feature_flag: &FeatureFlag,
     ) -> Result<Option<String>, FlagError> {
         let hash = self.get_hash(feature_flag, "variant").await?;
-        let mut total_percentage = 0.0;
+        let mut cumulative_percentage = 0.0;
+
+        println!("Hash: {}", hash); // Debug print
 
         for variant in feature_flag.get_variants() {
-            total_percentage += variant.rollout_percentage / 100.0;
-            if hash < total_percentage {
+            cumulative_percentage += variant.rollout_percentage / 100.0;
+            println!(
+                "Variant: {}, Cumulative Percentage: {}",
+                variant.key, cumulative_percentage
+            ); // Debug print
+            if hash < cumulative_percentage {
                 return Ok(Some(variant.key.clone()));
             }
         }
@@ -673,7 +693,9 @@ mod tests {
 
     use super::*;
     use crate::{
-        flag_definitions::{FlagFilters, MultivariateFlagOptions, MultivariateFlagVariant},
+        flag_definitions::{
+            FlagFilters, MultivariateFlagOptions, MultivariateFlagVariant, OperatorType,
+        },
         test_utils::{insert_new_team_in_pg, insert_person_for_team_in_pg, setup_pg_client},
     };
 
@@ -1000,5 +1022,527 @@ mod tests {
             active: true,
             ensure_experience_continuity: false,
         }
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_feature_flags() {
+        let client = setup_pg_client(None).await;
+        let team = insert_new_team_in_pg(client.clone()).await.unwrap();
+
+        let active_flag = create_test_flag(team.id, vec![]);
+        let mut inactive_flag = create_test_flag(team.id, vec![]);
+        inactive_flag.active = false;
+
+        let mut group_flag = create_test_flag(team.id, vec![]);
+        group_flag.filters.aggregation_group_type_index = Some(1);
+        group_flag.key = "group_flag".to_string();
+
+        let flags = FeatureFlagList {
+            flags: vec![active_flag, inactive_flag, group_flag],
+        };
+
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            team.id,
+            Some(client.clone()),
+            None,
+            None,
+            None,
+            None,
+        );
+
+        let result = matcher.evaluate_feature_flags(flags).await;
+
+        println!("Resulting flags: {:?}", result.feature_flags);
+        println!(
+            "Error while computing: {}",
+            result.error_while_computing_flags
+        );
+
+        assert_eq!(
+            result.feature_flags.len(),
+            2,
+            "Expected 2 flags, got {}",
+            result.feature_flags.len()
+        );
+        assert!(
+            result.feature_flags.contains_key("test_flag"),
+            "Missing test_flag"
+        );
+        assert!(
+            result.feature_flags.contains_key("group_flag"),
+            "Missing group_flag"
+        );
+        assert!(!result.error_while_computing_flags);
+    }
+
+    #[tokio::test]
+    async fn test_get_match_multiple_conditions() {
+        let client = setup_pg_client(None).await;
+        let team = insert_new_team_in_pg(client.clone()).await.unwrap();
+
+        let mut flag = create_test_flag(team.id, vec![]);
+        flag.filters.groups = vec![
+            FlagGroupType {
+                properties: Some(vec![PropertyFilter {
+                    key: "email".to_string(),
+                    value: json!("test@example.com"),
+                    operator: None,
+                    prop_type: "person".to_string(),
+                    group_type_index: None,
+                }]),
+                rollout_percentage: Some(50.0),
+                variant: None,
+            },
+            FlagGroupType {
+                properties: Some(vec![PropertyFilter {
+                    key: "country".to_string(),
+                    value: json!("US"),
+                    operator: None,
+                    prop_type: "person".to_string(),
+                    group_type_index: None,
+                }]),
+                rollout_percentage: Some(100.0),
+                variant: None,
+            },
+        ];
+
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            team.id,
+            Some(client.clone()),
+            Some(HashMap::from([
+                ("email".to_string(), json!("test@example.com")),
+                ("country".to_string(), json!("US")),
+            ])),
+            None,
+            None,
+            None,
+        );
+
+        let match_result = matcher.get_match(&flag).await.unwrap();
+        assert!(match_result.matches);
+    }
+
+    #[tokio::test]
+    async fn test_check_rollout() {
+        let client = setup_pg_client(None).await;
+        let team = insert_new_team_in_pg(client.clone()).await.unwrap();
+
+        let flag = create_test_flag(team.id, vec![]);
+        let base_matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            team.id,
+            Some(client.clone()),
+            None,
+            None,
+            None,
+            None,
+        );
+
+        // Test 0% rollout
+        let matcher = base_matcher.clone().with_test_hash(0.5);
+        let (is_match, reason) = matcher.check_rollout(&flag, 0.0).await.unwrap();
+        assert!(!is_match);
+        assert_eq!(reason, "OUT_OF_ROLLOUT_BOUND");
+
+        // Test 100% rollout
+        let matcher = base_matcher.clone().with_test_hash(0.99);
+        let (is_match, reason) = matcher.check_rollout(&flag, 100.0).await.unwrap();
+        assert!(is_match);
+        assert_eq!(reason, "CONDITION_MATCH");
+
+        // Test 50% rollout
+        // User just within the rollout
+        let matcher = base_matcher.clone().with_test_hash(0.49);
+        let (is_match, reason) = matcher.check_rollout(&flag, 50.0).await.unwrap();
+        assert!(is_match);
+        assert_eq!(reason, "CONDITION_MATCH");
+
+        // User just outside the rollout
+        let matcher = base_matcher.clone().with_test_hash(0.51);
+        let (is_match, reason) = matcher.check_rollout(&flag, 50.0).await.unwrap();
+        assert!(!is_match);
+        assert_eq!(reason, "OUT_OF_ROLLOUT_BOUND");
+
+        // Edge cases
+        // Test with 0.0 hash (should always be in rollout except for 0%)
+        let matcher = base_matcher.clone().with_test_hash(0.0);
+        let (is_match, _) = matcher.check_rollout(&flag, 0.1).await.unwrap();
+        assert!(is_match);
+
+        // Test with 0.99999 hash (should only be in rollout for 100%)
+        let matcher = base_matcher.clone().with_test_hash(0.99999);
+        let (is_match, _) = matcher.check_rollout(&flag, 99.9).await.unwrap();
+        assert!(!is_match);
+        let (is_match, _) = matcher.check_rollout(&flag, 100.0).await.unwrap();
+        assert!(is_match);
+    }
+
+    #[tokio::test]
+    async fn test_is_condition_match_complex() {
+        let client = setup_pg_client(None).await;
+        let team = insert_new_team_in_pg(client.clone()).await.unwrap();
+
+        let flag = create_test_flag(team.id, vec![]);
+        let condition = FlagGroupType {
+            properties: Some(vec![
+                PropertyFilter {
+                    key: "email".to_string(),
+                    value: json!("test@example.com"),
+                    operator: Some(OperatorType::Exact),
+                    prop_type: "person".to_string(),
+                    group_type_index: None,
+                },
+                PropertyFilter {
+                    key: "age".to_string(),
+                    value: json!(25),
+                    operator: Some(OperatorType::Gte),
+                    prop_type: "person".to_string(),
+                    group_type_index: None,
+                },
+            ]),
+            rollout_percentage: Some(50.0),
+            variant: None,
+        };
+
+        let matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            team.id,
+            Some(client.clone()),
+            Some(HashMap::from([
+                ("email".to_string(), json!("test@example.com")),
+                ("age".to_string(), json!(30)),
+            ])),
+            None,
+            None,
+            None,
+        )
+        .with_test_hash(0.4); // Set a hash value that falls within the 50% rollout
+
+        let (is_match, reason) = matcher
+            .is_condition_match(&flag, &condition, 0)
+            .await
+            .unwrap();
+
+        assert!(
+            is_match,
+            "Expected a match, but got: is_match = {}, reason = {}",
+            is_match, reason
+        );
+
+        // Test with a hash value outside the rollout percentage
+        let matcher_outside_rollout = matcher.with_test_hash(0.6);
+        let (is_match, reason) = matcher_outside_rollout
+            .is_condition_match(&flag, &condition, 0)
+            .await
+            .unwrap();
+
+        assert!(
+            !is_match,
+            "Expected no match due to rollout, but got: is_match = {}, reason = {}",
+            is_match, reason
+        );
+    }
+    #[tokio::test]
+    async fn test_property_fetching_and_caching() {
+        let client = setup_pg_client(None).await;
+        let team = insert_new_team_in_pg(client.clone()).await.unwrap();
+
+        let distinct_id = "test_user".to_string();
+        insert_person_for_team_in_pg(
+            client.clone(),
+            team.id,
+            distinct_id.clone(),
+            Some(json!({"email": "test@example.com", "age": 30})),
+        )
+        .await
+        .unwrap();
+
+        let matcher = FeatureFlagMatcher::new(
+            distinct_id,
+            team.id,
+            Some(client.clone()),
+            None,
+            None,
+            None,
+            None,
+        );
+
+        let properties = matcher
+            .get_person_properties(&[PropertyFilter {
+                key: "email".to_string(),
+                value: json!("test@example.com"),
+                operator: None,
+                prop_type: "person".to_string(),
+                group_type_index: None,
+            }])
+            .await
+            .unwrap();
+
+        assert_eq!(properties.get("email").unwrap(), &json!("test@example.com"));
+        assert_eq!(properties.get("age").unwrap(), &json!(30));
+
+        // Check if properties are cached
+        let cached_properties = matcher
+            .properties_cache
+            .read()
+            .await
+            .person_properties
+            .clone();
+        assert!(cached_properties.is_some());
+        assert_eq!(
+            cached_properties.unwrap().get("email").unwrap(),
+            &json!("test@example.com")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_can_compute_property_overrides_locally() {
+        let overrides = Some(HashMap::from([
+            ("email".to_string(), json!("test@example.com")),
+            ("age".to_string(), json!(30)),
+        ]));
+
+        let property_filters = vec![
+            PropertyFilter {
+                key: "email".to_string(),
+                value: json!("test@example.com"),
+                operator: None,
+                prop_type: "person".to_string(),
+                group_type_index: None,
+            },
+            PropertyFilter {
+                key: "age".to_string(),
+                value: json!(25),
+                operator: Some(OperatorType::Gte),
+                prop_type: "person".to_string(),
+                group_type_index: None,
+            },
+        ];
+
+        let result = can_compute_property_overrides_locally(&overrides, &property_filters);
+        assert!(result.is_some());
+
+        let property_filters_with_cohort = vec![
+            PropertyFilter {
+                key: "email".to_string(),
+                value: json!("test@example.com"),
+                operator: None,
+                prop_type: "person".to_string(),
+                group_type_index: None,
+            },
+            PropertyFilter {
+                key: "cohort".to_string(),
+                value: json!(1),
+                operator: None,
+                prop_type: "cohort".to_string(),
+                group_type_index: None,
+            },
+        ];
+
+        let result =
+            can_compute_property_overrides_locally(&overrides, &property_filters_with_cohort);
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_all_properties_match() {
+        let properties = HashMap::from([
+            ("email".to_string(), json!("test@example.com")),
+            ("age".to_string(), json!(30)),
+            ("country".to_string(), json!("US")),
+        ]);
+
+        let matching_filters = vec![
+            PropertyFilter {
+                key: "email".to_string(),
+                value: json!("test@example.com"),
+                operator: Some(OperatorType::Exact),
+                prop_type: "person".to_string(),
+                group_type_index: None,
+            },
+            PropertyFilter {
+                key: "age".to_string(),
+                value: json!(25),
+                operator: Some(OperatorType::Gte),
+                prop_type: "person".to_string(),
+                group_type_index: None,
+            },
+        ];
+
+        assert!(all_properties_match(&matching_filters, &properties));
+
+        let non_matching_filters = vec![
+            PropertyFilter {
+                key: "email".to_string(),
+                value: json!("test@example.com"),
+                operator: Some(OperatorType::Exact),
+                prop_type: "person".to_string(),
+                group_type_index: None,
+            },
+            PropertyFilter {
+                key: "country".to_string(),
+                value: json!("UK"),
+                operator: Some(OperatorType::Exact),
+                prop_type: "person".to_string(),
+                group_type_index: None,
+            },
+        ];
+
+        assert!(!all_properties_match(&non_matching_filters, &properties));
+    }
+
+    #[tokio::test]
+    async fn test_error_handling() {
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            1,
+            None, // No database client
+            None,
+            None,
+            None,
+            None,
+        );
+
+        let flag = create_test_flag(
+            1,
+            vec![PropertyFilter {
+                key: "email".to_string(),
+                value: json!("test@example.com"),
+                operator: None,
+                prop_type: "person".to_string(),
+                group_type_index: None,
+            }],
+        );
+
+        let result = matcher.get_match(&flag).await;
+        assert!(matches!(result, Err(FlagError::DatabaseUnavailable)));
+    }
+
+    #[tokio::test]
+    async fn test_multivariate_flag_distribution() {
+        let client = setup_pg_client(None).await;
+        let team = insert_new_team_in_pg(client.clone()).await.unwrap();
+
+        let flag = create_test_flag_with_variants(team.id);
+
+        // Verify flag setup
+        assert_eq!(flag.get_variants().len(), 3, "Flag should have 3 variants");
+        assert_eq!(flag.get_variants()[0].rollout_percentage, 33.0);
+        assert_eq!(flag.get_variants()[1].rollout_percentage, 33.0);
+        assert_eq!(flag.get_variants()[2].rollout_percentage, 34.0);
+
+        let matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            team.id,
+            Some(client.clone()),
+            None,
+            None,
+            None,
+            None,
+        );
+
+        let hash = matcher.get_hash(&flag, "variant").await.unwrap();
+        assert!(hash >= 0.0 && hash <= 1.0, "Hash should be between 0 and 1");
+
+        let variant = matcher.get_matching_variant(&flag).await.unwrap();
+        assert!(variant.is_some(), "A variant should be selected");
+
+        // Test with specific hash values
+        let test_cases = [
+            (0.1, "control"),
+            (0.3, "control"),
+            (0.5, "test"),
+            (0.7, "test2"),
+            (0.9, "test2"),
+        ];
+
+        for (test_hash, expected_variant) in test_cases.iter() {
+            let test_matcher = matcher.clone().with_test_hash(*test_hash);
+            let test_variant = test_matcher.get_matching_variant(&flag).await.unwrap();
+            assert_eq!(
+                test_variant.as_deref(),
+                Some(*expected_variant),
+                "For hash {}, expected variant {}",
+                test_hash,
+                expected_variant
+            );
+        }
+
+        // Test distribution over 100 iterations
+        let mut variant_counts: HashMap<String, i32> = HashMap::new();
+        let iterations = 100;
+
+        for i in 0..iterations {
+            let test_hash = i as f64 / iterations as f64;
+            let test_matcher = matcher.clone().with_test_hash(test_hash);
+            let test_variant = test_matcher.get_matching_variant(&flag).await.unwrap();
+            if let Some(variant) = test_variant.as_ref() {
+                *variant_counts.entry(variant.clone()).or_insert(0) += 1;
+            }
+        }
+
+        assert_eq!(
+            variant_counts.len(),
+            3,
+            "All 3 variants should be represented"
+        );
+
+        let control_count = *variant_counts.get("control").unwrap_or(&0);
+        let test_count = *variant_counts.get("test").unwrap_or(&0);
+        let test2_count = *variant_counts.get("test2").unwrap_or(&0);
+
+        // With only 100 iterations, we'll use a larger tolerance
+        let tolerance: i32 = 10; // Allow for more variance with fewer iterations
+
+        assert!(
+            (control_count - 33_i32).abs() <= tolerance,
+            "Control count {} should be close to 33",
+            control_count
+        );
+        assert!(
+            (test_count - 33_i32).abs() <= tolerance,
+            "Test count {} should be close to 33",
+            test_count
+        );
+        assert!(
+            (test2_count - 34_i32).abs() <= tolerance,
+            "Test2 count {} should be close to 34",
+            test2_count
+        );
+    }
+    #[tokio::test]
+    async fn test_concurrent_flag_evaluation() {
+        let client = setup_pg_client(None).await;
+        let team = insert_new_team_in_pg(client.clone()).await.unwrap();
+        let flag = Arc::new(create_test_flag(team.id, vec![]));
+
+        let mut handles = vec![];
+        for i in 0..100 {
+            let flag_clone = flag.clone();
+            let client_clone = client.clone();
+            handles.push(tokio::spawn(async move {
+                let mut matcher = FeatureFlagMatcher::new(
+                    format!("test_user_{}", i),
+                    team.id,
+                    Some(client_clone),
+                    None,
+                    None,
+                    None,
+                    None,
+                );
+                matcher.get_match(&flag_clone).await.unwrap()
+            }));
+        }
+
+        let results: Vec<FeatureFlagMatch> = futures::future::join_all(handles)
+            .await
+            .into_iter()
+            .map(|r| r.unwrap())
+            .collect();
+
+        // Check that all evaluations completed without errors
+        assert_eq!(results.len(), 100);
     }
 }

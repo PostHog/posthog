@@ -29,8 +29,11 @@ serde-pickle = { version = "1.1.1"}
 sha1 = "0.10.6"
 regex = "1.10.4"
 maxminddb = "0.17"
+futures = "0.3.30" 
 sqlx = { workspace = true }
 uuid = { workspace = true }
+base64.workspace = true
+flate2.workspace = true
 
 [lints]
 workspace = true
