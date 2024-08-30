@@ -5,6 +5,7 @@ from typing import Any, Optional
 @dataclass
 class CallFrame:
     ip: int
+    chunk: str
     stack_start: int
     arg_len: int
     closure: dict
@@ -44,6 +45,7 @@ def is_hog_callable(obj: Any) -> bool:
         and "__hogCallable__" in obj
         and "argCount" in obj
         and "ip" in obj
+        # and "chunk" in obj # TODO: enable after this has been live for some hours
         and "upvalueCount" in obj
     )
 
@@ -60,10 +62,11 @@ def new_hog_closure(callable: dict, upvalues: Optional[list] = None) -> dict:
     }
 
 
-def new_hog_callable(type: str, arg_count: int, upvalue_count: int, ip: int, name: str) -> dict:
+def new_hog_callable(type: str, arg_count: int, upvalue_count: int, ip: int, name: str, chunk: str) -> dict:
     return {
         "__hogCallable__": type,
         "name": name,
+        "chunk": chunk,
         "argCount": arg_count,
         "upvalueCount": upvalue_count,
         "ip": ip,

@@ -6,6 +6,7 @@ import cors from 'cors'
 import cssnano from 'cssnano'
 import { analyzeMetafile, context } from 'esbuild'
 import { lessLoader } from 'esbuild-plugin-less'
+import { polyfillNode } from 'esbuild-plugin-polyfill-node'
 import { sassPlugin } from 'esbuild-sass-plugin'
 import express from 'express'
 import fse from 'fs-extra'
@@ -146,6 +147,11 @@ export const commonConfig = {
             },
         }),
         lessLoader({ javascriptEnabled: true }),
+        polyfillNode({
+            polyfills: {
+                crypto: true,
+            },
+        }),
     ],
     tsconfig: isDev ? 'tsconfig.dev.json' : 'tsconfig.json',
     define: {
@@ -412,10 +418,9 @@ export function startDevServer(absWorkingDir) {
         console.log(`👀 Starting dev server`)
         server = startServer({ absWorkingDir })
         return server
-    } else {
-        console.log(`🛳 Starting production build`)
-        return null
     }
+    console.log(`🛳 Starting production build`)
+    return null
 }
 
 export function startServer(opts = {}) {
