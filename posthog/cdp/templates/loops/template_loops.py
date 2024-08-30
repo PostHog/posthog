@@ -9,17 +9,14 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     icon_url="/static/services/loops.png",
     hog="""
 let apiKey := inputs.apiKey
-let shouldTrackIdentify := inputs.shouldTrackIdentify
 
 let payload := {
     'userId': event.distinct_id,
     'eventName': event.name == '$set' ? '$identify' : event.name,
     'email': person.properties.email
 }
-if (shouldTrackIdentify and (event.name in ('$identify', '$set'))) {
-    for (let key, value in person.properties) {
-        payload[key] := value
-    }
+for (let key, value in person.properties) {
+    payload[key] := value
 }
 fetch('https://app.loops.so/api/v1/events/send', {
     'method': 'POST',
@@ -39,15 +36,6 @@ fetch('https://app.loops.so/api/v1/events/send', {
             "default": "",
             "secret": True,
             "required": True,
-        },
-        {
-            "key": "shouldTrackIdentify",
-            "type": "boolean",
-            "label": "Send identify events to populate Loops user properties?",
-            "description": "Send identify events to populate Loops user properties?",
-            "default": True,
-            "secret": False,
-            "required": False,
-        },
+        }
     ],
 )
