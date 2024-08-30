@@ -1155,6 +1155,17 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: 'URL a user visited during their session',
         },
     },
+    log_entries: {
+        level: {
+            label: 'Console log level',
+            description: 'Level of the ',
+            examples: ['info', 'warn', 'error'],
+        },
+        message: {
+            label: 'Console log message',
+            description: 'The contents of the log message',
+        },
+    },
 } satisfies Partial<Record<TaxonomicFilterGroupType, Record<string, CoreFilterDefinition>>>
 
 CORE_FILTER_DEFINITIONS_BY_GROUP.numerical_event_properties = CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties
