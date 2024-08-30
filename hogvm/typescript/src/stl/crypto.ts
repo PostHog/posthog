@@ -1,14 +1,26 @@
-import * as crypto from 'crypto'
+import { ExecOptions } from '../types'
 
-export function sha256Hex(data: string): string {
+export function sha256Hex(data: string, options?: ExecOptions): string {
+    const crypto = options?.external?.crypto
+    if (!crypto) {
+        throw new Error('The crypto module is required for "sha256Hex" to work.')
+    }
     return crypto.createHash('sha256').update(data).digest('hex')
 }
 
-export function md5Hex(data: string): string {
+export function md5Hex(data: string, options?: ExecOptions): string {
+    const crypto = options?.external?.crypto
+    if (!crypto) {
+        throw new Error('The crypto module is required for "md5Hex" to work.')
+    }
     return crypto.createHash('md5').update(data).digest('hex')
 }
 
-export function sha256HmacChainHex(data: string[]): string {
+export function sha256HmacChainHex(data: string[], options?: ExecOptions): string {
+    const crypto = options?.external?.crypto
+    if (!crypto) {
+        throw new Error('The crypto module is required for "sha256HmacChainHex" to work.')
+    }
     if (data.length < 2) {
         throw new Error('Data array must contain at least two elements.')
     }

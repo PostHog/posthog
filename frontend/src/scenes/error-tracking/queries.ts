@@ -35,19 +35,16 @@ const toStartOfIntervalFn = {
 export const errorTrackingQuery = ({
     order,
     dateRange,
+    assignee,
     filterTestAccounts,
     filterGroup,
     sparklineSelectedPeriod,
     columns,
     limit = 50,
-}: {
-    order: ErrorTrackingQuery['order']
-    dateRange: DateRange
-    filterTestAccounts: boolean
+}: Pick<ErrorTrackingQuery, 'order' | 'dateRange' | 'assignee' | 'filterTestAccounts' | 'limit'> & {
     filterGroup: UniversalFiltersGroup
     sparklineSelectedPeriod: string | null
     columns?: ('error' | 'volume' | 'occurrences' | 'sessions' | 'users' | 'assignee')[]
-    limit?: number
 }): DataTableNode => {
     const select: string[] = []
     if (!columns) {
@@ -69,6 +66,7 @@ export const errorTrackingQuery = ({
             select: select,
             order: order,
             dateRange: dateRange,
+            assignee: assignee,
             filterGroup: filterGroup as PropertyGroupFilter,
             filterTestAccounts: filterTestAccounts,
             limit: limit,
