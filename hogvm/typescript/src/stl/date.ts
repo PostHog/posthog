@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 
-import { HogDate, HogDateTime, isHogDate, isHogDateTime } from '../objects'
+import { isHogDate, isHogDateTime } from '../objects'
+import { HogDate, HogDateTime } from '../types'
 
 export function toHogDate(year: number, month: number, day: number): HogDate {
     return {

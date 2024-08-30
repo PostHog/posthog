@@ -36,7 +36,7 @@
         // FIXME: suppressImplicitAnyIndexErrors is deprecated and will be removed in TS 5.5, but we have MANY of these
         "suppressImplicitAnyIndexErrors": true, // Index objects by number
         "ignoreDeprecations": "5.0",
-        "lib": ["dom", "es2019"]
+        "lib": ["dom", "es2021"]
     },
     "include": ["frontend/**/*", ".storybook/**/*", "playwright/**/*", "ee/frontend/**/*"],
     "exclude": ["frontend/dist/**/*"],
