@@ -455,7 +455,9 @@ ORDER BY "context.columns.visitors" DESC,
             case WebStatsBreakdown.INITIAL_PAGE:
                 return self._apply_path_cleaning(ast.Field(chain=["session", "$entry_pathname"]))
             case WebStatsBreakdown.EXIT_PAGE:
-                return self._apply_path_cleaning(ast.Field(chain=["session", "$exit_pathname"]))
+                return self._apply_path_cleaning(ast.Field(chain=["session", "$end_pathname"]))
+            case WebStatsBreakdown.EXIT_CLICK:
+                return ast.Field(chain=["session", "$last_external_click_url"])
             case WebStatsBreakdown.INITIAL_REFERRING_DOMAIN:
                 return ast.Field(chain=["session", "$entry_referring_domain"])
             case WebStatsBreakdown.INITIAL_UTM_SOURCE:

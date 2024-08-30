@@ -17,6 +17,10 @@ URL_ACCOUNT_SETTINGS = f"{SITE_URL}/account/settings/"
 URL_ACCOUNT_BILLING = f"{SITE_URL}/account/billing/"
 URL_ACCOUNT_TEAM = f"{SITE_URL}/account/team/"
 
+URL_PRODUCT_AD_LINK = (
+    f"https://shop.example.com/products/10ft-hedgehog-statue?utm_source=hedgebox&utm_medium=paid&utm_campaign=product"
+)
+
 # Event taxonomy
 
 EVENT_SIGNED_UP = "signed_up"  # Properties: from_invite

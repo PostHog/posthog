@@ -43,7 +43,9 @@ const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
         case WebStatsBreakdown.InitialPage:
             return <>Initial Path</>
         case WebStatsBreakdown.ExitPage:
-            return <>Exit Path</>
+            return <>End Path</>
+        case WebStatsBreakdown.ExitClick:
+            return <>Exit Click</>
         case WebStatsBreakdown.InitialChannelType:
             return <>Initial Channel Type</>
         case WebStatsBreakdown.InitialReferringDomain:
@@ -136,7 +138,9 @@ export const webStatsBreakdownToPropertyName = (
         case WebStatsBreakdown.InitialPage:
             return { key: '$entry_pathname', type: PropertyFilterType.Session }
         case WebStatsBreakdown.ExitPage:
-            return { key: '$exit_pathname', type: PropertyFilterType.Session }
+            return { key: '$end_pathname', type: PropertyFilterType.Session }
+        case WebStatsBreakdown.ExitClick:
+            return { key: '$last_external_click_url', type: PropertyFilterType.Session }
         case WebStatsBreakdown.InitialChannelType:
             return { key: '$channel_type', type: PropertyFilterType.Session }
         case WebStatsBreakdown.InitialReferringDomain:

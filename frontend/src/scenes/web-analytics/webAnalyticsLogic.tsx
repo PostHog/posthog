@@ -165,7 +165,8 @@ export enum DeviceTab {
 export enum PathTab {
     PATH = 'PATH',
     INITIAL_PATH = 'INITIAL_PATH',
-    EXIT_PATH = 'EXIT_PATH',
+    END_PATH = 'END_PATH',
+    EXIT_CLICK = 'EXIT_CLICK',
 }
 
 export enum GeographyTab {
@@ -698,7 +699,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     showPathCleaningControls: true,
                                 },
                                 {
-                                    id: PathTab.EXIT_PATH,
+                                    id: PathTab.END_PATH,
                                     title: 'End paths',
                                     linkText: 'End path',
                                     query: {
@@ -717,7 +718,30 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         },
                                         embedded: false,
                                     },
-                                    insightProps: createInsightProps(TileId.PATHS, PathTab.EXIT_PATH),
+                                    insightProps: createInsightProps(TileId.PATHS, PathTab.END_PATH),
+                                    canOpenModal: true,
+                                    showPathCleaningControls: true,
+                                },
+                                {
+                                    id: PathTab.EXIT_CLICK,
+                                    title: 'Exit clicks',
+                                    linkText: 'Exit clicks',
+                                    query: {
+                                        full: true,
+                                        kind: NodeKind.DataTableNode,
+                                        source: {
+                                            kind: NodeKind.WebStatsTableQuery,
+                                            properties: webAnalyticsFilters,
+                                            breakdownBy: WebStatsBreakdown.ExitClick,
+                                            dateRange,
+                                            includeScrollDepth: false,
+                                            sampling,
+                                            limit: 10,
+                                            filterTestAccounts,
+                                        },
+                                        embedded: false,
+                                    },
+                                    insightProps: createInsightProps(TileId.PATHS, PathTab.END_PATH),
                                     canOpenModal: true,
                                     showPathCleaningControls: true,
                                 },
