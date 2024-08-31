@@ -463,6 +463,7 @@ SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR_MAP = {
     "$entry_pathname": "path(finalizeAggregation(entry_url))",
     "$end_current_url": "finalizeAggregation(end_url)",
     "$end_pathname": "path(finalizeAggregation(end_url))",
+    "$last_external_click_url": "finalizeAggregation(last_external_click_url)",
 }
 
 

@@ -35,6 +35,7 @@ import {
     SessionAttributionExplorerQuery,
     StickinessQuery,
     TrendsQuery,
+    WebGoalsQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
     WebTopClicksQuery,
@@ -127,6 +128,10 @@ export function isWebStatsTableQuery(node?: Record<string, any> | null): node is
 
 export function isWebTopClicksQuery(node?: Record<string, any> | null): node is WebTopClicksQuery {
     return node?.kind === NodeKind.WebTopClicksQuery
+}
+
+export function isWebGoalsQuery(node?: Record<string, any> | null): node is WebGoalsQuery {
+    return node?.kind === NodeKind.WebGoalsQuery
 }
 
 export function isSessionAttributionExplorerQuery(
