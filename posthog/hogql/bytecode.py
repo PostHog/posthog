@@ -1,6 +1,6 @@
 import dataclasses
 from datetime import timedelta
-from typing import Any, Optional, cast, TYPE_CHECKING
+from typing import Any, Optional, cast, TYPE_CHECKING, Literal
 from collections.abc import Callable
 
 from hogvm.python.execute import execute_bytecode, BytecodeResult
@@ -95,6 +95,8 @@ class UpValue:
 
 
 class BytecodeCompiler(Visitor):
+    mode: Literal["hog", "ast"]
+
     def __init__(
         self,
         supported_functions: Optional[set[str]] = None,
@@ -104,6 +106,7 @@ class BytecodeCompiler(Visitor):
     ):
         super().__init__()
         self.enclosing = enclosing
+        self.mode = enclosing.mode if enclosing else "hog"
         self.supported_functions = supported_functions or set()
         self.locals: list[Local] = []
         self.upvalues: list[UpValue] = []
@@ -141,7 +144,38 @@ class BytecodeCompiler(Visitor):
         self.locals.append(Local(name=name, depth=self.scope_depth, is_captured=False))
         return len(self.locals) - 1
 
+    #
+    # def _to_hx(self, kind: str, fields: Any) -> Any:
+    #     if self.mode == 'ast':
+    #         return node
+    #     return convert_to_hx(node)
+
+    # def visit(self, node: ast.Expr | ast.Statement | ast.Program):
+    #     return super().visit(node)
+    #
+
+    def _hx(self, obj: dict[str, Any]):
+        return self.visit_dict(ast.Dict(items=[(ast.Constant(value=k), ast.Constant(value=v)) for k, v in obj.items()]))
+
+    def _hx_ast(self, tag: str, obj: dict[str, Any]):
+        response = []
+        response.extend(self.visit(ast.Constant(value="__hx_ast")))
+        response.extend(self.visit(ast.Constant(value=tag)))
+        for key, value in obj.items():
+            response.extend(self.visit(ast.Constant(value=key)))
+            # if isinstance(value, list):
+            #     response.extend(self.visit(ast.Array(items=[self.visit(v) for v in value])))
+            # else:
+            #     response.extend(self.visit(ast.Constant(value=value)))
+            response.extend(self.visit(value))
+        response.append(Operation.DICT)
+        response.append(len(obj.items()) + 1)
+        return response
+
     def visit_and(self, node: ast.And):
+        if self.mode == "ast":
+            return self._hx_ast("And", {"exprs": [self.visit(expr) for expr in node.exprs]})
+
         response = []
         for expr in node.exprs:
             response.extend(self.visit(expr))
@@ -150,6 +184,8 @@ class BytecodeCompiler(Visitor):
         return response
 
     def visit_or(self, node: ast.Or):
+        if self.mode == "ast":
+            return self._hx_ast("Or", {"exprs": [self.visit(expr) for expr in node.exprs]})
         response = []
         for expr in node.exprs:
             response.extend(self.visit(expr))
@@ -158,15 +194,27 @@ class BytecodeCompiler(Visitor):
         return response
 
     def visit_not(self, node: ast.Not):
+        if self.mode == "ast":
+            return self._hx_ast("Not", {"expr": self.visit(node.expr)})
         return [*self.visit(node.expr), Operation.NOT]
 
     def visit_compare_operation(self, node: ast.CompareOperation):
+        if self.mode == "ast":
+            return self._hx_ast(
+                "CompareOperation",
+                {"left": self.visit(node.left), "right": self.visit(node.right), "op": node.op.value},
+            )
         operation = COMPARE_OPERATIONS[node.op]
         if operation in [Operation.IN_COHORT, Operation.NOT_IN_COHORT]:
             raise QueryError("Cohort operations are not supported")
         return [*self.visit(node.right), *self.visit(node.left), operation]
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
+        if self.mode == "ast":
+            return self._hx_ast(
+                "ArithmeticOperation",
+                {"left": self.visit(node.left), "right": self.visit(node.right), "op": node.op.value},
+            )
         return [
             *self.visit(node.right),
             *self.visit(node.left),
@@ -196,6 +244,8 @@ class BytecodeCompiler(Visitor):
         return -1
 
     def visit_field(self, node: ast.Field):
+        if self.mode == "ast":
+            return self._hx_ast("Field", {"chain": node.chain})
         ops: list[str | int] = []
         for index, local in reversed(list(enumerate(self.locals))):
             if local.name == node.chain[0]:
@@ -232,6 +282,10 @@ class BytecodeCompiler(Visitor):
         return [*chain, Operation.GET_GLOBAL, len(node.chain)]
 
     def visit_tuple_access(self, node: ast.TupleAccess):
+        if self.mode == "ast":
+            return self._hx_ast(
+                "TupleAccess", {"tuple": self.visit(node.tuple), "index": node.index, "nullish": node.nullish}
+            )
         return [
             *self.visit(node.tuple),
             Operation.INTEGER,
@@ -240,6 +294,11 @@ class BytecodeCompiler(Visitor):
         ]
 
     def visit_array_access(self, node: ast.ArrayAccess):
+        if self.mode == "ast":
+            return self._hx_ast(
+                "ArrayAccess",
+                {"array": self.visit(node.array), "property": self.visit(node.property), "nullish": node.nullish},
+            )
         if (
             isinstance(node.property, ast.Constant)
             and isinstance(node.property.value, int)
@@ -253,6 +312,8 @@ class BytecodeCompiler(Visitor):
         ]
 
     def visit_constant(self, node: ast.Constant):
+        # if self.mode == 'ast':
+        #     return self._hx_ast('Constant', {'value': node.value})
         if node.value is True:
             return [Operation.TRUE]
         elif node.value is False:
@@ -269,6 +330,16 @@ class BytecodeCompiler(Visitor):
             raise QueryError(f"Constant type `{type(node.value)}` is not supported")
 
     def visit_call(self, node: ast.Call):
+        if self.mode == "ast":
+            return self._hx_ast(
+                "Call",
+                {
+                    "name": node.name,
+                    "args": [self.visit(arg) for arg in node.args],
+                    "params": [self.visit(arg) for arg in node.params] if node.params else None,
+                    "distinct": node.distinct,
+                },
+            )
         if node.name == "not" and len(node.args) == 1:
             return [*self.visit(node.args[0]), Operation.NOT]
         if node.name == "and" and len(node.args) > 1:
@@ -318,6 +389,11 @@ class BytecodeCompiler(Visitor):
             response.extend([Operation.POP])
             response.extend(if_null)
             return response
+        if node.name == "sql" and len(node.args) == 1:
+            self.mode = "ast"
+            response = self.visit(node.args[0])
+            self.mode = "hog"
+            return response
 
         # HogQL functions can have two sets of parameters: asd(args) or asd(params)(args)
         # If params exist, take them as the first set
@@ -365,6 +441,14 @@ class BytecodeCompiler(Visitor):
         return response
 
     def visit_expr_call(self, node: ast.ExprCall):
+        if self.mode == "ast":
+            return self._hx_ast(
+                "ExprCall",
+                {
+                    "expr": self.visit(node.expr),
+                    "args": [self.visit(arg) for arg in node.args],
+                },
+            )
         response = []
         for expr in node.args:
             response.extend(self.visit(expr))
@@ -373,6 +457,10 @@ class BytecodeCompiler(Visitor):
         return response
 
     def visit_program(self, node: ast.Program):
+        if self.mode == "ast":
+            return self._hx_ast(
+                "Program", {"declarations": [self.visit(declaration) for declaration in node.declarations]}
+            )
         response = []
         self._start_scope()
         for expr in node.declarations:
@@ -381,6 +469,10 @@ class BytecodeCompiler(Visitor):
         return response
 
     def visit_block(self, node: ast.Block):
+        if self.mode == "ast":
+            return self._hx_ast(
+                "Block", {"declarations": [self.visit(declaration) for declaration in node.declarations]}
+            )
         response = []
         self._start_scope()
         for expr in node.declarations:
@@ -389,6 +481,8 @@ class BytecodeCompiler(Visitor):
         return response
 
     def visit_expr_statement(self, node: ast.ExprStatement):
+        if self.mode == "ast":
+            return self._hx_ast("ExprStatement", {"expr": self.visit(node.expr)})
         if node.expr is None:
             return []
         response = self.visit(node.expr)
@@ -396,6 +490,8 @@ class BytecodeCompiler(Visitor):
         return response
 
     def visit_return_statement(self, node: ast.ReturnStatement):
+        if self.mode == "ast":
+            return self._hx_ast("ReturnStatement", {"expr": self.visit(node.expr)})
         if node.expr:
             response = self.visit(node.expr)
         else:
@@ -404,9 +500,20 @@ class BytecodeCompiler(Visitor):
         return response
 
     def visit_throw_statement(self, node: ast.ThrowStatement):
+        if self.mode == "ast":
+            return self._hx_ast("ThrowStatement", {"expr": self.visit(node.expr)})
         return [*self.visit(node.expr), Operation.THROW]
 
     def visit_try_catch_statement(self, node: ast.TryCatchStatement):
+        if self.mode == "ast":
+            return self._hx_ast(
+                "TryCatchStatement",
+                {
+                    "try_stmt": self.visit(node.try_stmt),
+                    "catches": [(var, type, self.visit(stmt)) for var, type, stmt in node.catches],
+                    "finally_stmt": self.visit(node.finally_stmt),
+                },
+            )
         if node.finally_stmt:
             raise QueryError("finally blocks are not yet supported")
         if not node.catches or len(node.catches) == 0:
@@ -501,6 +608,15 @@ class BytecodeCompiler(Visitor):
         return response
 
     def visit_if_statement(self, node: ast.IfStatement):
+        if self.mode == "ast":
+            return self._hx_ast(
+                "IfStatement",
+                {
+                    "expr": self.visit(node.expr),
+                    "then": self.visit(node.then),
+                    "else": self.visit(node.else_) if node.else_ else None,
+                },
+            )
         expr = self.visit(node.expr)
         then = self.visit(node.then)
         else_ = self.visit(node.else_) if node.else_ else None
@@ -516,6 +632,14 @@ class BytecodeCompiler(Visitor):
         return response
 
     def visit_while_statement(self, node: ast.WhileStatement):
+        if self.mode == "ast":
+            return self._hx_ast(
+                "WhileStatement",
+                {
+                    "expr": self.visit(node.expr),
+                    "body": self.visit(node.body),
+                },
+            )
         expr = self.visit(node.expr)
         body = self.visit(node.body)
 
@@ -527,6 +651,16 @@ class BytecodeCompiler(Visitor):
         return response
 
     def visit_for_statement(self, node: ast.ForStatement):
+        if self.mode == "ast":
+            return self._hx_ast(
+                "ForStatement",
+                {
+                    "initializer": self.visit(node.initializer) if node.initializer else None,
+                    "condition": self.visit(node.condition),
+                    "increment": self.visit(node.increment),
+                    "body": self.visit(node.body),
+                },
+            )
         if node.initializer:
             self._start_scope()
 
@@ -548,6 +682,16 @@ class BytecodeCompiler(Visitor):
         return response
 
     def visit_for_in_statement(self, node: ast.ForInStatement):
+        if self.mode == "ast":
+            return self._hx_ast(
+                "ForInStatement",
+                {
+                    "keyVar": node.keyVar,
+                    "valueVar": node.valueVar,
+                    "expr": self.visit(node.expr),
+                    "body": self.visit(node.body),
+                },
+            )
         response: list = []
         self._start_scope()
 
@@ -644,12 +788,28 @@ class BytecodeCompiler(Visitor):
         return response
 
     def visit_variable_declaration(self, node: ast.VariableDeclaration):
+        if self.mode == "ast":
+            return self._hx_ast(
+                "VariableDeclaration",
+                {
+                    "name": node.name,
+                    "expr": self.visit(node.expr) if node.expr else None,
+                },
+            )
         self._declare_local(node.name)
         if node.expr:
             return self.visit(node.expr)
         return [Operation.NULL]
 
     def visit_variable_assignment(self, node: ast.VariableAssignment):
+        if self.mode == "ast":
+            return self._hx_ast(
+                "VariableAssignment",
+                {
+                    "name": self.visit(node.left),
+                    "expr": self.visit(node.right),
+                },
+            )
         if isinstance(node.left, ast.TupleAccess):
             return [
                 *self.visit(node.left.tuple),
@@ -715,6 +875,15 @@ class BytecodeCompiler(Visitor):
         raise QueryError(f"Can not assign to this type of expression")
 
     def visit_function(self, node: ast.Function):
+        if self.mode == "ast":
+            return self._hx_ast(
+                "Function",
+                {
+                    "name": node.name,
+                    "params": node.params,
+                    "body": self.visit(node.body),
+                },
+            )
         # add an implicit return if none at the end of the function
         body = node.body
         if isinstance(node.body, ast.Block):
@@ -742,6 +911,14 @@ class BytecodeCompiler(Visitor):
         return ops
 
     def visit_lambda(self, node: ast.Lambda):
+        if self.mode == "ast":
+            return self._hx_ast(
+                "Lambda",
+                {
+                    "args": node.args,
+                    "expr": self.visit(node.expr),
+                },
+            )
         # add an implicit return if none at the end of the function
         expr: ast.Expr | ast.Statement = node.expr
         if isinstance(expr, ast.Block):
@@ -793,6 +970,14 @@ class BytecodeCompiler(Visitor):
         response.append(Operation.TUPLE)
         response.append(len(node.exprs))
         return response
+
+    def visit_placeholder(self, node: ast.Placeholder):
+        if self.mode == "ast":
+            self.mode = "hog"
+            response = self.visit(ast.Field(chain=node.chain))
+            self.mode = "ast"
+            return response
+        raise QueryError("Placeholders are not supported in Hog code")
 
 
 def execute_hog(
