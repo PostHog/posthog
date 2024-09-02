@@ -90,7 +90,9 @@ export function Max(): JSX.Element | null {
                             )}
                             {message.status === 'completed' && message.content?.answer && (
                                 <Message role={message.role}>
-                                    <Query query={query} readOnly embedded />
+                                    <div className="h-96 flex">
+                                        <Query query={query} readOnly embedded />
+                                    </div>
                                     <LemonButton
                                         className="mt-4 w-fit"
                                         type="primary"
