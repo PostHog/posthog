@@ -208,12 +208,22 @@ class SessionRecordingListFromFilters:
             optional_exprs.append(property_to_expr(remaining_properties, team=self._team, scope="replay"))
 
         if self._filter.console_log_filters.values:
-            # print(self._filter.console_log_filters.type)
             console_logs_subquery = ast.SelectQuery(
                 select=[ast.Field(chain=["log_source_id"])],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["console_logs_log_entries"])),
-                where=self._filter.ast_operand(
-                    exprs=[property_to_expr(self._filter.console_log_filters, team=self._team)]
+                where=ast.And(
+                    exprs=[
+                        self._filter.ast_operand(
+                            exprs=[
+                                property_to_expr(self._filter.console_log_filters, team=self._team),
+                            ]
+                        ),
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=ast.Field(chain=["log_source"]),
+                            right=ast.Constant(value="session_replay"),
+                        ),
+                    ]
                 ),
             )
 
