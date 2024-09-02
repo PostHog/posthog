@@ -221,6 +221,7 @@ export function createInvocation(
         teamId: hogFunction.team_id,
         hogFunction,
         queue: 'hog',
+        priority: 1,
         timings: [],
     }
 }

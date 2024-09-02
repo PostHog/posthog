@@ -75,7 +75,7 @@ export interface Job {
     blob: Uint8Array | null
 }
 
-export async function initWorker(poolConfig: PoolConfig): Promise<void> {
+async function initWorker(poolConfig: PoolConfig): Promise<void> {
     const initWorkerInternal: InternalPoolConfig = {
         db_url: poolConfig.dbUrl,
         max_connections: poolConfig.maxConnections,
@@ -87,7 +87,7 @@ export async function initWorker(poolConfig: PoolConfig): Promise<void> {
     return await cyclotron.initWorker(JSON.stringify(initWorkerInternal))
 }
 
-export async function initManager(managerConfig: ManagerConfig): Promise<void> {
+async function initManager(managerConfig: ManagerConfig): Promise<void> {
     const managerConfigInternal: InternalManagerConfig = {
         shards: managerConfig.shards.map((shard) => ({
             db_url: shard.dbUrl,
@@ -101,7 +101,7 @@ export async function initManager(managerConfig: ManagerConfig): Promise<void> {
     return await cyclotron.initManager(JSON.stringify(managerConfigInternal))
 }
 
-export async function maybeInitWorker(poolConfig: PoolConfig): Promise<void> {
+async function maybeInitWorker(poolConfig: PoolConfig): Promise<void> {
     const initWorkerInternal: InternalPoolConfig = {
         db_url: poolConfig.dbUrl,
         max_connections: poolConfig.maxConnections,
@@ -113,7 +113,7 @@ export async function maybeInitWorker(poolConfig: PoolConfig): Promise<void> {
     return await cyclotron.maybeInitWorker(JSON.stringify(initWorkerInternal))
 }
 
-export async function maybeInitManager(managerConfig: ManagerConfig): Promise<void> {
+async function maybeInitManager(managerConfig: ManagerConfig): Promise<void> {
     const managerConfigInternal: InternalManagerConfig = {
         shards: managerConfig.shards.map((shard) => ({
             db_url: shard.dbUrl,
@@ -127,7 +127,7 @@ export async function maybeInitManager(managerConfig: ManagerConfig): Promise<vo
     return await cyclotron.maybeInitManager(JSON.stringify(managerConfigInternal))
 }
 
-export async function createJob(job: JobInit): Promise<void> {
+async function createJob(job: JobInit): Promise<void> {
     job.priority ??= 1
     job.scheduled ??= new Date()
 
@@ -146,35 +146,35 @@ export async function createJob(job: JobInit): Promise<void> {
     return await cyclotron.createJob(json, job.blob ? job.blob.buffer : undefined)
 }
 
-export async function dequeueJobs(queueName: string, limit: number): Promise<Job[]> {
+async function dequeueJobs(queueName: string, limit: number): Promise<Job[]> {
     return await cyclotron.dequeueJobs(queueName, limit)
 }
 
-export async function dequeueJobsWithVmState(queueName: string, limit: number): Promise<Job[]> {
+async function dequeueJobsWithVmState(queueName: string, limit: number): Promise<Job[]> {
     return await cyclotron.dequeueJobsWithVmState(queueName, limit)
 }
 
-export async function flushJob(jobId: string): Promise<void> {
+async function flushJob(jobId: string): Promise<void> {
     return await cyclotron.flushJob(jobId)
 }
 
-export function setState(jobId: string, jobState: JobState): Promise<void> {
+function setState(jobId: string, jobState: JobState): Promise<void> {
     return cyclotron.setState(jobId, jobState)
 }
 
-export function setQueue(jobId: string, queueName: string): Promise<void> {
+function setQueue(jobId: string, queueName: string): Promise<void> {
     return cyclotron.setQueue(jobId, queueName)
 }
 
-export function setPriority(jobId: string, priority: number): Promise<void> {
+function setPriority(jobId: string, priority: number): Promise<void> {
     return cyclotron.setPriority(jobId, priority)
 }
 
-export function setScheduledAt(jobId: string, scheduledAt: Date): Promise<void> {
+function setScheduledAt(jobId: string, scheduledAt: Date): Promise<void> {
     return cyclotron.setScheduledAt(jobId, scheduledAt.toISOString())
 }
 
-export function serializeObject(name: string, obj: Record<string, any> | null): string | null {
+function serializeObject(name: string, obj: Record<string, any> | null): string | null {
     if (obj === null) {
         return null
     } else if (typeof obj === 'object' && obj !== null) {
@@ -183,22 +183,22 @@ export function serializeObject(name: string, obj: Record<string, any> | null): 
     throw new Error(`${name} must be either an object or null`)
 }
 
-export function setVmState(jobId: string, vmState: Record<string, any> | null): Promise<void> {
+function setVmState(jobId: string, vmState: Record<string, any> | null): Promise<void> {
     const serialized = serializeObject('vmState', vmState)
     return cyclotron.setVmState(jobId, serialized)
 }
 
-export function setMetadata(jobId: string, metadata: Record<string, any> | null): Promise<void> {
+function setMetadata(jobId: string, metadata: Record<string, any> | null): Promise<void> {
     const serialized = serializeObject('metadata', metadata)
     return cyclotron.setMetadata(jobId, serialized)
 }
 
-export function setParameters(jobId: string, parameters: Record<string, any> | null): Promise<void> {
+function setParameters(jobId: string, parameters: Record<string, any> | null): Promise<void> {
     const serialized = serializeObject('parameters', parameters)
     return cyclotron.setParameters(jobId, serialized)
 }
 
-export function setBlob(jobId: string, blob: Uint8Array | null): Promise<void> {
+function setBlob(jobId: string, blob: Uint8Array | null): Promise<void> {
     return cyclotron.setBlob(jobId, blob)
 }
 

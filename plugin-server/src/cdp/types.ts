@@ -181,6 +181,7 @@ export type HogFunctionInvocation = {
     globals: HogFunctionInvocationGlobals
     teamId: Team['id']
     hogFunction: HogFunctionType
+    priority: number
     queue: 'hog' | 'fetch'
     queueParameters?: HogFunctionInvocationQueueParameters
     // The current vmstate (set if the invocation is paused)
