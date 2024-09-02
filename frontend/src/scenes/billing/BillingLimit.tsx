@@ -49,8 +49,8 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
                                     ) : (
                                         <Tooltip title="Set a billing limit to control your recurring costs. Some features may stop working and data may be dropped if your usage exceeds your limit.">
                                             <span className="text-sm" data-attr={`billing-limit-set-${product.type}`}>
-                                                You have a <b>${customLimitUsd}</b> billing limit set for{' '}
-                                                {product?.name?.toLowerCase()}.
+                                                You have a <b>${customLimitUsd?.toLocaleString()}</b> billing limit set
+                                                for {product?.name?.toLowerCase()}.
                                             </span>
                                         </Tooltip>
                                     )}
