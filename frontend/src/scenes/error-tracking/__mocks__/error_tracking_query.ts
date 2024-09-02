@@ -124,7 +124,7 @@ const errorTrackingQueryResponse = {
     })),
 }
 
-const errorTrackingGroupQueryResponse = {
+const errorTrackingEventsQueryResponse = {
     columns: ['uuid', 'properties', 'timestamp', 'person'],
     hasMore: false,
     results: range(20).map((index) => [
@@ -140,4 +140,4 @@ const errorTrackingGroupQueryResponse = {
     ]),
 }
 
-export { errorTrackingGroupQueryResponse, errorTrackingQueryResponse }
+export { errorTrackingEventsQueryResponse, errorTrackingQueryResponse }
