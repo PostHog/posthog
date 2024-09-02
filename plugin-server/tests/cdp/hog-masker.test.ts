@@ -7,7 +7,7 @@ import { BASE_REDIS_KEY, HogMasker } from '../../src/cdp/hog-masker'
 import { CdpRedis, createCdpRedisPool } from '../../src/cdp/redis'
 import { HogFunctionType } from '../../src/cdp/types'
 import { Hub } from '../../src/types'
-import { createHub } from '../../src/utils/db/hub'
+import { closeHub, createHub } from '../../src/utils/db/hub'
 import { delay } from '../../src/utils/utils'
 import { HOG_MASK_EXAMPLES } from './examples'
 import { createHogExecutionGlobals, createHogFunction, createInvocation } from './fixtures'
@@ -19,13 +19,11 @@ describe('HogMasker', () => {
     describe('integration', () => {
         let now: number
         let hub: Hub
-        let closeHub: () => Promise<void>
         let masker: HogMasker
         let redis: CdpRedis
 
         beforeEach(async () => {
-            ;[hub, closeHub] = await createHub()
-
+            hub = await createHub()
             now = 1720000000000
             mockNow.mockReturnValue(now)
 
@@ -46,7 +44,7 @@ describe('HogMasker', () => {
         }
 
         afterEach(async () => {
-            await closeHub()
+            await closeHub(hub)
             jest.clearAllMocks()
         })
 
