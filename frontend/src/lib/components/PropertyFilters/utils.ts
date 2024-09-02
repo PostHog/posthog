@@ -326,6 +326,8 @@ export function propertyFilterTypeToPropertyDefinitionType(
         ? PropertyDefinitionType.Session
         : filterType === PropertyFilterType.Recording
         ? PropertyDefinitionType.Session
+        : filterType === PropertyFilterType.LogEntry
+        ? PropertyDefinitionType.LogEntry
         : PropertyDefinitionType.Event
 }
 
@@ -353,10 +355,6 @@ export function taxonomicFilterTypeToPropertyFilterType(
 
     if (filterType == TaxonomicFilterGroupType.DataWarehousePersonProperties) {
         return PropertyFilterType.DataWarehousePersonProperty
-    }
-
-    if (filterType == TaxonomicFilterGroupType.Replay) {
-        return PropertyFilterType.Recording
     }
 
     return Object.entries(propertyFilterMapping).find(([, v]) => v === filterType)?.[0] as

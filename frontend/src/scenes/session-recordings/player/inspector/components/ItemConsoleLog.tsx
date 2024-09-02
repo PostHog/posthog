@@ -13,7 +13,13 @@ export interface ItemConsoleLogProps {
 export function ItemConsoleLog({ item, expanded, setExpanded }: ItemConsoleLogProps): JSX.Element {
     return (
         <>
-            <LemonButton noPadding onClick={() => setExpanded(!expanded)} fullWidth data-attr="item-console-log">
+            <LemonButton
+                noPadding
+                onClick={() => setExpanded(!expanded)}
+                fullWidth
+                data-attr="item-console-log"
+                className="font-normal"
+            >
                 <div className="p-2 text-xs cursor-pointer truncate font-mono flex-1">{item.data.content}</div>
                 {(item.data.count || 1) > 1 ? (
                     <span

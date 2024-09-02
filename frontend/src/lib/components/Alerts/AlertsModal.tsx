@@ -1,4 +1,4 @@
-import { LemonButton, LemonButtonWithDropdown } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -17,11 +17,11 @@ import { ManageAlerts } from './views/ManageAlerts'
 export interface AlertsModalProps extends AlertsLogicProps {
     isOpen: boolean
     closeModal: () => void
-    alertId: number | 'new' | null
+    alertId?: string | null
 }
 
 export function AlertsModal(props: AlertsModalProps): JSX.Element {
-    const { closeModal, insightShortId, insightLogicProps, alertId, isOpen } = props
+    const { closeModal, insightId, insightShortId, insightLogicProps, alertId, isOpen } = props
     const { push } = useActions(router)
     const { userLoading } = useValues(userLogic)
 
@@ -32,14 +32,16 @@ export function AlertsModal(props: AlertsModalProps): JSX.Element {
         <LemonModal onClose={closeModal} isOpen={isOpen} width={600} simple title="">
             {!alertId ? (
                 <ManageAlerts
+                    insightId={insightId}
                     insightShortId={insightShortId}
                     insightLogicProps={insightLogicProps}
                     onCancel={closeModal}
-                    onSelect={(id) => push(urls.alert(insightShortId, id.toString()))}
+                    onSelect={(id) => push(urls.alert(insightShortId, id ?? 'new'))}
                 />
             ) : (
                 <EditAlert
-                    id={alertId}
+                    id={alertId === 'new' ? undefined : alertId}
+                    insightId={insightId}
                     insightShortId={insightShortId}
                     insightLogicProps={insightLogicProps}
                     onCancel={() => push(urls.alerts(insightShortId))}
@@ -62,36 +64,19 @@ export function AlertsButton({ insight }: AlertsButtonProps): JSX.Element {
     if (!showAlerts) {
         return <></>
     }
-    if (!areAlertsSupportedForInsight(insight.query)) {
-        return (
-            <LemonButton
-                data-attr="disabled-alerts-button"
-                disabledReason="Insights are only availabe for trends represented as a number. Change the insight representation to add alerts."
-            >
-                Alerts
-            </LemonButton>
-        )
-    }
+
     return (
-        <LemonButtonWithDropdown
+        <LemonButton
+            data-attr="manage-alerts-button"
+            onClick={() => push(urls.alerts(insight.short_id!))}
             fullWidth
-            dropdown={{
-                actionable: true,
-                closeParentPopoverOnClickInside: true,
-                placement: 'right-start',
-                overlay: (
-                    <>
-                        <LemonButton onClick={() => push(urls.alert(insight.short_id!, 'new'))} fullWidth>
-                            New alert
-                        </LemonButton>
-                        <LemonButton onClick={() => push(urls.alerts(insight.short_id!))} fullWidth>
-                            Manage alerts
-                        </LemonButton>
-                    </>
-                ),
-            }}
+            disabledReason={
+                !areAlertsSupportedForInsight(insight.query)
+                    ? 'Insights are only available for trends represented as a number. Change the insight representation to add alerts.'
+                    : undefined
+            }
         >
-            Alerts
-        </LemonButtonWithDropdown>
+            Manage alerts
+        </LemonButton>
     )
 }

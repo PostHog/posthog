@@ -6,7 +6,7 @@ from posthog.tasks.warehouse import (
     validate_data_warehouse_table_columns,
     capture_external_data_rows_synced,
 )
-from posthog.warehouse.models import ExternalDataSource, ExternalDataJob
+from posthog.warehouse.models import ExternalDataSource, ExternalDataJob, ExternalDataSchema
 from freezegun import freeze_time
 import datetime
 
@@ -18,13 +18,13 @@ class TestWarehouse(APIBaseTest):
     @patch("posthog.tasks.warehouse.cancel_external_data_workflow")
     @patch("posthog.tasks.warehouse.pause_external_data_schedule")
     @patch("ee.billing.quota_limiting.list_limited_team_attributes")
-    def test_check_synced_row_limits_of_team(
+    def test_check_synced_row_limits_of_team_monthly_limit(
         self,
         list_limited_team_attributes_mock: MagicMock,
         pause_schedule_mock: MagicMock,
         cancel_workflow_mock: MagicMock,
     ) -> None:
-        list_limited_team_attributes_mock.return_value = [self.team.pk]
+        list_limited_team_attributes_mock.return_value = []
 
         source = ExternalDataSource.objects.create(
             source_id="test_id",
@@ -35,14 +35,79 @@ class TestWarehouse(APIBaseTest):
             source_type="Stripe",
         )
 
+        schema = ExternalDataSchema.objects.create(
+            source=source,
+            name="test_schema",
+            team=self.team,
+            status="Running",
+        )
+
         job = ExternalDataJob.objects.create(
-            pipeline=source, workflow_id="fake_workflow_id", team=self.team, status="Running", rows_synced=100000
+            pipeline=source,
+            workflow_id="fake_workflow_id",
+            team=self.team,
+            status="Running",
+            rows_synced=100000,
+            schema=schema,
         )
 
         check_synced_row_limits_of_team(self.team.pk)
 
         source.refresh_from_db()
         self.assertEqual(source.status, ExternalDataSource.Status.PAUSED)
+
+        schema.refresh_from_db()
+        self.assertEqual(schema.status, ExternalDataSchema.Status.PAUSED)
+
+        job.refresh_from_db()
+        self.assertEqual(job.status, ExternalDataJob.Status.CANCELLED)
+
+        self.assertEqual(pause_schedule_mock.call_count, 1)
+        self.assertEqual(cancel_workflow_mock.call_count, 1)
+
+    @patch("posthog.tasks.warehouse.cancel_external_data_workflow")
+    @patch("posthog.tasks.warehouse.pause_external_data_schedule")
+    @patch("ee.billing.quota_limiting.list_limited_team_attributes")
+    def test_check_synced_row_limits_of_team(
+        self,
+        list_limited_team_attributes_mock: MagicMock,
+        pause_schedule_mock: MagicMock,
+        cancel_workflow_mock: MagicMock,
+    ) -> None:
+        list_limited_team_attributes_mock.return_value = [self.team.api_token]
+
+        source = ExternalDataSource.objects.create(
+            source_id="test_id",
+            connection_id="fake connectino_id",
+            destination_id="fake destination_id",
+            team=self.team,
+            status="Running",
+            source_type="Stripe",
+        )
+
+        schema = ExternalDataSchema.objects.create(
+            source=source,
+            name="test_schema",
+            team=self.team,
+            status="Running",
+        )
+
+        job = ExternalDataJob.objects.create(
+            pipeline=source,
+            workflow_id="fake_workflow_id",
+            team=self.team,
+            status="Running",
+            rows_synced=100000,
+            schema=schema,
+        )
+
+        check_synced_row_limits_of_team(self.team.pk)
+
+        source.refresh_from_db()
+        self.assertEqual(source.status, ExternalDataSource.Status.PAUSED)
+
+        schema.refresh_from_db()
+        self.assertEqual(schema.status, ExternalDataSchema.Status.PAUSED)
 
         job.refresh_from_db()
         self.assertEqual(job.status, ExternalDataJob.Status.CANCELLED)
