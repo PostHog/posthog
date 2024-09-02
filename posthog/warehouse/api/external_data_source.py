@@ -16,7 +16,7 @@ from posthog.warehouse.data_load.service import (
     delete_external_data_schedule,
     cancel_external_data_workflow,
     delete_data_import_folder,
-    is_any_external_data_job_paused,
+    is_any_external_data_schema_paused,
     trigger_external_data_source_workflow,
 )
 from posthog.warehouse.models import ExternalDataSource, ExternalDataSchema, ExternalDataJob
@@ -258,10 +258,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             elif self.prefix_exists(source_type, prefix):
                 return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Prefix already exists"})
 
-        if is_any_external_data_job_paused(self.team_id):
+        if is_any_external_data_schema_paused(self.team_id):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Monthly sync limit reached. Please contact PostHog support to increase your limit."},
+                data={"message": "Monthly sync limit reached. Please increase your billing limit to resume syncing."},
             )
 
         # TODO: remove dummy vars
@@ -635,10 +635,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def reload(self, request: Request, *args: Any, **kwargs: Any):
         instance: ExternalDataSource = self.get_object()
 
-        if is_any_external_data_job_paused(self.team_id):
+        if is_any_external_data_schema_paused(self.team_id):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Monthly sync limit reached. Please contact PostHog support to increase your limit."},
+                data={"message": "Monthly sync limit reached. Please increase your billing limit to resume syncing."},
             )
 
         try:
