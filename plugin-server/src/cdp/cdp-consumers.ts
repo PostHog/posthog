@@ -705,6 +705,7 @@ export class CdpCyclotronWorker extends CdpFunctionCallbackConsumer {
             const limit = 100 // TODO: Make configurable.
             while (!this.isStopping) {
                 const jobs = await cyclotron.dequeueJobsWithVmState('hog', limit)
+                // TODO: How do we "hold" these dequeued jobs?
                 const invocations: HogFunctionInvocation[] = []
 
                 for (const job of jobs) {
