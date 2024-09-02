@@ -7,10 +7,15 @@ import { HogFunctionInvocationGlobals } from './types'
 // Maps a fingerprintfor easy lookup like: { 'team_id:merged_fingerprint': primary_fingerprint }
 type ExceptionFingerprintByTeamType = Record<string, string>
 
+type ExceptionGroup = {
+    mergedFingerprints: string[][]
+    active: boolean
+}
+
 const FINGERPRINT_CACHE_AGE_MS = 60 * 10 * 1000 // 10 minutes
 
 export class ExceptionsManager {
-    fingerprintMappingCache: LRUCache<number, Record<string, string[]>> // team_id: { primary_fingerprint: merged_fingerprints[] }
+    fingerprintMappingCache: LRUCache<number, Record<string, ExceptionGroup>> // team_id: { primary_fingerprint: ExceptionGroup }
 
     constructor(private hub: Hub) {
         // There is only 5 per team so we can have a very high cache and a very long cooldown
@@ -25,7 +30,7 @@ export class ExceptionsManager {
             const cached = this.fingerprintMappingCache.get(teamId)
 
             if (cached) {
-                Object.entries(cached).forEach(([primaryFingerprint, mergedFingerprints]) => {
+                Object.entries(cached).forEach(([primaryFingerprint, { mergedFingerprints }]) => {
                     mergedFingerprints.forEach((mergedFingerprint) => {
                         exceptionFingerprintMapping[`${teamId}:${mergedFingerprint}`] = primaryFingerprint
                     })
@@ -38,26 +43,29 @@ export class ExceptionsManager {
         if (teamsToLoad.length) {
             const result = await this.hub.postgres.query(
                 PostgresUse.COMMON_READ,
-                `SELECT fingerprint, merged_fingerprints, team_id
+                `SELECT fingerprint, merged_fingerprints, team_id, status
                 FROM posthog_errortrackinggroup
                 WHERE team_id = ANY($1) AND merged_fingerprints != '{}'`,
                 [teamsToLoad],
                 'fetchExceptionTrackingGroups'
             )
 
-            const groupedByTeam: Record<number, Record<string, string[]>> = result.rows.reduce((acc, row) => {
+            const groupedByTeam: Record<number, Record<string, ExceptionGroup>> = result.rows.reduce((acc, row) => {
                 if (!acc[row.team_id]) {
                     acc[row.team_id] = {}
                 }
                 const stringifiedFingerprint = encodeURIComponent(row.fingerprint.join(','))
-                acc[row.team_id][stringifiedFingerprint] = row.merged_fingerprints
+                acc[row.team_id][stringifiedFingerprint] = {
+                    mergedFingerprints: row.merged_fingerprints,
+                    active: acc.status === 'active',
+                }
                 return acc
             }, {})
 
             // Save to cache
             Object.entries(groupedByTeam).forEach(([teamId, exceptionTrackingGroups]) => {
                 this.fingerprintMappingCache.set(parseInt(teamId), exceptionTrackingGroups)
-                Object.entries(exceptionTrackingGroups).forEach(([primaryFingerprint, mergedFingerprints]) => {
+                Object.entries(exceptionTrackingGroups).forEach(([primaryFingerprint, { mergedFingerprints }]) => {
                     mergedFingerprints.forEach((mergedFingerprint) => {
                         exceptionFingerprintMapping[`${teamId}:${mergedFingerprint}`] = primaryFingerprint
                     })
@@ -66,6 +74,12 @@ export class ExceptionsManager {
         }
 
         return exceptionFingerprintMapping
+    }
+
+    public isArchived(item: HogFunctionInvocationGlobals): boolean {
+        const fingerprint = item.event.properties['$exception_fingerprint'].join(',')
+        const groupsForTeam = this.fingerprintMappingCache.get(item.project.id)
+        return groupsForTeam && groupsForTeam[fingerprint] ? groupsForTeam[fingerprint].active : false
     }
 
     /**
