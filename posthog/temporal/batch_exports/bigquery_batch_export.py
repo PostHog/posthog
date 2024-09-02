@@ -205,6 +205,7 @@ class BigQueryClient(bigquery.Client):
         final_table: bigquery.Table,
         stage_table: bigquery.Table,
         merge_key: collections.abc.Iterable[bigquery.SchemaField],
+        update_fields: collections.abc.Iterable[bigquery.SchemaField] | None = None,
         person_version_key: str = "person_version",
         person_distinct_id_version_key: str = "person_distinct_id_version",
     ):
@@ -221,7 +222,11 @@ class BigQueryClient(bigquery.Client):
         update_clause = ""
         values = ""
         field_names = ""
-        for n, field in enumerate(final_table.schema):
+
+        if not update_fields:
+            update_fields = final_table.schema
+
+        for n, field in enumerate(update_fields):
             if n > 0:
                 update_clause += ", "
                 values += ", "
@@ -481,6 +486,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                         final_table=bigquery_table,
                         stage_table=bigquery_stage_table,
                         merge_key=merge_key,
+                        update_fields=schema,
                     )
 
                 return writer.records_total
