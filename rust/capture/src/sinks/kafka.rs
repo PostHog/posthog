@@ -129,8 +129,14 @@ impl KafkaSink {
             .set("bootstrap.servers", &config.kafka_hosts)
             .set("statistics.interval.ms", "10000")
             .set("partitioner", "murmur2_random") // Compatibility with python-kafka
-            .set("metadata.max.age.ms", config.kafka_metadata_max_age_ms.to_string())
-            .set("message.send.max.retries", config.kafka_producer_max_retries.to_string())
+            .set(
+                "metadata.max.age.ms",
+                config.kafka_metadata_max_age_ms.to_string(),
+            )
+            .set(
+                "message.send.max.retries",
+                config.kafka_producer_max_retries.to_string(),
+            )
             .set("linger.ms", config.kafka_producer_linger_ms.to_string())
             .set(
                 "message.max.bytes",
