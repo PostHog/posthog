@@ -114,14 +114,13 @@ describe('CDP Processed Events Consumer', () => {
     })
 
     describe('general event processing', () => {
-        /**
-         * Tests here are somewhat expensive so should mostly simulate happy paths and the more e2e scenarios
-         */
+        beforeEach(() => {
+            hub.CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP = false
+        })
 
         describe('common processing', () => {
             let fnFetchNoFilters: HogFunctionType
             let fnPrinterPageviewFilters: HogFunctionType
-
             let globals: HogFunctionInvocationGlobals
 
             beforeEach(async () => {
@@ -285,6 +284,63 @@ describe('CDP Processed Events Consumer', () => {
 
                 // Generall check that the message seemed to get processed
                 expect(decodeAllKafkaMessages()).toMatchObject([
+                    {
+                        key: expect.any(String),
+                        topic: 'cdp_function_callbacks_test',
+                        value: {
+                            state: expect.any(String),
+                        },
+                        waitForAck: true,
+                    },
+                ])
+            })
+        })
+
+        describe('no delayed execution', () => {
+            beforeEach(() => {
+                hub.CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP = true
+            })
+
+            it('should invoke the initial function before enqueuing', async () => {
+                await insertHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                })
+                // Create a message that should be processed by this function
+                // Run the function and check that it was executed
+                await processor._handleKafkaBatch([
+                    createMessage(
+                        createIncomingEvent(team.id, {
+                            uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0',
+                            event: '$pageview',
+                            properties: JSON.stringify({
+                                $lib_version: '1.0.0',
+                            }),
+                        })
+                    ),
+                ])
+
+                // General check that the message seemed to get processed
+                expect(decodeAllKafkaMessages()).toMatchObject([
+                    {
+                        key: expect.any(String),
+                        topic: 'log_entries_test',
+                        value: {
+                            message: 'Executing function',
+                        },
+                        waitForAck: true,
+                    },
+                    {
+                        key: expect.any(String),
+                        topic: 'log_entries_test',
+                        value: {
+                            message: expect.stringContaining(
+                                "Suspending function due to async function call 'fetch'. Payload"
+                            ),
+                        },
+                        waitForAck: true,
+                    },
                     {
                         key: expect.any(String),
                         topic: 'cdp_function_callbacks_test',

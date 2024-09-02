@@ -228,6 +228,53 @@ abstract class CdpConsumerBase {
         })
     }
 
+    protected async processInvocationResults(results: HogFunctionInvocationResult[]): Promise<void> {
+        await runInstrumentedFunction({
+            statsKey: `cdpConsumer.handleEachBatch.produceResults`,
+            func: async () => {
+                console.log('Processing invocations results', results.length)
+
+                await Promise.all(
+                    results.map(async (result) => {
+                        // Tricky: We want to pull all the logs out as we don't want them to be passed around to any subsequent functions
+                        if (result.finished || result.error) {
+                            this.produceAppMetric({
+                                team_id: result.invocation.teamId,
+                                app_source_id: result.invocation.hogFunction.id,
+                                metric_kind: result.error ? 'failure' : 'success',
+                                metric_name: result.error ? 'failed' : 'succeeded',
+                                count: 1,
+                            })
+                        }
+
+                        this.produceLogs(result)
+
+                        // PostHog capture events
+                        const capturedEvents = result.capturedPostHogEvents
+                        delete result.capturedPostHogEvents
+
+                        for (const event of capturedEvents ?? []) {
+                            const team = await this.hub.teamManager.fetchTeam(event.team_id)
+                            if (!team) {
+                                continue
+                            }
+                            this.messagesToProduce.push({
+                                topic: KAFKA_EVENTS_PLUGIN_INGESTION,
+                                value: convertToCaptureEvent(event, team),
+                                key: `${team!.api_token}:${event.distinct_id}`,
+                            })
+                        }
+
+                        if (!result.finished) {
+                            // If it isn't finished then we need to put it back on the queue
+                            await this.queueInvocation(result.invocation)
+                        }
+                    })
+                )
+            },
+        })
+    }
+
     protected async startKafkaConsumer() {
         this.batchConsumer = await startBatchConsumer({
             connectionConfig: createRdConnectionConfigFromEnvVars(this.hub),
@@ -334,7 +381,27 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
         const invocationsToBeQueued = await this.runWithHeartbeat(() =>
             this.createHogFunctionInvocations(invocationGlobals)
         )
-        await this.queueInvocations(invocationsToBeQueued)
+
+        if (this.hub.CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP) {
+            // NOTE: This is for testing the two ways of enqueueing processing. It will be swapped out for a cyclotron env check
+            // Kafka based workflow
+            const invocationResults = await runInstrumentedFunction({
+                statsKey: `cdpConsumer.handleEachBatch.executeInvocations`,
+                func: async () => {
+                    const hogResults = await this.runManyWithHeartbeat(invocationsToBeQueued, (item) =>
+                        this.hogExecutor.execute(item)
+                    )
+                    return [...hogResults]
+                },
+            })
+
+            await this.hogWatcher.observeResults(invocationResults)
+            await this.processInvocationResults(invocationResults)
+        } else {
+            await this.queueInvocations(invocationsToBeQueued)
+            await this.produceQueuedMessages()
+        }
+
         await this.produceQueuedMessages()
 
         return invocationsToBeQueued
@@ -491,53 +558,6 @@ export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
         await this.hogWatcher.observeResults(invocationResults)
         await this.processInvocationResults(invocationResults)
         await this.produceQueuedMessages()
-    }
-
-    protected async processInvocationResults(results: HogFunctionInvocationResult[]): Promise<void> {
-        await runInstrumentedFunction({
-            statsKey: `cdpConsumer.handleEachBatch.produceResults`,
-            func: async () => {
-                console.log('Processing invocations results', results.length)
-
-                await Promise.all(
-                    results.map(async (result) => {
-                        // Tricky: We want to pull all the logs out as we don't want them to be passed around to any subsequent functions
-                        if (result.finished || result.error) {
-                            this.produceAppMetric({
-                                team_id: result.invocation.teamId,
-                                app_source_id: result.invocation.hogFunction.id,
-                                metric_kind: result.error ? 'failure' : 'success',
-                                metric_name: result.error ? 'failed' : 'succeeded',
-                                count: 1,
-                            })
-                        }
-
-                        this.produceLogs(result)
-
-                        // PostHog capture events
-                        const capturedEvents = result.capturedPostHogEvents
-                        delete result.capturedPostHogEvents
-
-                        for (const event of capturedEvents ?? []) {
-                            const team = await this.hub.teamManager.fetchTeam(event.team_id)
-                            if (!team) {
-                                continue
-                            }
-                            this.messagesToProduce.push({
-                                topic: KAFKA_EVENTS_PLUGIN_INGESTION,
-                                value: convertToCaptureEvent(event, team),
-                                key: `${team!.api_token}:${event.distinct_id}`,
-                            })
-                        }
-
-                        if (!result.finished) {
-                            // If it isn't finished then we need to put it back on the queue
-                            await this.queueInvocation(result.invocation)
-                        }
-                    })
-                )
-            },
-        })
     }
 
     public async _handleKafkaBatch(messages: Message[]): Promise<void> {
