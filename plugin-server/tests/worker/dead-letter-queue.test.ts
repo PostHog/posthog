@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
 import { Hub, LogLevel } from '../../src/types'
-import { closeHub, createHub } from '../../src/utils/db/hub'
+import { createHub } from '../../src/utils/db/hub'
 import { UUIDT } from '../../src/utils/utils'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
 import { generateEventDeadLetterQueueMessage } from '../../src/worker/ingestion/utils'
@@ -45,16 +45,17 @@ function createEvent(): PluginEvent {
 
 describe('events dead letter queue', () => {
     let hub: Hub
+    let closeHub: () => Promise<void>
 
     beforeEach(async () => {
-        hub = await createHub({ LOG_LEVEL: LogLevel.Log })
+        ;[hub, closeHub] = await createHub({ LOG_LEVEL: LogLevel.Log })
         console.warn = jest.fn() as any
         await resetTestDatabase()
         await resetTestDatabaseClickhouse()
     })
 
     afterEach(async () => {
-        await closeHub(hub)
+        await closeHub()
     })
 
     test('events get sent to dead letter queue on error', async () => {

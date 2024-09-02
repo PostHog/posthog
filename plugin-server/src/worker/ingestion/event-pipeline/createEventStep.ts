@@ -7,5 +7,5 @@ export function createEventStep(
     person: Person,
     processPerson: boolean
 ): [RawClickHouseEvent, Promise<void>] {
-    return runner.eventsProcessor.createEvent(event, person, processPerson)
+    return runner.hub.eventsProcessor.createEvent(event, person, processPerson)
 }

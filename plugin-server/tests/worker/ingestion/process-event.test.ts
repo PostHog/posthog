@@ -2,7 +2,7 @@ import * as IORedis from 'ioredis'
 import { DateTime } from 'luxon'
 
 import { Hub, ISOTimestamp, Person, PreIngestionEvent } from '../../../src/types'
-import { closeHub, createHub } from '../../../src/utils/db/hub'
+import { createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
 import { EventsProcessor } from '../../../src/worker/ingestion/process-event'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../helpers/clickhouse'
@@ -13,6 +13,7 @@ jest.mock('../../../src/utils/status')
 jest.setTimeout(600000) // 600 sec timeout.
 
 let hub: Hub
+let closeHub: () => Promise<void>
 let redis: IORedis.Redis
 let eventsProcessor: EventsProcessor
 
@@ -23,7 +24,7 @@ beforeAll(async () => {
 beforeEach(async () => {
     await resetTestDatabase()
     await resetTestDatabaseClickhouse()
-    hub = await createHub()
+    ;[hub, closeHub] = await createHub()
     redis = await hub.redisPool.acquire()
     await redis.flushdb()
 
@@ -32,7 +33,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
     await hub.redisPool.release(redis)
-    await closeHub(hub)
+    await closeHub?.()
 })
 
 describe('EventsProcessor#createEvent()', () => {

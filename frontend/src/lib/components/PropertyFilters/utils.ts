@@ -326,6 +326,8 @@ export function propertyFilterTypeToPropertyDefinitionType(
         ? PropertyDefinitionType.Session
         : filterType === PropertyFilterType.Recording
         ? PropertyDefinitionType.Session
+        : filterType === PropertyFilterType.LogEntry
+        ? PropertyDefinitionType.LogEntry
         : PropertyDefinitionType.Event
 }
 

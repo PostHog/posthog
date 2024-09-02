@@ -8,7 +8,7 @@ import {
     IngestionOverflowMode,
 } from '../../../src/main/ingestion-queues/batch-processing/each-batch-ingestion'
 import { Hub } from '../../../src/types'
-import { closeHub, createHub } from '../../../src/utils/db/hub'
+import { createHub } from '../../../src/utils/db/hub'
 import { ConfiguredLimiter } from '../../../src/utils/token-bucket'
 import { captureIngestionWarning } from './../../../src/worker/ingestion/utils'
 
@@ -53,6 +53,7 @@ const captureEndpointEvent2 = {
 
 describe('eachBatchParallelIngestion with overflow reroute', () => {
     let hub: Hub
+    let closeServer: () => Promise<void>
     let queue: any
 
     function createBatchWithMultipleEvents(events: any[], timestamp?: any, withKey = true): Message[] {
@@ -68,7 +69,7 @@ describe('eachBatchParallelIngestion with overflow reroute', () => {
     }
 
     beforeEach(async () => {
-        hub = await createHub()
+        ;[hub, closeServer] = await createHub()
         queue = {
             bufferSleep: jest.fn(),
             pluginsServer: hub,
@@ -77,7 +78,7 @@ describe('eachBatchParallelIngestion with overflow reroute', () => {
     })
 
     afterEach(async () => {
-        await closeHub(hub)
+        await closeServer()
         jest.clearAllMocks()
     })
 

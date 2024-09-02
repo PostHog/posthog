@@ -15,7 +15,7 @@ from posthog.api.log_entries import LogEntryMixin
 
 from posthog.warehouse.data_load.service import (
     external_data_workflow_exists,
-    is_any_external_data_job_paused,
+    is_any_external_data_schema_paused,
     sync_external_data_job_workflow,
     pause_external_data_schedule,
     trigger_external_data_workflow,
@@ -213,10 +213,10 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
     def reload(self, request: Request, *args: Any, **kwargs: Any):
         instance: ExternalDataSchema = self.get_object()
 
-        if is_any_external_data_job_paused(self.team_id):
+        if is_any_external_data_schema_paused(self.team_id):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Monthly sync limit reached. Please contact PostHog support to increase your limit."},
+                data={"message": "Monthly sync limit reached. Please increase your billing limit to resume syncing."},
             )
 
         try:
@@ -236,10 +236,10 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
     def resync(self, request: Request, *args: Any, **kwargs: Any):
         instance: ExternalDataSchema = self.get_object()
 
-        if is_any_external_data_job_paused(self.team_id):
+        if is_any_external_data_schema_paused(self.team_id):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Monthly sync limit reached. Please contact PostHog support to increase your limit."},
+                data={"message": "Monthly sync limit reached. Please increase your billing limit to resume syncing."},
             )
 
         latest_running_job = (

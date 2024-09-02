@@ -2,7 +2,7 @@ import { Message } from 'node-rdkafka'
 
 import { buildStringMatcher } from '../../config/config'
 import { prefix as KAFKA_PREFIX, suffix as KAFKA_SUFFIX } from '../../config/kafka-topics'
-import { Hub, PluginServerService } from '../../types'
+import { Hub } from '../../types'
 import { status } from '../../utils/status'
 import { eachBatchParallelIngestion, IngestionOverflowMode } from './batch-processing/each-batch-ingestion'
 import { IngestionConsumer } from './kafka-queue'
@@ -27,19 +27,16 @@ export const PIPELINES: { [key: string]: PipelineType } = {
     },
 }
 
-export type PipelineKeyType = keyof typeof PIPELINES
-
 export const startEventsIngestionPipelineConsumer = async ({
     hub, // TODO: remove needing to pass in the whole hub and be more selective on dependency injection.
-    pipelineKey,
+    pipeline,
 }: {
     hub: Hub
-    pipelineKey: PipelineKeyType
-}): Promise<PluginServerService> => {
+    pipeline: PipelineType
+}) => {
     /*
         Consumes events from the topic and consumer passed in.
     */
-    const pipeline = PIPELINES[pipelineKey]
     const kafka_topic = `${KAFKA_PREFIX}${pipeline.topic}${KAFKA_SUFFIX}`
     const kafka_consumer = `${KAFKA_PREFIX}${pipeline.consumer_group}`
     status.info(
@@ -62,10 +59,5 @@ export const startEventsIngestionPipelineConsumer = async ({
 
     const { isHealthy } = await queue.start()
 
-    return {
-        id: `events-ingestion-pipeline-${pipelineKey}`,
-        onShutdown: async () => await queue.stop(),
-        healthcheck: isHealthy,
-        batchConsumer: queue.consumer,
-    }
+    return { queue, isHealthy }
 }

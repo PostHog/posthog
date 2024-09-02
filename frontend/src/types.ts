@@ -3067,6 +3067,7 @@ export enum PropertyDefinitionType {
     Person = 'person',
     Group = 'group',
     Session = 'session',
+    LogEntry = 'log_entry',
 }
 
 export interface PropertyDefinition {

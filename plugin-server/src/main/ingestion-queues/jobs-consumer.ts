@@ -8,7 +8,6 @@ import { status } from '../../utils/status'
 import { GraphileWorker } from '../graphile-worker/graphile-worker'
 import { instrumentEachBatchKafkaJS, setupEventHandlers } from './kafka-queue'
 import { latestOffsetTimestampGauge } from './metrics'
-import { makeHealthCheck } from './on-event-handler-consumer'
 
 const jobsConsumerSuccessCounter = new Counter({
     name: 'jobs_consumer_enqueue_success_total',
@@ -126,11 +125,10 @@ export const startJobsConsumer = async ({
         },
     })
 
-    const healthcheck = makeHealthCheck(consumer, serverConfig.KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS)
-
     return {
-        id: 'jobs-consumer',
-        healthcheck: async () => await healthcheck(),
-        onShutdown: async () => await consumer.stop(),
+        ...consumer,
+        stop: async () => {
+            await consumer.stop()
+        },
     }
 }
