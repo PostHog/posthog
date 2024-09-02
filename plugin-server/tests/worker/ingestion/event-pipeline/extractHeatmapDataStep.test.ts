@@ -138,7 +138,6 @@ describe('extractHeatmapDataStep()', () => {
                     fetchTeam: jest.fn(() => Promise.resolve({ heatmaps_opt_in: true })),
                 },
             },
-            nextStep: (...args: any[]) => args,
         }
     })
 

@@ -1,18 +1,23 @@
 import { IconGear } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { UnexpectedNeverError } from 'lib/utils'
 import { useCallback, useMemo } from 'react'
+import { NewActionButton } from 'scenes/actions/NewActionButton'
 import { countryCodeToFlag, countryCodeToName } from 'scenes/insights/views/WorldMap'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 import { DeviceTab, GeographyTab, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
+import { actionsModel } from '~/models/actionsModel'
 import { Query } from '~/queries/Query/Query'
 import { DataTableNode, InsightVizNode, NodeKind, QuerySchema, WebStatsBreakdown } from '~/queries/schema'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
-import { ChartDisplayType, GraphPointPayload, InsightLogicProps, PropertyFilterType } from '~/types'
+import { ChartDisplayType, GraphPointPayload, InsightLogicProps, ProductKey, PropertyFilterType } from '~/types'
 
 const PercentageCell: QueryContextColumnComponent = ({ value }) => {
     if (typeof value === 'number') {
@@ -38,7 +43,9 @@ const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
         case WebStatsBreakdown.InitialPage:
             return <>Initial Path</>
         case WebStatsBreakdown.ExitPage:
-            return <>Exit Path</>
+            return <>End Path</>
+        case WebStatsBreakdown.ExitClick:
+            return <>Exit Click</>
         case WebStatsBreakdown.InitialChannelType:
             return <>Initial Channel Type</>
         case WebStatsBreakdown.InitialReferringDomain:
@@ -131,7 +138,9 @@ export const webStatsBreakdownToPropertyName = (
         case WebStatsBreakdown.InitialPage:
             return { key: '$entry_pathname', type: PropertyFilterType.Session }
         case WebStatsBreakdown.ExitPage:
-            return { key: '$exit_pathname', type: PropertyFilterType.Session }
+            return { key: '$end_pathname', type: PropertyFilterType.Session }
+        case WebStatsBreakdown.ExitClick:
+            return { key: '$last_external_click_url', type: PropertyFilterType.Session }
         case WebStatsBreakdown.InitialChannelType:
             return { key: '$channel_type', type: PropertyFilterType.Session }
         case WebStatsBreakdown.InitialReferringDomain:
@@ -195,6 +204,24 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
             title: 'Deep Scroll Rate',
             render: PercentageCell,
             align: 'right',
+        },
+        total_conversions: {
+            title: 'Total Conversions',
+            render: NumericCell,
+            align: 'right',
+        },
+        conversion_rate: {
+            title: 'Conversion Rate',
+            render: PercentageCell,
+            align: 'right',
+        },
+        converting_users: {
+            title: 'Converting Users',
+            render: NumericCell,
+            align: 'right',
+        },
+        action_name: {
+            title: 'Action',
         },
     },
 }
@@ -441,6 +468,47 @@ const getBreakdownValue = (record: unknown, breakdownBy: WebStatsBreakdown): str
     return breakdownValue
 }
 
+export const WebGoalsTile = ({
+    query,
+    insightProps,
+}: {
+    query: DataTableNode
+    insightProps: InsightLogicProps
+}): JSX.Element | null => {
+    const { actions, actionsLoading } = useValues(actionsModel)
+    const { updateHasSeenProductIntroFor } = useActions(userLogic)
+
+    if (actionsLoading) {
+        return null
+    }
+
+    if (!actions.length) {
+        return (
+            <ProductIntroduction
+                productName="Actions"
+                productKey={ProductKey.ACTIONS}
+                thingName="action"
+                isEmpty={true}
+                description="Use actions to combine events that you want to have tracked together or to make detailed Autocapture events easier to reuse."
+                docsURL="https://posthog.com/docs/data/actions"
+                actionElementOverride={
+                    <NewActionButton onSelectOption={() => updateHasSeenProductIntroFor(ProductKey.ACTIONS, true)} />
+                }
+            />
+        )
+    }
+
+    return (
+        <div className="border rounded bg-bg-light flex-1">
+            <div className="flex flex-row-reverse p-2">
+                <LemonButton to={urls.actions()} sideIcon={<IconOpenInNew />} type="secondary" size="small">
+                    Manage actions
+                </LemonButton>
+            </div>
+            <Query query={query} readOnly={true} context={{ ...webAnalyticsDataTableQueryContext, insightProps }} />
+        </div>
+    )
+}
 export const WebQuery = ({
     query,
     showIntervalSelect,
@@ -464,6 +532,8 @@ export const WebQuery = ({
     }
     if (query.kind === NodeKind.InsightVizNode) {
         return <WebStatsTrendTile query={query} showIntervalTile={showIntervalSelect} insightProps={insightProps} />
+    } else if (query.kind === NodeKind.DataTableNode && query.source.kind === NodeKind.WebGoalsQuery) {
+        return <WebGoalsTile query={query} insightProps={insightProps} />
     }
 
     return <Query query={query} readOnly={true} context={{ ...webAnalyticsDataTableQueryContext, insightProps }} />

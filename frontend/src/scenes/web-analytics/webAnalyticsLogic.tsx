@@ -59,6 +59,7 @@ export enum TileId {
     RETENTION = 'RETENTION',
     REPLAY = 'REPLAY',
     ERROR_TRACKING = 'ERROR_TRACKING',
+    GOALS = 'GOALS',
 }
 
 const loadPriorityMap: Record<TileId, number> = {
@@ -71,6 +72,7 @@ const loadPriorityMap: Record<TileId, number> = {
     [TileId.RETENTION]: 7,
     [TileId.REPLAY]: 8,
     [TileId.ERROR_TRACKING]: 9,
+    [TileId.GOALS]: 10,
 }
 
 interface BaseTile {
@@ -163,7 +165,8 @@ export enum DeviceTab {
 export enum PathTab {
     PATH = 'PATH',
     INITIAL_PATH = 'INITIAL_PATH',
-    EXIT_PATH = 'EXIT_PATH',
+    END_PATH = 'END_PATH',
+    EXIT_CLICK = 'EXIT_CLICK',
 }
 
 export enum GeographyTab {
@@ -696,7 +699,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     showPathCleaningControls: true,
                                 },
                                 {
-                                    id: PathTab.EXIT_PATH,
+                                    id: PathTab.END_PATH,
                                     title: 'End paths',
                                     linkText: 'End path',
                                     query: {
@@ -715,10 +718,34 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         },
                                         embedded: false,
                                     },
-                                    insightProps: createInsightProps(TileId.PATHS, PathTab.EXIT_PATH),
+                                    insightProps: createInsightProps(TileId.PATHS, PathTab.END_PATH),
                                     canOpenModal: true,
                                     showPathCleaningControls: true,
                                 },
+                                featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LAST_CLICK]
+                                    ? {
+                                          id: PathTab.EXIT_CLICK,
+                                          title: 'Exit clicks',
+                                          linkText: 'Exit clicks',
+                                          query: {
+                                              full: true,
+                                              kind: NodeKind.DataTableNode,
+                                              source: {
+                                                  kind: NodeKind.WebStatsTableQuery,
+                                                  properties: webAnalyticsFilters,
+                                                  breakdownBy: WebStatsBreakdown.ExitClick,
+                                                  dateRange,
+                                                  includeScrollDepth: false,
+                                                  sampling,
+                                                  limit: 10,
+                                                  filterTestAccounts,
+                                              },
+                                              embedded: false,
+                                          },
+                                          insightProps: createInsightProps(TileId.PATHS, PathTab.END_PATH),
+                                          canOpenModal: true,
+                                      }
+                                    : null,
                             ] as (TabsTileTab | undefined)[]
                         ).filter(isNotNil),
                     },
@@ -1100,6 +1127,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         layout: {
                             colSpanClassName: 'md:col-span-2',
                         },
+
                         query: {
                             kind: NodeKind.InsightVizNode,
                             source: {
@@ -1124,9 +1152,35 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             embedded: true,
                         },
                         insightProps: createInsightProps(TileId.RETENTION),
-                        canOpenInsight: true,
-                        canOpenModal: false,
+                        canOpenInsight: false,
+                        canOpenModal: true,
                     },
+                    featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOALS]
+                        ? {
+                              kind: 'query',
+                              tileId: TileId.GOALS,
+                              title: 'Goals',
+                              layout: {
+                                  colSpanClassName: 'md:col-span-2',
+                              },
+                              query: {
+                                  full: true,
+                                  kind: NodeKind.DataTableNode,
+                                  source: {
+                                      kind: NodeKind.WebGoalsQuery,
+                                      properties: webAnalyticsFilters,
+                                      dateRange,
+                                      sampling,
+                                      limit: 10,
+                                      filterTestAccounts,
+                                  },
+                                  embedded: true,
+                              },
+                              insightProps: createInsightProps(TileId.GOALS),
+                              canOpenInsight: false,
+                              canOpenModal: false,
+                          }
+                        : null,
                     featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_REPLAY]
                         ? {
                               kind: 'replay',
@@ -1167,7 +1221,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 const { tileId, tabId } = modalTileAndTab
                 const tile = tiles.find((tile) => tile.tileId === tileId)
                 if (!tile) {
-                    throw new Error('Developer Error, tile not found')
+                    return null
                 }
 
                 const extendQuery = (query: QuerySchema): QuerySchema => {
@@ -1186,7 +1240,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 if (tile.kind === 'tabs') {
                     const tab = tile.tabs.find((tab) => tab.id === tabId)
                     if (!tab) {
-                        throw new Error('Developer Error, tab not found')
+                        return null
                     }
                     return {
                         tileId,
@@ -1293,12 +1347,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
                     const tile = tiles.find((tile) => tile.tileId === tileId)
                     if (!tile) {
-                        throw new Error('Developer Error, tile not found')
+                        return undefined
                     }
                     if (tile.kind === 'tabs') {
                         const tab = tile.tabs.find((tab) => tab.id === tabId)
                         if (!tab) {
-                            throw new Error('Developer Error, tab not found')
+                            return undefined
                         }
                         return urls.insightNew(undefined, undefined, formatQueryForNewInsight(tab.query))
                     } else if (tile.kind === 'query') {
