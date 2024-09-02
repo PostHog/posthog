@@ -33,6 +33,7 @@ import {
     HogFunctionInvocationGlobals,
     HogFunctionInvocationResult,
     HogFunctionInvocationSerialized,
+    HogFunctionInvocationSerializedCompressed,
     HogFunctionMessageToProduce,
     HogFunctionType,
     HogHooksFetchResponse,
@@ -216,8 +217,15 @@ abstract class CdpConsumerBase {
         // For now we just enqueue to kafka
         // For kafka style this is overkill to enqueue this way but it simplifies migrating to the new system
 
-        const request: HogFunctionInvocationSerialized = {
-            state: await gzipObject(invocation),
+        const serializedInvocation: HogFunctionInvocationSerialized = {
+            ...invocation,
+            hogFunctionId: invocation.hogFunction.id,
+        }
+
+        delete (serializedInvocation as any).hogFunction
+
+        const request: HogFunctionInvocationSerializedCompressed = {
+            state: await gzipObject(serializedInvocation),
         }
 
         // NOTE: This is very temporary as it is producing the response. the response will actually be produced by the 3rd party service
@@ -552,7 +560,7 @@ export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
                     const invocations: HogFunctionInvocation[] = []
 
                     // Parse the base message value
-                    const entries: (HogHooksFetchResponse | HogFunctionInvocationSerialized)[] = messages
+                    const entries: (HogHooksFetchResponse | HogFunctionInvocationSerializedCompressed)[] = messages
                         .map((message) => {
                             try {
                                 return JSON.parse(message.value!.toString())
@@ -567,15 +575,34 @@ export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
                     // Deserialize the compressed data
                     await Promise.all(
                         entries.map(async (item) => {
-                            // If it looks like a
                             try {
-                                const invocation = await unGzipObject<HogFunctionInvocation>(item.state)
+                                const invocationSerialized = await unGzipObject<HogFunctionInvocationSerialized>(
+                                    item.state
+                                )
 
                                 if ('asyncFunctionResponse' in item) {
                                     // This means it is a callback from hoghooks so we need to add the response to the invocation
-                                    invocation.queue = 'hog'
-                                    invocation.queueParameters = item.asyncFunctionResponse
+                                    invocationSerialized.queue = 'hog'
+                                    invocationSerialized.queueParameters = item.asyncFunctionResponse
                                 }
+
+                                const hogFunction = this.hogFunctionManager.getHogFunction(
+                                    invocationSerialized.hogFunctionId
+                                )
+                                if (!hogFunction) {
+                                    status.error('Error finding hog function', {
+                                        id: invocationSerialized.hogFunctionId,
+                                    })
+                                    return
+                                }
+
+                                const invocation: HogFunctionInvocation = {
+                                    ...invocationSerialized,
+                                    hogFunction,
+                                }
+
+                                delete (invocation as any).hogFunctionId
+
                                 invocations.push(invocation)
                             } catch (e) {
                                 status.error('Error unzipping message', e, item.state)
@@ -583,6 +610,12 @@ export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
                             }
                         })
                     )
+
+                    invocations.forEach((item) => {
+                        if (!item.hogFunction?.id) {
+                            console.error('No hog function id', item)
+                        }
+                    })
 
                     return invocations
                 },

@@ -217,7 +217,12 @@ export type HogHooksFetchResponse = {
     asyncFunctionResponse: HogFunctionQueueParametersFetchResponse
 }
 
-export type HogFunctionInvocationSerialized = {
+export type HogFunctionInvocationSerialized = Omit<HogFunctionInvocation, 'hogFunction'> & {
+    // When serialized to kafka / cyclotron we only store the ID
+    hogFunctionId: HogFunctionType['id']
+}
+
+export type HogFunctionInvocationSerializedCompressed = {
     state: string // Serialized HogFunctionInvocation
 }
 
@@ -271,7 +276,11 @@ export type IntegrationType = {
 
 export type HogFunctionMessageToProduce = {
     topic: string
-    value: HogFunctionLogEntrySerialized | HogHooksFetchResponse | AppMetric2Type | HogFunctionInvocationSerialized
+    value:
+        | HogFunctionLogEntrySerialized
+        | HogHooksFetchResponse
+        | AppMetric2Type
+        | HogFunctionInvocationSerializedCompressed
     key: string
 }
 
