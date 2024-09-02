@@ -102,16 +102,16 @@ async fn assert_eventdefinition_exists(
     team_id: i32,
     last_seen_at: DateTime<Utc>,
 ) {
-    let count: Option<i64> = sqlx::query_scalar!(
+    let count: Option<i64> = sqlx::query_scalar(
         r#"
         SELECT COUNT(*)
         FROM posthog_eventdefinition
         WHERE name = $1 AND team_id = $2 AND last_seen_at = $3
         "#,
-        name,
-        team_id,
-        last_seen_at
     )
+    .bind(name)
+    .bind(team_id)
+    .bind(last_seen_at)
     .fetch_one(db)
     .await
     .unwrap();
@@ -128,18 +128,18 @@ async fn assert_propertydefinition_exists(
     property_type: PropertyValueType,
 ) {
     println!("Checking property definition for {}", name);
-    let count: Option<i64> = sqlx::query_scalar!(
+    let count: Option<i64> = sqlx::query_scalar(
         r#"
         SELECT COUNT(*)
         FROM posthog_propertydefinition
         WHERE name = $1 AND type = $2 AND is_numerical = $3 AND team_id = $4 AND property_type = $5
         "#,
-        name,
-        event_type as i32,
-        is_numerical,
-        team_id,
-        property_type.to_string()
     )
+    .bind(name)
+    .bind(event_type as i32)
+    .bind(is_numerical)
+    .bind(team_id)
+    .bind(property_type.to_string())
     .fetch_one(db)
     .await
     .unwrap();
