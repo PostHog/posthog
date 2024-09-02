@@ -128,38 +128,22 @@ impl RawRequest {
         tracing::debug!(len = bytes.len(), "decoding new event");
 
         let payload = if bytes.starts_with(&GZIP_MAGIC_NUMBERS) {
-            let len = bytes.len();
-            let mut zipstream = GzDecoder::new(bytes.reader());
-            let chunk = &mut [0; 1024];
-            let mut buf = Vec::with_capacity(len);
-            loop {
-                let got = match zipstream.read(chunk) {
-                    Ok(got) => got,
-                    Err(e) => {
-                        tracing::error!("failed to read gzip stream: {}", e);
-                        return Err(CaptureError::RequestDecodingError(String::from(
-                            "invalid gzip data",
-                        )));
-                    }
-                };
-                if got == 0 {
-                    break;
-                }
-                buf.extend_from_slice(&chunk[..got]);
-                if buf.len() > limit {
-                    tracing::error!("GZIP decompression limit reached");
-                    return Err(CaptureError::EventTooBig);
-                }
+            let mut s = String::new();
+            let mut zipstream = GzDecoder::new(bytes.reader()).take(limit as u64);
+            zipstream.read_to_string(&mut s).map_err(|e| {
+                tracing::error!("failed to decode gzip: {}", e);
+                CaptureError::RequestDecodingError(String::from("invalid gzip data"))
+            })?;
+
+            // Check if zipstream has more bytes and we've hit the limit
+            let mut temp_buffer = [0u8; 1];
+            if let Ok(_) = zipstream.into_inner().read_exact(&mut temp_buffer) {
+                // we had more data
+                tracing::error!("GZIP decompression limit reached");
+                return Err(CaptureError::EventTooBig);
             }
-            match String::from_utf8(buf) {
-                Ok(s) => s,
-                Err(e) => {
-                    tracing::error!("failed to decode gzip: {}", e);
-                    return Err(CaptureError::RequestDecodingError(String::from(
-                        "invalid gzip data",
-                    )));
-                }
-            }
+
+            s
         } else {
             let s = String::from_utf8(bytes.into()).map_err(|e| {
                 tracing::error!("failed to decode body: {}", e);
