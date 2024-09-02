@@ -1,7 +1,7 @@
 import express, { Request, Response } from 'express'
 import { DateTime } from 'luxon'
+import { IngestionConsumer, KafkaJSIngestionConsumer } from 'main/ingestion-queues/kafka-queue'
 import * as prometheus from 'prom-client'
-import { PluginServerService } from 'types'
 
 import { status } from '../../utils/status'
 import { delay } from '../../utils/utils'
@@ -14,9 +14,12 @@ export const expressApp: express.Application = express()
 
 expressApp.use(express.json())
 
-export function setupCommonRoutes(services: Pick<PluginServerService, 'id' | 'healthcheck'>[]): express.Application {
-    expressApp.get('/_health', buildGetHealth(services))
-    expressApp.get('/_ready', buildGetHealth(services))
+export function setupCommonRoutes(
+    healthChecks: { [service: string]: () => Promise<boolean> | boolean },
+    analyticsEventsIngestionConsumer?: KafkaJSIngestionConsumer | IngestionConsumer
+): express.Application {
+    expressApp.get('/_health', buildGetHealth(healthChecks))
+    expressApp.get('/_ready', buildGetReady(analyticsEventsIngestionConsumer))
     expressApp.get('/_metrics', getMetrics)
     expressApp.get('/metrics', getMetrics)
     expressApp.get('/_profile/:type', getProfileByType)
@@ -25,7 +28,7 @@ export function setupCommonRoutes(services: Pick<PluginServerService, 'id' | 'he
 }
 
 const buildGetHealth =
-    (services: Pick<PluginServerService, 'id' | 'healthcheck'>[]) => async (req: Request, res: Response) => {
+    (healthChecks: { [service: string]: () => Promise<boolean> | boolean }) => async (req: Request, res: Response) => {
         // Check that all health checks pass. Note that a failure of these
         // _may_ result in the process being terminated by e.g. Kubernetes
         // so the stakes are high.
@@ -55,11 +58,11 @@ const buildGetHealth =
             // assume that all promises have resolved. If there was a
             // rejected promise, the http server should catch it and return
             // a 500 status code.
-            services.map(async (service) => {
+            Object.entries(healthChecks).map(async ([service, check]) => {
                 try {
-                    return { service: service.id, status: (await service.healthcheck()) ? 'ok' : 'error' }
+                    return { service, status: (await check()) ? 'ok' : 'error' }
                 } catch (error) {
-                    return { service: service.id, status: 'error', error: error.message }
+                    return { service, status: 'error', error: error.message }
                 }
             })
         )
@@ -75,6 +78,27 @@ const buildGetHealth =
         }
 
         return res.status(statusCode).json({ status: statusCode === 200 ? 'ok' : 'error', checks: checkResultsMapping })
+    }
+
+const buildGetReady =
+    (analyticsEventsIngestionConsumer?: KafkaJSIngestionConsumer | IngestionConsumer) =>
+    (req: Request, res: Response) => {
+        // Check that, if the server should have a kafka queue,
+        // the Kafka consumer is ready to consume messages
+        if (!analyticsEventsIngestionConsumer || analyticsEventsIngestionConsumer.consumerReady) {
+            status.info('💚', 'Server readiness check succeeded')
+            const responseBody = {
+                status: 'ok',
+            }
+            res.statusCode = 200
+            return res.status(200).json(responseBody)
+        }
+
+        status.info('💔', 'Server readiness check failed')
+        const responseBody = {
+            status: 'error',
+        }
+        return res.status(503).json(responseBody)
     }
 
 const getMetrics = async (req: Request, res: Response) => {

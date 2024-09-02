@@ -1,5 +1,5 @@
 import { Hub } from '../../src/types'
-import { closeHub, createHub } from '../../src/utils/db/hub'
+import { createHub } from '../../src/utils/db/hub'
 import { code } from '../../src/utils/utils'
 import { transformCode } from '../../src/worker/vm/transforms'
 import { resetTestDatabase } from '../helpers/sql'
@@ -10,14 +10,15 @@ const EMPTY_IMPORTS = {}
 
 describe('transforms', () => {
     let hub: Hub
+    let closeHub: () => Promise<void>
 
     beforeEach(async () => {
-        hub = await createHub()
+        ;[hub, closeHub] = await createHub()
         await resetTestDatabase(`const processEvent = event => event`)
     })
 
     afterEach(async () => {
-        await closeHub(hub)
+        await closeHub()
     })
 
     describe('transformCode', () => {

@@ -166,6 +166,7 @@ type EachBatchFunction = (messages: Message[], queue: IngestionConsumer) => Prom
 
 export class IngestionConsumer {
     public pluginsServer: Hub
+    public consumerReady: boolean
     public topic: string
     public consumerGroupId: string
     public eachBatch: EachBatchFunction
@@ -175,6 +176,8 @@ export class IngestionConsumer {
         this.pluginsServer = pluginsServer
         this.topic = topic
         this.consumerGroupId = consumerGroupId
+
+        this.consumerReady = false
 
         this.eachBatch = batchHandler
     }
@@ -197,6 +200,7 @@ export class IngestionConsumer {
             topicMetadataRefreshInterval: this.pluginsServer.KAFKA_TOPIC_METADATA_REFRESH_INTERVAL_MS,
             eachBatch: (payload) => this.eachBatchConsumer(payload),
         })
+        this.consumerReady = true
         return this.consumer
     }
 
@@ -212,6 +216,8 @@ export class IngestionConsumer {
         } catch (error) {
             status.error('⚠️', 'An error occurred while stopping Kafka queue:\n', error)
         }
+
+        this.consumerReady = false
     }
 }
 

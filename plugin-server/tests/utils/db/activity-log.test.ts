@@ -1,6 +1,6 @@
 import { Hub } from '../../../src/types'
 import { createPluginActivityLog } from '../../../src/utils/db/activity-log'
-import { closeHub, createHub } from '../../../src/utils/db/hub'
+import { createHub } from '../../../src/utils/db/hub'
 import { PostgresUse } from '../../../src/utils/db/postgres'
 import { pluginConfig39 } from '../../helpers/plugins'
 import { resetTestDatabase } from '../../helpers/sql'
@@ -22,14 +22,15 @@ interface ActivityLog {
 
 describe('createPluginActivityLog()', () => {
     let hub: Hub
+    let closeHub: () => Promise<void>
 
     beforeEach(async () => {
         await resetTestDatabase()
-        hub = await createHub({})
+        ;[hub, closeHub] = await createHub({})
     })
 
     afterEach(async () => {
-        await closeHub(hub)
+        await closeHub()
     })
 
     async function fetchPluginActivityLogs(hub: Hub): Promise<Array<ActivityLog>> {

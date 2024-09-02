@@ -33,6 +33,7 @@ let runner: any
 beforeEach(() => {
     resetMetrics()
     runner = {
+        nextStep: (...args: any[]) => args,
         hub: {
             teamManager: {
                 getTeamByToken: jest.fn((token) => {

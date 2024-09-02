@@ -75,6 +75,7 @@ describe('http server', () => {
                 })
             )
 
+            expect(pluginsServer.queue?.consumerReady).toBeTruthy()
             await pluginsServer.stop()
         })
     })

@@ -16,7 +16,7 @@ import { createRdConnectionConfigFromEnvVars, createRdProducerConfigFromEnvVars 
 import { createKafkaProducer } from '../kafka/producer'
 import { addSentryBreadcrumbsEventListeners } from '../main/ingestion-queues/kafka-metrics'
 import { runInstrumentedFunction } from '../main/utils'
-import { AppMetric2Type, Hub, PluginServerService, RawClickHouseEvent, TeamId, TimestampFormat } from '../types'
+import { AppMetric2Type, Hub, RawClickHouseEvent, TeamId, TimestampFormat } from '../types'
 import { KafkaProducerWrapper } from '../utils/db/kafka-producer-wrapper'
 import { captureTeamEvent } from '../utils/posthog'
 import { status } from '../utils/status'
@@ -111,15 +111,6 @@ abstract class CdpConsumerBase {
         const rustyHook = this.hub?.rustyHook ?? new RustyHook(this.hub)
         this.asyncFunctionExecutor = new AsyncFunctionExecutor(this.hub, rustyHook)
         this.groupsManager = new GroupsManager(this.hub)
-    }
-
-    public get service(): PluginServerService {
-        return {
-            id: this.consumerGroupId,
-            onShutdown: async () => await this.stop(),
-            healthcheck: () => this.isHealthy() ?? false,
-            batchConsumer: this.batchConsumer,
-        }
     }
 
     private async captureInternalPostHogEvent(

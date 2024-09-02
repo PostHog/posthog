@@ -19,11 +19,19 @@ const pluginEvent: PluginEvent = {
 }
 
 describe('pluginsProcessEventStep()', () => {
+    let runner: any
+
+    beforeEach(() => {
+        runner = {
+            nextStep: (...args: any[]) => args,
+        }
+    })
+
     it('forwards processed plugin event to `processPersonsStep`', async () => {
         const processedEvent = { ...pluginEvent, event: 'processed' }
         jest.mocked(runProcessEvent).mockResolvedValue(processedEvent)
 
-        const response = await pluginsProcessEventStep({} as any, pluginEvent)
+        const response = await pluginsProcessEventStep(runner, pluginEvent)
 
         expect(response).toEqual(processedEvent)
     })
@@ -32,7 +40,7 @@ describe('pluginsProcessEventStep()', () => {
         jest.mocked(runProcessEvent).mockResolvedValue(null)
         const droppedEventCounterSpy = jest.spyOn(droppedEventCounter, 'inc')
 
-        const response = await pluginsProcessEventStep({} as any, pluginEvent)
+        const response = await pluginsProcessEventStep(runner, pluginEvent)
 
         expect(response).toEqual(null)
         expect(droppedEventCounterSpy).toHaveBeenCalledTimes(1)
