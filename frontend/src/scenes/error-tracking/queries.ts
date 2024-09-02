@@ -171,7 +171,7 @@ export const errorTrackingGroupEventsQuery = ({
         properties,
         filterTestAccounts: filterTestAccounts,
         offset: offset,
-        limit: 6,
+        limit: 50,
     }
 
     if (dateRange.date_from) {
