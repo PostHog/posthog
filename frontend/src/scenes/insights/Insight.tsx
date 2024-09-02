@@ -1,7 +1,10 @@
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { DebugCHQueries } from 'lib/components/CommandPalette/DebugCHQueries'
+import { isObject } from 'lib/utils'
 import { InsightPageHeader } from 'scenes/insights/InsightPageHeader'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
 import { Node } from '~/queries/schema'
@@ -24,7 +27,7 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
     const logic = insightLogic({
         dashboardItemId: insightId || 'new',
         // don't use cached insight if we have filtersOverride
-        cachedInsight: filtersOverride === undefined && insight?.short_id === insightId ? insight : null,
+        cachedInsight: isObject(filtersOverride) && insight?.short_id === insightId ? insight : null,
         filtersOverride,
     })
     const { insightProps } = useValues(logic)
@@ -48,6 +51,18 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
         <BindLogic logic={insightLogic} props={insightProps}>
             <div className="Insight">
                 <InsightPageHeader insightLogicProps={insightProps} />
+
+                {isObject(filtersOverride) && (
+                    <LemonBanner type="warning" className="mb-4">
+                        <div className="flex flex-row items-center justify-between gap-2">
+                            <span>You are viewing this insight with filters from a dashboard</span>
+
+                            <LemonButton type="secondary" to={urls.insightView(insightId as InsightShortId)}>
+                                Remove filters
+                            </LemonButton>
+                        </div>
+                    </LemonBanner>
+                )}
 
                 {insightMode === ItemMode.Edit && <InsightsNav />}
 
