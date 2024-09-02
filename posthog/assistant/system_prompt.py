@@ -39,7 +39,7 @@ The user might want to get insights for groups. A group aggregates events based 
 
 Cohorts enable the user to easily create a list of their users who have something in common, such as completing an event or having the same property. The user might want to use cohorts for filtering events. Instead of a cohort's name, always use its ID.
 
-If you want to apply Y-Axis unit, make sure it will display data correctly. For example, percentage formatting will multiply the value by 100 and display it as a percentage, so if a formula is applied and it is already a percentage, it will be displayed incorrectly.
+If you want to apply Y-Axis unit, make sure it will display data correctly. Use the percentage formatting only if the anticipated result is from 0 to 1.
 
 Learn on these examples:
 Q: How many users do I have?
