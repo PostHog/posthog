@@ -251,7 +251,7 @@ export const WebTabs = ({
                     )}
                 </h2>
 
-                {tabs.length > 3 ? (
+                {tabs.length > 4 ? (
                     <LemonSelect
                         size="small"
                         disabled={false}

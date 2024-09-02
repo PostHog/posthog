@@ -5,7 +5,7 @@ import { defaultConfig } from '../../src/config/config'
 import { Hub, Person, PropertyOperator, PropertyUpdateOperation, RawAction, Team } from '../../src/types'
 import { DB } from '../../src/utils/db/db'
 import { DependencyUnavailableError } from '../../src/utils/db/error'
-import { createHub } from '../../src/utils/db/hub'
+import { closeHub, createHub } from '../../src/utils/db/hub'
 import { PostgresRouter, PostgresUse } from '../../src/utils/db/postgres'
 import { generateKafkaPersonUpdateMessage } from '../../src/utils/db/utils'
 import { RaceConditionError, UUIDT } from '../../src/utils/utils'
@@ -17,11 +17,10 @@ jest.mock('../../src/utils/status')
 
 describe('DB', () => {
     let hub: Hub
-    let closeServer: () => Promise<void>
     let db: DB
 
     beforeEach(async () => {
-        ;[hub, closeServer] = await createHub()
+        hub = await createHub()
         await resetTestDatabase(undefined, {}, {}, { withExtendedTestData: false })
         db = hub.db
 
@@ -31,7 +30,7 @@ describe('DB', () => {
     })
 
     afterEach(async () => {
-        await closeServer()
+        await closeHub(hub)
         jest.clearAllMocks()
     })
 
@@ -190,6 +189,7 @@ describe('DB', () => {
             expect(await db.fetchAction(69)).toEqual({
                 ...result[2][69],
                 steps_json: null, // Temporary diff whilst we migrate to this new field
+                pinned_at: null,
             })
         })
 
