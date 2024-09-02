@@ -1,7 +1,7 @@
 import { CdpFunctionCallbackConsumer, CdpProcessedEventsConsumer } from '../../src/cdp/cdp-consumers'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../../src/cdp/types'
 import { Hub, Team } from '../../src/types'
-import { closeHub, createHub } from '../../src/utils/db/hub'
+import { createHub } from '../../src/utils/db/hub'
 import { getFirstTeam, resetTestDatabase } from '../helpers/sql'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './examples'
 import { createHogExecutionGlobals, insertHogFunction as _insertHogFunction } from './fixtures'
@@ -87,6 +87,7 @@ describe('CDP Consumers E2E', () => {
     let processedEventsConsumer: CdpProcessedEventsConsumer
     let functionProcessor: CdpFunctionCallbackConsumer
     let hub: Hub
+    let closeHub: () => Promise<void>
     let team: Team
 
     const insertHogFunction = async (hogFunction: Partial<HogFunctionType>) => {
@@ -99,7 +100,7 @@ describe('CDP Consumers E2E', () => {
 
     beforeEach(async () => {
         await resetTestDatabase()
-        hub = await createHub()
+        ;[hub, closeHub] = await createHub()
         team = await getFirstTeam(hub)
 
         processedEventsConsumer = new CdpProcessedEventsConsumer(hub)
@@ -114,7 +115,7 @@ describe('CDP Consumers E2E', () => {
         jest.setTimeout(10000)
         await processedEventsConsumer.stop()
         await functionProcessor.stop()
-        await closeHub(hub)
+        await closeHub()
     })
 
     afterAll(() => {
