@@ -120,6 +120,20 @@ class HedgeboxMatrix(Matrix):
                 },
             ],
         )
+        Action.objects.create(
+            name="Visited Marius Tech Tips",
+            team=team,
+            description="Visited the best page for tech tips on the internet",
+            created_by=user,
+            steps_json=[
+                {
+                    "event": "$pageview",
+                    "url": "mariustechtips",
+                    "url_matching": "regex",
+                }
+            ],
+            pinned_at=self.now - dt.timedelta(days=3),
+        )
 
         # Cohorts
         Cohort.objects.create(

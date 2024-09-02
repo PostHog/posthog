@@ -4,6 +4,7 @@ from freezegun import freeze_time
 from parameterized import parameterized
 
 from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
+from posthog.models import Cohort
 from posthog.models.utils import uuid7
 from posthog.schema import (
     DateRange,
@@ -19,6 +20,7 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     _create_person,
+    flush_persons_and_events,
 )
 
 
@@ -990,3 +992,65 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             breakdown_by=WebStatsBreakdown.PAGE,
         ).results
         assert [["/path", 1, 1]] == results
+
+    def test_cohort_test_filters(self):
+        d1 = "d1"
+        s1 = str(uuid7("2024-07-30"))
+        d2 = "d2"
+        s2 = str(uuid7("2024-07-30"))
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[d1],
+            properties={"name": d1, "email": "test@example.com"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d1,
+            timestamp="2024-07-30",
+            properties={"$session_id": s1, "$pathname": "/path1"},
+        )
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[d2],
+            properties={"name": d2, "email": "d2@hedgebox.net"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d2,
+            timestamp="2024-07-30",
+            properties={"$session_id": s2, "$pathname": "/path2"},
+        )
+
+        real_users_cohort = Cohort.objects.create(
+            team=self.team,
+            name="Real persons",
+            description="People who don't belong to the Hedgebox team.",
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": "@hedgebox.net$",
+                            "operator": "not_regex",
+                        }
+                    ]
+                }
+            ],
+        )
+        self.team.test_account_filters = [{"key": "id", "type": "cohort", "value": real_users_cohort.pk}]
+
+        flush_persons_and_events()
+        real_users_cohort.calculate_people_ch(pending_version=0)
+
+        # Test that the cohort filter works
+        results = self._run_web_stats_table_query(
+            "all",
+            None,
+            filter_test_accounts=True,
+            breakdown_by=WebStatsBreakdown.PAGE,
+        ).results
+
+        assert results == [["/path1", 1, 1]]

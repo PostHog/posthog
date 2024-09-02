@@ -543,6 +543,7 @@ export interface ActionType {
     action_id?: number // alias of id to make it compatible with event definitions uuid
     bytecode?: any[]
     bytecode_error?: string
+    pinned_at: string | null
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -3066,6 +3067,7 @@ export enum PropertyDefinitionType {
     Person = 'person',
     Group = 'group',
     Session = 'session',
+    LogEntry = 'log_entry',
 }
 
 export interface PropertyDefinition {

@@ -19,7 +19,7 @@ use crate::prometheus::{setup_metrics_recorder, track_metrics};
 
 const EVENT_BODY_SIZE: usize = 2 * 1024 * 1024; // 2MB
 const BATCH_BODY_SIZE: usize = 20 * 1024 * 1024; // 20MB, up from the default 2MB used for normal event payloads
-const RECORDING_BODY_SIZE: usize = 20 * 1024 * 1024; // 20MB, up from the default 2MB used for normal event payloads
+const RECORDING_BODY_SIZE: usize = 25 * 1024 * 1024; // 25MB, up from the default 2MB used for normal event payloads
 
 #[derive(Clone)]
 pub struct State {
@@ -27,6 +27,7 @@ pub struct State {
     pub timesource: Arc<dyn TimeSource + Send + Sync>,
     pub redis: Arc<dyn Client + Send + Sync>,
     pub billing_limiter: RedisLimiter,
+    pub event_size_limit: usize,
 }
 
 async fn index() -> &'static str {
@@ -47,12 +48,14 @@ pub fn router<
     metrics: bool,
     capture_mode: CaptureMode,
     concurrency_limit: Option<usize>,
+    event_size_limit: usize,
 ) -> Router {
     let state = State {
         sink: Arc::new(sink),
         timesource: Arc::new(timesource),
         redis,
         billing_limiter,
+        event_size_limit,
     };
 
     // Very permissive CORS policy, as old SDK versions

@@ -27,7 +27,7 @@ def reverse(apps, _):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0463_datawarehousemodelpath_and_more"),
+        ("posthog", "0464_action_pinned_at"),
     ]
 
     operations = [
