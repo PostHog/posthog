@@ -563,10 +563,14 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             )
 
             query = instance.query or instance.query_from_filters
-            if dashboard or dashboard_filters_override is not None:
+            if dashboard is not None or dashboard_filters_override is not None:
                 query = apply_dashboard_filters_to_dict(
                     query,
-                    dashboard_filters_override if dashboard_filters_override is not None else dashboard.filters,
+                    (
+                        dashboard_filters_override
+                        if dashboard_filters_override is not None
+                        else cast(dict, dashboard.filters)
+                    ),
                     instance.team,
                 )
             representation["filters"] = {}

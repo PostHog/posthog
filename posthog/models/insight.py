@@ -1,5 +1,5 @@
 from functools import cached_property
-from typing import Optional
+from typing import Optional, cast
 
 from sentry_sdk import capture_exception
 import structlog
@@ -136,9 +136,13 @@ class Insight(models.Model):
         self, dashboard: Optional[Dashboard] = None, dashboard_filters_override: Optional[dict] = None
     ):
         # query date range is set in a different function, see dashboard_query
-        if (dashboard or dashboard_filters_override is not None) and not self.query:
+        if (dashboard is not None or dashboard_filters_override is not None) and not self.query:
             dashboard_filters = {
-                **(dashboard_filters_override if dashboard_filters_override is not None else dashboard.filters)
+                **(
+                    dashboard_filters_override
+                    if dashboard_filters_override is not None
+                    else cast(dict, dashboard.filters)
+                )
             }
             dashboard_properties = dashboard_filters.pop("properties") if dashboard_filters.get("properties") else None
             insight_date_from = self.filters.get("date_from", None)

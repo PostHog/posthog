@@ -2,7 +2,7 @@ import { expectLogic, partial } from 'kea-test-utils'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { performQuery } from '~/queries/query'
-import { NodeKind } from '~/queries/schema'
+import { DashboardFilter, NodeKind } from '~/queries/schema'
 import { initKeaTests } from '~/test/init'
 
 jest.mock('~/queries/query', () => {
@@ -448,5 +448,54 @@ describe('dataNodeLogic', () => {
         expect(performQuery).toHaveBeenCalledTimes(0)
 
         await expectLogic(logic).toMatchValues({ response: { result: [1, 2, 3] } })
+    })
+
+    it('passes filtersOverride to api', async () => {
+        const filtersOverride: DashboardFilter = {
+            date_from: '2022-12-24T17:00:41.165000Z',
+        }
+        const query = {
+            kind: NodeKind.EventsQuery,
+            select: ['*', 'event', 'timestamp'],
+        }
+
+        logic = dataNodeLogic({
+            key: 'key',
+            query,
+            filtersOverride,
+        })
+        logic.mount()
+
+        expect(performQuery).toHaveBeenCalledWith(
+            query,
+            expect.anything(),
+            false,
+            expect.any(String),
+            expect.any(Function),
+            filtersOverride
+        )
+    })
+
+    it("doesn't pass undefined filtersOverride to api", async () => {
+        const query = {
+            kind: NodeKind.EventsQuery,
+            select: ['*', 'event', 'timestamp'],
+        }
+
+        logic = dataNodeLogic({
+            key: 'key',
+            query,
+            filtersOverride: undefined,
+        })
+        logic.mount()
+
+        expect(performQuery).toHaveBeenCalledWith(
+            query,
+            expect.anything(),
+            false,
+            expect.any(String),
+            expect.any(Function),
+            undefined
+        )
     })
 })
