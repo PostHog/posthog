@@ -114,7 +114,6 @@ ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64
     materialized_columns=EVENTS_TABLE_MATERIALIZED_COLUMNS,
     indexes=f"""
     , {index_by_kafka_timestamp(EVENTS_DATA_TABLE())}
-    , INDEX is_deleted_idx (is_deleted) TYPE minmax GRANULARITY 1
     """,
     sample_by="SAMPLE BY cityHash64(distinct_id)",
     storage_policy=STORAGE_POLICY(),
