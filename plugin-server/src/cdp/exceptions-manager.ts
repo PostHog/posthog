@@ -76,7 +76,7 @@ export class ExceptionsManager {
         return exceptionFingerprintMapping
     }
 
-    public isArchived(item: HogFunctionInvocationGlobals): boolean {
+    public isActive(item: HogFunctionInvocationGlobals): boolean {
         const fingerprint = item.event.properties['$exception_fingerprint'].join(',')
         const groupsForTeam = this.fingerprintMappingCache.get(item.project.id)
         return groupsForTeam && groupsForTeam[fingerprint] ? groupsForTeam[fingerprint].active : false
