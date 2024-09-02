@@ -12,8 +12,8 @@ import { PropertyIcons } from 'scenes/session-recordings/playlist/SessionRecordi
 import { ErrorTrackingEvent, errorTrackingGroupSceneLogic } from '../errorTrackingGroupSceneLogic'
 
 export const OverviewTab = (): JSX.Element => {
-    const { events, groupLoading, eventsLoading } = useValues(errorTrackingGroupSceneLogic)
-    const { loadEvents } = useActions(errorTrackingGroupSceneLogic)
+    const { events, groupLoading, eventsLoading, activeEventUUID } = useValues(errorTrackingGroupSceneLogic)
+    const { loadEvents, setActiveEventUUID } = useActions(errorTrackingGroupSceneLogic)
 
     return (
         <div className="ErrorTracking__group">
@@ -29,6 +29,10 @@ export const OverviewTab = (): JSX.Element => {
                             render: ListItemException,
                         },
                     ]}
+                    onSelect={({ uuid }) => {
+                        setActiveEventUUID(uuid)
+                    }}
+                    activeItemId={activeEventUUID}
                     listEmptyState={<div className="flex justify-center p-4">No exceptions found</div>}
                     content={({ activeItem: event }) =>
                         event ? (
@@ -52,7 +56,6 @@ export const OverviewTab = (): JSX.Element => {
                             loadEvents()
                         }
                     }}
-                    selectInitialItem
                 />
             </div>
         </div>
@@ -98,7 +101,12 @@ const ListItemException = ({
         .filter((property) => !!property.value)
 
     return (
-        <div className={clsx('cursor-pointer p-2 space-y-1', isActive && 'border-l-4 border-primary-3000')}>
+        <div
+            className={clsx(
+                'cursor-pointer p-2 space-y-1 border-l-4',
+                isActive ? 'border-primary-3000' : 'border-transparent'
+            )}
+        >
             <div className="flex justify-between items-center space-x-3">
                 <div className="line-clamp-1">
                     <PersonDisplay person={person} withIcon noPopover noLink />

@@ -44,6 +44,7 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
 
     actions({
         setErrorGroupTab: (tab: ErrorGroupTab) => ({ tab }),
+        setActiveEventUUID: (uuid: ErrorTrackingEvent['uuid']) => ({ uuid }),
     }),
 
     reducers(() => ({
@@ -51,6 +52,12 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
             ErrorGroupTab.Overview as ErrorGroupTab,
             {
                 setErrorGroupTab: (_, { tab }) => tab,
+            },
+        ],
+        activeEventUUID: [
+            null as ErrorTrackingEvent['uuid'] | null,
+            {
+                setActiveEventUUID: (_, { uuid }) => uuid,
             },
         ],
     })),
@@ -103,9 +110,14 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
         ],
     })),
 
-    listeners(({ actions }) => ({
+    listeners(({ values, actions }) => ({
         loadGroupSuccess: () => {
             actions.loadEvents()
+        },
+        loadEventsSuccess: () => {
+            if (!values.activeEventUUID) {
+                actions.setActiveEventUUID(values.events[0].uuid)
+            }
         },
     })),
 
