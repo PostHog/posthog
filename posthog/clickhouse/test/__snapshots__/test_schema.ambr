@@ -2220,7 +2220,6 @@
   , inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT NULL
       
       , INDEX kafka_timestamp_minmax_sharded_events _timestamp TYPE minmax GRANULARITY 3
-      , INDEX is_deleted_idx (is_deleted) TYPE minmax GRANULARITY 1
       
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.events', '{replica}', _timestamp)
   PARTITION BY toYYYYMM(timestamp)
@@ -3336,7 +3335,6 @@
   , inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT NULL
       
       , INDEX kafka_timestamp_minmax_sharded_events _timestamp TYPE minmax GRANULARITY 3
-      , INDEX is_deleted_idx (is_deleted) TYPE minmax GRANULARITY 1
       
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.events', '{replica}', _timestamp)
   PARTITION BY toYYYYMM(timestamp)
