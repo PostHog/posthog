@@ -1,7 +1,7 @@
 from functools import cached_property
 from typing import Any, Optional, Union, cast
 
-from django.db.models import Model, QuerySet
+from django.db.models import Model, QuerySet, Q
 from django.shortcuts import get_object_or_404
 from django.views import View
 from rest_framework import exceptions, permissions, serializers, viewsets
@@ -10,6 +10,7 @@ from rest_framework.request import Request
 from posthog import settings
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import ProjectBasicSerializer, TeamBasicSerializer
+from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.cloud_utils import is_cloud
 from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX, AvailableFeature
 from posthog.event_usage import report_organization_deleted
@@ -178,7 +179,12 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         raise NotImplementedError()
 
     def safely_get_queryset(self, queryset) -> QuerySet:
-        return cast(User, self.request.user).organizations.all()
+        user = cast(User, self.request.user)
+        queryset = user.organizations.all()
+        if isinstance(self.request.successful_authenticator, PersonalAPIKeyAuthentication):
+            if scoped_organizations := self.request.successful_authenticator.personal_api_key.scoped_organizations:
+                queryset &= Q(id__in=scoped_organizations)
+        return queryset
 
     def safely_get_object(self, queryset):
         return self.organization

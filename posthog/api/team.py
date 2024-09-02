@@ -5,7 +5,10 @@ from typing import Any, Optional, cast
 from uuid import UUID
 
 from django.shortcuts import get_object_or_404
+from django.db.models import Q
 from loginas.utils import is_impersonated_session
+from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.jwt import PosthogJwtAudience, encode_jwt
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.permissions import BasePermission, IsAuthenticated
 
@@ -15,7 +18,6 @@ from posthog.api.utils import action
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.geoip import get_geoip_properties
-from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import ProductIntent, Team, User
 from posthog.models.activity_logging.activity_log import (
     Detail,
@@ -421,9 +423,16 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     ordering = "-created_by"
 
     def safely_get_queryset(self, queryset):
+        user = cast(User, self.request.user)
         # IMPORTANT: This is actually what ensures that a user cannot read/update a project for which they don't have permission
-        visible_teams_ids = UserPermissions(cast(User, self.request.user)).team_ids_visible_for_user
-        return queryset.filter(id__in=visible_teams_ids)
+        visible_teams_ids = UserPermissions(user).team_ids_visible_for_user
+        queryset &= Q(id__in=visible_teams_ids)
+        if isinstance(self.request.successful_authenticator, PersonalAPIKeyAuthentication):
+            if scoped_organizations := self.request.successful_authenticator.personal_api_key.scoped_organizations:
+                queryset &= Q(project__organization_id__in=scoped_organizations)
+            if scoped_teams := self.request.successful_authenticator.personal_api_key.scoped_teams:
+                queryset &= Q(id__in=scoped_teams)
+        return queryset
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
         if self.action == "list":
