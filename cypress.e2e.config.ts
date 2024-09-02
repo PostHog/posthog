@@ -35,6 +35,9 @@ export default defineConfig({
     // not what a human would do... so, set it to center to avoid this weird behavior
     scrollBehavior: 'center',
     e2e: {
+        // experimentalMemoryManagement fixes a completely mysterious crash in "Adding new insight to dashboard works"
+        // See this GH issue: https://github.com/cypress-io/cypress/issues/21135#issuecomment-1612090366
+        experimentalMemoryManagement: true,
         // We've imported your old cypress plugins here.
         // You may want to clean this up later by importing these.
         setupNodeEvents(on, config) {

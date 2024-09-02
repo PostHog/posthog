@@ -459,10 +459,7 @@ export function LemonInputSelect({
                     // Putting button-like text styling on the single-select unfocused placeholder
                     // NOTE: We need font-medium on both the input (for autosizing) and its placeholder (for display)
                     mode === 'single' && values.length > 0 && '*:*:font-medium placeholder:*:*:font-medium',
-                    mode === 'single' &&
-                        values.length > 0 &&
-                        !showPopover &&
-                        'cursor-pointer placeholder:*:*:text-default'
+                    mode === 'single' && values.length > 0 && !showPopover && 'placeholder:*:*:text-default'
                 )}
                 data-attr={dataAttr}
             />
