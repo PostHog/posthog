@@ -2146,7 +2146,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
 
         def test_program_function(self):
             code = """
-                fn query(a, b) {
+                fun query(a, b) {
                     let c := 3;
                 }
             """
@@ -2166,12 +2166,13 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             self.assertEqual(program, expected)
 
         def test_program_functions(self):
+            # test both "fn" (deprecated) and "fun"
             code = """
                 fn query(a, b) {
                     let c := 3;
                 }
 
-                fn read(a, b) {
+                fun read(a, b) {
                     print(3);
                     let b := 4;
                 }

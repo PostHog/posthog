@@ -1,6 +1,8 @@
-import { calculateCost, convertHogToJS, exec, ExecResult } from '@posthog/hogvm'
+import { calculateCost, convertHogToJS, exec, ExecOptions, ExecResult } from '@posthog/hogvm'
+import crypto from 'crypto'
 import { DateTime } from 'luxon'
 import { Histogram } from 'prom-client'
+import RE2 from 're2'
 
 import { status } from '../utils/status'
 import { HogFunctionManager } from './hog-function-manager'
@@ -26,18 +28,26 @@ const hogExecutionDuration = new Histogram({
     buckets: [0, 10, 20, 50, 100, 200],
 })
 
+export function execHog(bytecode: any, options?: ExecOptions): ExecResult {
+    return exec(bytecode, {
+        timeout: DEFAULT_TIMEOUT_MS,
+        maxAsyncSteps: 0,
+        ...options,
+        external: {
+            regex: { match: (regex, str) => new RE2(regex).test(str) },
+            crypto,
+            ...(options?.external ?? {}),
+        },
+    })
+}
+
 export const formatInput = (bytecode: any, globals: HogFunctionInvocation['globals']): any => {
     // Similar to how we generate the bytecode by iterating over the values,
     // here we iterate over the object and replace the bytecode with the actual values
     // bytecode is indicated as an array beginning with ["_H"] (versions 1+) or ["_h"] (version 0)
 
     if (Array.isArray(bytecode) && (bytecode[0] === '_h' || bytecode[0] === '_H')) {
-        const res = exec(bytecode, {
-            globals,
-            timeout: DEFAULT_TIMEOUT_MS,
-            maxAsyncSteps: 0,
-        })
-
+        const res = execHog(bytecode, { globals })
         if (!res.finished) {
             // NOT ALLOWED
             throw new Error('Input fields must be simple sync values')
@@ -86,12 +96,7 @@ export class HogExecutor {
         allFunctionsForTeam.forEach((hogFunction) => {
             try {
                 if (hogFunction.filters?.bytecode) {
-                    const filterResult = exec(hogFunction.filters.bytecode, {
-                        globals: filtersGlobals,
-                        timeout: DEFAULT_TIMEOUT_MS,
-                        maxAsyncSteps: 0,
-                    })
-
+                    const filterResult = execHog(hogFunction.filters.bytecode, { globals: filtersGlobals })
                     if (typeof filterResult.result === 'boolean' && filterResult.result) {
                         matchingFunctions.push(hogFunction)
                         return
@@ -212,9 +217,8 @@ export class HogExecutor {
 
             try {
                 let hogLogs = 0
-                execRes = exec(invocation.vmState ?? invocation.hogFunction.bytecode, {
+                execRes = execHog(invocation.vmState ?? invocation.hogFunction.bytecode, {
                     globals,
-                    timeout: DEFAULT_TIMEOUT_MS, // TODO: Swap this to milliseconds when the package is updated
                     maxAsyncSteps: MAX_ASYNC_STEPS, // NOTE: This will likely be configurable in the future
                     asyncFunctions: {
                         // We need to pass these in but they don't actually do anything as it is a sync exec

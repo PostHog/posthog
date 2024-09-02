@@ -16,7 +16,7 @@ print(varify(8))
 
 print('--------')
 
-fn bigVar() {
+fun bigVar() {
     let var := 5
     let varify := x -> x * var
     return varify
@@ -30,13 +30,13 @@ print('--------')
 
 let a := 3
 
-fn outerA() {
+fun outerA() {
   print(a)
   a := 4
   print(a)
 }
 
-fn innerA() {
+fun innerA() {
   print(a)
   outerA()
   print(a)
@@ -50,13 +50,13 @@ print('--------')
 
 let b := {'key': 3}
 
-fn outerB() {
+fun outerB() {
   print(b)
   b.key := 4
   print(b)
 }
 
-fn innerB() {
+fun innerB() {
   print(b)
   outerB()
   print(b)
@@ -68,9 +68,9 @@ print(b)
 
 print('--------')
 
-fn outerC() {
+fun outerC() {
   let x := 'outside'
-  fn innerC() {
+  fun innerC() {
     print(x)
   }
   innerC()
@@ -79,9 +79,9 @@ outerC()
 
 print('--------')
 
-fn myFunctionOuter() {
+fun myFunctionOuter() {
     let b := 3
-    fn myFunction(a) {
+    fun myFunction(a) {
       return a + b
     }
     print(myFunction(2))

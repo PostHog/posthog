@@ -239,7 +239,7 @@ class TestBytecode(BaseTest):
         self.assertEqual(
             execute_hog(
                 """
-            fn fibonacci(number) {
+            fun fibonacci(number) {
                 if (number < 2) {
                     return number;
                 } else {

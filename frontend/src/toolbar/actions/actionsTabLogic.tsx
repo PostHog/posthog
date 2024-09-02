@@ -19,6 +19,7 @@ function newAction(element: HTMLElement | null, dataAttributes: string[] = []): 
     return {
         name: '',
         steps: [element ? actionStepToActionStepFormItem(elementToActionStep(element, dataAttributes), true) : {}],
+        pinned_at: null,
     }
 }
 

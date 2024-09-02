@@ -199,7 +199,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         searchPlaceholder: 'actions',
                         type: TaxonomicFilterGroupType.Actions,
                         logic: actionsModel,
-                        value: 'actions',
+                        value: 'actionsSorted',
                         getName: (action: ActionType) => action.name || '',
                         getValue: (action: ActionType) => action.id,
                         getPopoverHeader: () => 'Action',
