@@ -4,6 +4,7 @@ import dataclasses
 import datetime as dt
 import enum
 import functools
+import re
 import uuid
 
 import dlt
@@ -11,7 +12,9 @@ import dlt.extract
 import temporalio.activity
 import temporalio.common
 import temporalio.workflow
+from deltalake import DeltaTable
 from django.conf import settings
+from dlt.common.libs.deltalake import get_delta_tables
 
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.query import execute_hogql_query
@@ -22,21 +25,118 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.warehouse.models import DataWarehouseModelPath, DataWarehouseSavedQuery
 from posthog.warehouse.util import database_sync_to_async
 
+CLICKHOUSE_DLT_MAPPING = {
+    "UUID": "text",
+    "String": "text",
+    "DateTime64": "timestamp",
+    "DateTime32": "timestamp",
+    "DateTime": "timestamp",
+    "Date": "date",
+    "Date32": "date",
+    "UInt8": "bigint",
+    "UInt16": "bigint",
+    "UInt32": "bigint",
+    "UInt64": "bigint",
+    "Float8": "double",
+    "Float16": "double",
+    "Float32": "double",
+    "Float64": "double",
+    "Int8": "bigint",
+    "Int16": "bigint",
+    "Int32": "bigint",
+    "Int64": "bigint",
+    "Tuple": "bigint",
+    "Array": "complex",
+    "Map": "complex",
+    "Tuple": "complex",
+    "Bool": "bool",
+    "Decimal": "decimal",
+}
+
+
+class EmptyHogQLResponseColumnsError(Exception):
+    def __init__(self):
+        super().__init__("After running a HogQL query, no columns where returned")
+
 
 @dataclasses.dataclass(frozen=True)
 class ModelNode:
+    """A node representing a model in a DAG.
+
+    Attributes:
+        label: The model's label, which represents the model in all paths.
+        children: A set of labels from all this model's direct children. This implies the
+            existence of an edge from this model to each of the children.
+        parents: A set of labels from all this model's direct parents. This implies the
+            existence of an edge from each of the parents to this model.
+    """
+
     label: str
     children: set[str]
     parents: set[str]
 
 
+DAG = dict[str, ModelNode]
+
+
+def build_dag_from_model_paths(paths: list[str]) -> DAG:
+    """Build a DAG from a list of `DataWarehouseModelPath` paths.
+
+    Our particular representation of a DAG includes all edges directly with each of the
+    nodes, as each `ModelNode` instance contains the label of each of its children and
+    parents, which implies the existence of edges between them.
+
+    This particular representation of a DAG is useful for `run_dag_activity`, which needs
+    to locate nodes by label (thus, our DAG is a dictionary) and then check their children
+    and parents (thus both of these are sets already included with the node). Naturally,
+    this means that the same children and parents appear in multiple nodes.
+
+    The cost of the redundancy of this representation is larger memory use, but we assume
+    that simple strings and sets won't blow things up until we grow massively. If that
+    ever does happen, some solution involving another level of indirection by storing
+    indexes to a list of nodes could be implemented. Good luck!
+    """
+    dag = {}
+
+    for path in paths:
+        label_iterable = path.split(".")
+
+        for index, label in enumerate(label_iterable):
+            if label not in dag:
+                dag[label] = ModelNode(label=label, children=set(), parents=set())
+
+            node = dag[label]
+
+            if index > 0:
+                child_node = label_iterable[index - 1]
+                node.children.add(child_node)
+
+            if index < len(label_iterable) - 1:
+                parent_node = label_iterable[index + 1]
+                node.parents.add(parent_node)
+
+    return dag
+
+
 @dataclasses.dataclass
-class RunModelActivityInputs:
+class RunDagActivityInputs:
+    """Inputs for `run_dag_activity`.
+
+    Attributes:
+        team_id: The team ID of the team whom this DAG belongs in.
+        dag: The DAG to run.
+            We require the DAG to be represented as a dictionary of model labels to
+            `ModelNode` instances, as this is useful for the algorithm that
+            `run_dag_activity` executes. See it for more details.
+    """
+
     team_id: int
-    nodes_map: dict[str, ModelNode]
+    dag: DAG
 
 
 class ModelStatus(enum.StrEnum):
+    """The status a model in the queue can be in."""
+
     COMPLETED = "Completed"
     FAILED = "Failed"
     READY = "Ready"
@@ -44,21 +144,55 @@ class ModelStatus(enum.StrEnum):
 
 @dataclasses.dataclass
 class QueueMessage:
+    """A queue message used to orchestrate the running of a DAG."""
+
     status: ModelStatus
     model_label: str
 
 
 Results = collections.namedtuple("Results", ("completed", "failed", "ancestor_failed"))
 
+NullablePattern = re.compile(r"Nullable\((.*)\)")
+
 
 @temporalio.activity.defn
-async def run_model_activity(inputs: RunModelActivityInputs) -> Results:
+async def run_dag_activity(inputs: RunDagActivityInputs) -> Results:
+    """A Temporal activity to run a data modeling DAG.
+
+    First, let's establish some definitions:
+    * "Running a model" means:
+      1. Executing the model's query (which is always a `SELECT` query).
+      2. Save query results as a delta lake table in S3 ("materialize the results").
+      Both steps are achieved with a dlt pipeline.
+    * A model is considered "ready to run" if all of its ancestors have successfully ran
+      already or if it has no ancestors.
+    * PostHog tables (e.g. events, persons, sessions) are assumed to be always available
+      and up to date, and thus can be considered to have ran successfully.
+
+    This activity runs the following algorithm:
+    1. Initialize 3 sets: completed, failed, and ancestor failed.
+    2. Initialize a queue for models and statuses.
+    3. Populate it with any models without parents set to status `ModelStatus.READY`.
+    4. Start a loop.
+    5. Pop an item from the queue and check the status:
+       a. If it's `ModelStatus.READY`, schedule a task to run the model. Once the task is
+          done, report back results by putting the same model with a
+          `ModelStatus.COMPLETED` or `ModelStatus.FAILED` in the queue.
+       b. If it's `ModelStatus.COMPLETED`, add the model to the completed set. Also, check
+          if any of the model's children have become ready to run, by checking if all of
+          their parents are in the completed set. Put any children that pass this check in
+          status `ModelStatus.READY` in the queue.
+       c. If it's `ModelStatus.FAILED`, add the model to the failed set. Also, add all
+          descendants of the model that just failed to the ancestor failed set.
+    6. If the number of models in the completed, failed, and ancestor failed sets is equal
+       to the total number of models passed to this activity, exit the loop. Else, goto 5.
+    """
     completed = set()
     ancestor_failed = set()
     failed = set()
     queue = asyncio.Queue()
 
-    for node in inputs.nodes_map.values():
+    for node in inputs.dag.values():
         if not node.parents:
             queue.put_nowait(QueueMessage(status=ModelStatus.READY, model_label=node.label))
 
@@ -77,8 +211,20 @@ async def run_model_activity(inputs: RunModelActivityInputs) -> Results:
                     running_tasks.add(task)
                     task.add_done_callback(running_tasks.discard)
 
+                case QueueMessage(status=ModelStatus.COMPLETED, model_label=model_label):
+                    node = inputs.dag[model_label]
+                    completed.add(node.label)
+
+                    for child_label in node.children:
+                        child_node = inputs.dag[child_label]
+
+                        if completed >= child_node.parents:
+                            await queue.put(QueueMessage(status=ModelStatus.READY, model_label=child_label))
+
+                    queue.task_done()
+
                 case QueueMessage(status=ModelStatus.FAILED, model_label=model_label):
-                    node = inputs.nodes_map[model_label]
+                    node = inputs.dag[model_label]
                     failed.add(node.label)
 
                     to_mark_as_ancestor_failed = list(node.children)
@@ -88,7 +234,7 @@ async def run_model_activity(inputs: RunModelActivityInputs) -> Results:
                         ancestor_failed.add(to_mark)
                         marked.add(to_mark)
 
-                        marked_node = inputs.nodes_map[to_mark]
+                        marked_node = inputs.dag[to_mark]
                         for child in marked_node.children:
                             if child in marked:
                                 continue
@@ -97,28 +243,17 @@ async def run_model_activity(inputs: RunModelActivityInputs) -> Results:
 
                     queue.task_done()
 
-                case QueueMessage(status=ModelStatus.COMPLETED, model_label=model_label):
-                    node = inputs.nodes_map[model_label]
-                    completed.add(node.label)
-
-                    for child_label in node.children:
-                        child_node = inputs.nodes_map[child_label]
-
-                        if completed >= child_node.parents:
-                            await queue.put(QueueMessage(status=ModelStatus.READY, model_label=child_label))
-
-                    queue.task_done()
-
                 case message:
-                    raise ValueError(message)
+                    raise ValueError(f"Queue received an invalid message: {message}")
 
-            if len(failed) + len(ancestor_failed) + len(completed) == len(inputs.nodes_map):
+            if len(failed) + len(ancestor_failed) + len(completed) == len(inputs.dag):
                 break
 
         return Results(completed, failed, ancestor_failed)
 
 
-async def handle_materialize_model(model_label: str, team_id: int, queue: asyncio.Queue):
+async def handle_materialize_model(model_label: str, team_id: int, queue: asyncio.Queue) -> None:
+    """Handle materializing a model and reporting back results to execution queue."""
     try:
         team = await database_sync_to_async(Team.objects.get)(id=team_id)
         hogql_db = await database_sync_to_async(create_hogql_database)(team_id=team_id, team_arg=team)
@@ -134,10 +269,31 @@ async def handle_materialize_model(model_label: str, team_id: int, queue: asynci
         queue.task_done()
 
 
-async def materialize_model(model_label: str, team: Team):
+async def materialize_model(model_label: str, team: Team) -> tuple[str, DeltaTable]:
+    """Materialize a given model by running its query in a dlt pipeline."""
     saved_query = await database_sync_to_async(
         DataWarehouseSavedQuery.objects.filter(team=team, id=uuid.UUID(model_label)).get
     )()
+    query_columns = saved_query.columns
+    if not query_columns:
+        query_columns = await database_sync_to_async(saved_query.get_columns)()
+
+    table_columns = {}
+    for column_name, column_info in query_columns.items():
+        clickhouse_type = column_info["clickhouse"]
+        nullable = False
+
+        if nullable_match := re.match(NullablePattern, clickhouse_type):
+            clickhouse_type = nullable_match.group(1)
+            nullable = True
+
+        clickhouse_type = re.sub(r"\(.+\)+", "", clickhouse_type)
+
+        table_columns[column_name] = {
+            "data_type": CLICKHOUSE_DLT_MAPPING[clickhouse_type],
+            "nullable": nullable,
+        }
+
     hogql_query = saved_query.query["query"]
 
     destination = get_dlt_destination()
@@ -146,15 +302,36 @@ async def materialize_model(model_label: str, team: Team):
         destination=destination,
         dataset_name=f"team_{team.pk}_model_{model_label}",
     )
-    await asyncio.to_thread(pipeline.run, get_hogql_rows(hogql_query, team))
+    _ = await asyncio.to_thread(pipeline.run, hogql_table(hogql_query, team, saved_query.name, table_columns))
+
+    tables = get_delta_tables(pipeline)
+    key, delta_table = tables.popitem()
+    return (key, delta_table)
 
 
-@dlt.resource
-async def get_hogql_rows(query: str, team: Team):
-    rows = await asyncio.to_thread(execute_hogql_query, query, team)
+@dlt.source(max_table_nesting=0)
+def hogql_table(query: str, team: Team, table_name: str, table_columns):
+    """A dlt source representing a HogQL table given by a HogQL query."""
 
-    for row in rows:
-        yield row
+    async def get_hogql_rows():
+        response = await asyncio.to_thread(execute_hogql_query, query, team)
+
+        if not response.columns:
+            raise EmptyHogQLResponseColumnsError()
+
+        columns: list[str] = response.columns
+
+        for row in response.results:
+            yield dict(zip(columns, row))
+
+    yield dlt.resource(
+        get_hogql_rows,
+        name="hogql_table",
+        table_name=table_name,
+        table_format="delta",
+        write_disposition="merge",
+        columns=table_columns,
+    )
 
 
 def get_dlt_destination():
@@ -205,13 +382,24 @@ async def select_matching_paths(inputs: SelectMatchingPaths) -> list[str]:
 
 @dataclasses.dataclass
 class RunWorkflowInputs:
+    """Inputs to `RunWorkflow`.
+
+    Attributes:
+        team_id: The ID of the team we are running this for.
+        select: A list of model selectors to define the models to run.
+    """
+
     team_id: int
     select: list[str] = dataclasses.field(default_factory=list)
 
 
 @temporalio.workflow.defn(name="data-models-run")
 class RunWorkflow(PostHogWorkflow):
-    """A Temporal Workflow to run PostHog data models."""
+    """A Temporal Workflow to run PostHog data models.
+
+    A model is defined by a label, a saved query that dictates how to select the data that
+    makes up the model, and the path or paths to the model through all of its ancestors.
+    """
 
     @temporalio.workflow.run
     async def run(self, inputs: RunWorkflowInputs) -> Results:
@@ -227,28 +415,11 @@ class RunWorkflow(PostHogWorkflow):
             ),
         )
 
-        nodes_map = {}
+        dag = build_dag_from_model_paths(paths=matching_paths)
+        run_model_activity_inputs = RunDagActivityInputs(team_id=inputs.team_id, dag=dag)
 
-        for matching_path in matching_paths:
-            label_iterable = matching_path.split(".")
-
-            for index, label in enumerate(label_iterable):
-                if label not in nodes_map:
-                    nodes_map[label] = ModelNode(label=label, children=set(), parents=set())
-
-                node = nodes_map[label]
-
-                if index > 0:
-                    child_node = label_iterable[index - 1]
-                    node.children.add(child_node)
-
-                if index < len(label_iterable) - 1:
-                    parent_node = label_iterable[index + 1]
-                    node.parents.add(parent_node)
-
-        run_model_activity_inputs = RunModelActivityInputs(team_id=inputs.team_id, nodes_map=nodes_map)
         results = await temporalio.workflow.execute_activity(
-            run_model_activity,
+            run_dag_activity,
             run_model_activity_inputs,
             start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=temporalio.common.RetryPolicy(
