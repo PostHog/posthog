@@ -372,12 +372,12 @@ FROM
     FROM
         raw_sessions
     WHERE
-        equals(raw_sessions.team_id, {self.team.id})
+        and(equals(raw_sessions.team_id, {self.team.id}), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), %(hogql_val_1)s), 0))
     GROUP BY
         raw_sessions.session_id_v7,
         raw_sessions.session_id_v7) AS sessions
 WHERE
-    ifNull(greater(sessions.`$start_timestamp`, %(hogql_val_1)s), 0)
+    ifNull(greater(sessions.`$start_timestamp`, %(hogql_val_2)s), 0)
 LIMIT {MAX_SELECT_RETURNED_ROWS}"""
         assert expected == actual
 
@@ -435,15 +435,15 @@ SELECT
 FROM
     events
     LEFT JOIN (SELECT
-        dateDiff(%(hogql_val_0)s, min(toTimeZone(sessions.min_timestamp, %(hogql_val_1)s)), max(toTimeZone(sessions.max_timestamp, %(hogql_val_2)s))) AS `$session_duration`,
-        sessions.session_id AS session_id
+        dateDiff(%(hogql_val_0)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_1)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_2)s))) AS `$session_duration`,
+        raw_sessions.session_id_v7 AS session_id_v7
     FROM
-        sessions
+        raw_sessions
     WHERE
-        and(equals(sessions.team_id, {self.team.id}), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, %(hogql_val_3)s), toIntervalDay(3)), today()), 0))
+        and(equals(raw_sessions.team_id, {self.team.id}), ifNull(lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), today()), 0))
     GROUP BY
-        sessions.session_id,
-        sessions.session_id) AS events__session ON equals(events.`$session_id`, events__session.session_id)
+        raw_sessions.session_id_v7,
+        raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, %(hogql_val_3)s)), events__session.session_id_v7)
 WHERE
     and(equals(events.team_id, {self.team.id}), less(toTimeZone(events.timestamp, %(hogql_val_4)s), today()))
 LIMIT {MAX_SELECT_RETURNED_ROWS}"""
