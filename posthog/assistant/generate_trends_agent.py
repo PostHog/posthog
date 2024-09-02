@@ -23,7 +23,7 @@ class ChatMessage(BaseModel):
 
 
 class Conversation(BaseModel):
-    messages: list[ChatMessage]
+    messages: list[ChatMessage] = Field(..., max_length=20)
     session_id: str
 
 
