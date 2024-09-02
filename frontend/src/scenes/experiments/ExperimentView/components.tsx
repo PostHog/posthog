@@ -274,13 +274,33 @@ export function NoResultsEmptyState(): JSX.Element {
         )
     }
 
-    // Non-400 errors are rendered as plain text
+    if (experimentResultCalculationError?.statusCode === 504) {
+        return (
+            <div>
+                <div className="border rounded bg-bg-light py-10">
+                    <div className="flex flex-col items-center mx-auto text-muted space-y-2">
+                        <IconArchive className="text-4xl text-secondary-3000" />
+                        <h2 className="text-xl font-semibold leading-tight">Experiment results timed out</h2>
+                        {!!experimentResultCalculationError && (
+                            <div className="text-sm text-center text-balance">
+                                This may occur when the experiment has a large amount of data or is particularly
+                                complex. We are actively working on fixing this. In the meantime, please try refreshing
+                                the experiment to retrieve the results.
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
+        )
+    }
+
+    // Other unexpected errors
     return (
         <div>
             <div className="border rounded bg-bg-light py-10">
                 <div className="flex flex-col items-center mx-auto text-muted space-y-2">
                     <IconArchive className="text-4xl text-secondary-3000" />
-                    <h2 className="text-xl font-semibold leading-tight">There are no experiment results yet</h2>
+                    <h2 className="text-xl font-semibold leading-tight">Experiment results could not be calculated</h2>
                     {!!experimentResultCalculationError && (
                         <div className="text-sm text-center text-balance">
                             {experimentResultCalculationError.detail}
