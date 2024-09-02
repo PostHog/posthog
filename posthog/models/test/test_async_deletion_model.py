@@ -209,7 +209,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
 
         self.assertRowCount(0, "events", predicate="is_deleted = 0")
 
-    @ snapshot_clickhouse_alter_queries
+    @snapshot_clickhouse_alter_queries
     def test_delete_teams_unrelated(self):
         _create_event(event_uuid=uuid4(), event="event1", team=self.teams[1], distinct_id="1")
 
@@ -224,7 +224,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
 
         self.assertRowCount(1)
 
-    @ snapshot_clickhouse_alter_queries
+    @snapshot_clickhouse_alter_queries
     def test_delete_person(self):
         base_datetime = dt.datetime(2024, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
 
@@ -262,7 +262,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
 
         self.assertRowCount(1, "events", predicate="is_deleted = 0")
 
-    @ snapshot_clickhouse_alter_queries
+    @snapshot_clickhouse_alter_queries
     def test_delete_person_unrelated(self):
         base_datetime = dt.datetime(2024, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
 
@@ -297,7 +297,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
 
         self.assertRowCount(2)
 
-    @ snapshot_clickhouse_alter_queries
+    @snapshot_clickhouse_alter_queries
     def test_delete_group(self):
         _create_event(
             event_uuid=uuid4(),
@@ -319,7 +319,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
 
         self.assertRowCount(0, "events", predicate="is_deleted = 0")
 
-    @ snapshot_clickhouse_alter_queries
+    @snapshot_clickhouse_alter_queries
     def test_delete_group_unrelated(self):
         _create_event(
             event_uuid=uuid4(),
@@ -355,7 +355,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
 
         self.assertRowCount(3)
 
-    @ snapshot_clickhouse_alter_queries
+    @snapshot_clickhouse_alter_queries
     def test_delete_auxilary_models_via_team(self):
         create_person(team_id=self.teams[0].pk, properties={"x": 0}, version=0, uuid=uuid)
         create_person_distinct_id(self.teams[0].pk, "0", uuid)
@@ -393,7 +393,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
         self.assertRowCount(0, "person_static_cohort")
         self.assertRowCount(0, "plugin_log_entries")
 
-    @ snapshot_clickhouse_alter_queries
+    @snapshot_clickhouse_alter_queries
     def test_delete_auxilary_models_via_team_unrelated(self):
         create_person(team_id=self.teams[1].pk, properties={"x": 0}, version=0, uuid=uuid)
         create_person_distinct_id(self.teams[1].pk, "0", uuid)
@@ -430,7 +430,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
         self.assertRowCount(1, "person_static_cohort")
         self.assertRowCount(1, "plugin_log_entries")
 
-    @ snapshot_clickhouse_queries
+    @snapshot_clickhouse_queries
     def test_delete_cohortpeople(self):
         cohort_id = 3
         team = self.teams[0]
@@ -446,7 +446,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
 
         self.assertRowCount(0, "cohortpeople")
 
-    @ snapshot_clickhouse_queries
+    @snapshot_clickhouse_queries
     def test_delete_cohortpeople_version(self):
         cohort_id = 3
         team = self.teams[0]
