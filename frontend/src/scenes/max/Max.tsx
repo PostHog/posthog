@@ -4,6 +4,7 @@ import { LemonButton, LemonInput, Spinner } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { HedgehogBuddyStatic } from 'lib/components/HedgehogBuddy/HedgehogBuddyRender'
+import { uuid } from 'lib/utils'
 import React, { useState } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
@@ -39,8 +40,11 @@ function Message({
 
 export function Max(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { thread, threadLoading } = useValues(maxLogic)
-    const { askMax } = useActions(maxLogic)
+    const logic = maxLogic({
+        sessionId: uuid(),
+    })
+    const { thread, threadLoading } = useValues(logic)
+    const { askMax } = useActions(logic)
 
     const [question, setQuestion] = useState('')
 

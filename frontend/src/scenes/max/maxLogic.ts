@@ -1,9 +1,13 @@
-import { actions, kea, listeners, path, reducers } from 'kea'
+import { actions, kea, listeners, path, props, reducers } from 'kea'
 import api from 'lib/api'
 
 import { ExperimentalAITrendsQuery } from '~/queries/schema'
 
 import type { maxLogicType } from './maxLogicType'
+
+interface MaxLogicProps {
+    sessionId: string
+}
 
 interface TrendGenerationResult {
     reasoning_steps?: string[]
@@ -17,6 +21,7 @@ export interface ThreadMessage {
 
 export const maxLogic = kea<maxLogicType>([
     path(['scenes', 'max', 'maxLogic']),
+    props({} as MaxLogicProps),
     actions({
         askMax: (prompt: string) => ({ prompt }),
         askMaxSuccess: true,
@@ -43,12 +48,15 @@ export const maxLogic = kea<maxLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         askMax: async ({ prompt }) => {
             actions.addMessage({ role: 'user', content: prompt })
             const newIndex = values.thread.length
 
-            const response = await api.chat(values.thread)
+            const response = await api.chat({
+                session_id: props.sessionId,
+                messages: values.thread,
+            })
             const reader = response.body?.getReader()
             const decoder = new TextDecoder()
 

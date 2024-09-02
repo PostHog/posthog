@@ -2,7 +2,7 @@ import json
 from functools import cached_property
 from typing import Any
 
-from posthog.assistant.team_prompt import TeamPrompt
+from ee.hogai.team_prompt import TeamPrompt
 from posthog.models.property_definition import PropertyDefinition
 from posthog.schema import ExperimentalAITrendsQuery
 

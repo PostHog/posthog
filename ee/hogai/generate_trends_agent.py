@@ -5,9 +5,9 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
-from posthog.assistant.system_prompt import trends_system_prompt
-from posthog.assistant.team_prompt import TeamPrompt
-from posthog.assistant.trends_function import TrendsFunction
+from ee.hogai.system_prompt import trends_system_prompt
+from ee.hogai.team_prompt import TeamPrompt
+from ee.hogai.trends_function import TrendsFunction
 from posthog.models.team.team import Team
 from posthog.schema import ExperimentalAITrendsQuery
 
@@ -34,7 +34,9 @@ class GenerateTrendsAgent:
         self._team = team
 
     def bootstrap(self, messages: list[ChatMessage], user_prompt: str | None = None):
-        llm = ChatOpenAI(model="gpt-4o").with_structured_output(TrendsFunction().generate_function())
+        llm = ChatOpenAI(model="gpt-4o", stream_usage=True).bind_tools(
+            [TrendsFunction().generate_function()], tool_choice="output_insight_schema"
+        )
         user_prompt = (
             user_prompt
             or "Answer to my question:\n<question>{{question}}</question>\n" + TeamPrompt(self._team).generate_prompt()

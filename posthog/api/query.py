@@ -11,13 +11,13 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from sentry_sdk import capture_exception, set_tag
 
+from ee.hogai.generate_trends_agent import Conversation, GenerateTrendsAgent
 from posthog.api.documentation import extend_schema
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
 from posthog.api.utils import action
-from posthog.assistant.generate_trends_agent import Conversation, GenerateTrendsAgent
 from posthog.clickhouse.client.execute_async import (
     cancel_query,
     get_query_status,

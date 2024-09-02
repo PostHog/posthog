@@ -2318,10 +2318,8 @@ const api = {
         return new ApiRequest().chat().assembleFullUrl()
     },
 
-    async chat(messages: any[]): Promise<Response> {
-        return await api.createResponse(this.chatURL(), {
-            messages,
-        })
+    async chat(data: any): Promise<Response> {
+        return await api.createResponse(this.chatURL(), data)
     },
 
     /** Fetch data from specified URL. The result already is JSON-parsed. */
