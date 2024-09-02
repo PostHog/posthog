@@ -31,7 +31,7 @@ class WebExternalClicksTableQueryRunner(WebAnalyticsQueryRunner):
 
     def to_query(self) -> ast.SelectQuery:
         if self.query.stripQueryParams:
-            url_expr = ast.Call(
+            url_expr: ast.Expr = ast.Call(
                 name="cutQueryStringAndFragment",
                 args=[ast.Field(chain=["properties", "$external_click_url"])],
             )
