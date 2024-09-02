@@ -224,9 +224,11 @@ class BigQueryClient(bigquery.Client):
         field_names = ""
 
         if not update_fields:
-            update_fields = final_table.schema
+            update_clause_fields = final_table.schema
+        else:
+            update_clause_fields = update_fields
 
-        for n, field in enumerate(update_fields):
+        for n, field in enumerate(update_clause_fields):
             if n > 0:
                 update_clause += ", "
                 values += ", "
