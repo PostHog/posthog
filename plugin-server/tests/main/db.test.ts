@@ -5,7 +5,7 @@ import { defaultConfig } from '../../src/config/config'
 import { Hub, Person, PropertyOperator, PropertyUpdateOperation, RawAction, Team } from '../../src/types'
 import { DB } from '../../src/utils/db/db'
 import { DependencyUnavailableError } from '../../src/utils/db/error'
-import { closeHub, createHub } from '../../src/utils/db/hub'
+import { createHub } from '../../src/utils/db/hub'
 import { PostgresRouter, PostgresUse } from '../../src/utils/db/postgres'
 import { generateKafkaPersonUpdateMessage } from '../../src/utils/db/utils'
 import { RaceConditionError, UUIDT } from '../../src/utils/utils'
@@ -17,10 +17,11 @@ jest.mock('../../src/utils/status')
 
 describe('DB', () => {
     let hub: Hub
+    let closeServer: () => Promise<void>
     let db: DB
 
     beforeEach(async () => {
-        hub = await createHub()
+        ;[hub, closeServer] = await createHub()
         await resetTestDatabase(undefined, {}, {}, { withExtendedTestData: false })
         db = hub.db
 
@@ -30,7 +31,7 @@ describe('DB', () => {
     })
 
     afterEach(async () => {
-        await closeHub(hub)
+        await closeServer()
         jest.clearAllMocks()
     })
 

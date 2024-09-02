@@ -1,5 +1,5 @@
 import { Hub, LogLevel, PluginCapabilities } from '../../src/types'
-import { closeHub, createHub } from '../../src/utils/db/hub'
+import { createHub } from '../../src/utils/db/hub'
 import { loadSchedule } from '../../src/worker/plugins/loadSchedule'
 import { setupPlugins } from '../../src/worker/plugins/setup'
 import { getVMPluginCapabilities, shouldSetupPluginInServer } from '../../src/worker/vm/capabilities'
@@ -13,15 +13,16 @@ jest.mock('../../src/worker/plugins/loadPluginsFromDB', () => ({
 
 describe('capabilities', () => {
     let hub: Hub
+    let closeHub: () => Promise<void>
 
     beforeAll(async () => {
         console.info = jest.fn() as any
         console.warn = jest.fn() as any
-        hub = await createHub({ LOG_LEVEL: LogLevel.Warn })
+        ;[hub, closeHub] = await createHub({ LOG_LEVEL: LogLevel.Warn })
     })
 
     afterAll(async () => {
-        await closeHub(hub)
+        await closeHub()
     })
 
     describe('getVMPluginCapabilities()', () => {

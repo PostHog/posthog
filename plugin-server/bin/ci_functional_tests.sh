@@ -12,6 +12,8 @@
 set -e -o pipefail
 
 export WORKER_CONCURRENCY=1
+export CONVERSION_BUFFER_ENABLED=true
+export BUFFER_CONVERSION_SECONDS=2 # Make sure we don't have to wait for the default 60 seconds
 export KAFKA_MAX_MESSAGE_BATCH_SIZE=0
 export APP_METRICS_FLUSH_FREQUENCY_MS=0 # Reduce the potential for spurious errors in tests that wait for metrics
 export APP_METRICS_GATHERED_FOR_ALL=true

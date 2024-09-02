@@ -1,6 +1,6 @@
 import { eachMessageWebhooksHandlers } from '../../../src/main/ingestion-queues/batch-processing/each-batch-webhooks'
 import { ClickHouseTimestamp, ClickHouseTimestampSecondPrecision, Hub, RawClickHouseEvent } from '../../../src/types'
-import { closeHub, createHub } from '../../../src/utils/db/hub'
+import { createHub } from '../../../src/utils/db/hub'
 import { PostgresUse } from '../../../src/utils/db/postgres'
 import { ActionManager } from '../../../src/worker/ingestion/action-manager'
 import { ActionMatcher } from '../../../src/worker/ingestion/action-matcher'
@@ -33,9 +33,10 @@ const clickhouseEvent: RawClickHouseEvent = {
 
 describe('eachMessageWebhooksHandlers', () => {
     let hub: Hub
+    let closeHub: () => Promise<void>
 
     beforeEach(async () => {
-        hub = await createHub()
+        ;[hub, closeHub] = await createHub()
         console.warn = jest.fn() as any
         await resetTestDatabase()
 
@@ -72,7 +73,7 @@ describe('eachMessageWebhooksHandlers', () => {
     })
 
     afterEach(async () => {
-        await closeHub(hub)
+        await closeHub()
     })
 
     it('calls runWebhooksHandlersEventPipeline', async () => {
