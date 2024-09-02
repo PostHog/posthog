@@ -5,7 +5,7 @@ import { ExperimentalAITrendsQuery } from '~/queries/schema'
 
 import type { maxLogicType } from './maxLogicType'
 
-interface MaxLogicProps {
+export interface MaxLogicProps {
     sessionId: string
 }
 
