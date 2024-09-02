@@ -77,12 +77,12 @@ async fn handle_common(
                     tracing::error!("failed to decode form data: {}", e);
                     CaptureError::RequestDecodingError(String::from("missing data field"))
                 })?;
-            RawRequest::from_bytes(payload.into())
+            RawRequest::from_bytes(payload.into(), state.event_size_limit)
         }
         ct => {
             tracing::Span::current().record("content_type", ct);
 
-            RawRequest::from_bytes(body)
+            RawRequest::from_bytes(body, state.event_size_limit)
         }
     }?;
 

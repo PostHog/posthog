@@ -31,6 +31,8 @@ where
     )
     .expect("failed to create billing limiter");
 
+    let event_max_bytes = config.kafka.kafka_producer_message_max_bytes as usize;
+
     let app = if config.print_sink {
         // Print sink is only used for local debug, don't allow a container with it to run on prod
         liveness
@@ -48,6 +50,7 @@ where
             config.export_prometheus,
             config.capture_mode,
             config.concurrency_limit,
+            event_max_bytes,
         )
     } else {
         let sink_liveness = liveness
@@ -90,6 +93,7 @@ where
             config.export_prometheus,
             config.capture_mode,
             config.concurrency_limit,
+            event_max_bytes,
         )
     };
 

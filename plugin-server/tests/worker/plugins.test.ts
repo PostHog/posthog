@@ -2,7 +2,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
 import { Hub, LogLevel } from '../../src/types'
 import { processError } from '../../src/utils/db/error'
-import { closeHub, createHub } from '../../src/utils/db/hub'
+import { createHub } from '../../src/utils/db/hub'
 import { delay, IllegalOperationError } from '../../src/utils/utils'
 import { loadPlugin } from '../../src/worker/plugins/loadPlugin'
 import { loadSchedule } from '../../src/worker/plugins/loadSchedule'
@@ -32,15 +32,16 @@ jest.setTimeout(20_000)
 
 describe('plugins', () => {
     let hub: Hub
+    let closeHub: () => Promise<void>
 
     beforeEach(async () => {
-        hub = await createHub({ LOG_LEVEL: LogLevel.Log })
+        ;[hub, closeHub] = await createHub({ LOG_LEVEL: LogLevel.Log })
         console.warn = jest.fn() as any
         await resetTestDatabase()
     })
 
     afterEach(async () => {
-        await closeHub(hub)
+        await closeHub()
     })
 
     test('setupPlugins and runProcessEvent', async () => {

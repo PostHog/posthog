@@ -8,7 +8,6 @@ import { DependencyUnavailableError } from '../../../utils/db/error'
 import { timeoutGuard } from '../../../utils/db/utils'
 import { normalizeProcessPerson } from '../../../utils/event'
 import { status } from '../../../utils/status'
-import { EventsProcessor } from '../process-event'
 import { captureIngestionWarning, generateEventDeadLetterQueueMessage } from '../utils'
 import { createEventStep } from './createEventStep'
 import { enrichExceptionEventStep } from './enrichExceptionEventStep'
@@ -51,12 +50,10 @@ class StepErrorNoRetry extends Error {
 export class EventPipelineRunner {
     hub: Hub
     originalEvent: PipelineEvent
-    eventsProcessor: EventsProcessor
 
     constructor(hub: Hub, event: PipelineEvent) {
         this.hub = hub
         this.originalEvent = event
-        this.eventsProcessor = new EventsProcessor(hub)
     }
 
     isEventDisallowed(event: PipelineEvent): boolean {

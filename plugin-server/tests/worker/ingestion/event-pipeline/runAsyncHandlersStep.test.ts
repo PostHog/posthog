@@ -26,6 +26,7 @@ describe('runAsyncHandlersStep()', () => {
 
     beforeEach(() => {
         runner = {
+            nextStep: (...args: any[]) => args,
             hub: {
                 capabilities: {
                     processAsyncOnEventHandlers: true,

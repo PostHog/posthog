@@ -2,7 +2,7 @@ import { ConsoleExtension } from '@posthog/plugin-scaffold'
 
 import { KAFKA_PLUGIN_LOG_ENTRIES } from '../../src/config/kafka-topics'
 import { Hub, PluginLogEntrySource, PluginLogEntryType } from '../../src/types'
-import { closeHub, createHub } from '../../src/utils/db/hub'
+import { createHub } from '../../src/utils/db/hub'
 import { createConsole } from '../../src/worker/vm/extensions/console'
 import { pluginConfig39 } from '../../tests/helpers/plugins'
 
@@ -12,13 +12,14 @@ jest.mock('../../src/utils/db/kafka-producer-wrapper')
 
 describe('console extension', () => {
     let hub: Hub
+    let closeHub: () => Promise<void>
 
     beforeAll(async () => {
-        hub = await createHub()
+        ;[hub, closeHub] = await createHub()
     })
 
     afterAll(async () => {
-        await closeHub(hub)
+        await closeHub()
     })
 
     Object.values(PluginLogEntryType).map((type) => {

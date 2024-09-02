@@ -8,7 +8,7 @@ import { waitForExpect } from '../../../../functional_tests/expectations'
 import { defaultConfig } from '../../../../src/config/config'
 import { SessionRecordingIngester } from '../../../../src/main/ingestion-queues/session-recording/session-recordings-consumer'
 import { Hub, PluginsServerConfig, Team } from '../../../../src/types'
-import { closeHub, createHub } from '../../../../src/utils/db/hub'
+import { createHub } from '../../../../src/utils/db/hub'
 import { deleteKeysWithPrefix } from '../../../helpers/redis'
 import { getFirstTeam, resetTestDatabase } from '../../../helpers/sql'
 import { createIncomingRecordingMessage, createKafkaMessage, createTP } from './fixtures'
@@ -61,6 +61,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
     let ingester: SessionRecordingIngester
 
     let hub: Hub
+    let closeHub: () => Promise<void>
     let team: Team
     let teamToken = ''
     let mockOffsets: Record<number, number> = {}
@@ -91,7 +92,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
                 topics: [{ name: options.topic, partitions: [{ id: 0 }, { id: 1 }, { id: 2 }] }],
             })
         })
-        hub = await createHub()
+        ;[hub, closeHub] = await createHub()
         team = await getFirstTeam(hub)
         teamToken = team.api_token
         redisConn = await hub.redisPool.acquire(0)
@@ -109,7 +110,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
         await redisConn.del(CAPTURE_OVERFLOW_REDIS_KEY)
         await hub.redisPool.release(redisConn)
         await deleteKeys(hub)
-        await closeHub(hub)
+        await closeHub()
     })
 
     afterAll(() => {
