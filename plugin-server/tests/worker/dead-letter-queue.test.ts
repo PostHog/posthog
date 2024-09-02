@@ -4,10 +4,10 @@ import { Hub, LogLevel } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { UUIDT } from '../../src/utils/utils'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
+import { EventsProcessor } from '../../src/worker/ingestion/process-event'
 import { generateEventDeadLetterQueueMessage } from '../../src/worker/ingestion/utils'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { resetTestDatabase } from '../helpers/sql'
-import { EventsProcessor } from '../../src/worker/ingestion/process-event'
 
 jest.setTimeout(60000) // 60 sec timeout
 jest.mock('../../src/utils/status')
@@ -60,7 +60,9 @@ describe('events dead letter queue', () => {
 
     test('events get sent to dead letter queue on error', async () => {
         const event = createEvent()
-        const ingestResponse1 = await new EventPipelineRunner(hub, event, new EventsProcessor(hub)).runEventPipeline(event)
+        const ingestResponse1 = await new EventPipelineRunner(hub, event, new EventsProcessor(hub)).runEventPipeline(
+            event
+        )
         expect(ingestResponse1).toEqual({
             lastStep: 'prepareEventStep',
             error: 'database unavailable',
