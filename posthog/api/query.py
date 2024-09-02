@@ -1,3 +1,4 @@
+import json
 import re
 import uuid
 
@@ -166,6 +167,9 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 if message:
                     last_message = message[0].model_dump_json()
                     yield message[0].model_dump_json()
+
+            if not last_message:
+                yield json.dumps({"reasoning_steps": ["Schema validation failed"]})
 
             report_user_action(
                 request.user,  # type: ignore

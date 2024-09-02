@@ -4,6 +4,8 @@ import { LemonButton, LemonInput, Spinner } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { HedgehogBuddyStatic } from 'lib/components/HedgehogBuddy/HedgehogBuddyRender'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils'
 import React, { useState } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -38,8 +40,10 @@ function Message({
     )
 }
 
-export function Max(): JSX.Element {
+export function Max(): JSX.Element | null {
     const { user } = useValues(userLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
     const logic = maxLogic({
         sessionId: uuid(),
     })
@@ -47,6 +51,10 @@ export function Max(): JSX.Element {
     const { askMax } = useActions(logic)
 
     const [question, setQuestion] = useState('')
+
+    if (!featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG]) {
+        return null
+    }
 
     return (
         <>
@@ -84,7 +92,7 @@ export function Max(): JSX.Element {
                                 <Message role={message.role}>
                                     <Query query={query} readOnly embedded />
                                     <LemonButton
-                                        className="mt-4 self-start"
+                                        className="mt-4 w-fit"
                                         type="primary"
                                         to={`/insights/new#filters=${JSON.stringify(
                                             queryNodeToFilter(message.content.answer)
