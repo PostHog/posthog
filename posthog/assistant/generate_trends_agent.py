@@ -1,19 +1,15 @@
 from typing import Literal, Optional
 
-from langchain_core.globals import set_debug, set_verbose
 from langchain_core.output_parsers.openai_tools import PydanticToolsParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from posthog.assistant.system_prompt import trends_system_prompt
 from posthog.assistant.team_prompt import TeamPrompt
 from posthog.assistant.trends_function import TrendsFunction
 from posthog.models.team.team import Team
 from posthog.schema import ExperimentalAITrendsQuery
-
-set_verbose(True)
-set_debug(True)
 
 
 class output_insight_schema(BaseModel):
@@ -23,11 +19,12 @@ class output_insight_schema(BaseModel):
 
 class ChatMessage(BaseModel):
     role: Literal["user", "assistant"]
-    content: str
+    content: str = Field(..., max_length=400)
 
 
 class Conversation(BaseModel):
     messages: list[ChatMessage]
+    session_id: str
 
 
 class GenerateTrendsAgent:

@@ -159,11 +159,6 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         validated_body = Conversation.model_validate(request.data)
         chain = GenerateTrendsAgent(self.team).bootstrap(validated_body.messages)
 
-        # if not prompt:
-        #     raise ValidationError({"prompt": ["This field is required."]}, code="required")
-        # if len(prompt) > 400:
-        #     raise ValidationError({"prompt": ["This field is too long."]}, code="too_long")
-
         def generate():
             for message in chain.stream({"question": validated_body.messages[0].content}):
                 if message:
