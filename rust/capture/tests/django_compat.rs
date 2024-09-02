@@ -113,6 +113,7 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
             false,
             CaptureMode::Events,
             None,
+            25 * 1024 * 1024,
         );
 
         let client = TestClient::new(app);

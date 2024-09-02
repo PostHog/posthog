@@ -10456,6 +10456,7 @@
                 "Page",
                 "InitialPage",
                 "ExitPage",
+                "ExitClick",
                 "InitialChannelType",
                 "InitialReferringDomain",
                 "InitialUTMSource",
