@@ -1,6 +1,7 @@
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { Field, Form } from 'kea-forms'
+import { Form } from 'kea-forms'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useRef } from 'react'
 
@@ -78,30 +79,26 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
                             )}{' '}
                         </div>
                     ) : (
-                        <div className="flex items-center justify-center gap-2.5">
-                            <Field name="input" noStyle>
+                        <div className="flex items-start justify-start gap-2.5">
+                            <LemonField name="input" className="max-w-52">
                                 {({ value, onChange, error }) => (
-                                    <Tooltip title={error}>
-                                        <div className="max-w-36">
-                                            <LemonInput
-                                                inputRef={limitInputRef}
-                                                type="number"
-                                                fullWidth={false}
-                                                status={error ? 'danger' : 'default'}
-                                                value={value}
-                                                data-attr={`billing-limit-input-${product.type}`}
-                                                onChange={onChange}
-                                                prefix={<b>$</b>}
-                                                disabled={billingLoading}
-                                                min={0}
-                                                step={10}
-                                                suffix={<>/ {billing?.billing_period?.interval}</>}
-                                                size="small"
-                                            />
-                                        </div>
-                                    </Tooltip>
+                                    <LemonInput
+                                        inputRef={limitInputRef}
+                                        type="number"
+                                        fullWidth={false}
+                                        status={error ? 'danger' : 'default'}
+                                        value={value}
+                                        data-attr={`billing-limit-input-${product.type}`}
+                                        onChange={onChange}
+                                        prefix={<b>$</b>}
+                                        disabled={billingLoading}
+                                        min={0}
+                                        step={10}
+                                        suffix={<>/ {billing?.billing_period?.interval}</>}
+                                        size="small"
+                                    />
                                 )}
-                            </Field>
+                            </LemonField>
 
                             <LemonButton
                                 loading={billingLoading}
