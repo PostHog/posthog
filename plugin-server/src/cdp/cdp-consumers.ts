@@ -399,7 +399,6 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
             await this.processInvocationResults(invocationResults)
         } else {
             await this.queueInvocations(invocationsToBeQueued)
-            await this.produceQueuedMessages()
         }
 
         await this.produceQueuedMessages()
