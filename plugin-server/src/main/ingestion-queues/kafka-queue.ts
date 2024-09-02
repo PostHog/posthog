@@ -2,6 +2,7 @@ import * as Sentry from '@sentry/node'
 import { Consumer, EachBatchPayload, Kafka } from 'kafkajs'
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
+import { EventsProcessor } from 'worker/ingestion/process-event'
 
 import { BatchConsumer, startBatchConsumer } from '../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../kafka/config'
@@ -170,13 +171,14 @@ export class IngestionConsumer {
     public consumerGroupId: string
     public eachBatch: EachBatchFunction
     public consumer?: BatchConsumer
+    public eventsProcessor: EventsProcessor
 
     constructor(pluginsServer: Hub, topic: string, consumerGroupId: string, batchHandler: EachBatchFunction) {
         this.pluginsServer = pluginsServer
         this.topic = topic
         this.consumerGroupId = consumerGroupId
-
         this.eachBatch = batchHandler
+        this.eventsProcessor = new EventsProcessor(pluginsServer)
     }
 
     async start(): Promise<BatchConsumer> {

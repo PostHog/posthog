@@ -53,10 +53,10 @@ export class EventPipelineRunner {
     originalEvent: PipelineEvent
     eventsProcessor: EventsProcessor
 
-    constructor(hub: Hub, event: PipelineEvent) {
+    constructor(hub: Hub, event: PipelineEvent, eventProcessor: EventsProcessor) {
         this.hub = hub
         this.originalEvent = event
-        this.eventsProcessor = new EventsProcessor(hub)
+        this.eventsProcessor = eventProcessor
     }
 
     isEventDisallowed(event: PipelineEvent): boolean {
