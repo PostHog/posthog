@@ -51,7 +51,8 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     group2_created_at DateTime64,
     group3_created_at DateTime64,
     group4_created_at DateTime64,
-    person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
+    person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
+    is_deleted Boolean
     {materialized_columns}
     {extra_fields}
     {indexes}
@@ -113,10 +114,12 @@ ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64
     materialized_columns=EVENTS_TABLE_MATERIALIZED_COLUMNS,
     indexes=f"""
     , {index_by_kafka_timestamp(EVENTS_DATA_TABLE())}
+    , INDEX is_deleted_idx (is_deleted) TYPE minmax GRANULARITY 1
     """,
     sample_by="SAMPLE BY cityHash64(distinct_id)",
     storage_policy=STORAGE_POLICY(),
 )
+
 
 EVENTS_TABLE_INSERTED_AT_INDEX_SQL = """
 ALTER TABLE {table_name} ON CLUSTER {cluster}
@@ -147,6 +150,7 @@ KAFKA_EVENTS_TABLE_JSON_SQL = lambda: (
     materialized_columns="",
     indexes="",
 )
+
 
 EVENTS_TABLE_JSON_MV_SQL = (
     lambda: """
@@ -207,6 +211,7 @@ DISTRIBUTED_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
     materialized_columns=EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS,
     indexes="",
 )
+
 
 INSERT_EVENT_SQL = (
     lambda: f"""
