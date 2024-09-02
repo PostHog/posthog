@@ -190,8 +190,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 if (oldRef2) {
                     oldRef2.unmount()
                 }
-            } else if (insightId && (!values.insight?.result || values.filtersOverride)) {
-                // if filtersOverride is set, we need to load the insight again to override the insight result
+            } else if (insightId) {
                 values.insightLogicRef?.logic.actions.loadInsight(insightId as InsightShortId)
             }
         },
