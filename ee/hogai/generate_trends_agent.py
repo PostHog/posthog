@@ -34,7 +34,7 @@ class GenerateTrendsAgent:
         self._team = team
 
     def bootstrap(self, messages: list[ChatMessage], user_prompt: str | None = None):
-        llm = ChatOpenAI(model="gpt-4o", stream_usage=True).bind_tools(
+        llm = ChatOpenAI(model="gpt-4o-2024-08-06", stream_usage=True).bind_tools(
             [TrendsFunction().generate_function()], tool_choice="output_insight_schema"
         )
         user_prompt = (
