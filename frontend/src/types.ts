@@ -2578,6 +2578,9 @@ export interface InsightLogicProps<T = InsightVizNode> {
 
     /** Used to group DataNodes into a collection for group operations like refreshAll **/
     dataNodeCollectionId?: string
+
+    /** Dashboard filters to override the ones in the query */
+    filtersOverride?: DashboardFilter | null
 }
 
 export interface SetInsightOptions {

@@ -18,12 +18,14 @@ export interface InsightSceneProps {
 
 export function Insight({ insightId }: InsightSceneProps): JSX.Element {
     // insightSceneLogic
-    const { insightMode, insight } = useValues(insightSceneLogic)
+    const { insightMode, insight, filtersOverride } = useValues(insightSceneLogic)
 
     // insightLogic
     const logic = insightLogic({
         dashboardItemId: insightId || 'new',
-        cachedInsight: insight?.short_id === insightId ? insight : null,
+        // don't use cached insight if we have filtersOverride
+        cachedInsight: filtersOverride === undefined && insight?.short_id === insightId ? insight : null,
+        filtersOverride,
     })
     const { insightProps } = useValues(logic)
 
@@ -65,6 +67,7 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
                         showQueryHelp: insightMode === ItemMode.Edit && !containsHogQLQuery(query),
                         insightProps,
                     }}
+                    filtersOverride={filtersOverride}
                 />
             </div>
         </BindLogic>

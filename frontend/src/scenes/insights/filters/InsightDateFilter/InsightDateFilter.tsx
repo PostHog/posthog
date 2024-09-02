@@ -12,6 +12,7 @@ type InsightDateFilterProps = {
 
 export function InsightDateFilter({ disabled }: InsightDateFilterProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
+
     const { isTrends, dateRange } = useValues(insightVizDataLogic(insightProps))
     const { updateDateRange } = useActions(insightVizDataLogic(insightProps))
 

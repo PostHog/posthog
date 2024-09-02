@@ -5607,6 +5607,7 @@ class QueryRequest(BaseModel):
         discriminator="kind",
     )
     refresh: Optional[Union[bool, str]] = None
+    filters_override: Optional[DashboardFilter] = None
 
 
 class QuerySchemaRoot(

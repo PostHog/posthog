@@ -46,6 +46,7 @@ interface InsightMetaProps
         | 'showEditingControls'
         | 'showDetailsControls'
         | 'moreButtons'
+        | 'filtersOverride'
     > {
     insight: QueryBasedInsightModel
     areDetailsShown?: boolean
@@ -57,6 +58,7 @@ export function InsightMeta({
     ribbonColor,
     dashboardId,
     updateColor,
+    filtersOverride,
     removeFromDashboard,
     deleteWithUndo,
     refresh,
@@ -100,7 +102,7 @@ export function InsightMeta({
             topHeading={<TopHeading insight={insight} />}
             meta={
                 <>
-                    <Link to={urls.insightView(short_id)}>
+                    <Link to={urls.insightView(short_id, filtersOverride)}>
                         <h4 title={name} data-attr="insight-card-title">
                             {name || <i>{summary}</i>}
                             {loading && (

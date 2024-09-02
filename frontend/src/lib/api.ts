@@ -12,6 +12,7 @@ import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import {
     AlertType,
     AlertTypeWrite,
+    DashboardFilter,
     DatabaseSerializedFieldType,
     ErrorTrackingGroup,
     QuerySchema,
@@ -904,7 +905,8 @@ const api = {
         loadInsight(
             shortId: InsightModel['short_id'],
             basic?: boolean,
-            refresh?: RefreshType
+            refresh?: RefreshType,
+            filtersOverride?: DashboardFilter | null
         ): Promise<PaginatedResponse<Partial<InsightModel>>> {
             return new ApiRequest()
                 .insights()
@@ -913,6 +915,7 @@ const api = {
                         short_id: encodeURIComponent(shortId),
                         basic,
                         refresh,
+                        filters_override: filtersOverride,
                     })
                 )
                 .get()
@@ -2295,7 +2298,8 @@ const api = {
         options?: ApiMethodOptions,
         queryId?: string,
         refresh?: boolean,
-        async?: boolean
+        async?: boolean,
+        filtersOverride?: DashboardFilter | null
     ): Promise<
         T extends { [response: string]: any }
             ? T['response'] extends infer P | undefined
@@ -2304,9 +2308,10 @@ const api = {
             : Record<string, any>
     > {
         const refreshParam: RefreshType | undefined = refresh && async ? 'force_async' : async ? 'async' : refresh
-        return await new ApiRequest()
-            .query()
-            .create({ ...options, data: { query, client_query_id: queryId, refresh: refreshParam } })
+        return await new ApiRequest().query().create({
+            ...options,
+            data: { query, client_query_id: queryId, refresh: refreshParam, filters_override: filtersOverride },
+        })
     },
 
     /** Fetch data from specified URL. The result already is JSON-parsed. */

@@ -136,7 +136,7 @@ class Insight(models.Model):
         self, dashboard: Optional[Dashboard] = None, dashboard_filters_override: Optional[dict] = None
     ):
         # query date range is set in a different function, see dashboard_query
-        if dashboard and not self.query:
+        if (dashboard or dashboard_filters_override is not None) and not self.query:
             dashboard_filters = {
                 **(dashboard_filters_override if dashboard_filters_override is not None else dashboard.filters)
             }
