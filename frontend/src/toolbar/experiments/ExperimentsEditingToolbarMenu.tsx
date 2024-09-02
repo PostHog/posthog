@@ -20,6 +20,7 @@ import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import {WebExperimentTransform} from "~/toolbar/types";
 import {LemonSlider} from "lib/lemon-ui/LemonSlider";
 import React from "react";
+import {EditableField} from "lib/components/EditableField/EditableField";
 
 
 
@@ -87,7 +88,7 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                         </div>
                         <Group name='variants'>
                             <LemonDivider/>
-                            <h3> Variants </h3>
+                            <h4> Variants </h4>
                             <div className="mt-2">
                                 <LemonButton
                                     type="secondary"
@@ -104,12 +105,24 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                         setExperimentFormValue('variants', experimentForm.variants)
                                     }}
                                 >
-                                    Add Another Variant
+                                    Add Another Variant ({selectedExperimentId})
                                 </LemonButton>
                                 {Object.keys(experimentForm.variants!).map((variant, index) => (
                                     <Group key={variant} name={['variants', index]}>
                                         <div className="p-1 flex flex-col gap-2">
-                                            <h3 className='mb-0'>{variant} ( rollout percentage :  { experimentForm.variants && experimentForm.variants[variant] ? experimentForm.variants[variant].rollout_percentage : 0} ) </h3>
+
+                                                {selectedExperimentId === 'new' && (
+                                                    <EditableField
+                                                        onSave={(newName) => {
+                                                            variant = newName
+                                                        }}
+                                                        name="item-name-small" value={variant} />
+                                                )}
+
+                                                {selectedExperimentId !== 'new' && (
+                                                    <h3 className='mb-0'>{variant}</h3>
+                                                )}
+                                                ( rollout percentage :  { experimentForm.variants && experimentForm.variants[variant] ? experimentForm.variants[variant].rollout_percentage : 0} )
                                             <LemonSlider
                                                 className="flex-1"
                                                 min={0}
@@ -137,8 +150,8 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                                         if (webVariant) {
                                                             if (webVariant.transforms) {
                                                                 webVariant.transforms.push({
-                                                                 text: "Enter text here",
-                                                                 html: "Enter HTML here",
+                                                                 text: "",
+                                                                 html: "",
                                                                 } as unknown as WebExperimentTransform)
                                                             }
                                                         }

@@ -7,9 +7,11 @@ import { SPRITE_SIZE } from 'lib/components/HedgehogBuddy/sprites/sprites'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
+import {experimentsTabLogic} from "~/toolbar/experiments/experimentsTabLogic";
 import { inBounds, TOOLBAR_ID } from '~/toolbar/utils'
 
 import type { toolbarLogicType } from './toolbarLogicType'
+import {toolbarConfigLogic} from "~/toolbar/toolbarConfigLogic";
 
 const MARGIN = 2
 
@@ -18,9 +20,12 @@ export type MenuState = 'none' | 'heatmap' | 'actions' | 'flags' | 'inspect' | '
 export const toolbarLogic = kea<toolbarLogicType>([
     path(['toolbar', 'bar', 'toolbarLogic']),
     connect(() => ({
+        values: [toolbarConfigLogic, ['posthog']],
         actions: [
             actionsTabLogic,
             ['showButtonActions', 'hideButtonActions', 'selectAction'],
+            experimentsTabLogic,
+            ['showButtonExperiments'],
             elementsLogic,
             ['enableInspect', 'disableInspect', 'createAction'],
             heatmapLogic,
@@ -155,7 +160,6 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 }
             },
         ],
-
         menuProperties: [
             (s) => [s.element, s.menu, s.dragPosition, s.windowWidth, s.windowHeight, s.isBlurred],
             (element, menu, dragPosition, windowWidth, windowHeight, isBlurred) => {
@@ -200,6 +204,9 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 values.hedgehogActor?.setAnimation('heatmaps')
             } else if (visibleMenu === 'actions') {
                 actions.showButtonActions()
+                values.hedgehogActor?.setAnimation('action')
+            } else if (visibleMenu === 'experiments') {
+                actions.showButtonExperiments()
                 values.hedgehogActor?.setAnimation('action')
             } else if (visibleMenu === 'flags') {
                 values.hedgehogActor?.setAnimation('flag')
