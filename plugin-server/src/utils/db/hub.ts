@@ -27,6 +27,7 @@ import { ActionMatcher } from '../../worker/ingestion/action-matcher'
 import { AppMetrics } from '../../worker/ingestion/app-metrics'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { OrganizationManager } from '../../worker/ingestion/organization-manager'
+import { EventsProcessor } from '../../worker/ingestion/process-event'
 import { TeamManager } from '../../worker/ingestion/team-manager'
 import { RustyHook } from '../../worker/rusty-hook'
 import { isTestEnv } from '../env-utils'
@@ -74,7 +75,7 @@ export function createEventsToDropByToken(eventsToDropByTokenStr?: string): Map<
 export async function createHub(
     config: Partial<PluginsServerConfig> = {},
     capabilities: PluginServerCapabilities | null = null
-): Promise<Hub> {
+): Promise<[Hub, () => Promise<void>]> {
     status.info('ℹ️', `Connecting to all services:`)
 
     const serverConfig: PluginsServerConfig = {
@@ -86,6 +87,10 @@ export async function createHub(
     }
     status.updatePrompt(serverConfig.PLUGIN_SERVER_MODE)
     const instanceId = new UUIDT()
+
+    const conversionBufferEnabledTeams = new Set(
+        serverConfig.CONVERSION_BUFFER_ENABLED_TEAMS.split(',').filter(String).map(Number)
+    )
 
     status.info('🤔', `Connecting to ClickHouse...`)
     const clickhouse = new ClickHouse({
@@ -169,7 +174,7 @@ export async function createHub(
         })
     }
 
-    const hub: Hub = {
+    const hub: Partial<Hub> = {
         ...serverConfig,
         instanceId,
         capabilities,
@@ -198,31 +203,34 @@ export async function createHub(
         rustyHook,
         actionMatcher,
         actionManager,
+        conversionBufferEnabledTeams,
         pluginConfigsToSkipElementsParsing: buildIntegerMatcher(process.env.SKIP_ELEMENTS_PARSING_PLUGINS, true),
         eventsToDropByToken: createEventsToDropByToken(process.env.DROP_EVENTS_BY_TOKEN_DISTINCT_ID),
-        appMetrics: new AppMetrics(
-            kafkaProducer,
-            serverConfig.APP_METRICS_FLUSH_FREQUENCY_MS,
-            serverConfig.APP_METRICS_FLUSH_MAX_QUEUE_SIZE
-        ),
     }
 
-    return hub as Hub
-}
+    // :TODO: This is only used on worker threads, not main
+    hub.eventsProcessor = new EventsProcessor(hub as Hub)
 
-export const closeHub = async (hub: Hub): Promise<void> => {
-    if (!isTestEnv()) {
-        await hub.appMetrics?.flush()
-    }
-    await Promise.allSettled([hub.kafkaProducer.disconnect(), hub.redisPool.drain(), hub.postgres?.end()])
-    await hub.redisPool.clear()
+    hub.appMetrics = new AppMetrics(
+        kafkaProducer,
+        serverConfig.APP_METRICS_FLUSH_FREQUENCY_MS,
+        serverConfig.APP_METRICS_FLUSH_MAX_QUEUE_SIZE
+    )
 
-    if (isTestEnv()) {
+    const closeHub = async () => {
+        if (!isTestEnv()) {
+            await hub.appMetrics?.flush()
+        }
+        await Promise.allSettled([kafkaProducer.disconnect(), redisPool.drain(), hub.postgres?.end()])
+        await redisPool.clear()
+
         // Break circular references to allow the hub to be GCed when running unit tests
         // TODO: change these structs to not directly reference the hub
-        ;(hub as any).eventsProcessor = undefined
-        ;(hub as any).appMetrics = undefined
+        hub.eventsProcessor = undefined
+        hub.appMetrics = undefined
     }
+
+    return [hub as Hub, closeHub]
 }
 
 export type KafkaConfig = {

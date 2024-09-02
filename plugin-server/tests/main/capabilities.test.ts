@@ -2,7 +2,7 @@ import { GraphileWorker } from '../../src/main/graphile-worker/graphile-worker'
 import { startGraphileWorker } from '../../src/main/graphile-worker/worker-setup'
 import { Hub, LogLevel } from '../../src/types'
 import { PluginServerMode, stringToPluginServerMode } from '../../src/types'
-import { closeHub, createHub } from '../../src/utils/db/hub'
+import { createHub } from '../../src/utils/db/hub'
 import Piscina from '../../src/worker/piscina'
 
 jest.mock('../../src/main/ingestion-queues/kafka-queue')
@@ -21,16 +21,17 @@ describe('stringToPluginServerMode', () => {
 describe('capabilities', () => {
     let hub: Hub
     let piscina: Piscina
+    let closeHub: () => Promise<void>
 
     beforeEach(async () => {
-        hub = await createHub({
+        ;[hub, closeHub] = await createHub({
             LOG_LEVEL: LogLevel.Warn,
         })
         piscina = { run: jest.fn(), on: jest.fn() } as any
     })
 
     afterEach(async () => {
-        await closeHub(hub)
+        await closeHub()
     })
 
     describe('startGraphileWorker()', () => {

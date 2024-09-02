@@ -14,7 +14,7 @@ import {
     StringMatching,
     Team,
 } from '../../../src/types'
-import { closeHub, createHub } from '../../../src/utils/db/hub'
+import { createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
 import { ActionManager } from '../../../src/worker/ingestion/action-manager'
 import { ActionMatcher, castingCompare } from '../../../src/worker/ingestion/action-matcher'
@@ -44,13 +44,14 @@ function createTestEvent(overrides: Partial<PostIngestionEvent> = {}): PostInges
 
 describe('ActionMatcher', () => {
     let hub: Hub
+    let closeServer: () => Promise<void>
     let actionManager: ActionManager
     let actionMatcher: ActionMatcher
     let actionCounter: number
 
     beforeEach(async () => {
         await resetTestDatabase(undefined, undefined, undefined, { withExtendedTestData: false })
-        hub = await createHub()
+        ;[hub, closeServer] = await createHub()
         actionManager = new ActionManager(hub.db.postgres, hub)
         await actionManager.start()
         actionMatcher = new ActionMatcher(hub.db.postgres, actionManager, hub.teamManager)
@@ -58,7 +59,7 @@ describe('ActionMatcher', () => {
     })
 
     afterEach(async () => {
-        await closeHub(hub)
+        await closeServer()
     })
 
     /** Return a test action created on a common base using provided steps. */

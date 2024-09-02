@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 
 import { Group, Hub, Team } from '../../../src/types'
 import { DB } from '../../../src/utils/db/db'
-import { closeHub, createHub } from '../../../src/utils/db/hub'
+import { createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
 import { upsertGroup } from '../../../src/worker/ingestion/properties-updater'
 import { createPromise } from '../../helpers/promises'
@@ -13,6 +13,7 @@ jest.mock('../../../src/utils/status')
 
 describe('properties-updater', () => {
     let hub: Hub
+    let closeServer: () => Promise<void>
     let db: DB
 
     let team: Team
@@ -23,7 +24,7 @@ describe('properties-updater', () => {
     const PAST_TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z')
 
     beforeEach(async () => {
-        hub = await createHub()
+        ;[hub, closeServer] = await createHub()
         await resetTestDatabase()
         db = hub.db
 
@@ -35,7 +36,7 @@ describe('properties-updater', () => {
     })
 
     afterEach(async () => {
-        await closeHub(hub)
+        await closeServer()
     })
 
     describe('upsertGroup()', () => {

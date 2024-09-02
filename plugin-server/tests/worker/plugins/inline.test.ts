@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { Hub, LogLevel, Plugin, PluginConfig } from '../../../src/types'
-import { closeHub, createHub } from '../../../src/utils/db/hub'
+import { createHub } from '../../../src/utils/db/hub'
 import { PostgresUse } from '../../../src/utils/db/postgres'
 import {
     constructInlinePluginInstance,
@@ -15,16 +15,17 @@ import { resetTestDatabase } from '../../helpers/sql'
 
 describe('Inline plugin', () => {
     let hub: Hub
+    let closeHub: () => Promise<void>
 
     beforeAll(async () => {
         console.info = jest.fn() as any
         console.warn = jest.fn() as any
-        hub = await createHub({ LOG_LEVEL: LogLevel.Log })
+        ;[hub, closeHub] = await createHub({ LOG_LEVEL: LogLevel.Log })
         await resetTestDatabase()
     })
 
     afterAll(async () => {
-        await closeHub(hub)
+        await closeHub()
     })
 
     // Sync all the inline plugins, then assert that for each plugin URL, a

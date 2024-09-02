@@ -6,11 +6,12 @@ import {
     OffsetHighWaterMarks,
 } from '../../../../../src/main/ingestion-queues/session-recording/services/offset-high-water-marker'
 import { Hub } from '../../../../../src/types'
-import { closeHub, createHub } from '../../../../../src/utils/db/hub'
+import { createHub } from '../../../../../src/utils/db/hub'
 
 describe('session offset high-water mark', () => {
     jest.setTimeout(1000)
     let hub: Hub
+    let closeHub: () => Promise<void>
     const keyPrefix = 'test-high-water-mark'
     let offsetHighWaterMarker: OffsetHighWaterMarker
 
@@ -40,13 +41,13 @@ describe('session offset high-water mark', () => {
     }
 
     beforeEach(async () => {
-        hub = await createHub()
+        ;[hub, closeHub] = await createHub()
         offsetHighWaterMarker = new OffsetHighWaterMarker(hub.redisPool, keyPrefix)
     })
 
     afterEach(async () => {
         await deletePrefixedKeys()
-        await closeHub(hub)
+        await closeHub()
     })
 
     const expectMemoryAndRedisToEqual = async (tp: TopicPartition, toEqual: any) => {
