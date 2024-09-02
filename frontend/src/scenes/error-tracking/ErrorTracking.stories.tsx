@@ -21,10 +21,10 @@ const meta: Meta = {
             post: {
                 '/api/projects/:team_id/query': async (req, res, ctx) => {
                     const query = (await req.clone().json()).query
-                    if (query.fingerprint) {
-                        return res(ctx.json(errorTrackingGroupQueryResponse))
+                    if (query.kind === 'ErrorTrackingQuery') {
+                        return res(ctx.json(errorTrackingQueryResponse))
                     }
-                    return res(ctx.json(errorTrackingQueryResponse))
+                    return res(ctx.json(errorTrackingGroupQueryResponse))
                 },
             },
         }),

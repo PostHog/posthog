@@ -55,7 +55,7 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
             },
         ],
         activeEventUUID: [
-            null as ErrorTrackingEvent['uuid'] | null,
+            undefined as ErrorTrackingEvent['uuid'] | undefined,
             {
                 setActiveEventUUID: (_, { uuid }) => uuid,
             },
@@ -116,7 +116,7 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
         },
         loadEventsSuccess: () => {
             if (!values.activeEventUUID) {
-                actions.setActiveEventUUID(values.events[0].uuid)
+                actions.setActiveEventUUID(values.events[0]?.uuid)
             }
         },
     })),

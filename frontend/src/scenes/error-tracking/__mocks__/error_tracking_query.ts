@@ -9,7 +9,7 @@ const eventProperties = JSON.stringify({
     distinct_id: 'person_id',
     $exception_message: "Cannot read properties of undefined (reading 'onLCP')",
     $exception_type: 'TypeError',
-    $exception_fingerprint: 'TypeError',
+    $exception_fingerprint: ['TypeError'],
     $exception_personURL: 'https://us.posthog.com/project/:id/person/:person_id',
     $exception_level: 'error',
     $sentry_event_id: '790b4d4b9ec6430fb88f18ba2dc7e7c4',
@@ -89,13 +89,13 @@ const errorTrackingQueryResponse = {
     columns: ['occurrences', 'sessions', 'users', 'last_seen', 'first_seen', 'description', 'fingerprint', 'volume'],
     hasMore: false,
     results: [
-        { type: 'TypeError', occurrences: 1000, sessions: 750, users: 500 },
-        { type: 'SyntaxError', occurrences: 800, sessions: 200, users: 50 },
-        { type: 'Error', occurrences: 6, sessions: 3, users: 1 },
-    ].map(({ type, occurrences, sessions, users }) => ({
+        { fingerprint: ['TypeError'], occurrences: 1000, sessions: 750, users: 500 },
+        { fingerprint: ['SyntaxError'], occurrences: 800, sessions: 200, users: 50 },
+        { fingerprint: ['Error'], occurrences: 6, sessions: 3, users: 1 },
+    ].map(({ fingerprint, occurrences, sessions, users }) => ({
         assignee: null,
-        description: `This is a ${type} error`,
-        fingerprint: type,
+        description: `This is a ${fingerprint} error`,
+        fingerprint: fingerprint,
         first_seen: '2023-07-07T00:00:00.000000-00:00',
         last_seen: '2024-07-07T00:00:00.000000-00:00',
         merged_fingerprints: [],
@@ -127,32 +127,17 @@ const errorTrackingQueryResponse = {
 const errorTrackingGroupQueryResponse = {
     columns: ['uuid', 'properties', 'timestamp', 'person'],
     hasMore: false,
-    results: [
+    results: range(20).map((index) => [
+        `event_uuid_${index}`,
+        eventProperties,
+        '2024-07-07T00:00:00.000000-00:00',
         {
-            assignee: null,
-            description: `This is a SyntaxError error`,
-            fingerprint: 'SyntaxError',
-            first_seen: '2023-07-07T00:00:00.000000-00:00',
-            last_seen: '2024-07-07T00:00:00.000000-00:00',
-            merged_fingerprints: [],
-            occurrences: 1000,
-            sessions: 500,
-            users: 100,
-            status: 'active',
-            volume: null,
-            events: range(20).map((index) => ({
-                uuid: `event_uuid_${index}`,
-                properties: eventProperties,
-                timestamp: '2024-07-07T00:00:00.000000-00:00',
-                person: {
-                    created_at: '2024-04-05T21:14:16.048000Z',
-                    distinct_id: 'BTQiT390vxwlLeDSwZAZpXC7r7bkNc3TQuhobit0oj7',
-                    properties: { email: 'test@example.com' },
-                    uuid: 'person_uuid',
-                },
-            })),
+            created_at: '2024-04-05T21:14:16.048000Z',
+            distinct_id: 'BTQiT390vxwlLeDSwZAZpXC7r7bkNc3TQuhobit0oj7',
+            properties: { email: 'test@example.com' },
+            uuid: 'person_uuid',
         },
-    ],
+    ]),
 }
 
 export { errorTrackingGroupQueryResponse, errorTrackingQueryResponse }
