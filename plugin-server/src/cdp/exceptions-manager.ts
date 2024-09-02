@@ -2,17 +2,14 @@ import LRUCache from 'lru-cache'
 
 import { Hub, Team } from '../types'
 import { PostgresUse } from '../utils/db/postgres'
-import { GroupType, HogFunctionInvocationGlobals } from './types'
-
-export type GroupsMap = Record<string, GroupType>
-export type GroupsCache = Record<Team['id'], GroupsMap>
+import { HogFunctionInvocationGlobals } from './types'
 
 // Maps a fingerprintfor easy lookup like: { 'team_id:merged_fingerprint': primary_fingerprint }
 type ExceptionFingerprintByTeamType = Record<string, string>
 
 const FINGERPRINT_CACHE_AGE_MS = 60 * 10 * 1000 // 10 minutes
 
-export class GroupsManager {
+export class ExceptionsManager {
     fingerprintMappingCache: LRUCache<number, Record<string, string[]>> // team_id: { primary_fingerprint: merged_fingerprints[] }
 
     constructor(private hub: Hub) {
@@ -58,9 +55,9 @@ export class GroupsManager {
             }, {})
 
             // Save to cache
-            Object.entries(groupedByTeam).forEach(([teamId, errorTrackingGroups]) => {
-                this.fingerprintMappingCache.set(parseInt(teamId), errorTrackingGroups)
-                Object.entries(errorTrackingGroups).forEach(([primaryFingerprint, mergedFingerprints]) => {
+            Object.entries(groupedByTeam).forEach(([teamId, exceptionTrackingGroups]) => {
+                this.fingerprintMappingCache.set(parseInt(teamId), exceptionTrackingGroups)
+                Object.entries(exceptionTrackingGroups).forEach(([primaryFingerprint, mergedFingerprints]) => {
                     mergedFingerprints.forEach((mergedFingerprint) => {
                         exceptionFingerprintMapping[`${teamId}:${mergedFingerprint}`] = primaryFingerprint
                     })
@@ -74,10 +71,12 @@ export class GroupsManager {
     /**
      * This function looks complex but is trying to be as optimized as possible.
      *
-     * It iterates over the globals and creates "Group" objects, tracking them referentially in order to later load the properties.
-     * Once loaded, the objects are mutated in place.
+     * It replaces the fingerprint of exception event items with the primary fingerprint
+     * so that masking can be correctly applied to merged fingerprints.
      */
-    public async enrichGroups(items: HogFunctionInvocationGlobals[]): Promise<HogFunctionInvocationGlobals[]> {
+    public async adaptExceptionFingerprints(
+        items: HogFunctionInvocationGlobals[]
+    ): Promise<HogFunctionInvocationGlobals[]> {
         const exceptionEventItems = items.filter((x) => x.event.name === '$exception')
         const byTeamType = await this.fetchExceptionFingerprintMapping(
             Array.from(new Set(exceptionEventItems.map((global) => global.project.id)))
