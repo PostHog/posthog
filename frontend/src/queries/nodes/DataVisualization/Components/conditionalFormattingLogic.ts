@@ -50,6 +50,8 @@ export const conditionalFormattingLogic = kea<conditionalFormattingLogicType>([
                     ],
                 },
             })
+
+            console.log('Updated query')
         },
     })),
 ])

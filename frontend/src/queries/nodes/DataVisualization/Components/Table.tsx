@@ -1,6 +1,6 @@
-import { exec } from '@posthog/hogvm'
 import { LemonTable, LemonTableColumn } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+import { execHog } from 'lib/hog'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 
 import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema'
@@ -28,14 +28,17 @@ export const Table = (props: TableProps): JSX.Element => {
         response,
     } = useValues(dataVisualizationLogic)
 
+    console.log({ conditionalFormatting })
+
     const tableColumns: LemonTableColumn<any[], any>[] = tabularColumns.map(({ column, settings }, index) => ({
         title: settings?.display?.label || column.name,
         render: (_, data, recordIndex: number) => {
             const cf = conditionalFormatting.map((n) => {
-                const res = exec(n.bytecode, {
+                const res = execHog(n.bytecode, {
                     globals: {
                         value: data[index],
                     },
+                    functions: {},
                     maxAsyncSteps: 0,
                 })
                 return res.result
