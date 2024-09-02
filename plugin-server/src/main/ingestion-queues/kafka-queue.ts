@@ -2,7 +2,6 @@ import * as Sentry from '@sentry/node'
 import { Consumer, EachBatchPayload, Kafka } from 'kafkajs'
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
-import { EventsProcessor } from 'worker/ingestion/process-event'
 
 import { BatchConsumer, startBatchConsumer } from '../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../kafka/config'
@@ -11,6 +10,7 @@ import { KafkaConfig } from '../../utils/db/hub'
 import { timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
 import { killGracefully } from '../../utils/utils'
+import { EventsProcessor } from '../../worker/ingestion/process-event'
 import { addMetricsEventListeners } from './kafka-metrics'
 
 type ConsumerManagementPayload = {
