@@ -54,7 +54,11 @@ export function Max(): JSX.Element {
                 {thread.map((message, index) => {
                     if (message.role === 'user' || typeof message.content === 'string') {
                         return (
-                            <Message key={index} role={message.role}>
+                            <Message
+                                key={index}
+                                role={message.role}
+                                className={message.status === 'error' ? 'border-danger' : undefined}
+                            >
                                 {message.content || <i>No text</i>}
                             </Message>
                         )
@@ -62,12 +66,12 @@ export function Max(): JSX.Element {
 
                     const query = {
                         kind: NodeKind.InsightVizNode,
-                        source: message.content.answer,
+                        source: message.content?.answer,
                     }
 
                     return (
                         <React.Fragment key={index}>
-                            {message.content.reasoning_steps && (
+                            {message.content?.reasoning_steps && (
                                 <Message role={message.role}>
                                     <ul className="list-disc ml-4">
                                         {message.content.reasoning_steps.map((step, index) => (
@@ -76,11 +80,11 @@ export function Max(): JSX.Element {
                                     </ul>
                                 </Message>
                             )}
-                            {!threadLoading && message.content.answer && (
+                            {message.status === 'completed' && message.content?.answer && (
                                 <Message role={message.role}>
                                     <Query query={query} readOnly embedded />
                                     <LemonButton
-                                        className="mt-4"
+                                        className="mt-4 self-start"
                                         type="primary"
                                         to={`/insights/new#filters=${JSON.stringify(
                                             queryNodeToFilter(message.content.answer)

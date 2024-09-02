@@ -16,7 +16,8 @@ interface TrendGenerationResult {
 
 export interface ThreadMessage {
     role: 'user' | 'assistant'
-    content: string | TrendGenerationResult
+    content?: string | TrendGenerationResult
+    status?: 'loading' | 'completed' | 'error'
 }
 
 export const maxLogic = kea<maxLogicType>([
@@ -24,9 +25,10 @@ export const maxLogic = kea<maxLogicType>([
     props({} as MaxLogicProps),
     actions({
         askMax: (prompt: string) => ({ prompt }),
-        askMaxSuccess: true,
+        setThreadLoaded: true,
         addMessage: (message: ThreadMessage) => ({ message }),
         replaceMessage: (index: number, message: ThreadMessage) => ({ index, message }),
+        setMessageStatus: (index: number, status: ThreadMessage['status']) => ({ index, status }),
     }),
     reducers({
         thread: [
@@ -38,13 +40,21 @@ export const maxLogic = kea<maxLogicType>([
                     message,
                     ...state.slice(index + 1),
                 ],
+                setMessageStatus: (state, { index, status }) => [
+                    ...state.slice(0, index),
+                    {
+                        ...state[index],
+                        status,
+                    },
+                    ...state.slice(index + 1),
+                ],
             },
         ],
         threadLoading: [
             false,
             {
                 askMax: () => true,
-                askMaxSuccess: () => false,
+                setThreadLoaded: () => false,
             },
         ],
     }),
@@ -53,38 +63,50 @@ export const maxLogic = kea<maxLogicType>([
             actions.addMessage({ role: 'user', content: prompt })
             const newIndex = values.thread.length
 
-            const response = await api.chat({
-                session_id: props.sessionId,
-                messages: values.thread,
-            })
-            const reader = response.body?.getReader()
-            const decoder = new TextDecoder()
+            try {
+                const response = await api.chat({
+                    session_id: props.sessionId,
+                    messages: values.thread.map(({ role, content }) => ({
+                        role,
+                        content: typeof content === 'string' ? content : JSON.stringify(content),
+                    })),
+                })
+                const reader = response.body?.getReader()
+                const decoder = new TextDecoder()
 
-            if (reader) {
-                let firstChunk = true
+                if (reader) {
+                    let firstChunk = true
 
-                while (true) {
-                    const { done, value } = await reader.read()
-                    if (done) {
-                        break
-                    }
-
-                    const text = decoder.decode(value)
-                    const parsedResponse = parseResponse(text)
-
-                    if (firstChunk) {
-                        firstChunk = false
-
-                        if (parsedResponse) {
-                            actions.addMessage({ role: 'assistant', content: parsedResponse })
+                    while (true) {
+                        const { done, value } = await reader.read()
+                        if (done) {
+                            actions.setMessageStatus(newIndex, 'completed')
+                            break
                         }
-                    } else if (parsedResponse) {
-                        actions.replaceMessage(newIndex, { role: 'assistant', content: parsedResponse })
+
+                        const text = decoder.decode(value)
+                        const parsedResponse = parseResponse(text)
+
+                        if (firstChunk) {
+                            firstChunk = false
+
+                            if (parsedResponse) {
+                                actions.addMessage({ role: 'assistant', content: parsedResponse, status: 'loading' })
+                            }
+                        } else if (parsedResponse) {
+                            actions.replaceMessage(newIndex, {
+                                role: 'assistant',
+                                content: parsedResponse,
+                                status: 'loading',
+                            })
+                        }
                     }
                 }
+            } catch {
+                actions.setMessageStatus(values.thread.length - 1 === newIndex ? newIndex : newIndex - 1, 'error')
             }
 
-            actions.askMaxSuccess()
+            actions.setThreadLoaded()
         },
     })),
 ])

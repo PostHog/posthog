@@ -24,6 +24,7 @@ from posthog.clickhouse.client.execute_async import (
 )
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import ExposedCHQueryError
+from posthog.event_usage import report_user_action
 from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
@@ -160,9 +161,17 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         chain = GenerateTrendsAgent(self.team).bootstrap(validated_body.messages)
 
         def generate():
+            last_message = None
             for message in chain.stream({"question": validated_body.messages[0].content}):
                 if message:
+                    last_message = message[0].model_dump_json()
                     yield message[0].model_dump_json()
+
+            report_user_action(
+                request.user,  # type: ignore
+                "chat with ai",
+                {"prompt": validated_body.messages[-1].content, "response": last_message},
+            )
 
         return StreamingHttpResponse(generate(), content_type=ServerSentEventRenderer.media_type)
 

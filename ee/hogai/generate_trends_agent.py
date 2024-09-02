@@ -19,7 +19,7 @@ class output_insight_schema(BaseModel):
 
 class ChatMessage(BaseModel):
     role: Literal["user", "assistant"]
-    content: str = Field(..., max_length=400)
+    content: str = Field(..., max_length=2500)
 
 
 class Conversation(BaseModel):
