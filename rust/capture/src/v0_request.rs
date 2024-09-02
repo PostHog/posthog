@@ -124,22 +124,52 @@ impl RawRequest {
     /// Instead of trusting the parameter, we peek at the payload's first three bytes to
     /// detect gzip, fallback to uncompressed utf8 otherwise.
     #[instrument(skip_all)]
-    pub fn from_bytes(bytes: Bytes) -> Result<RawRequest, CaptureError> {
+    pub fn from_bytes(bytes: Bytes, limit: usize) -> Result<RawRequest, CaptureError> {
         tracing::debug!(len = bytes.len(), "decoding new event");
 
         let payload = if bytes.starts_with(&GZIP_MAGIC_NUMBERS) {
-            let mut d = GzDecoder::new(bytes.reader());
-            let mut s = String::new();
-            d.read_to_string(&mut s).map_err(|e| {
-                tracing::error!("failed to decode gzip: {}", e);
-                CaptureError::RequestDecodingError(String::from("invalid gzip data"))
-            })?;
-            s
+            let len = bytes.len();
+            let mut zipstream = GzDecoder::new(bytes.reader());
+            let chunk = &mut [0; 1024];
+            let mut buf = Vec::with_capacity(len);
+            loop {
+                let got = match zipstream.read(chunk) {
+                    Ok(got) => got,
+                    Err(e) => {
+                        tracing::error!("failed to read gzip stream: {}", e);
+                        return Err(CaptureError::RequestDecodingError(String::from(
+                            "invalid gzip data",
+                        )));
+                    }
+                };
+                if got == 0 {
+                    break;
+                }
+                buf.extend_from_slice(&chunk[..got]);
+                if buf.len() > limit {
+                    tracing::error!("GZIP decompression limit reached");
+                    return Err(CaptureError::EventTooBig);
+                }
+            }
+            match String::from_utf8(buf) {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::error!("failed to decode gzip: {}", e);
+                    return Err(CaptureError::RequestDecodingError(String::from(
+                        "invalid gzip data",
+                    )));
+                }
+            }
         } else {
-            String::from_utf8(bytes.into()).map_err(|e| {
+            let s = String::from_utf8(bytes.into()).map_err(|e| {
                 tracing::error!("failed to decode body: {}", e);
                 CaptureError::RequestDecodingError(String::from("invalid body encoding"))
-            })?
+            })?;
+            if s.len() > limit {
+                tracing::error!("Request size limit reached");
+                return Err(CaptureError::EventTooBig);
+            }
+            s
         };
 
         tracing::debug!(json = payload, "decoded event data");
@@ -286,7 +316,7 @@ mod tests {
                 .expect("payload is not base64"),
         );
 
-        let events = RawRequest::from_bytes(compressed_bytes)
+        let events = RawRequest::from_bytes(compressed_bytes, 1024)
             .expect("failed to parse")
             .events();
         assert_eq!(1, events.len());
@@ -308,7 +338,7 @@ mod tests {
                 .expect("payload is not base64"),
         );
 
-        let events = RawRequest::from_bytes(compressed_bytes)
+        let events = RawRequest::from_bytes(compressed_bytes, 2048)
             .expect("failed to parse")
             .events();
         assert_eq!(1, events.len());
@@ -325,7 +355,7 @@ mod tests {
     #[test]
     fn extract_distinct_id() {
         let parse_and_extract = |input: &'static str| -> Result<String, CaptureError> {
-            let parsed = RawRequest::from_bytes(input.into())
+            let parsed = RawRequest::from_bytes(input.into(), 2048)
                 .expect("failed to parse")
                 .events();
             parsed[0].extract_distinct_id()
@@ -393,7 +423,7 @@ mod tests {
             "distinct_id": distinct_id
         }]);
 
-        let parsed = RawRequest::from_bytes(input.to_string().into())
+        let parsed = RawRequest::from_bytes(input.to_string().into(), 2048)
             .expect("failed to parse")
             .events();
         assert_eq!(
@@ -405,7 +435,7 @@ mod tests {
     #[test]
     fn extract_and_verify_token() {
         let parse_and_extract = |input: &'static str| -> Result<String, CaptureError> {
-            RawRequest::from_bytes(input.into())
+            RawRequest::from_bytes(input.into(), 2048)
                 .expect("failed to parse")
                 .extract_and_verify_token()
         };
