@@ -628,7 +628,7 @@ structlog==23.2.0
     # via
     #   -r requirements.in
     #   django-structlog
-temporalio==1.6.0
+temporalio==1.7.0
     # via -r requirements.in
 tenacity==8.2.3
     # via
