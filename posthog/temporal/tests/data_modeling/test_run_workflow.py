@@ -14,13 +14,16 @@ from dlt.common.configuration.specs.aws_credentials import AwsCredentials
 from posthog.hogql.database.database import create_hogql_database
 from posthog.models import Team
 from posthog.temporal.data_modeling.run_workflow import (
+    BuildDagActivityInputs,
     ModelNode,
     RunDagActivityInputs,
+    build_dag_activity,
     materialize_model,
     run_dag_activity,
 )
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from posthog.warehouse.models.modeling import DataWarehouseModelPath
 from posthog.warehouse.util import database_sync_to_async
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
@@ -39,17 +42,22 @@ async def posthog_tables(ateam):
     "dag",
     [
         {
-            "events": ModelNode(label="events", children={"my_events_model"}, parents=set()),
-            "persons": ModelNode(label="persons", children={"my_persons_model"}, parents=set()),
-            "my_events_model": ModelNode(label="my_events_model", children={"my_joined_model"}, parents={"events"}),
-            "my_persons_model": ModelNode(label="my_persons_model", children={"my_joined_model"}, parents={"persons"}),
+            "events": ModelNode(label="events", children={"my_events_model"}),
+            "persons": ModelNode(label="persons", children={"my_persons_model"}),
+            "my_events_model": ModelNode(
+                label="my_events_model", children={"my_joined_model"}, parents={"events"}, selected=True
+            ),
+            "my_persons_model": ModelNode(
+                label="my_persons_model", children={"my_joined_model"}, parents={"persons"}, selected=True
+            ),
             "my_joined_model": ModelNode(
-                label="my_joined_model", children=set(), parents={"my_events_model", "my_persons_model"}
+                label="my_joined_model", parents={"my_events_model", "my_persons_model"}, selected=True
             ),
         },
     ],
 )
 async def test_run_dag_activity_activity_materialize_mocked(activity_environment, ateam, dag, posthog_tables):
+    """Test all models are completed with a mocked materialize."""
     run_dag_activity_inputs = RunDagActivityInputs(team_id=ateam.pk, dag=dag)
 
     magic_mock = unittest.mock.AsyncMock()
@@ -76,19 +84,22 @@ async def test_run_dag_activity_activity_materialize_mocked(activity_environment
     [
         (
             {
-                "events": ModelNode(label="events", children={"my_events_model"}, parents=set()),
-                "persons": ModelNode(label="persons", children={"my_persons_model"}, parents=set()),
-                "my_events_model": ModelNode(label="my_events_model", children={"my_joined_model"}, parents={"events"}),
+                "events": ModelNode(label="events", children={"my_events_model"}),
+                "persons": ModelNode(label="persons", children={"my_persons_model"}),
+                "my_events_model": ModelNode(
+                    label="my_events_model", children={"my_joined_model"}, parents={"events"}, selected=True
+                ),
                 "my_persons_model": ModelNode(
-                    label="my_persons_model", children={"my_joined_model"}, parents={"persons"}
+                    label="my_persons_model", children={"my_joined_model"}, parents={"persons"}, selected=True
                 ),
                 "my_joined_model": ModelNode(
                     label="my_joined_model",
                     children={"my_read_from_joined_model"},
                     parents={"my_events_model", "my_persons_model"},
+                    selected=True,
                 ),
                 "my_read_from_joined_model": ModelNode(
-                    label="my_read_from_joined_model", children=set(), parents={"my_joined_model"}
+                    label="my_read_from_joined_model", parents={"my_joined_model"}, selected=True
                 ),
             },
             ("my_events_model",),
@@ -98,6 +109,13 @@ async def test_run_dag_activity_activity_materialize_mocked(activity_environment
 async def test_run_dag_activity_activity_skips_if_ancestor_failed_mocked(
     activity_environment, ateam, dag, make_fail, posthog_tables
 ):
+    """Test some models are completed while some fail with a mocked materialize.
+
+    Args:
+        dag: The dictionary of `ModelNode`s representing the model DAG.
+        make_fail: A sequence of model labels of models that should fail to check they are
+            handled properly.
+    """
     run_dag_activity_inputs = RunDagActivityInputs(team_id=ateam.pk, dag=dag)
     assert all(model not in posthog_tables for model in make_fail), "PostHog tables cannot fail"
 
@@ -262,3 +280,118 @@ async def test_materialize_model(ateam, bucket_name, minio_client, pageview_even
     assert len(s3_objects["Contents"]) != 0
     assert key == saved_query.name
     assert sorted(table.to_pylist(), key=lambda d: d["distinct_id"]) == expected_events
+
+
+@pytest_asyncio.fixture
+async def saved_queries(ateam):
+    parent_query = """\
+      select
+        events.event as event,
+        events.distinct_id as distinct_id,
+        events.timestamp as timestamp
+      from events
+      where events.event = '$pageview'
+    """
+    parent_saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
+        team=ateam,
+        name="my_model",
+        query={"query": parent_query, "kind": "HogQLQuery"},
+    )
+    child_saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
+        team=ateam,
+        name="my_model_child",
+        query={"query": "select * from my_model where distinct_id = 'b'", "kind": "HogQLQuery"},
+    )
+    child_2_saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
+        team=ateam,
+        name="my_model_child_2",
+        query={"query": "select * from my_model where distinct_id = 'a'", "kind": "HogQLQuery"},
+    )
+    grand_child_saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
+        team=ateam,
+        name="my_model_grand_child",
+        query={"query": "select * from my_model_child union all select * from my_model_child_2", "kind": "HogQLQuery"},
+    )
+    await database_sync_to_async(DataWarehouseModelPath.objects.create_from_saved_query)(parent_saved_query)
+    await database_sync_to_async(DataWarehouseModelPath.objects.create_from_saved_query)(child_saved_query)
+    await database_sync_to_async(DataWarehouseModelPath.objects.create_from_saved_query)(child_2_saved_query)
+    await database_sync_to_async(DataWarehouseModelPath.objects.create_from_saved_query)(grand_child_saved_query)
+
+    yield parent_saved_query, child_saved_query, child_2_saved_query, grand_child_saved_query
+
+
+async def test_build_dag_activity_select_all_ancestors(activity_environment, ateam, saved_queries):
+    """Test the build dag activity with a sample set of models."""
+    parent_saved_query, child_saved_query, _, grand_child_saved_query = saved_queries
+
+    select = [f"+{child_saved_query.id.hex}"]
+    inputs = BuildDagActivityInputs(team_id=ateam.pk, select=select)
+
+    async with asyncio.timeout(10):
+        dag = await activity_environment.run(build_dag_activity, inputs)
+
+    assert dag[parent_saved_query.id.hex].children == {child_saved_query.id.hex}
+    assert dag[parent_saved_query.id.hex].selected is True
+
+    assert dag[child_saved_query.id.hex].parents == {parent_saved_query.id.hex}
+    assert dag[child_saved_query.id.hex].children == {grand_child_saved_query.id.hex}
+    assert dag[child_saved_query.id.hex].selected is True
+
+    selected = {
+        child_saved_query.id.hex,
+        parent_saved_query.id.hex,
+    }
+    assert all(dag[other].selected is False for other in dag.keys() if other not in selected)
+
+
+async def test_build_dag_activity_select_all_descendants(activity_environment, ateam, saved_queries):
+    """Test the build dag activity with a sample set of models."""
+    parent_saved_query, child_saved_query, child_2_saved_query, grand_child_saved_query = saved_queries
+
+    select = [f"{parent_saved_query.id.hex}+"]
+    inputs = BuildDagActivityInputs(team_id=ateam.pk, select=select)
+
+    async with asyncio.timeout(10):
+        dag = await activity_environment.run(build_dag_activity, inputs)
+
+    assert dag[parent_saved_query.id.hex].children == {child_saved_query.id.hex, child_2_saved_query.id.hex}
+    assert dag[parent_saved_query.id.hex].selected is True
+
+    assert dag[child_saved_query.id.hex].parents == {parent_saved_query.id.hex}
+    assert dag[child_saved_query.id.hex].children == {grand_child_saved_query.id.hex}
+    assert dag[child_saved_query.id.hex].selected is True
+
+    assert dag[child_2_saved_query.id.hex].parents == {parent_saved_query.id.hex}
+    assert dag[child_2_saved_query.id.hex].children == {grand_child_saved_query.id.hex}
+    assert dag[child_2_saved_query.id.hex].selected is True
+
+    assert dag[grand_child_saved_query.id.hex].parents == {child_saved_query.id.hex, child_2_saved_query.id.hex}
+    assert not dag[grand_child_saved_query.id.hex].children
+    assert dag[grand_child_saved_query.id.hex].selected is True
+
+    selected = {
+        grand_child_saved_query.id.hex,
+        child_2_saved_query.id.hex,
+        child_saved_query.id.hex,
+        parent_saved_query.id.hex,
+    }
+    assert all(dag[other].selected is False for other in dag.keys() if other not in selected)
+
+
+async def test_build_dag_activity_select_multiple_individual_models(activity_environment, ateam, saved_queries):
+    """Test the build dag activity with a sample set of models."""
+    parent_saved_query, child_saved_query, child_2_saved_query, _ = saved_queries
+
+    select = [parent_saved_query.id.hex, child_saved_query.id.hex, child_2_saved_query.id.hex]
+    inputs = BuildDagActivityInputs(team_id=ateam.pk, select=select)
+
+    async with asyncio.timeout(10):
+        dag = await activity_environment.run(build_dag_activity, inputs)
+
+    assert dag[parent_saved_query.id.hex].children == {child_saved_query.id.hex, child_2_saved_query.id.hex}
+
+    assert dag[child_saved_query.id.hex].parents == {parent_saved_query.id.hex}
+    assert dag[child_2_saved_query.id.hex].parents == {parent_saved_query.id.hex}
+
+    assert all(dag[selected].selected is True for selected in select)
+    assert all(dag[other].selected is False for other in dag.keys() if other not in select)

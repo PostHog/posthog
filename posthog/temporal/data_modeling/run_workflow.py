@@ -1,10 +1,11 @@
 import asyncio
 import collections
+import collections.abc
 import dataclasses
 import datetime as dt
 import enum
-import functools
 import re
+import typing
 import uuid
 
 import dlt
@@ -72,50 +73,15 @@ class ModelNode:
     """
 
     label: str
-    children: set[str]
-    parents: set[str]
+    children: set[str] = dataclasses.field(default_factory=set)
+    parents: set[str] = dataclasses.field(default_factory=set)
+    selected: bool = False
+
+    def as_selected(self, selected: bool) -> "ModelNode":
+        return ModelNode(label=self.label, children=self.children, parents=self.parents, selected=selected)
 
 
 DAG = dict[str, ModelNode]
-
-
-def build_dag_from_model_paths(paths: list[str]) -> DAG:
-    """Build a DAG from a list of `DataWarehouseModelPath` paths.
-
-    Our particular representation of a DAG includes all edges directly with each of the
-    nodes, as each `ModelNode` instance contains the label of each of its children and
-    parents, which implies the existence of edges between them.
-
-    This particular representation of a DAG is useful for `run_dag_activity`, which needs
-    to locate nodes by label (thus, our DAG is a dictionary) and then check their children
-    and parents (thus both of these are sets already included with the node). Naturally,
-    this means that the same children and parents appear in multiple nodes.
-
-    The cost of the redundancy of this representation is larger memory use, but we assume
-    that simple strings and sets won't blow things up until we grow massively. If that
-    ever does happen, some solution involving another level of indirection by storing
-    indexes to a list of nodes could be implemented. Good luck!
-    """
-    dag = {}
-
-    for path in paths:
-        label_iterable = path.split(".")
-
-        for index, label in enumerate(label_iterable):
-            if label not in dag:
-                dag[label] = ModelNode(label=label, children=set(), parents=set())
-
-            node = dag[label]
-
-            if index > 0:
-                child_node = label_iterable[index - 1]
-                node.children.add(child_node)
-
-            if index < len(label_iterable) - 1:
-                parent_node = label_iterable[index + 1]
-                node.parents.add(parent_node)
-
-    return dag
 
 
 @dataclasses.dataclass
@@ -147,7 +113,7 @@ class QueueMessage:
     """A queue message used to orchestrate the running of a DAG."""
 
     status: ModelStatus
-    model_label: str
+    label: str
 
 
 Results = collections.namedtuple("Results", ("completed", "failed", "ancestor_failed"))
@@ -194,7 +160,7 @@ async def run_dag_activity(inputs: RunDagActivityInputs) -> Results:
 
     for node in inputs.dag.values():
         if not node.parents:
-            queue.put_nowait(QueueMessage(status=ModelStatus.READY, model_label=node.label))
+            queue.put_nowait(QueueMessage(status=ModelStatus.READY, label=node.label))
 
     if queue.empty():
         raise asyncio.QueueEmpty()
@@ -206,25 +172,26 @@ async def run_dag_activity(inputs: RunDagActivityInputs) -> Results:
             message = await queue.get()
 
             match message:
-                case QueueMessage(status=ModelStatus.READY, model_label=model_label):
-                    task = asyncio.create_task(handle_materialize_model(model_label, inputs.team_id, queue))
+                case QueueMessage(status=ModelStatus.READY, label=label):
+                    model = inputs.dag[label]
+                    task = asyncio.create_task(handle_model_ready(model, inputs.team_id, queue))
                     running_tasks.add(task)
                     task.add_done_callback(running_tasks.discard)
 
-                case QueueMessage(status=ModelStatus.COMPLETED, model_label=model_label):
-                    node = inputs.dag[model_label]
+                case QueueMessage(status=ModelStatus.COMPLETED, label=label):
+                    node = inputs.dag[label]
                     completed.add(node.label)
 
                     for child_label in node.children:
                         child_node = inputs.dag[child_label]
 
                         if completed >= child_node.parents:
-                            await queue.put(QueueMessage(status=ModelStatus.READY, model_label=child_label))
+                            await queue.put(QueueMessage(status=ModelStatus.READY, label=child_label))
 
                     queue.task_done()
 
-                case QueueMessage(status=ModelStatus.FAILED, model_label=model_label):
-                    node = inputs.dag[model_label]
+                case QueueMessage(status=ModelStatus.FAILED, label=label):
+                    node = inputs.dag[label]
                     failed.add(node.label)
 
                     to_mark_as_ancestor_failed = list(node.children)
@@ -252,19 +219,26 @@ async def run_dag_activity(inputs: RunDagActivityInputs) -> Results:
         return Results(completed, failed, ancestor_failed)
 
 
-async def handle_materialize_model(model_label: str, team_id: int, queue: asyncio.Queue) -> None:
-    """Handle materializing a model and reporting back results to execution queue."""
-    try:
-        team = await database_sync_to_async(Team.objects.get)(id=team_id)
-        hogql_db = await database_sync_to_async(create_hogql_database)(team_id=team_id, team_arg=team)
-        posthog_tables = hogql_db.get_posthog_tables()
+async def handle_model_ready(model: ModelNode, team_id: int, queue: asyncio.Queue) -> None:
+    """Handle a model that is ready to run by materializing.
 
-        if model_label not in posthog_tables:
-            await materialize_model(model_label, team)
+    After materializing is done, we can report back to the execution queue the result. If
+    the model is not marked as `selected`, then it doesn't need to be materialized, and we
+    can immediately put it back in the queue as `ModelStatus.COMPLETED`.
+
+    Args:
+        model: The model we are trying to run.
+        team_id: The ID of the team who owns this model.
+        queue: The execution queue where we will report back results.
+    """
+    try:
+        if model.selected is True:
+            team = await database_sync_to_async(Team.objects.get)(id=team_id)
+            await materialize_model(model.label, team)
     except Exception:
-        await queue.put(QueueMessage(status=ModelStatus.FAILED, model_label=model_label))
+        await queue.put(QueueMessage(status=ModelStatus.FAILED, label=model.label))
     else:
-        await queue.put(QueueMessage(status=ModelStatus.COMPLETED, model_label=model_label))
+        await queue.put(QueueMessage(status=ModelStatus.COMPLETED, label=model.label))
     finally:
         queue.task_done()
 
@@ -360,24 +334,138 @@ def get_dlt_destination():
 
 
 @dataclasses.dataclass
-class SelectMatchingPaths:
+class BuildDagActivityInputs:
     team_id: int
     select: list[str] = dataclasses.field(default_factory=list)
 
 
+SelectorPattern = re.compile(
+    r"^(?P<ancestors_marker>(?P<ancestors>[0-9]*)\+|\+)?(?P<label>[a-zA-Z0-9_]+)(?P<descendants_marker>\+|\+(?P<descendants>[0-9]*))?$"
+)
+
+
+class InvalidSelector(Exception):
+    def __init__(self, invalid_input: str):
+        super().__init__(f"invalid selector: '{invalid_input}'")
+
+
+@dataclasses.dataclass
+class Selector:
+    label: str
+    ancestors: int | typing.Literal["ALL"]
+    descendants: int | typing.Literal["ALL"]
+    paths: list[str]
+
+
 @temporalio.activity.defn
-async def select_matching_paths(inputs: SelectMatchingPaths) -> list[str]:
+async def build_dag_activity(inputs: BuildDagActivityInputs) -> DAG:
     async with Heartbeater():
+        selectors = []
 
-        def str_or(select_left, select_right):
-            return f"{select_left} | {select_right}"
+        for selector_input in inputs.select:
+            selector_match = re.match(SelectorPattern, selector_input)
 
-        ltxtquery = functools.reduce(str_or, inputs.select)
+            if selector_match is None or not selector_match.group("label"):
+                raise InvalidSelector(selector_input)
 
-        matching_paths = await database_sync_to_async(
-            DataWarehouseModelPath.objects.filter(team_id=inputs.team_id, path__ltxtquery=ltxtquery).all
-        )()
-        return matching_paths
+            query = f'*.{selector_match.group("label")}.*'
+
+            # TODO: Make this one database fetch for all selectors, instead of one per selector
+            matching_paths = await database_sync_to_async(list)(
+                DataWarehouseModelPath.objects.filter(team_id=inputs.team_id, path__lquery=query).values_list(
+                    "path", flat=True
+                )
+            )
+            ancestors = 0
+            if selector_match.group("ancestors_marker"):
+                ancestors_match = selector_match.group("ancestors")
+                ancestors = int(ancestors_match) if ancestors_match else "ALL"
+
+            descendants = 0
+            if selector_match.group("descendants_marker"):
+                descendants_match = selector_match.group("descendants")
+                descendants = int(descendants_match) if descendants_match else "ALL"
+
+            selectors.append(
+                Selector(
+                    label=selector_match.group("label"),
+                    ancestors=ancestors,
+                    descendants=descendants,
+                    paths=matching_paths,
+                )
+            )
+
+        dag = await build_dag_from_selectors(selectors=selectors, team_id=inputs.team_id)
+
+        return dag
+
+
+async def build_dag_from_selectors(selectors: collections.abc.Iterable[Selector], team_id: int) -> DAG:
+    """Build a DAG from a list of `DataWarehouseModelPath` paths.
+
+    Our particular representation of a DAG includes all edges directly with each of the
+    nodes, as each `ModelNode` instance contains the label of each of its children and
+    parents, which implies the existence of edges between them.
+
+    This particular representation of a DAG is useful for `run_dag_activity`, which needs
+    to locate nodes by label (thus, our DAG is a dictionary) and then check their children
+    and parents (thus both of these are sets already included with the node). Naturally,
+    this means that the same children and parents appear in multiple nodes.
+
+    The cost of the redundancy of this representation is larger memory use, but we assume
+    that simple strings and sets won't blow things up until we grow massively. If that
+    ever does happen, some solution involving another level of indirection by storing
+    indexes to a list of nodes could be implemented. Good luck!
+    """
+    posthog_tables = await get_posthog_tables(team_id)
+    dag = {}
+
+    for selector in selectors:
+        ancestors_offset = selector.ancestors
+        descendants_offset = selector.descendants
+
+        for path in selector.paths:
+            label_index = path.index(selector.label)
+
+            if ancestors_offset == "ALL":
+                start = 0
+            else:
+                start = max(label_index - ancestors_offset, 0)
+
+            if descendants_offset == "ALL":
+                end = len(path)
+            else:
+                end = min(label_index + descendants_offset, len(path) - 1)
+
+            for index, label in enumerate(path):
+                if label not in dag:
+                    dag[label] = ModelNode(label=label)
+
+                node = dag[label]
+
+                if (
+                    (index == label_index or end > index > start)
+                    and label not in posthog_tables
+                    and node.selected is False
+                ):
+                    node = dag[label] = node.as_selected(True)
+
+                if index > 0:
+                    parent_node = path[index - 1]
+                    node.parents.add(parent_node)
+
+                if index < len(path) - 1:
+                    child_node = path[index + 1]
+                    node.children.add(child_node)
+
+    return dag
+
+
+async def get_posthog_tables(team_id: int) -> list[str]:
+    team = await database_sync_to_async(Team.objects.get)(id=team_id)
+    hogql_db = await database_sync_to_async(create_hogql_database)(team_id=team_id, team_arg=team)
+    posthog_tables = hogql_db.get_posthog_tables()
+    return posthog_tables
 
 
 @dataclasses.dataclass
@@ -403,10 +491,10 @@ class RunWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: RunWorkflowInputs) -> Results:
-        select_matching_paths_inputs = SelectMatchingPaths(team_id=inputs.team_id, select=inputs.select)
-        matching_paths = await temporalio.workflow.execute_activity(
-            select_matching_paths,
-            select_matching_paths_inputs,
+        build_dag_inputs = BuildDagActivityInputs(team_id=inputs.team_id, select=inputs.select)
+        dag = await temporalio.workflow.execute_activity(
+            build_dag_activity,
+            build_dag_inputs,
             start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=temporalio.common.RetryPolicy(
                 initial_interval=dt.timedelta(seconds=10),
@@ -415,7 +503,6 @@ class RunWorkflow(PostHogWorkflow):
             ),
         )
 
-        dag = build_dag_from_model_paths(paths=matching_paths)
         run_model_activity_inputs = RunDagActivityInputs(team_id=inputs.team_id, dag=dag)
 
         results = await temporalio.workflow.execute_activity(
