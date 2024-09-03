@@ -1,5 +1,8 @@
 #!/bin/bash
 set -e
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
+
+bash $SCRIPT_DIR/../rust/bin/migrate-cyclotron
 
 python manage.py migrate
 python manage.py migrate_clickhouse
