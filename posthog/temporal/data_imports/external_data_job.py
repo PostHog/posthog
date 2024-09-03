@@ -50,7 +50,7 @@ class UpdateExternalDataJobStatusInputs:
     team_id: int
     run_id: str
     schema_id: str
-    status: ExternalDataJob.Status
+    status: str
     internal_error: str | None
     latest_error: str | None
 
