@@ -493,7 +493,7 @@ function PersonsTableByFilter({ recordingsFilters, properties }: PersonsTableByF
             <div className="absolute top-0 right-0 z-10">
                 <LemonButton
                     key="view-opt-in-session-recordings"
-                    to={urls.replay(ReplayTabs.Recent, recordingsFilters)}
+                    to={urls.replay(ReplayTabs.Home, recordingsFilters)}
                     type="secondary"
                 >
                     View recordings

@@ -639,7 +639,7 @@ export enum SavedInsightsTabs {
 }
 
 export enum ReplayTabs {
-    Recent = 'recent',
+    Home = 'home',
     Playlists = 'playlists',
     Errors = 'errors',
 }
