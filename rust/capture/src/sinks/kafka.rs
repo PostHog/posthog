@@ -10,6 +10,7 @@ use rdkafka::util::Timeout;
 use rdkafka::ClientConfig;
 use tokio::task::JoinSet;
 use tracing::log::{debug, error, info};
+use tracing::{info_span, instrument, Instrument};
 
 use crate::api::{CaptureError, DataType, ProcessedEvent};
 use crate::config::KafkaConfig;
@@ -279,12 +280,16 @@ impl KafkaSink {
 
 #[async_trait]
 impl Event for KafkaSink {
+    #[instrument(skip_all)]
     async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
         let ack = self.kafka_send(event).await?;
         histogram!("capture_event_batch_size").record(1.0);
-        Self::process_ack(ack).await
+        Self::process_ack(ack)
+            .instrument(info_span!("ack_wait_one"))
+            .await
     }
 
+    #[instrument(skip_all)]
     async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         let mut set = JoinSet::new();
         let batch_size = events.len();
@@ -314,6 +319,7 @@ impl Event for KafkaSink {
             }
             Ok(())
         }
+        .instrument(info_span!("ack_wait_many"))
         .await?;
 
         histogram!("capture_event_batch_size").record(batch_size as f64);
