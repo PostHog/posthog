@@ -428,6 +428,7 @@ export const redirects: Record<
         return urls.replay()
     },
     '/replay': urls.replay(),
+    '/replay/recent': urls.replay(),
     '/settings': urls.settings(),
     '/project/settings': urls.settings('project'),
     '/organization/settings': urls.settings('organization'),

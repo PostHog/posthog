@@ -99,7 +99,7 @@ export const urls = {
     webAnalytics: (): string => `/web`,
 
     replay: (tab?: ReplayTabs, filters?: Partial<RecordingUniversalFilters>): string =>
-        combineUrl(tab ? `/replay/${tab}` : '/replay/recent', filters ? { filters } : {}).url,
+        combineUrl(tab ? `/replay/${tab}` : '/replay/home', filters ? { filters } : {}).url,
     replayPlaylist: (id: string): string => `/replay/playlists/${id}`,
     replaySingle: (id: string): string => `/replay/${id}`,
     replayFilePlayback: (): string => '/replay/file-playback',

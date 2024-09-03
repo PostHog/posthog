@@ -11,7 +11,7 @@ import { savedSessionRecordingPlaylistsLogic } from './savedSessionRecordingPlay
 
 export function SavedSessionRecordingPlaylistsEmptyState(): JSX.Element {
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
-    const playlistsLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Recent })
+    const playlistsLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Home })
     const { playlists, loadPlaylistsFailed } = useValues(playlistsLogic)
     return loadPlaylistsFailed ? (
         <LemonBanner type="error">Error while trying to load playlist.</LemonBanner>

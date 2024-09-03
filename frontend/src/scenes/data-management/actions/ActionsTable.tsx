@@ -188,7 +188,7 @@ export function ActionsTable(): JSX.Element {
                                     Duplicate
                                 </LemonButton>
                                 <LemonButton
-                                    to={urls.replay(ReplayTabs.Recent, {
+                                    to={urls.replay(ReplayTabs.Home, {
                                         filter_group: {
                                             type: FilterLogicalOperator.And,
                                             values: [
