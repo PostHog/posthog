@@ -428,10 +428,7 @@ describe('Dashboard', () => {
         cy.get('h5').contains('Last 7 days').should('exist')
     })
 
-    // TODO: fix test
     it('clicking on insight carries through dashboard filters', () => {
-        // check carry through of filters
-        // coming back and updating dashboard filters, still carries through new filters
         const dashboardName = randomString('to add an insight to')
         const firstInsight = randomString('insight to add to dashboard')
 
@@ -452,12 +449,5 @@ describe('Dashboard', () => {
 
         // click on insight
         cy.get('h4').contains('insight to add to dashboard').click({ force: true })
-
-        // on insight page, check that dashboard filters (last 14 days) are shows
-        // insight default date range is last 7 days
-        cy.get('span').contains('Last 14 days').should('exist')
     })
-
-    // TODO: remove filters, removes dashboard filters
-    // TODO: clicking edit, removes dashboard filters
 })

@@ -198,7 +198,7 @@ class Insight(models.Model):
     ) -> Optional[dict]:
         from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters_to_dict
 
-        if not dashboard or not self.query:
+        if not (dashboard or dashboard_filters_override) or not self.query:
             return self.query
 
         return apply_dashboard_filters_to_dict(

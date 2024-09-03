@@ -106,6 +106,9 @@ from posthog.utils import (
     filters_override_requested_by_client,
 )
 from posthog.api.monitoring import monitor, Feature
+from posthog.hogql_queries.apply_dashboard_filters import (
+    apply_dashboard_filters_to_dict,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -558,10 +561,6 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
         if hogql_insights_replace_filters(instance.team) and (
             instance.query is not None or instance.query_from_filters is not None
         ):
-            from posthog.hogql_queries.apply_dashboard_filters import (
-                apply_dashboard_filters_to_dict,
-            )
-
             query = instance.query or instance.query_from_filters
             if dashboard is not None or dashboard_filters_override is not None:
                 query = apply_dashboard_filters_to_dict(

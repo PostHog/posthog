@@ -191,7 +191,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                     oldRef2.unmount()
                 }
             } else if (insightId) {
-                values.insightLogicRef?.logic.actions.loadInsight(insightId as InsightShortId)
+                values.insightLogicRef?.logic.actions.loadInsight(insightId as InsightShortId, values.filtersOverride)
             }
         },
     })),
