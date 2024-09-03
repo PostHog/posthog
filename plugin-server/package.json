@@ -24,7 +24,7 @@
         "prepublishOnly": "pnpm build",
         "setup:dev:clickhouse": "cd .. && DEBUG=1 python manage.py migrate_clickhouse",
         "setup:test": "cd .. && TEST=1 python manage.py setup_test_environment && cd plugin-server && pnpm run setup:test:cyclotron",
-        "setup:test:cyclotron": "cd ../rust && ./bin/migrate-cyclotron-test",
+        "setup:test:cyclotron": "cd ../rust && DATABASE_NAME=test_cyclotron ./bin/migrate-cyclotron",
         "services:start": "cd .. && docker compose -f docker-compose.dev.yml up",
         "services:stop": "cd .. && docker compose -f docker-compose.dev.yml down",
         "services:clean": "cd .. && docker compose -f docker-compose.dev.yml rm -v",
