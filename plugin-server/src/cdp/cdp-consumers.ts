@@ -1,4 +1,4 @@
-import { CyclotronManager, CyclotronWorker, Job } from '@posthog/cyclotron'
+import { CyclotronJob, CyclotronManager, CyclotronWorker } from '@posthog/cyclotron'
 import { captureException } from '@sentry/node'
 import { Message } from 'node-rdkafka'
 import { Counter, Histogram } from 'prom-client'
@@ -715,7 +715,6 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
     private cyclotronWorker?: CyclotronWorker
     private runningWorker: Promise<void> | undefined
     protected queue: 'hog' | 'fetch' = 'hog'
-    protected limit = 100
 
     public async processBatch(invocations: HogFunctionInvocation[]): Promise<void> {
         if (!invocations.length) {
@@ -767,7 +766,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
         )
     }
 
-    private async handleJobBatch(jobs: Job[]) {
+    private async handleJobBatch(jobs: CyclotronJob[]) {
         const invocations: HogFunctionInvocation[] = []
 
         for (const job of jobs) {
@@ -814,6 +813,8 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
             pool: { dbUrl: this.hub.CYCLOTRON_DATABASE_URL },
             queueName: this.queue,
             includeVmState: true,
+            batchMaxSize: this.hub.CDP_CYCLOTRON_BATCH_SIZE,
+            pollDelayMs: this.hub.CDP_CYCLOTRON_BATCH_DELAY_MS,
         })
         await this.cyclotronWorker.connect((jobs) => this.handleJobBatch(jobs))
     }

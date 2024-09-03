@@ -2,10 +2,10 @@
 const cyclotron = require('../index.node')
 
 import { convertToInternalPoolConfig, serializeObject } from './helpers'
-import { JobInit, PoolConfig } from './types'
+import { CyclotronJobInit, CyclotronPoolConfig } from './types'
 
 export class CyclotronManager {
-    constructor(private config: { shards: PoolConfig[] }) {
+    constructor(private config: { shards: CyclotronPoolConfig[] }) {
         this.config = config
     }
 
@@ -17,7 +17,7 @@ export class CyclotronManager {
         )
     }
 
-    async createJob(job: JobInit): Promise<void> {
+    async createJob(job: CyclotronJobInit): Promise<void> {
         job.priority ??= 1
         job.scheduled ??= new Date()
 

@@ -187,6 +187,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_REDIS_PASSWORD: '',
         CDP_REDIS_HOST: '',
         CDP_REDIS_PORT: 6479,
+        CDP_CYCLOTRON_BATCH_DELAY_MS: 50,
+        CDP_CYCLOTRON_BATCH_SIZE: 500,
 
         // Cyclotron
         CYCLOTRON_DATABASE_URL: isTestEnv()

@@ -1,4 +1,4 @@
-export type PoolConfig = {
+export type CyclotronPoolConfig = {
     dbUrl: string
     maxConnections?: number
     minConnections?: number
@@ -8,7 +8,7 @@ export type PoolConfig = {
 }
 
 // Type as expected by Cyclotron.
-export type InternalPoolConfig = {
+export type CyclotronInternalPoolConfig = {
     db_url: string
     max_connections?: number
     min_connections?: number
@@ -17,9 +17,9 @@ export type InternalPoolConfig = {
     idle_timeout_seconds?: number
 }
 
-export type JobState = 'available' | 'running' | 'completed' | 'failed' | 'paused'
+export type CyclotronJobState = 'available' | 'running' | 'completed' | 'failed' | 'paused'
 
-export type Job = {
+export type CyclotronJob = {
     id: string
     teamId: number
     functionId: string | null
@@ -30,7 +30,7 @@ export type Job = {
     transitionCount: number
     lastTransition: Date
     queueName: string
-    state: JobState
+    state: CyclotronJobState
     priority: number
     scheduled: Date
     vmState: object | null
@@ -39,7 +39,10 @@ export type Job = {
     blob: Uint8Array | null
 }
 
-export type JobInit = Pick<Job, 'teamId' | 'functionId' | 'queueName' | 'priority'> &
-    Pick<Partial<Job>, 'scheduled' | 'vmState' | 'parameters' | 'metadata' | 'blob'>
+export type CyclotronJobInit = Pick<CyclotronJob, 'teamId' | 'functionId' | 'queueName' | 'priority'> &
+    Pick<Partial<CyclotronJob>, 'scheduled' | 'vmState' | 'parameters' | 'metadata' | 'blob'>
 
-export type JobUpdate = Pick<Partial<Job>, 'queueName' | 'priority' | 'vmState' | 'parameters' | 'metadata' | 'blob'>
+export type CyclotronJobUpdate = Pick<
+    Partial<CyclotronJob>,
+    'queueName' | 'priority' | 'vmState' | 'parameters' | 'metadata' | 'blob'
+>

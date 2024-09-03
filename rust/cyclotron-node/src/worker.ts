@@ -1,9 +1,9 @@
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const cyclotron = require('../index.node')
 import { convertToInternalPoolConfig, deserializeObject, serializeObject } from './helpers'
-import { Job, JobState, JobUpdate, PoolConfig } from './types'
+import { CyclotronJob, CyclotronJobState, CyclotronJobUpdate, CyclotronPoolConfig } from './types'
 
-const parseJob = (job: Job): Job => {
+const parseJob = (job: CyclotronJob): CyclotronJob => {
     return {
         ...job,
         vmState: deserializeObject('vmState', job.vmState),
@@ -13,7 +13,7 @@ const parseJob = (job: Job): Job => {
 }
 
 export type CyclotronWorkerConfig = {
-    pool: PoolConfig
+    pool: CyclotronPoolConfig
     /** The queue to be consumed from */
     queueName: string
     /** Max number of jobs to consume in a batch. Default: 100 */
@@ -43,7 +43,7 @@ export class CyclotronWorker {
         )
     }
 
-    async connect(processBatch: (jobs: Job[]) => Promise<void>): Promise<void> {
+    async connect(processBatch: (jobs: CyclotronJob[]) => Promise<void>): Promise<void> {
         if (this.isConsuming) {
             throw new Error('Already consuming')
         }
@@ -57,7 +57,7 @@ export class CyclotronWorker {
         })
     }
 
-    private async startConsumerLoop(processBatch: (jobs: Job[]) => Promise<void>): Promise<void> {
+    private async startConsumerLoop(processBatch: (jobs: CyclotronJob[]) => Promise<void>): Promise<void> {
         try {
             this.isConsuming = true
 
@@ -96,7 +96,7 @@ export class CyclotronWorker {
         return await cyclotron.flushJob(jobId)
     }
 
-    updateJob(id: Job['id'], state: JobState, updates?: JobUpdate): void {
+    updateJob(id: CyclotronJob['id'], state: CyclotronJobState, updates?: CyclotronJobUpdate): void {
         cyclotron.setState(id, state)
         if (updates?.queueName) {
             cyclotron.setQueue(id, updates.queueName)

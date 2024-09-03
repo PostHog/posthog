@@ -1,6 +1,6 @@
-import { InternalPoolConfig, PoolConfig } from './types'
+import { CyclotronInternalPoolConfig, CyclotronPoolConfig } from './types'
 
-export function convertToInternalPoolConfig(poolConfig: PoolConfig): InternalPoolConfig {
+export function convertToInternalPoolConfig(poolConfig: CyclotronPoolConfig): CyclotronInternalPoolConfig {
     return {
         db_url: poolConfig.dbUrl,
         max_connections: poolConfig.maxConnections,
