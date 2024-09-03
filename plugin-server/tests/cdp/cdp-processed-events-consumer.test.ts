@@ -114,10 +114,6 @@ describe('CDP Processed Events Consumer', () => {
     })
 
     describe('general event processing', () => {
-        beforeEach(() => {
-            hub.CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP = false
-        })
-
         describe('common processing', () => {
             let fnFetchNoFilters: HogFunctionType
             let fnPrinterPageviewFilters: HogFunctionType
@@ -297,9 +293,9 @@ describe('CDP Processed Events Consumer', () => {
         })
 
         describe('no delayed execution', () => {
-            beforeEach(() => {
-                hub.CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP = true
-            })
+            // beforeEach(() => {
+            //     hub.CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP = true
+            // })
 
             it('should invoke the initial function before enqueuing', async () => {
                 await insertHogFunction({

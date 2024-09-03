@@ -1,0 +1,7 @@
+#!/bin/sh
+
+export DATABASE_NAME=${DATABASE_NAME:-test_cyclotron}
+export DATABASE_URL=${DATABASE_URL:-postgres://posthog:posthog@localhost:5432/$DATABASE_NAME}
+
+sqlx database create -D "$DATABASE_URL"
+sqlx migrate run -D "$DATABASE_URL" --source ./cyclotron-core/migrations

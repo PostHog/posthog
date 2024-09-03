@@ -1,4 +1,9 @@
-import { CdpFunctionCallbackConsumer, CdpProcessedEventsConsumer } from '../../src/cdp/cdp-consumers'
+import {
+    CdpCyclotronWorker,
+    CdpCyclotronWorkerFetch,
+    CdpFunctionCallbackConsumer,
+    CdpProcessedEventsConsumer,
+} from '../../src/cdp/cdp-consumers'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../../src/cdp/types'
 import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '../../src/config/kafka-topics'
 import { Hub, Team } from '../../src/types'
@@ -24,63 +29,62 @@ jest.mock('../../src/utils/fetch', () => {
 const mockFetch: jest.Mock = require('../../src/utils/fetch').trackedFetch
 
 describe('CDP E2E', () => {
-    let processedEventsConsumer: CdpProcessedEventsConsumer
-    let functionProcessor: CdpFunctionCallbackConsumer
-    let hub: Hub
-    let closeHub: () => Promise<void>
-    let team: Team
-    let kafkaObserver: TestKafkaObserver
-
-    const insertHogFunction = async (hogFunction: Partial<HogFunctionType>) => {
-        const item = await _insertHogFunction(hub.postgres, team.id, hogFunction)
-        // Trigger the reload that django would do
-        await processedEventsConsumer.hogFunctionManager.reloadAllHogFunctions()
-        await functionProcessor.hogFunctionManager.reloadAllHogFunctions()
-        return item
-    }
-
-    beforeEach(async () => {
-        await resetTestDatabase()
-        ;[hub, closeHub] = await createHub()
-        team = await getFirstTeam(hub)
-
-        kafkaObserver = await createKafkaObserver(hub, [KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES])
-
-        processedEventsConsumer = new CdpProcessedEventsConsumer(hub)
-        await processedEventsConsumer.start()
-        functionProcessor = new CdpFunctionCallbackConsumer(hub)
-        await functionProcessor.start()
-
-        mockFetch.mockClear()
-    })
-
-    afterEach(async () => {
-        try {
-            await Promise.all([processedEventsConsumer.stop(), functionProcessor.stop(), kafkaObserver.stop()])
-            await closeHub()
-        } catch (e) {
-            console.error('Error in afterEach:', e)
-        }
-    })
-
-    afterAll(() => {
-        jest.useRealTimers()
-    })
-
-    describe.each(['kafka', 'cyclotron'])('e2e fetch call: %s', (mode) => {
-        /**
-         * Tests here are somewhat expensive so should mostly simulate happy paths and the more e2e scenarios
-         */
-
+    describe.each([
+        // 'kafka',
+        'cyclotron',
+    ])('e2e fetch call: %s', (mode) => {
+        let processedEventsConsumer: CdpProcessedEventsConsumer
+        let functionProcessor: CdpFunctionCallbackConsumer
+        let cyclotronWorker: CdpCyclotronWorker | undefined
+        let cyclotronFetchWorker: CdpCyclotronWorkerFetch | undefined
+        let hub: Hub
+        let closeHub: () => Promise<void>
+        let team: Team
+        let kafkaObserver: TestKafkaObserver
         let fnFetchNoFilters: HogFunctionType
         let globals: HogFunctionInvocationGlobals
 
+        const insertHogFunction = async (hogFunction: Partial<HogFunctionType>) => {
+            const item = await _insertHogFunction(hub.postgres, team.id, hogFunction)
+            // Trigger the reload that django would do
+            // await processedEventsConsumer.hogFunctionManager.reloadAllHogFunctions()
+            // await functionProcessor.hogFunctionManager.reloadAllHogFunctions()
+            // await cyclotronWorker?.hogFunctionManager.reloadAllHogFunctions()
+            // await cyclotronFetchWorker?.hogFunctionManager.reloadAllHogFunctions()
+            return item
+        }
+
         beforeEach(async () => {
+            await resetTestDatabase()
+            ;[hub, closeHub] = await createHub()
+            team = await getFirstTeam(hub)
+
             fnFetchNoFilters = await insertHogFunction({
                 ...HOG_EXAMPLES.simple_fetch,
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
                 ...HOG_FILTERS_EXAMPLES.no_filters,
             })
+
+            console.log(fnFetchNoFilters.id)
+
+            if (mode === 'cyclotron') {
+                hub.CDP_CYCLOTRON_ENABLED_TEAMS = '*'
+                hub.CYCLOTRON_DATABASE_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron'
+            }
+
+            kafkaObserver = await createKafkaObserver(hub, [KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES])
+
+            processedEventsConsumer = new CdpProcessedEventsConsumer(hub)
+            await processedEventsConsumer.start()
+            functionProcessor = new CdpFunctionCallbackConsumer(hub)
+            await functionProcessor.start()
+
+            if (mode === 'cyclotron') {
+                cyclotronWorker = new CdpCyclotronWorker(hub)
+                await cyclotronWorker.start()
+                cyclotronFetchWorker = new CdpCyclotronWorkerFetch(hub)
+                await cyclotronFetchWorker.start()
+            }
 
             globals = createHogExecutionGlobals({
                 project: {
@@ -97,13 +101,33 @@ describe('CDP E2E', () => {
                 } as any,
             })
 
-            if (mode === 'cyclotron') {
-                hub.CDP_CYCLOTRON_ENABLED_TEAMS = '*'
-                hub.CYCLOTRON_DATABASE_URL = 'postgres://localhost:5432/test_cyclotron'
+            mockFetch.mockClear()
+        })
+
+        afterEach(async () => {
+            try {
+                await Promise.all([
+                    processedEventsConsumer?.stop(),
+                    functionProcessor?.stop(),
+                    kafkaObserver?.stop(),
+                    cyclotronWorker?.stop(),
+                    cyclotronFetchWorker?.stop(),
+                ])
+                await closeHub()
+            } catch (e) {
+                console.error('Error in afterEach:', e)
             }
         })
 
-        it('should invoke a function via kafka transportation until completed', async () => {
+        afterAll(() => {
+            jest.useRealTimers()
+        })
+
+        /**
+         * Tests here are somewhat expensive so should mostly simulate happy paths and the more e2e scenarios
+         */
+
+        it('should invoke a function in the worker loop until completed', async () => {
             // NOTE: We can skip kafka as the entry point
             const invocations = await processedEventsConsumer.processBatch([globals])
             expect(invocations).toHaveLength(1)

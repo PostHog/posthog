@@ -95,6 +95,8 @@ export class HogFunctionManager {
         if (!this.ready) {
             throw new Error('HogFunctionManager is not ready! Run HogFunctionManager.start() before this')
         }
+        console.log(this.cache.functions)
+
         return this.cache.functions[id]
     }
 
@@ -102,6 +104,7 @@ export class HogFunctionManager {
         if (!this.ready) {
             throw new Error('HogFunctionManager is not ready! Run HogFunctionManager.start() before this')
         }
+
         const fn = this.cache.functions[hogFunctionId]
         if (fn?.team_id === teamId) {
             return fn
@@ -141,6 +144,7 @@ export class HogFunctionManager {
 
         this.cache = cache
         status.info('🍿', 'Fetched all hog functions from DB anew')
+        console.log('Fetched all hog functions from DB anew')
     }
 
     public async reloadHogFunctions(teamId: Team['id'], ids: HogFunctionType['id'][]): Promise<void> {

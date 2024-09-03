@@ -3,7 +3,7 @@ import { KafkaConsumer, Message } from 'node-rdkafka'
 import { createRdConnectionConfigFromEnvVars } from '../../../src/kafka/config'
 import { createKafkaConsumer } from '../../../src/kafka/consumer'
 import { Hub } from '../../../src/types'
-import { delay } from '../../../src/utils/utils'
+import { delay, UUIDT } from '../../../src/utils/utils'
 
 export type TestKafkaObserver = {
     messages: {
@@ -18,7 +18,7 @@ export type TestKafkaObserver = {
 export const createKafkaObserver = async (hub: Hub, topics: string[]): Promise<TestKafkaObserver> => {
     const consumer = await createKafkaConsumer({
         ...createRdConnectionConfigFromEnvVars(hub),
-        'group.id': 'test-group',
+        'group.id': `test-group-${new UUIDT().toString()}`,
     })
 
     consumer.connect()
