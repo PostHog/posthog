@@ -173,11 +173,7 @@ class SessionRecordingListFromFilters:
         ]
 
     def _order_by_clause(self) -> ast.OrderExpr:
-        if self._filter.order in ["latest", "earliest"]:
-            field = "start_time"
-        else:
-            field = self._filter.order
-
+        field = "start_time" if self._filter.order == "latest" else self._filter.order
         return ast.OrderExpr(
             expr=ast.Field(chain=[field]),
             order="ASC" if self._filter.order == "earliest" else "DESC",

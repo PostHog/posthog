@@ -168,7 +168,7 @@ function durationToShow(recording: SessionRecordingType, order: RecordingsQuery[
         case 'inactive_seconds':
             return recording.inactive_seconds
         default:
-            return recording.active_seconds
+            return recording.recording_duration
     }
 }
 

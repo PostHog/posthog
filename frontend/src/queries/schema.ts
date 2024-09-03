@@ -291,14 +291,7 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
     operand?: FilterLogicalOperator
     session_ids?: string[]
     person_uuid?: string
-    order:
-        | DurationType
-        | 'latest'
-        | 'earliest'
-        | 'console_error_count'
-        | 'click_count'
-        | 'keypress_count'
-        | 'mouse_activity_count'
+    order: DurationType | 'latest' | 'console_error_count' | 'click_count' | 'keypress_count' | 'mouse_activity_count'
     limit?: integer
     offset?: integer
 }

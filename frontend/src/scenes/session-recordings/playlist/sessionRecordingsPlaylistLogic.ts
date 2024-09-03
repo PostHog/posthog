@@ -234,6 +234,30 @@ function combineLegacyRecordingFilters(
     }
 }
 
+function sortRecordings(recordings: SessionRecordingType[], order: RecordingsQuery['order']): SessionRecordingType[] {
+    let orderKey:
+        | 'recording_duration'
+        | 'active_seconds'
+        | 'inactive_seconds'
+        | 'console_error_count'
+        | 'click_count'
+        | 'keypress_count'
+        | 'mouse_activity_count'
+        | 'start_time' = 'start_time'
+
+    if (order === 'duration') {
+        orderKey = 'recording_duration'
+    } else if (order != 'latest') {
+        orderKey = order
+    }
+
+    return recordings.sort((a, b) => {
+        const orderA = a[orderKey] || 0
+        const orderB = b[orderKey] || 0
+        return orderA > orderB ? -1 : 1
+    })
+}
+
 export interface SessionRecordingPlaylistLogicProps {
     logicKey?: string
     personUUID?: PersonUUID
@@ -333,7 +357,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             {
                 results: [],
                 has_next: false,
-            } as RecordingsQueryResponse,
+                order: 'latest',
+            } as RecordingsQueryResponse & { order: RecordingsQuery['order'] },
             {
                 loadSessionRecordings: async ({ direction }, breakpoint) => {
                     const params: RecordingsQuery = {
@@ -367,6 +392,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                                 ? values.sessionRecordingsResponse?.has_next ?? true
                                 : response.has_next,
                         results: response.results,
+                        order: values.orderBy,
                     }
                 },
             },
@@ -486,9 +512,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         }
                     })
 
-                    mergedResults.sort((a, b) => (a.start_time > b.start_time ? -1 : 1))
-
-                    return mergedResults
+                    return sortRecordings(mergedResults, sessionRecordingsResponse.order)
                 },
 
                 setSelectedRecordingId: (state, { id }) =>
@@ -681,19 +705,19 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 selectedRecordingId,
                 orderBy
             ): SessionRecordingType[] => {
-                return sessionRecordings
-                    .filter((rec) => {
-                        if (pinnedRecordings.find((pinned) => pinned.id === rec.id)) {
-                            return false
-                        }
+                const filteredRecordings = sessionRecordings.filter((rec) => {
+                    if (pinnedRecordings.find((pinned) => pinned.id === rec.id)) {
+                        return false
+                    }
 
-                        if (hideViewedRecordings && rec.viewed && rec.id !== selectedRecordingId) {
-                            return false
-                        }
+                    if (hideViewedRecordings && rec.viewed && rec.id !== selectedRecordingId) {
+                        return false
+                    }
 
-                        return true
-                    })
-                    .sort((a, b) => (a[orderBy] > b[orderBy] ? -1 : 1))
+                    return true
+                })
+
+                return sortRecordings(filteredRecordings, orderBy)
             },
         ],
 

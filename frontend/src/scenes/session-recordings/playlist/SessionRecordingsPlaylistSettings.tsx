@@ -29,10 +29,6 @@ export function SessionRecordingsPlaylistSettings(): JSX.Element {
                             label: 'Latest',
                         },
                         {
-                            value: 'earliest',
-                            label: 'Earliest',
-                        },
-                        {
                             label: 'Longest',
                             tooltip: 'Active seconds',
                             options: [

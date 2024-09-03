@@ -8636,10 +8636,6 @@
                             "type": "string"
                         },
                         {
-                            "const": "earliest",
-                            "type": "string"
-                        },
-                        {
                             "const": "console_error_count",
                             "type": "string"
                         },
