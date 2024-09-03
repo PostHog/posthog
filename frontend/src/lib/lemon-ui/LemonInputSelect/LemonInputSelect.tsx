@@ -44,6 +44,7 @@ export type LemonInputSelectProps = Pick<
     onFocus?: () => void
     onInputChange?: (newValue: string) => void
     'data-attr'?: string
+    className?: string
     popoverClassName?: string
 }
 
@@ -62,6 +63,7 @@ export function LemonInputSelect({
     disableFiltering = false,
     allowCustomValues = false,
     autoFocus = false,
+    className,
     popoverClassName,
     'data-attr': dataAttr,
 }: LemonInputSelectProps): JSX.Element {
@@ -291,7 +293,7 @@ export function LemonInputSelect({
 
     const valuesPrefix = useMemo(() => {
         if (mode !== 'multiple' || values.length === 0) {
-            return null // Not rendering values as a suffix in single-select mode, or if there are no values selected
+            return null
         }
         const preInputValues = itemBeingEditedIndex !== null ? values.slice(0, itemBeingEditedIndex) : values
 
@@ -386,9 +388,9 @@ export function LemonInputSelect({
                                     sideAction={
                                         !option.__isInput
                                             ? {
-                                                  // To reduce visual clutter we only show the button for the focused item,
-                                                  // but we do want the side action present to make sure the layout is stable
-                                                  icon: isFocused ? <IconPencil /> : undefined,
+                                                  // To reduce visual clutter we only show the icon on focus or hover,
+                                                  // but we do want it present to make sure the layout is stable
+                                                  icon: <IconPencil className={!isFocused ? 'invisible' : undefined} />,
                                                   tooltip: (
                                                       <>
                                                           Edit this value <KeyboardShortcut option enter />
@@ -455,11 +457,13 @@ export function LemonInputSelect({
                 disabled={disabled}
                 autoFocus={autoFocus}
                 className={clsx(
-                    'flex-wrap h-auto leading-7', // leading-7 means line height aligned with LemonSnack height
+                    'h-auto leading-7', // leading-7 means line height aligned with LemonSnack height
                     // Putting button-like text styling on the single-select unfocused placeholder
                     // NOTE: We need font-medium on both the input (for autosizing) and its placeholder (for display)
+                    mode === 'multiple' && 'flex-wrap',
                     mode === 'single' && values.length > 0 && '*:*:font-medium placeholder:*:*:font-medium',
-                    mode === 'single' && values.length > 0 && !showPopover && 'placeholder:*:*:text-default'
+                    mode === 'single' && values.length > 0 && !showPopover && 'placeholder:*:*:text-default',
+                    className
                 )}
                 data-attr={dataAttr}
             />
