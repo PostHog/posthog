@@ -27,10 +27,9 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
 from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle, PersonalApiKeyRateThrottle
-from posthog.schema import QueryRequest, QueryResponseAlternative, QueryStatusResponse, QueryType
+from posthog.schema import QueryRequest, QueryResponseAlternative, QueryStatusResponse
 from posthog.api.monitoring import monitor, Feature
 from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters_to_dict
-from typing import cast
 
 
 class QueryThrottle(PersonalApiKeyRateThrottle):
@@ -62,10 +61,9 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     def create(self, request, *args, **kwargs) -> Response:
         data = self.get_model(request.data, QueryRequest)
         if data.filters_override is not None:
-            data.query = cast(
-                QueryType,
-                apply_dashboard_filters_to_dict(data.query.model_dump(), data.filters_override.model_dump(), self.team),
-            )
+            data.query = apply_dashboard_filters_to_dict(
+                data.query.model_dump(), data.filters_override.model_dump(), self.team
+            )  # type: ignore
 
         client_query_id = data.client_query_id or uuid.uuid4().hex
         execution_mode = execution_mode_from_refresh(data.refresh)

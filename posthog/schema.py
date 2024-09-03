@@ -5548,41 +5548,6 @@ class HogQLMetadata(BaseModel):
     )
 
 
-QueryType = Union[
-    EventsNode,
-    ActionsNode,
-    PersonsNode,
-    DataWarehouseNode,
-    EventsQuery,
-    ActorsQuery,
-    InsightActorsQuery,
-    InsightActorsQueryOptions,
-    SessionsTimelineQuery,
-    HogQuery,
-    HogQLQuery,
-    HogQLMetadata,
-    HogQLAutocomplete,
-    WebOverviewQuery,
-    WebStatsTableQuery,
-    WebTopClicksQuery,
-    WebGoalsQuery,
-    SessionAttributionExplorerQuery,
-    ErrorTrackingQuery,
-    DataVisualizationNode,
-    DataTableNode,
-    SavedInsightNode,
-    InsightVizNode,
-    TrendsQuery,
-    FunnelsQuery,
-    RetentionQuery,
-    PathsQuery,
-    StickinessQuery,
-    LifecycleQuery,
-    FunnelCorrelationQuery,
-    DatabaseSchemaQuery,
-]
-
-
 class QueryRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5599,7 +5564,39 @@ class QueryRequest(BaseModel):
     client_query_id: Optional[str] = Field(
         default=None, description="Client provided query ID. Can be used to retrieve the status or cancel the query."
     )
-    query: QueryType = Field(
+    query: Union[
+        EventsNode,
+        ActionsNode,
+        PersonsNode,
+        DataWarehouseNode,
+        EventsQuery,
+        ActorsQuery,
+        InsightActorsQuery,
+        InsightActorsQueryOptions,
+        SessionsTimelineQuery,
+        HogQuery,
+        HogQLQuery,
+        HogQLMetadata,
+        HogQLAutocomplete,
+        WebOverviewQuery,
+        WebStatsTableQuery,
+        WebTopClicksQuery,
+        WebGoalsQuery,
+        SessionAttributionExplorerQuery,
+        ErrorTrackingQuery,
+        DataVisualizationNode,
+        DataTableNode,
+        SavedInsightNode,
+        InsightVizNode,
+        TrendsQuery,
+        FunnelsQuery,
+        RetentionQuery,
+        PathsQuery,
+        StickinessQuery,
+        LifecycleQuery,
+        FunnelCorrelationQuery,
+        DatabaseSchemaQuery,
+    ] = Field(
         ...,
         description=(
             "Submit a JSON string representing a query for PostHog data analysis, for example a HogQL query.\n\nExample"

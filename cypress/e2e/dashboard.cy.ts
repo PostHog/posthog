@@ -413,6 +413,8 @@ describe('Dashboard', () => {
         cy.get('[data-attr="date-filter"]').click()
         cy.contains('span', 'Last 14 days').click()
 
+        cy.wait(1000)
+
         // insight meta should be updated to show new date range
         // default date range is last 7 days
         cy.get('h5').contains('Last 14 days').should('exist')
