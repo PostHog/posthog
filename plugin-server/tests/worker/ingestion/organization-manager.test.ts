@@ -1,5 +1,5 @@
 import { Hub } from '../../../src/types'
-import { closeHub, createHub } from '../../../src/utils/db/hub'
+import { createHub } from '../../../src/utils/db/hub'
 import { PostgresUse } from '../../../src/utils/db/postgres'
 import { UUIDT } from '../../../src/utils/utils'
 import { OrganizationManager } from '../../../src/worker/ingestion/organization-manager'
@@ -10,15 +10,16 @@ jest.mock('../../../src/utils/status')
 
 describe('OrganizationManager()', () => {
     let hub: Hub
+    let closeHub: () => Promise<void>
     let organizationManager: OrganizationManager
 
     beforeEach(async () => {
-        hub = await createHub()
+        ;[hub, closeHub] = await createHub()
         await resetTestDatabase()
         organizationManager = new OrganizationManager(hub.postgres, hub.teamManager)
     })
     afterEach(async () => {
-        await closeHub(hub)
+        await closeHub()
     })
 
     describe('fetchOrganization()', () => {

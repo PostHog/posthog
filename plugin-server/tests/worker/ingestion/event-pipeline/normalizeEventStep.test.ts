@@ -13,7 +13,7 @@ function copy(a: any) {
 describe('normalizeEventStep()', () => {
     it('normalizes the event with properties set by plugins', async () => {
         await resetTestDatabase()
-        const hub = await createHub()
+        const [hub, _] = await createHub()
         const organizationId = await createOrganization(hub.db.postgres)
         const teamId = await createTeam(hub.db.postgres, organizationId)
         const uuid = new UUIDT().toString()
@@ -61,7 +61,7 @@ describe('normalizeEventStep()', () => {
 
     it('replaces null byte with unicode replacement character in distinct_id', async () => {
         await resetTestDatabase()
-        const hub = await createHub()
+        const [hub, _] = await createHub()
         const organizationId = await createOrganization(hub.db.postgres)
         const teamId = await createTeam(hub.db.postgres, organizationId)
         const uuid = new UUIDT().toString()
@@ -90,7 +90,7 @@ describe('normalizeEventStep()', () => {
 
     it('normalizes $process_person_profile=false events by dropping $set and related', async () => {
         await resetTestDatabase()
-        const hub = await createHub()
+        const [hub, _] = await createHub()
         const organizationId = await createOrganization(hub.db.postgres)
         const teamId = await createTeam(hub.db.postgres, organizationId)
         const uuid = new UUIDT().toString()

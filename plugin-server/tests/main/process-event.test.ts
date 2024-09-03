@@ -21,7 +21,7 @@ import {
     PropertyDefinitionTypeEnum,
     Team,
 } from '../../src/types'
-import { closeHub, createHub } from '../../src/utils/db/hub'
+import { createHub } from '../../src/utils/db/hub'
 import { PostgresUse } from '../../src/utils/db/postgres'
 import { personInitialAndUTMProperties } from '../../src/utils/db/utils'
 import { posthog } from '../../src/utils/posthog'
@@ -53,6 +53,8 @@ export async function createPerson(
         distinctIds.map((distinctId) => ({ distinctId }))
     )
 }
+
+export type ReturnWithHub = { hub?: Hub; closeHub?: () => Promise<void> }
 
 type EventsByPerson = [string[], string[]]
 
@@ -88,9 +90,21 @@ let processEventCounter = 0
 let mockClientEventCounter = 0
 let team: Team
 let hub: Hub
+let closeHub: () => Promise<void>
 let redis: IORedis.Redis
 let eventsProcessor: EventsProcessor
 let now = DateTime.utc()
+
+async function createTestHub(additionalProps?: Record<string, any>): Promise<[Hub, () => Promise<void>]> {
+    const [hub, closeHub] = await createHub({
+        ...TEST_CONFIG,
+        ...(additionalProps ?? {}),
+    })
+
+    redis = await hub.redisPool.acquire()
+
+    return [hub, closeHub]
+}
 
 async function processEvent(
     distinctId: string,
@@ -112,7 +126,7 @@ async function processEvent(
         ...data,
     } as any as PluginEvent
 
-    const runner = new EventPipelineRunner(hub, pluginEvent, new EventsProcessor(hub))
+    const runner = new EventPipelineRunner(hub, pluginEvent)
     await runner.runEventPipeline(pluginEvent)
 
     await delayUntilEventIngested(() => hub.db.fetchEvents(), ++processEventCounter)
@@ -137,10 +151,7 @@ beforeEach(async () => {
         `
     await resetTestDatabase(testCode, TEST_CONFIG)
     await resetTestDatabaseClickhouse(TEST_CONFIG)
-
-    hub = await createHub({ ...TEST_CONFIG })
-    redis = await hub.redisPool.acquire()
-
+    ;[hub, closeHub] = await createTestHub()
     eventsProcessor = new EventsProcessor(hub)
     processEventCounter = 0
     mockClientEventCounter = 0
@@ -157,7 +168,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
     await hub.redisPool.release(redis)
-    await closeHub(hub)
+    await closeHub?.()
 })
 
 const capture = async (hub: Hub, eventName: string, properties: any = {}) => {
@@ -172,7 +183,7 @@ const capture = async (hub: Hub, eventName: string, properties: any = {}) => {
         team_id: team.id,
         uuid: new UUIDT().toString(),
     }
-    const runner = new EventPipelineRunner(hub, event, new EventsProcessor(hub))
+    const runner = new EventPipelineRunner(hub, event)
     await runner.runEventPipeline(event)
     await delayUntilEventIngested(() => hub.db.fetchEvents(), ++mockClientEventCounter)
 }
@@ -2063,7 +2074,7 @@ describe('validates eventUuid', () => {
             properties: { price: 299.99, name: 'AirPods Pro' },
         }
 
-        const runner = new EventPipelineRunner(hub, pluginEvent, new EventsProcessor(hub))
+        const runner = new EventPipelineRunner(hub, pluginEvent)
         const result = await runner.runEventPipeline(pluginEvent)
 
         expect(result.error).toBeDefined()
@@ -2082,7 +2093,7 @@ describe('validates eventUuid', () => {
             properties: { price: 299.99, name: 'AirPods Pro' },
         }
 
-        const runner = new EventPipelineRunner(hub, pluginEvent, new EventsProcessor(hub))
+        const runner = new EventPipelineRunner(hub, pluginEvent)
         const result = await runner.runEventPipeline(pluginEvent)
 
         expect(result.error).toBeDefined()

@@ -1,5 +1,5 @@
 import { Hub, PropertyDefinitionTypeEnum } from '../../../src/types'
-import { closeHub, createHub } from '../../../src/utils/db/hub'
+import { createHub } from '../../../src/utils/db/hub'
 import { PostgresUse } from '../../../src/utils/db/postgres'
 import { UUIDT } from '../../../src/utils/utils'
 import { PropertyDefinitionsCache } from '../../../src/worker/ingestion/property-definitions-cache'
@@ -15,17 +15,18 @@ jest.mock('../../../src/utils/posthog', () => ({
 
 describe('PropertyDefinitionsManager()', () => {
     let hub: Hub
+    let closeHub: () => Promise<void>
     let cache: PropertyDefinitionsCache
 
     beforeEach(async () => {
-        hub = await createHub()
+        ;[hub, closeHub] = await createHub()
         await resetTestDatabase()
 
         cache = new PropertyDefinitionsCache(hub)
     })
 
     afterEach(async () => {
-        await closeHub(hub)
+        await closeHub()
     })
 
     describe('with pre-existing data', () => {
