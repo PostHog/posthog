@@ -50,7 +50,11 @@ export class CyclotronWorker {
 
         await cyclotron.maybeInitWorker(JSON.stringify(convertToInternalPoolConfig(this.config.pool)))
 
-        this.consumerLoopPromise = this.startConsumerLoop(processBatch)
+        this.isConsuming = true
+        this.consumerLoopPromise = this.startConsumerLoop(processBatch).finally(() => {
+            this.isConsuming = false
+            this.consumerLoopPromise = null
+        })
     }
 
     private async startConsumerLoop(processBatch: (jobs: Job[]) => Promise<void>): Promise<void> {
@@ -79,9 +83,7 @@ export class CyclotronWorker {
             }
         } catch (e) {
             // We only log here so as not to crash the parent process
-            console.error('Error in worker loop', e)
-        } finally {
-            this.isConsuming = false
+            console.error('[Cyclotron] Error in worker loop', e)
         }
     }
 
