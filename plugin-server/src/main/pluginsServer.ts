@@ -464,17 +464,16 @@ export async function startPluginsServer(
         }
 
         if (capabilities.cdpCyclotronWorker) {
-            ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, capabilities)
+            const hub = await setupHub()
             const worker = new CdpCyclotronWorker(hub)
             await worker.start()
+            services.push(worker.service)
 
             if (process.env.EXPERIMENTAL_CDP_FETCH_WORKER) {
-                const fetchWorker = new CdpCyclotronWorkerFetch(hub)
-                await fetchWorker.start()
+                const workerFetch = new CdpCyclotronWorkerFetch(hub)
+                await workerFetch.start()
+                services.push(workerFetch.service)
             }
-
-            shutdownCallbacks.push(async () => await worker.stop())
-            healthChecks['cdp-cyclotron-worker'] = () => worker.isHealthy() ?? false
         }
 
         if (capabilities.http) {
