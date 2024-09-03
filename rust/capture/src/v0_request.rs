@@ -7,7 +7,6 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use time::format_description::well_known::Iso8601;
 use time::OffsetDateTime;
-use tracing::instrument;
 use uuid::Uuid;
 
 use crate::api::CaptureError;
@@ -124,7 +123,6 @@ impl RawRequest {
     /// fail due to it being missing when the body is compressed.
     /// Instead of trusting the parameter, we peek at the payload's first three bytes to
     /// detect gzip, fallback to uncompressed utf8 otherwise.
-    #[instrument(skip_all)]
     pub fn from_bytes(bytes: Bytes, limit: usize) -> Result<RawRequest, CaptureError> {
         tracing::debug!(len = bytes.len(), "decoding new event");
 
@@ -216,7 +214,6 @@ impl RawRequest {
     }
 }
 
-#[instrument(skip_all, fields(events = events.len()))]
 pub fn extract_token(events: &[RawEvent]) -> Result<String, CaptureError> {
     let distinct_tokens: HashSet<Option<String>> = HashSet::from_iter(
         events

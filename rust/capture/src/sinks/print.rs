@@ -16,9 +16,6 @@ impl Event for PrintSink {
         Ok(())
     }
     async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
-        let span = tracing::span!(tracing::Level::INFO, "batch of events");
-        let _enter = span.enter();
-
         histogram!("capture_event_batch_size").record(events.len() as f64);
         counter!("capture_events_ingested_total").increment(events.len() as u64);
         for event in events {
