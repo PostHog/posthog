@@ -100,6 +100,7 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                             experimentForm.variants[nextVariantName] = {
                                                 transforms: [],
                                                 conditions: null,
+                                                rollout_percentage: 0
                                             }
                                         }
                                         setExperimentFormValue('variants', experimentForm.variants)
@@ -138,7 +139,7 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                                             // if this variant's rollout_percentage is now 50%
                                                             // we re-distribute the difference to the other variants.
                                                             // so, since there are (ex) 2 other variants, they can both
-                                                            // be maximum 25%
+                                                            // be 25%
                                                             const perVariantRollout = leftOverPercentage / variantCount
                                                             for (const existingVariant in experimentForm.variants) {
                                                                 if (experimentForm.variants[existingVariant]) {
@@ -194,6 +195,23 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                                             >
                                                                 {transform.selector ? 'Change Element' : 'Select Element'}
                                                             </LemonButton>
+                                                            <LemonButton
+                                                            type="tertiary"
+                                                            size="small"
+                                                            onClick={(e)=> {
+                                                                e.stopPropagation()
+                                                                if (experimentForm.variants) {
+                                                                    const webVariant = experimentForm.variants[variant]
+                                                                    if (webVariant) {
+                                                                        webVariant.transforms.splice(tIndex, 1)
+                                                                        setExperimentFormValue('variants', experimentForm.variants)
+                                                                    }
+                                                                }
+                                                            }}
+                                                            sideIcon={<IconTrash />}
+                                                        >
+                                            Remove
+                                        </LemonButton>
                                                             <WebExperimentTransformField tIndex={tIndex} variant={variant} transform={transform} />
 
                                                             {inspectingElement === tIndex ? (
