@@ -165,7 +165,9 @@ function filterUnwanted(events: PerformanceEvent[]): PerformanceEvent[] {
     // the browser can provide network events that we're not interested in,
     // like a navigation to "about:blank"
     return events.filter((event) => {
-        return !(event.entry_type === 'navigation' && event.name && event.name.startsWith('about:'))
+        return !event.name?.trim() || (event.entry_type === 'navigation' && event.name.startsWith('about:'))
+            ? false
+            : true
     })
 }
 
