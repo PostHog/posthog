@@ -135,7 +135,6 @@ describe('eachBatchX', () => {
                 WORKER_CONCURRENCY: 1,
                 TASKS_PER_WORKER: 10,
                 INGESTION_CONCURRENCY: 4,
-                BUFFER_CONVERSION_SECONDS: 60,
                 kafkaProducer: {
                     queueMessage: jest.fn(),
                 },

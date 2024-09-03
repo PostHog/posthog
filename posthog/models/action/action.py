@@ -30,26 +30,27 @@ class ActionStepJSON:
 
 
 class Action(models.Model):
-    class Meta:
-        indexes = [models.Index(fields=["team_id", "-updated_at"])]
-
-    name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
-    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
-    description: models.TextField = models.TextField(blank=True, default="")
-    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
-    created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
-    deleted: models.BooleanField = models.BooleanField(default=False)
-    events: models.ManyToManyField = models.ManyToManyField("Event", blank=True)
-    post_to_slack: models.BooleanField = models.BooleanField(default=False)
-    slack_message_format: models.CharField = models.CharField(default="", max_length=1200, blank=True)
-    updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
-    bytecode: models.JSONField = models.JSONField(null=True, blank=True)
-    bytecode_error: models.TextField = models.TextField(blank=True, null=True)
-    steps_json: models.JSONField = models.JSONField(null=True, blank=True)
+    name = models.CharField(max_length=400, null=True, blank=True)
+    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    description = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True, blank=True)
+    created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
+    deleted = models.BooleanField(default=False)
+    events = models.ManyToManyField("Event", blank=True)
+    post_to_slack = models.BooleanField(default=False)
+    slack_message_format = models.CharField(default="", max_length=1200, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    bytecode = models.JSONField(null=True, blank=True)
+    bytecode_error = models.TextField(blank=True, null=True)
+    steps_json = models.JSONField(null=True, blank=True)
+    pinned_at = models.DateTimeField(blank=True, null=True, default=None)
 
     # DEPRECATED: these were used before ClickHouse was our database
-    is_calculating: models.BooleanField = models.BooleanField(default=False)
-    last_calculated_at: models.DateTimeField = models.DateTimeField(default=timezone.now, blank=True)
+    is_calculating = models.BooleanField(default=False)
+    last_calculated_at = models.DateTimeField(default=timezone.now, blank=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["team_id", "-updated_at"])]
 
     def __str__(self):
         return self.name
@@ -71,6 +72,8 @@ class Action(models.Model):
             "match_url_count": sum(1 if step.url else 0 for step in self.steps),
             "has_properties": any(step.properties for step in self.steps),
             "deleted": self.deleted,
+            "pinned": bool(self.pinned_at),
+            "pinned_at": self.pinned_at,
         }
 
     @property

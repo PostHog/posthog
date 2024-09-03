@@ -58,9 +58,12 @@ gen/
 .antlr
 upgrade/
 hogvm/typescript/dist
+hogvm/typescript/.parcel-cache
 .wokeignore
 plugin-transpiler/dist
 *-esbuild-meta.json
 *-esbuild-bundle-visualization.html
 .dlt
 *.db
+# Ignore any log files that happen to be present
+*.log

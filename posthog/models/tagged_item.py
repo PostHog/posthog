@@ -55,46 +55,46 @@ class TaggedItem(UUIDModel):
     https://docs.djangoproject.com/en/4.0/ref/contrib/contenttypes/#generic-relations
     """
 
-    tag: models.ForeignKey = models.ForeignKey("Tag", on_delete=models.CASCADE, related_name="tagged_items")
+    tag = models.ForeignKey("Tag", on_delete=models.CASCADE, related_name="tagged_items")
 
     # When adding a new taggeditem-model relationship, make sure to add the foreign key field and append field name to
     # the `RELATED_OBJECTS` tuple above.
-    dashboard: models.ForeignKey = models.ForeignKey(
+    dashboard = models.ForeignKey(
         "Dashboard",
         on_delete=models.CASCADE,
         null=True,
         blank=True,
         related_name="tagged_items",
     )
-    insight: models.ForeignKey = models.ForeignKey(
+    insight = models.ForeignKey(
         "Insight",
         on_delete=models.CASCADE,
         null=True,
         blank=True,
         related_name="tagged_items",
     )
-    event_definition: models.ForeignKey = models.ForeignKey(
+    event_definition = models.ForeignKey(
         "EventDefinition",
         on_delete=models.CASCADE,
         null=True,
         blank=True,
         related_name="tagged_items",
     )
-    property_definition: models.ForeignKey = models.ForeignKey(
+    property_definition = models.ForeignKey(
         "PropertyDefinition",
         on_delete=models.CASCADE,
         null=True,
         blank=True,
         related_name="tagged_items",
     )
-    action: models.ForeignKey = models.ForeignKey(
+    action = models.ForeignKey(
         "Action",
         on_delete=models.CASCADE,
         null=True,
         blank=True,
         related_name="tagged_items",
     )
-    feature_flag: models.ForeignKey = models.ForeignKey(
+    feature_flag = models.ForeignKey(
         "FeatureFlag",
         on_delete=models.CASCADE,
         null=True,

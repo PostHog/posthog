@@ -64,6 +64,8 @@ export function ItemEvent({ item, expanded, setExpanded }: ItemEventProps): JSX.
     let promotedKeys: string[] | undefined = undefined
     if (item.data.event === '$pageview') {
         promotedKeys = ['$current_url', '$title', '$referrer']
+    } else if (item.data.event === '$groupidentify') {
+        promotedKeys = ['$group_type', '$group_key', '$group_set']
     } else if (item.data.event === '$screen') {
         promotedKeys = ['$screen_name']
     } else if (item.data.event === '$web_vitals') {
@@ -81,7 +83,7 @@ export function ItemEvent({ item, expanded, setExpanded }: ItemEventProps): JSX.
 
     return (
         <div data-attr="item-event">
-            <LemonButton noPadding onClick={() => setExpanded(!expanded)} fullWidth>
+            <LemonButton noPadding onClick={() => setExpanded(!expanded)} fullWidth className="font-normal">
                 <div className="flex flex-row w-full justify-between gap-2 items-center p-2 text-xs cursor-pointer truncate">
                     <div>
                         <PropertyKeyInfo

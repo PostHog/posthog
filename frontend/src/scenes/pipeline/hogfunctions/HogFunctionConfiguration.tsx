@@ -1,4 +1,4 @@
-import { IconInfo, IconPlus } from '@posthog/icons'
+import { IconPlus } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -6,7 +6,9 @@ import {
     LemonDropdown,
     LemonInput,
     LemonLabel,
+    LemonSelect,
     LemonSwitch,
+    LemonTag,
     LemonTextArea,
     Link,
     SpinnerOverlay,
@@ -51,6 +53,9 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
         sparkline,
         sparklineLoading,
         template,
+        subTemplate,
+        templateHasChanged,
+        forcedSubTemplateId,
     } = useValues(logic)
     const {
         submitConfiguration,
@@ -61,6 +66,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
         duplicateFromTemplate,
         setConfigurationValue,
         deleteHogFunction,
+        setSubTemplateId,
     } = useActions(logic)
 
     if (loading && !loaded) {
@@ -211,9 +217,6 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                                     <div className="flex-1">
                                                         <LemonButton>Close</LemonButton>
                                                     </div>
-                                                    <LemonButton onClick={() => resetToTemplate()}>
-                                                        Reset to template
-                                                    </LemonButton>
 
                                                     <LemonButton
                                                         type="secondary"
@@ -221,6 +224,12 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                                     >
                                                         New function from template
                                                     </LemonButton>
+
+                                                    {templateHasChanged ? (
+                                                        <LemonButton type="primary" onClick={() => resetToTemplate()}>
+                                                            Update
+                                                        </LemonButton>
+                                                    ) : null}
                                                 </div>
                                             </div>
                                         }
@@ -229,7 +238,10 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                             <Link subtle className="flex items-center gap-1 flex-wrap p-2">
                                                 Built from template:
                                                 <span className="font-semibold">{hogFunction?.template.name}</span>
-                                                <DestinationTag status={hogFunction.template.status} /> <IconInfo />
+                                                <DestinationTag status={hogFunction.template.status} />
+                                                {templateHasChanged ? (
+                                                    <LemonTag type="success">Update available!</LemonTag>
+                                                ) : null}
                                             </Link>
                                         </div>
                                     </LemonDropdown>
@@ -278,6 +290,41 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                         </div>
 
                         <div className="flex-2 min-w-100 space-y-4">
+                            {!forcedSubTemplateId && template?.sub_templates && (
+                                <>
+                                    <div className="border bg-bg-light rounded p-3 space-y-2">
+                                        <div className="flex items-center gap-2">
+                                            <LemonLabel className="flex-1">Choose template</LemonLabel>
+                                            <LemonSelect
+                                                size="small"
+                                                options={[
+                                                    {
+                                                        value: null,
+                                                        label: 'Default',
+                                                    },
+                                                    ...template.sub_templates.map((subTemplate) => ({
+                                                        value: subTemplate.id,
+                                                        label: subTemplate.name,
+                                                        labelInMenu: (
+                                                            <div className="max-w-120 space-y-1 my-1">
+                                                                <div className="font-semibold">{subTemplate.name}</div>
+                                                                <div className="text-muted font-sans text-xs">
+                                                                    {subTemplate.description}
+                                                                </div>
+                                                            </div>
+                                                        ),
+                                                    })),
+                                                ]}
+                                                value={subTemplate?.id}
+                                                onChange={(value) => {
+                                                    setSubTemplateId(value)
+                                                }}
+                                            />
+                                        </div>
+                                    </div>
+                                </>
+                            )}
+
                             <div className="border bg-bg-light rounded p-3 space-y-2">
                                 <div className="space-y-2">
                                     <HogFunctionInputs />
@@ -318,6 +365,14 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                                                 Hide source code
                                                             </LemonButton>
                                                         </div>
+                                                        <span className="text-xs text-muted-alt">
+                                                            This is the underlying Hog code that will run whenever the
+                                                            filters match.{' '}
+                                                            <Link to="https://posthog.com/docs/cdp/destinations#advanced---custom-code">
+                                                                See the docs
+                                                            </Link>{' '}
+                                                            for more info
+                                                        </span>
                                                         <CodeEditorResizeable
                                                             language="hog"
                                                             value={value ?? ''}

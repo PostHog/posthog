@@ -190,11 +190,17 @@ export const billingLogic = kea<billingLogicType>([
                     return parseBillingResponse(response)
                 },
 
-                updateBillingLimits: async (limits: { [key: string]: string | number | null }) => {
-                    const response = await api.update('api/billing', { custom_limits_usd: limits })
-
-                    lemonToast.success('Billing limits updated')
-                    return parseBillingResponse(response)
+                updateBillingLimits: async (limits: { [key: string]: number | null }) => {
+                    try {
+                        const response = await api.update('api/billing', { custom_limits_usd: limits })
+                        lemonToast.success('Billing limits updated')
+                        return parseBillingResponse(response)
+                    } catch (error: any) {
+                        lemonToast.error(
+                            'There was an error updating your billing limits. Please try again or contact support.'
+                        )
+                        throw error
+                    }
                 },
 
                 deactivateProduct: async (key: string) => {
@@ -313,10 +319,7 @@ export const billingLogic = kea<billingLogicType>([
                     const billingLimit =
                         billing?.custom_limits_usd?.[product.type] ||
                         (product.usage_key ? billing?.custom_limits_usd?.[product.usage_key] || 0 : 0)
-                    projectedTotal += Math.min(
-                        parseFloat(product.projected_amount_usd || '0'),
-                        typeof billingLimit === 'number' ? billingLimit : parseFloat(billingLimit)
-                    )
+                    projectedTotal += Math.min(parseFloat(product.projected_amount_usd || '0'), billingLimit)
                 }
                 return projectedTotal
             },
@@ -474,7 +477,11 @@ export const billingLogic = kea<billingLogicType>([
                     title: 'Usage limit exceeded',
                     message: `You have exceeded the usage limit for ${productOverLimit.name}. Please 
                         ${productOverLimit.subscribed ? 'increase your billing limit' : 'upgrade your plan'}
-                        or data loss may occur.`,
+                        or ${
+                            productOverLimit.name === 'Data warehouse'
+                                ? 'data will not be synced.'
+                                : 'data loss may occur.'
+                        }.`,
                     dismissKey: 'usage-limit-exceeded',
                 })
                 return

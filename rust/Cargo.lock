@@ -19,9 +19,9 @@ checksum = "f26201604c87b1e01bd3d98f8d5d9a8fcbb815e8cedb41ffccbeb4bf593a35fe"
 
 [[package]]
 name = "ahash"
-version = "0.8.7"
+version = "0.8.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77c3a9648d43b9cd48db467b3f87fdd6e146bcc88ab0180006cef2179fe11d01"
+checksum = "e89da841a80418a9b391ebaea17f5c112ffaaa96f621d2c285b5174da76b9011"
 dependencies = [
  "cfg-if",
  "getrandom",
@@ -641,6 +641,7 @@ dependencies = [
  "thiserror",
  "time",
  "tokio",
+ "tower",
  "tower-http",
  "tracing",
  "tracing-opentelemetry",
@@ -665,14 +666,15 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
 name = "chrono"
-version = "0.4.33"
+version = "0.4.38"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9f13690e35a5e4ace198e7beea2895d29f3a9cc55015fcebe6336bd2010af9eb"
+checksum = "a21f936df1771bf62b77f047b726c4625ff2e8aa607c01ec06e5a05bd8463401"
 dependencies = [
  "android-tzdata",
  "iana-time-zone",
  "js-sys",
  "num-traits",
+ "serde",
  "wasm-bindgen",
  "windows-targets 0.52.0",
 ]
@@ -698,6 +700,42 @@ dependencies = [
  "pin-project-lite",
  "tokio",
  "tokio-util",
+]
+
+[[package]]
+name = "common-dns"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "reqwest 0.12.3",
+ "tokio",
+]
+
+[[package]]
+name = "common-kafka"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "envconfig",
+ "futures",
+ "health",
+ "rdkafka",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "time",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "common-metrics"
+version = "0.1.0"
+dependencies = [
+ "axum 0.7.5",
+ "metrics",
+ "metrics-exporter-prometheus",
+ "tokio",
 ]
 
 [[package]]
@@ -817,6 +855,85 @@ checksum = "1bfb12502f3fc46cca1bb51ac28df9d618d813cdc3d2f25b9fe775a34af26bb3"
 dependencies = [
  "generic-array",
  "typenum",
+]
+
+[[package]]
+name = "cyclotron-core"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "futures",
+ "rand",
+ "serde",
+ "sqlx",
+ "thiserror",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "cyclotron-fetch"
+version = "0.1.0"
+dependencies = [
+ "axum 0.7.5",
+ "chrono",
+ "common-dns",
+ "common-kafka",
+ "common-metrics",
+ "cyclotron-core",
+ "envconfig",
+ "futures",
+ "health",
+ "http 1.1.0",
+ "httpmock",
+ "rand",
+ "rdkafka",
+ "reqwest 0.12.3",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "cyclotron-janitor"
+version = "0.1.0"
+dependencies = [
+ "axum 0.7.5",
+ "chrono",
+ "common-kafka",
+ "common-metrics",
+ "cyclotron-core",
+ "envconfig",
+ "eyre",
+ "health",
+ "rdkafka",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "cyclotron-node"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "cyclotron-core",
+ "neon",
+ "once_cell",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]
@@ -1040,6 +1157,7 @@ dependencies = [
  "axum-client-ip",
  "bytes",
  "envconfig",
+ "maxminddb",
  "once_cell",
  "rand",
  "redis",
@@ -1468,6 +1586,7 @@ name = "hook-api"
 version = "0.1.0"
 dependencies = [
  "axum 0.7.5",
+ "common-metrics",
  "envconfig",
  "eyre",
  "hook-common",
@@ -1489,14 +1608,9 @@ name = "hook-common"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "axum 0.7.5",
  "chrono",
- "envconfig",
- "health",
+ "common-kafka",
  "http 1.1.0",
- "metrics",
- "metrics-exporter-prometheus",
- "rdkafka",
  "reqwest 0.12.3",
  "serde",
  "serde_json",
@@ -1505,7 +1619,6 @@ dependencies = [
  "time",
  "tokio",
  "tracing",
- "uuid",
 ]
 
 [[package]]
@@ -1514,6 +1627,8 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "axum 0.7.5",
+ "common-kafka",
+ "common-metrics",
  "envconfig",
  "eyre",
  "futures",
@@ -1537,6 +1652,9 @@ version = "0.1.0"
 dependencies = [
  "axum 0.7.5",
  "chrono",
+ "common-dns",
+ "common-kafka",
+ "common-metrics",
  "envconfig",
  "futures",
  "health",
@@ -1945,6 +2063,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9c198f91728a82281a64e1f4f9eeb25d82cb32a5de251c6bd1b5154d63a8e7bd"
 
 [[package]]
+name = "libloading"
+version = "0.8.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4979f22fdb869068da03c9f7528f8297c6fd2606bc3a4affe42e6a823fdb8da4"
+dependencies = [
+ "cfg-if",
+ "windows-targets 0.52.0",
+]
+
+[[package]]
 name = "libm"
 version = "0.2.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2037,6 +2165,16 @@ name = "matchit"
 version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0e7465ac9959cc2b1404e8e2367b43684a6d13790fe23056cc8c6c5a6b7bcb94"
+
+[[package]]
+name = "maxminddb"
+version = "0.17.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d13fa57adcc4f3aca91e511b3cdaa58ed8cbcbf97f20e342a11218c76e127f51"
+dependencies = [
+ "log",
+ "serde",
+]
 
 [[package]]
 name = "md-5"
@@ -2158,6 +2296,32 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "tempfile",
+]
+
+[[package]]
+name = "neon"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d75440242411c87dc39847b0e33e961ec1f10326a9d8ecf9c1ea64a3b3c13dc"
+dependencies = [
+ "getrandom",
+ "libloading",
+ "neon-macros",
+ "once_cell",
+ "semver",
+ "send_wrapper",
+ "smallvec",
+]
+
+[[package]]
+name = "neon-macros"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c6813fde79b646e47e7ad75f480aa80ef76a5d9599e2717407961531169ee38b"
+dependencies = [
+ "quote",
+ "syn 2.0.48",
+ "syn-mid",
 ]
 
 [[package]]
@@ -2677,6 +2841,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "property-defs-rs"
+version = "0.1.0"
+dependencies = [
+ "ahash",
+ "axum 0.7.5",
+ "chrono",
+ "common-metrics",
+ "envconfig",
+ "futures",
+ "health",
+ "metrics",
+ "quick_cache",
+ "rdkafka",
+ "serde",
+ "serde_json",
+ "serve-metrics",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "prost"
 version = "0.12.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2728,6 +2917,18 @@ dependencies = [
  "wasi 0.11.0+wasi-snapshot-preview1",
  "web-sys",
  "winapi",
+]
+
+[[package]]
+name = "quick_cache"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "27a893a83255c587d31137bc7e350387b49267b0deac44120fd8fa8bd0d61645"
+dependencies = [
+ "ahash",
+ "equivalent",
+ "hashbrown 0.14.3",
+ "parking_lot",
 ]
 
 [[package]]
@@ -3182,6 +3383,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "semver"
+version = "1.0.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "61697e0a1c7e512e84a621326239844a24d8207b4669b41bc18b32ea5cbf988b"
+
+[[package]]
+name = "send_wrapper"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cd0b0ec5f1c1ca621c432a25813d8d60c88abe6d3e08a3eb9cf37d97a0fe3d73"
+
+[[package]]
 name = "serde"
 version = "1.0.196"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3255,6 +3468,16 @@ dependencies = [
  "itoa",
  "ryu",
  "serde",
+]
+
+[[package]]
+name = "serve-metrics"
+version = "0.1.0"
+dependencies = [
+ "axum 0.7.5",
+ "metrics",
+ "metrics-exporter-prometheus",
+ "tokio",
 ]
 
 [[package]]
@@ -3658,6 +3881,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
+]
+
+[[package]]
+name = "syn-mid"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b5dc35bb08dd1ca3dfb09dce91fd2d13294d6711c88897d9a9d60acf39bce049"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.48",
 ]
 
 [[package]]

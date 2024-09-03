@@ -5,7 +5,7 @@ import { CdpApi } from '../../src/cdp/cdp-api'
 import { CdpFunctionCallbackConsumer } from '../../src/cdp/cdp-consumers'
 import { HogFunctionType } from '../../src/cdp/types'
 import { Hub, Team } from '../../src/types'
-import { createHub } from '../../src/utils/db/hub'
+import { closeHub, createHub } from '../../src/utils/db/hub'
 import { getFirstTeam, resetTestDatabase } from '../helpers/sql'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './examples'
 import { insertHogFunction as _insertHogFunction } from './fixtures'
@@ -67,7 +67,6 @@ jest.setTimeout(1000)
 describe('CDP Processed Events Consuner', () => {
     let processor: CdpFunctionCallbackConsumer
     let hub: Hub
-    let closeHub: () => Promise<void>
     let team: Team
 
     const insertHogFunction = async (hogFunction: Partial<HogFunctionType>) => {
@@ -79,7 +78,7 @@ describe('CDP Processed Events Consuner', () => {
 
     beforeEach(async () => {
         await resetTestDatabase()
-        ;[hub, closeHub] = await createHub()
+        hub = await createHub()
         team = await getFirstTeam(hub)
 
         processor = new CdpFunctionCallbackConsumer(hub)
@@ -92,7 +91,7 @@ describe('CDP Processed Events Consuner', () => {
     afterEach(async () => {
         jest.setTimeout(10000)
         await processor.stop()
-        await closeHub()
+        await closeHub(hub)
     })
 
     afterAll(() => {
@@ -109,6 +108,14 @@ describe('CDP Processed Events Consuner', () => {
                 name: '$pageview',
                 properties: {
                     $lib_version: '1.0.0',
+                },
+            },
+            groups: {},
+            person: {
+                uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0',
+                distinct_ids: ['b3a1fe86-b10c-43cc-acaf-d208977608d0'],
+                properties: {
+                    email: 'test@posthog.com',
                 },
             },
         }
@@ -161,7 +168,7 @@ describe('CDP Processed Events Consuner', () => {
                     },
                     {
                         level: 'debug',
-                        message: "Suspending function due to async function call 'fetch'. Payload: 1140 bytes",
+                        message: "Suspending function due to async function call 'fetch'. Payload: 1689 bytes",
                     },
                     {
                         level: 'info',
@@ -209,7 +216,7 @@ describe('CDP Processed Events Consuner', () => {
                     },
                     {
                         level: 'debug',
-                        message: "Suspending function due to async function call 'fetch'. Payload: 1140 bytes",
+                        message: "Suspending function due to async function call 'fetch'. Payload: 1689 bytes",
                     },
                     {
                         level: 'debug',

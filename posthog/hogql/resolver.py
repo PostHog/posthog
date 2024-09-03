@@ -1,30 +1,30 @@
 from datetime import date, datetime
-from typing import Optional, Any, cast, Literal
+from typing import Any, Literal, Optional, cast
 from uuid import UUID
 
 from posthog.hogql import ast
-from posthog.hogql.ast import FieldTraverserType, ConstantType
-from posthog.hogql.database.schema.persons import PersonsTable
-from posthog.hogql.functions import find_hogql_posthog_function
+from posthog.hogql.ast import ConstantType, FieldTraverserType
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
-    StringJSONDatabaseField,
     FunctionCallTable,
     LazyTable,
     SavedQuery,
+    StringJSONDatabaseField,
 )
+from posthog.hogql.database.s3_table import S3Table
+from posthog.hogql.database.schema.events import EventsTable
+from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.errors import ImpossibleASTError, QueryError, ResolutionError
+from posthog.hogql.functions import find_hogql_posthog_function
 from posthog.hogql.functions.action import matches_action
 from posthog.hogql.functions.cohort import cohort_query_node
-from posthog.hogql.functions.mapping import validate_function_args, HOGQL_CLICKHOUSE_FUNCTIONS, compare_types
+from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS, compare_types, validate_function_args
 from posthog.hogql.functions.sparkline import sparkline
-from posthog.hogql.hogqlx import convert_to_hx, HOGQLX_COMPONENTS
+from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, convert_to_hx
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver_utils import expand_hogqlx_query, lookup_cte_by_name, lookup_field_by_name
-from posthog.hogql.visitor import CloningVisitor, clone_expr, TraversingVisitor
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 from posthog.models.utils import UUIDT
-from posthog.hogql.database.schema.events import EventsTable
-from posthog.hogql.database.s3_table import S3Table
 
 # https://github.com/ClickHouse/ClickHouse/issues/23194 - "Describe how identifiers in SELECT queries are resolved"
 
@@ -112,7 +112,7 @@ class Resolver(CloningVisitor):
         self.database = context.database
         self.cte_counter = 0
 
-    def visit(self, node: ast.Expr | None) -> ast.Expr:
+    def visit(self, node: ast.AST | None):
         if isinstance(node, ast.Expr) and node.type is not None:
             raise ResolutionError(
                 f"Type already resolved for {type(node).__name__} ({type(node.type).__name__}). Can't run again."
@@ -305,9 +305,6 @@ class Resolver(CloningVisitor):
 
             if isinstance(database_table, SavedQuery):
                 self.current_view_depth += 1
-
-                if self.current_view_depth > self.context.max_view_depth:
-                    raise QueryError("Nested views are not supported")
 
                 node.table = parse_select(str(database_table.query))
 
@@ -517,6 +514,12 @@ class Resolver(CloningVisitor):
             return_type=return_type,
         )
         return node
+
+    def visit_expr_call(self, node: ast.ExprCall):
+        raise QueryError("You can only call simple functions in HogQL, not expressions")
+
+    def visit_block(self, node: ast.Block):
+        raise QueryError("You can not use blocks in HogQL")
 
     def visit_lambda(self, node: ast.Lambda):
         """Visit each SELECT query or subquery."""

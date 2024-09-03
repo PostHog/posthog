@@ -32,7 +32,11 @@ export enum OnboardingStepKey {
     PRODUCT_CONFIGURATION = 'configure',
     REVERSE_PROXY = 'proxy',
     INVITE_TEAMMATES = 'invite_teammates',
+    DASHBOARD_TEMPLATE = 'dashboard_template',
+    DASHBOARD_TEMPLATE_CONFIGURE = 'dashboard_template_configure',
 }
+
+export const breadcrumbExcludeSteps = [OnboardingStepKey.DASHBOARD_TEMPLATE_CONFIGURE]
 
 export const availableOnboardingProducts: AvailableOnboardingProducts = {
     [ProductKey.PRODUCT_ANALYTICS]: {
@@ -58,7 +62,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
         scene: Scene.Replay,
     },
     [ProductKey.FEATURE_FLAGS]: {
-        name: 'Feature Flags & A/B Testing',
+        name: 'Feature Flags & Experiments',
         breadcrumbsName: 'Feature Flags',
         icon: 'IconToggle',
         iconColor: 'seagreen',
@@ -124,16 +128,20 @@ export const onboardingLogic = kea<onboardingLogicType>([
     actions({
         setProduct: (product: OnboardingProduct | null) => ({ product }),
         setProductKey: (productKey: string | null) => ({ productKey }),
-        completeOnboarding: (nextProductKey?: string) => ({ nextProductKey }),
+        completeOnboarding: (nextProductKey?: string, redirectUrlOverride?: string) => ({
+            nextProductKey,
+            redirectUrlOverride,
+        }),
         setAllOnboardingSteps: (allOnboardingSteps: AllOnboardingSteps) => ({ allOnboardingSteps }),
         setStepKey: (stepKey: OnboardingStepKey) => ({ stepKey }),
         setSubscribedDuringOnboarding: (subscribedDuringOnboarding: boolean) => ({ subscribedDuringOnboarding }),
         setIncludeIntro: (includeIntro: boolean) => ({ includeIntro }),
         setTeamPropertiesForProduct: (productKey: ProductKey) => ({ productKey }),
         setWaitForBilling: (waitForBilling: boolean) => ({ waitForBilling }),
-        goToNextStep: true,
+        goToNextStep: (numStepsToAdvance?: number) => ({ numStepsToAdvance }),
         goToPreviousStep: true,
         resetStepKey: true,
+        setOnCompleteOnboardingRedirectUrl: (url: string | null) => ({ url }),
     }),
     reducers(() => ({
         productKey: [
@@ -178,6 +186,12 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 setWaitForBilling: (_, { waitForBilling }) => waitForBilling,
             },
         ],
+        onCompleteOnboardingRedirectUrlOverride: [
+            null as string | null,
+            {
+                setOnCompleteOnboardingRedirectUrl: (_, { url }) => url,
+            },
+        ],
     })),
     selectors({
         breadcrumbs: [
@@ -200,8 +214,11 @@ export const onboardingLogic = kea<onboardingLogicType>([
             },
         ],
         onCompleteOnboardingRedirectUrl: [
-            (s) => [s.productKey],
-            (productKey: string | null) => {
+            (s) => [s.productKey, s.onCompleteOnboardingRedirectUrlOverride],
+            (productKey: string | null, onCompleteOnboardingRedirectUrlOverride) => {
+                if (onCompleteOnboardingRedirectUrlOverride) {
+                    return onCompleteOnboardingRedirectUrlOverride
+                }
                 return productKey ? getProductUri(productKey as ProductKey) : urls.default()
             },
         ],
@@ -314,7 +331,10 @@ export const onboardingLogic = kea<onboardingLogicType>([
             }
         },
 
-        completeOnboarding: ({ nextProductKey }) => {
+        completeOnboarding: ({ nextProductKey, redirectUrlOverride }) => {
+            if (redirectUrlOverride) {
+                actions.setOnCompleteOnboardingRedirectUrl(redirectUrlOverride)
+            }
             if (values.productKey) {
                 const product = values.productKey
                 eventUsageLogic.actions.reportOnboardingCompleted(product)
@@ -351,11 +371,11 @@ export const onboardingLogic = kea<onboardingLogicType>([
             }
             return [`/onboarding/${values.productKey}`, router.values.searchParams]
         },
-        goToNextStep: () => {
+        goToNextStep: ({ numStepsToAdvance }) => {
             const currentStepIndex = values.allOnboardingSteps.findIndex(
                 (step) => step.props.stepKey === values.stepKey
             )
-            const nextStep = values.allOnboardingSteps[currentStepIndex + 1]
+            const nextStep = values.allOnboardingSteps[currentStepIndex + (numStepsToAdvance || 1)]
             if (nextStep) {
                 return [
                     `/onboarding/${values.productKey}`,

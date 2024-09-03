@@ -1,7 +1,7 @@
 import { CdpProcessedEventsConsumer } from '../../src/cdp/cdp-consumers'
 import { HogFunctionType } from '../../src/cdp/types'
 import { Hub, Team } from '../../src/types'
-import { createHub } from '../../src/utils/db/hub'
+import { closeHub, createHub } from '../../src/utils/db/hub'
 import { getFirstTeam, resetTestDatabase } from '../helpers/sql'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './examples'
 import { createIncomingEvent, createMessage, insertHogFunction as _insertHogFunction } from './fixtures'
@@ -74,7 +74,6 @@ const decodeKafkaMessage = (message: any): any => {
 describe('CDP Processed Events Consuner', () => {
     let processor: CdpProcessedEventsConsumer
     let hub: Hub
-    let closeHub: () => Promise<void>
     let team: Team
 
     const insertHogFunction = async (hogFunction: Partial<HogFunctionType>) => {
@@ -86,7 +85,7 @@ describe('CDP Processed Events Consuner', () => {
 
     beforeEach(async () => {
         await resetTestDatabase()
-        ;[hub, closeHub] = await createHub()
+        hub = await createHub()
         team = await getFirstTeam(hub)
 
         processor = new CdpProcessedEventsConsumer(hub)
@@ -98,7 +97,7 @@ describe('CDP Processed Events Consuner', () => {
     afterEach(async () => {
         jest.setTimeout(10000)
         await processor.stop()
-        await closeHub()
+        await closeHub(hub)
     })
 
     afterAll(() => {
@@ -211,7 +210,7 @@ describe('CDP Processed Events Consuner', () => {
                 topic: 'log_entries_test',
                 value: {
                     log_source: 'hog_function',
-                    message: "Suspending function due to async function call 'fetch'. Payload: 1497 bytes",
+                    message: "Suspending function due to async function call 'fetch'. Payload: 1855 bytes",
                     team_id: 2,
                 },
             })

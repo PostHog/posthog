@@ -36,6 +36,7 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
 
     actions({
         setDateRange: (dateRange: DateRange) => ({ dateRange }),
+        setAssignee: (assignee: number | null) => ({ assignee }),
         setFilterGroup: (filterGroup: UniversalFiltersGroup) => ({ filterGroup }),
         setFilterTestAccounts: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
         setSparklineSelectedPeriod: (period: string | null) => ({ period }),
@@ -47,6 +48,13 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
             { persist: true },
             {
                 setDateRange: (_, { dateRange }) => dateRange,
+            },
+        ],
+        assignee: [
+            null as number | null,
+            { persist: true },
+            {
+                setAssignee: (_, { assignee }) => assignee,
             },
         ],
         filterGroup: [

@@ -37,6 +37,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
         schemaLoadingFinished: (schema: ExternalDataSourceSchema) => ({ schema }),
         abortAnyRunningQuery: true,
         deleteSelfManagedTable: (tableId: string) => ({ tableId }),
+        refreshSelfManagedTableSchema: (tableId: string) => ({ tableId }),
     }),
     loaders(({ cache, actions, values }) => ({
         dataWarehouseSources: [
@@ -146,6 +147,12 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
     listeners(({ actions, values, cache }) => ({
         deleteSelfManagedTable: async ({ tableId }) => {
             await api.dataWarehouseTables.delete(tableId)
+            actions.loadDatabase()
+        },
+        refreshSelfManagedTableSchema: async ({ tableId }) => {
+            lemonToast.info('Updating schema...')
+            await api.dataWarehouseTables.refreshSchema(tableId)
+            lemonToast.success('Schema updated')
             actions.loadDatabase()
         },
         deleteSource: async ({ source }) => {

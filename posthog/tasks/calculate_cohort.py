@@ -14,6 +14,7 @@ from posthog.models.cohort.util import clear_stale_cohortpeople
 from posthog.models.user import User
 from prometheus_client import Gauge
 from sentry_sdk import set_tag
+from posthog.api.monitoring import Feature
 
 COHORT_RECALCULATIONS_BACKLOG_GAUGE = Gauge(
     "cohort_recalculations_backlog",
@@ -55,10 +56,6 @@ def calculate_cohorts() -> None:
 
 
 def update_cohort(cohort: Cohort, *, initiating_user: Optional[User]) -> None:
-    set_tag("component", "cohort")
-    set_tag("cohort_id", cohort.id)
-    set_tag("team_id", cohort.team.id)
-
     pending_version = get_and_update_pending_version(cohort)
     calculate_cohort_ch.delay(cohort.id, pending_version, initiating_user.id if initiating_user else None)
 
@@ -72,6 +69,11 @@ def clear_stale_cohort(cohort_id: int, before_version: int) -> None:
 @shared_task(ignore_result=True, max_retries=2)
 def calculate_cohort_ch(cohort_id: int, pending_version: int, initiating_user_id: Optional[int] = None) -> None:
     cohort: Cohort = Cohort.objects.get(pk=cohort_id)
+
+    set_tag("feature", Feature.COHORT.value)
+    set_tag("cohort_id", cohort.id)
+    set_tag("team_id", cohort.team.id)
+
     cohort.calculate_people_ch(pending_version, initiating_user_id=initiating_user_id)
 
 

@@ -39,16 +39,22 @@ export type NewDestinationItemType = {
 export type NewDestinationFilters = {
     search?: string
     kind?: PipelineBackend
+    sub_template?: string
+}
+
+export type NewDestinationsLogicProps = {
+    defaultFilters?: NewDestinationFilters
+    forceFilters?: NewDestinationFilters
 }
 
 // Helping kea-typegen navigate the exported default class for Fuse
 export interface Fuse extends FuseClass<NewDestinationItemType> {}
 
 export const newDestinationsLogic = kea<newDestinationsLogicType>([
+    path(() => ['scenes', 'pipeline', 'destinations', 'newDestinationsLogic']),
     connect({
         values: [userLogic, ['user'], featureFlagLogic, ['featureFlags']],
     }),
-    path(() => ['scenes', 'pipeline', 'destinations', 'newDestinationsLogic']),
     actions({
         setFilters: (filters: Partial<NewDestinationFilters>) => ({ filters }),
         resetFilters: true,
@@ -137,15 +143,16 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
                         ).url,
                         status: hogFunction.status,
                     })),
-                    ...Object.values(plugins).map((plugin) => ({
-                        icon: <RenderApp plugin={plugin} />,
-                        name: plugin.name,
-                        description: plugin.description || '',
-                        backend: PipelineBackend.Plugin,
-                        url: urls.pipelineNodeNew(PipelineStage.Destination, `${plugin.id}`),
-                        status: hogFunctionsEnabled ? ('deprecated' as const) : undefined,
-                    })),
-
+                    ...Object.values(plugins)
+                        .filter((x) => !hogFunctionsEnabled || !x.hog_function_migration_available)
+                        .map((plugin) => ({
+                            icon: <RenderApp plugin={plugin} />,
+                            name: plugin.name,
+                            description: plugin.description || '',
+                            backend: PipelineBackend.Plugin,
+                            url: urls.pipelineNodeNew(PipelineStage.Destination, `${plugin.id}`),
+                            status: hogFunctionsEnabled ? ('deprecated' as const) : undefined,
+                        })),
                     ...batchExportServiceNames.map((service) => ({
                         icon: <RenderBatchExportIcon type={service} />,
                         name: humanizeBatchExportName(service),

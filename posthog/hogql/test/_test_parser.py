@@ -200,6 +200,50 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
 
         def test_lambdas(self):
             self.assertEqual(
+                self._expr("(x, y) -> x * y"),
+                ast.Lambda(
+                    args=["x", "y"],
+                    expr=ast.ArithmeticOperation(
+                        op=ast.ArithmeticOperationOp.Mult,
+                        left=ast.Field(chain=["x"]),
+                        right=ast.Field(chain=["y"]),
+                    ),
+                ),
+            )
+            self.assertEqual(
+                self._expr("x, y -> x * y"),
+                ast.Lambda(
+                    args=["x", "y"],
+                    expr=ast.ArithmeticOperation(
+                        op=ast.ArithmeticOperationOp.Mult,
+                        left=ast.Field(chain=["x"]),
+                        right=ast.Field(chain=["y"]),
+                    ),
+                ),
+            )
+            self.assertEqual(
+                self._expr("(x) -> x * y"),
+                ast.Lambda(
+                    args=["x"],
+                    expr=ast.ArithmeticOperation(
+                        op=ast.ArithmeticOperationOp.Mult,
+                        left=ast.Field(chain=["x"]),
+                        right=ast.Field(chain=["y"]),
+                    ),
+                ),
+            )
+            self.assertEqual(
+                self._expr("x -> x * y"),
+                ast.Lambda(
+                    args=["x"],
+                    expr=ast.ArithmeticOperation(
+                        op=ast.ArithmeticOperationOp.Mult,
+                        left=ast.Field(chain=["x"]),
+                        right=ast.Field(chain=["y"]),
+                    ),
+                ),
+            )
+            self.assertEqual(
                 self._expr("arrayMap(x -> x * 2)"),
                 ast.Call(
                     name="arrayMap",
@@ -245,6 +289,54 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                             ),
                         )
                     ],
+                ),
+            )
+
+        def test_lambda_blocks(self):
+            self.assertEqual(
+                self._expr("(x, y) -> { print('hello'); return x * y }"),
+                ast.Lambda(
+                    args=["x", "y"],
+                    expr=ast.Block(
+                        declarations=[
+                            ast.ExprStatement(expr=ast.Call(name="print", args=[ast.Constant(value="hello")])),
+                            ast.ReturnStatement(
+                                expr=ast.ArithmeticOperation(
+                                    op=ast.ArithmeticOperationOp.Mult,
+                                    left=ast.Field(chain=["x"]),
+                                    right=ast.Field(chain=["y"]),
+                                )
+                            ),
+                        ]
+                    ),
+                ),
+            )
+
+        def test_call_expr(self):
+            self.assertEqual(
+                self._expr("asd.asd(123)"),
+                ast.ExprCall(
+                    expr=ast.Field(chain=["asd", "asd"]),
+                    args=[ast.Constant(value=123)],
+                ),
+            )
+            self.assertEqual(
+                self._expr("asd['asd'](123)"),
+                ast.ExprCall(
+                    expr=ast.ArrayAccess(array=ast.Field(chain=["asd"]), property=ast.Constant(value="asd")),
+                    args=[ast.Constant(value=123)],
+                ),
+            )
+            self.assertEqual(
+                self._expr("(x -> x * 2)(3)"),
+                ast.ExprCall(
+                    expr=ast.Lambda(
+                        args=["x"],
+                        expr=ast.ArithmeticOperation(
+                            op=ast.ArithmeticOperationOp.Mult, left=ast.Field(chain=["x"]), right=ast.Constant(value=2)
+                        ),
+                    ),
+                    args=[ast.Constant(value=3)],
                 ),
             )
 
@@ -2054,7 +2146,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
 
         def test_program_function(self):
             code = """
-                fn query(a, b) {
+                fun query(a, b) {
                     let c := 3;
                 }
             """
@@ -2074,12 +2166,13 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             self.assertEqual(program, expected)
 
         def test_program_functions(self):
+            # test both "fn" (deprecated) and "fun"
             code = """
                 fn query(a, b) {
                     let c := 3;
                 }
 
-                fn read(a, b) {
+                fun read(a, b) {
                     print(3);
                     let b := 4;
                 }

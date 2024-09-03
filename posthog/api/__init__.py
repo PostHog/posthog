@@ -4,24 +4,26 @@ from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.batch_exports import http as batch_exports
 from posthog.settings import EE_AVAILABLE
 from posthog.warehouse.api import (
+    external_data_schema,
     external_data_source,
+    modeling,
     saved_query,
     table,
     view_link,
-    external_data_schema,
 )
-from ..heatmaps.heatmaps_api import LegacyHeatmapViewSet, HeatmapViewSet
-from .session import SessionViewSet
+
+from ..heatmaps.heatmaps_api import HeatmapViewSet, LegacyHeatmapViewSet
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
 from . import (
-    alert,
     activity_log,
+    alert,
     annotation,
     app_metrics,
     async_migration,
     authentication,
     comments,
     dead_letter_queue,
+    debug_ch_queries,
     early_access_feature,
     error_tracking,
     event_definition,
@@ -46,18 +48,18 @@ from . import (
     property_definition,
     proxy_record,
     query,
-    search,
     scheduled_change,
+    search,
     sharing,
     survey,
     tagged_item,
     team,
     uploaded_media,
     user,
-    debug_ch_queries,
 )
 from .dashboards import dashboard, dashboard_templates
 from .data_management import DataManagementViewSet
+from .session import SessionViewSet
 
 
 @decorators.api_view(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"])
@@ -227,6 +229,19 @@ projects_router.register(
     "environment_external_data_sources",
     ["team_id"],
 )
+projects_router.register(
+    r"warehouse_dag",
+    modeling.DataWarehouseModelDagViewSet,
+    "project_warehouse_dag",
+    ["team_id"],
+)
+projects_router.register(
+    r"warehouse_model_paths",
+    modeling.DataWarehouseModelPathViewSet,
+    "project_warehouse_model_paths",
+    ["team_id"],
+)
+
 
 projects_router.register(
     r"external_data_schemas",
@@ -382,6 +397,20 @@ project_insights_router.register(
     r"sharing",
     sharing.SharingConfigurationViewSet,
     "environment_insight_sharing",
+    ["team_id", "insight_id"],
+)
+
+project_insights_router.register(
+    "thresholds",
+    alert.ThresholdViewSet,
+    "project_insight_thresholds",
+    ["team_id", "insight_id"],
+)
+
+project_insights_router.register(
+    "alerts",
+    alert.AlertViewSet,
+    "project_insight_alerts",
     ["team_id", "insight_id"],
 )
 

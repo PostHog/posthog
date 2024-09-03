@@ -177,7 +177,7 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     },
     [Scene.Experiments]: {
         projectBased: true,
-        name: 'A/B testing',
+        name: 'Experiments',
         defaultDocsPath: '/docs/experiments',
         activityScope: ActivityScope.EXPERIMENT,
     },

@@ -1,3 +1,4 @@
+import cyclotron from '@posthog/cyclotron'
 import { captureException } from '@sentry/node'
 import { features, librdkafkaVersion, Message } from 'node-rdkafka'
 import { Counter, Histogram } from 'prom-client'
@@ -15,7 +16,7 @@ import { createRdConnectionConfigFromEnvVars, createRdProducerConfigFromEnvVars 
 import { createKafkaProducer } from '../kafka/producer'
 import { addSentryBreadcrumbsEventListeners } from '../main/ingestion-queues/kafka-metrics'
 import { runInstrumentedFunction } from '../main/utils'
-import { AppMetric2Type, Hub, RawClickHouseEvent, TeamId, TimestampFormat } from '../types'
+import { AppMetric2Type, Hub, PluginServerService, RawClickHouseEvent, TeamId, TimestampFormat } from '../types'
 import { KafkaProducerWrapper } from '../utils/db/kafka-producer-wrapper'
 import { captureTeamEvent } from '../utils/posthog'
 import { status } from '../utils/status'
@@ -110,6 +111,15 @@ abstract class CdpConsumerBase {
         const rustyHook = this.hub?.rustyHook ?? new RustyHook(this.hub)
         this.asyncFunctionExecutor = new AsyncFunctionExecutor(this.hub, rustyHook)
         this.groupsManager = new GroupsManager(this.hub)
+    }
+
+    public get service(): PluginServerService {
+        return {
+            id: this.consumerGroupId,
+            onShutdown: async () => await this.stop(),
+            healthcheck: () => this.isHealthy() ?? false,
+            batchConsumer: this.batchConsumer,
+        }
     }
 
     private async captureInternalPostHogEvent(
@@ -443,7 +453,12 @@ abstract class CdpConsumerBase {
         const globalConnectionConfig = createRdConnectionConfigFromEnvVars(this.hub)
         const globalProducerConfig = createRdProducerConfigFromEnvVars(this.hub)
 
-        await Promise.all([this.hogFunctionManager.start()])
+        await Promise.all([
+            this.hogFunctionManager.start(),
+            this.hub.CYCLOTRON_DATABASE_URL
+                ? cyclotron.initManager({ shards: [{ dbUrl: this.hub.CYCLOTRON_DATABASE_URL }] })
+                : Promise.resolve(),
+        ])
 
         this.kafkaProducer = new KafkaProducerWrapper(
             await createKafkaProducer(globalConnectionConfig, globalProducerConfig)
@@ -691,5 +706,59 @@ export class CdpOverflowConsumer extends CdpConsumerBase {
         })
 
         return invocationGlobals
+    }
+}
+
+// TODO: Split out non-Kafka specific parts of CdpConsumerBase so that it can be used by the
+// Cyclotron worker below. Or maybe we can just wait, and rip the Kafka bits out once Cyclotron is
+// shipped (and rename it something other than consomer, probably). For now, this is an easy way to
+// use existing code and get an end-to-end demo shipped.
+export class CdpCyclotronWorker extends CdpConsumerBase {
+    protected name = 'CdpCyclotronWorker'
+    protected topic = 'UNUSED-CdpCyclotronWorker'
+    protected consumerGroupId = 'UNUSED-CdpCyclotronWorker'
+    private runningWorker: Promise<void> | undefined
+    private isUnhealthy = false
+
+    public async _handleEachBatch(_: Message[]): Promise<void> {
+        // Not called, we override `start` below to use Cyclotron instead.
+    }
+
+    private async innerStart() {
+        try {
+            const limit = 100 // TODO: Make configurable.
+            while (!this.isStopping) {
+                const jobs = await cyclotron.dequeueJobsWithVmState('hog', limit)
+                for (const job of jobs) {
+                    // TODO: Reassemble a HogFunctionInvocationAsyncResponse (or whatever proper type)
+                    // from the fields on the job, and then execute the next Hog step.
+                    console.log(job.id)
+                }
+            }
+        } catch (err) {
+            this.isUnhealthy = true
+            console.error('Error in Cyclotron worker', err)
+            throw err
+        }
+    }
+
+    public async start() {
+        await cyclotron.initManager({ shards: [{ dbUrl: this.hub.CYCLOTRON_DATABASE_URL }] })
+        await cyclotron.initWorker({ dbUrl: this.hub.CYCLOTRON_DATABASE_URL })
+
+        // Consumer `start` expects an async task is started, and not that `start` itself blocks
+        // indefinitely.
+        this.runningWorker = this.innerStart()
+
+        return Promise.resolve()
+    }
+
+    public async stop() {
+        await super.stop()
+        await this.runningWorker
+    }
+
+    public isHealthy() {
+        return this.isUnhealthy
     }
 }

@@ -12,7 +12,7 @@ pub const TEAM_FLAGS_CACHE_PREFIX: &str = "posthog:1:team_feature_flags_";
 #[derive(Debug, Deserialize)]
 pub enum GroupTypeIndex {}
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OperatorType {
     Exact,
@@ -32,7 +32,7 @@ pub enum OperatorType {
     IsDateBefore,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PropertyFilter {
     pub key: String,
     // TODO: Probably need a default for value?
@@ -45,26 +45,26 @@ pub struct PropertyFilter {
     pub group_type_index: Option<i8>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct FlagGroupType {
     pub properties: Option<Vec<PropertyFilter>>,
     pub rollout_percentage: Option<f64>,
     pub variant: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct MultivariateFlagVariant {
     pub key: String,
     pub name: Option<String>,
     pub rollout_percentage: f64,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct MultivariateFlagOptions {
     pub variants: Vec<MultivariateFlagVariant>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct FlagFilters {
     pub groups: Vec<FlagGroupType>,
     pub multivariate: Option<MultivariateFlagOptions>,
@@ -73,7 +73,7 @@ pub struct FlagFilters {
     pub super_groups: Option<Vec<FlagGroupType>>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct FeatureFlag {
     pub id: i32,
     pub team_id: i32,
@@ -117,7 +117,7 @@ impl FeatureFlag {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct FeatureFlagList {
     pub flags: Vec<FeatureFlag>,
 }
@@ -188,6 +188,27 @@ impl FeatureFlagList {
             .collect::<Result<Vec<FeatureFlag>, FlagError>>()?;
 
         Ok(FeatureFlagList { flags: flags_list })
+    }
+
+    pub async fn update_flags_in_redis(
+        client: Arc<dyn RedisClient + Send + Sync>,
+        team_id: i32,
+        flags: &FeatureFlagList,
+    ) -> Result<(), FlagError> {
+        let payload = serde_json::to_string(&flags.flags).map_err(|e| {
+            tracing::error!("Failed to serialize flags: {}", e);
+            FlagError::DataParsingError
+        })?;
+
+        client
+            .set(format!("{TEAM_FLAGS_CACHE_PREFIX}{}", team_id), payload)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to update Redis cache: {}", e);
+                FlagError::CacheUpdateError
+            })?;
+
+        Ok(())
     }
 }
 
@@ -1371,23 +1392,46 @@ mod tests {
         }
 
         // Fetch flags from both sources
-        let redis_flags = FeatureFlagList::from_redis(redis_client, team.id)
+        let mut redis_flags = FeatureFlagList::from_redis(redis_client, team.id)
             .await
             .expect("Failed to fetch flags from Redis");
-        let pg_flags = FeatureFlagList::from_pg(pg_client, team.id)
+        let mut pg_flags = FeatureFlagList::from_pg(pg_client, team.id)
             .await
             .expect("Failed to fetch flags from Postgres");
 
+        // Sort flags by key to ensure consistent order
+        redis_flags.flags.sort_by(|a, b| a.key.cmp(&b.key));
+        pg_flags.flags.sort_by(|a, b| a.key.cmp(&b.key));
+
         // Compare results
-        assert_eq!(redis_flags.flags.len(), pg_flags.flags.len());
+        assert_eq!(
+            redis_flags.flags.len(),
+            pg_flags.flags.len(),
+            "Number of flags mismatch"
+        );
+
         for (redis_flag, pg_flag) in redis_flags.flags.iter().zip(pg_flags.flags.iter()) {
-            assert_eq!(redis_flag.key, pg_flag.key);
-            assert_eq!(redis_flag.name, pg_flag.name);
-            assert_eq!(redis_flag.active, pg_flag.active);
-            assert_eq!(redis_flag.deleted, pg_flag.deleted);
+            assert_eq!(redis_flag.key, pg_flag.key, "Flag key mismatch");
+            assert_eq!(
+                redis_flag.name, pg_flag.name,
+                "Flag name mismatch for key: {}",
+                redis_flag.key
+            );
+            assert_eq!(
+                redis_flag.active, pg_flag.active,
+                "Flag active status mismatch for key: {}",
+                redis_flag.key
+            );
+            assert_eq!(
+                redis_flag.deleted, pg_flag.deleted,
+                "Flag deleted status mismatch for key: {}",
+                redis_flag.key
+            );
             assert_eq!(
                 redis_flag.filters.groups[0].rollout_percentage,
-                pg_flag.filters.groups[0].rollout_percentage
+                pg_flag.filters.groups[0].rollout_percentage,
+                "Flag rollout percentage mismatch for key: {}",
+                redis_flag.key
             );
         }
     }

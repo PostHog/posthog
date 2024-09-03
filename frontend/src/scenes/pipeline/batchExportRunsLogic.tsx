@@ -102,15 +102,44 @@ export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
                 end_at: !end_at ? 'End date is required' : undefined,
             }),
             submit: async ({ start_at, end_at }) => {
-                if (values.batchExportConfig && values.batchExportConfig.interval.endsWith('minutes')) {
+                if (
+                    values.batchExportConfig &&
+                    values.batchExportConfig.interval.endsWith('minutes') &&
+                    start_at?.minute() !== undefined &&
+                    end_at?.minute() !== undefined
+                ) {
                     // TODO: Make this generic for all minute frequencies.
                     // Currently, only 5 minute batch exports are supported.
-                    if (
-                        !(start_at?.minute() && start_at?.minute() % 5 === 0) ||
-                        !(end_at?.minute() && end_at?.minute() % 5 === 0)
-                    ) {
+                    if (!(start_at?.minute() % 5 === 0) || !(end_at?.minute() % 5 === 0)) {
                         lemonToast.error(
                             'Backfilling a 5 minute batch export requires bounds be multiple of five minutes'
+                        )
+                        return
+                    }
+                }
+
+                let upperBound = dayjs().tz(teamLogic.values.timezone)
+                let period = '1 hour'
+
+                if (values.batchExportConfig && end_at) {
+                    if (values.batchExportConfig.interval == 'hour') {
+                        upperBound = upperBound.add(1, 'hour')
+                    } else if (values.batchExportConfig.interval == 'day') {
+                        upperBound = upperBound.hour(0).minute(0).second(0)
+                        upperBound = upperBound.add(1, 'day')
+                        period = '1 day'
+                    } else if (values.batchExportConfig.interval.endsWith('minutes')) {
+                        // TODO: Make this generic for all minute frequencies.
+                        // Currently, only 5 minute batch exports are supported.
+                        upperBound = upperBound.add(5, 'minute')
+                        period = '5 minutes'
+                    } else {
+                        upperBound = upperBound.add(1, 'hour')
+                    }
+
+                    if (end_at > upperBound) {
+                        lemonToast.error(
+                            `Requested backfill end date lies too far into the future. Use an end date that is no more than ${period} from now (in your project's timezone)`
                         )
                         return
                     }
