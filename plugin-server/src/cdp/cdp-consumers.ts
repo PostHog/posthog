@@ -1,4 +1,4 @@
-import { CyclotronManager, CyclotronWorker } from '@posthog/cyclotron'
+import { CyclotronManager, CyclotronWorker, Job } from '@posthog/cyclotron'
 import { captureException } from '@sentry/node'
 import { Message } from 'node-rdkafka'
 import { Counter, Histogram } from 'prom-client'
@@ -20,7 +20,7 @@ import { createKafkaProducerWrapper } from '../utils/db/hub'
 import { KafkaProducerWrapper } from '../utils/db/kafka-producer-wrapper'
 import { captureTeamEvent } from '../utils/posthog'
 import { status } from '../utils/status'
-import { castTimestampOrNow, delay } from '../utils/utils'
+import { castTimestampOrNow } from '../utils/utils'
 import { RustyHook } from '../worker/rusty-hook'
 import { FetchExecutor } from './fetch-executor'
 import { GroupsManager } from './groups-manager'
@@ -645,7 +645,6 @@ export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
                                     invocationSerialized.hogFunctionId
                                 )
                                 if (!hogFunction) {
-                                    console.log('HERE!!!!', invocationSerialized)
                                     status.error('Error finding hog function', {
                                         id: invocationSerialized.hogFunctionId,
                                     })
@@ -698,7 +697,6 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
     protected name = 'CdpCyclotronWorker'
     private cyclotronWorker?: CyclotronWorker
     private runningWorker: Promise<void> | undefined
-    private isUnhealthy = false
     protected queue: 'hog' | 'fetch' = 'hog'
     protected limit = 100
 
@@ -712,7 +710,6 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
             func: async () => {
                 // NOTE: In the future this service will never do fetching (unless we decide we want to do it in node at some point)
                 // This is just "for now" to support the transition to cyclotron
-                console.log('processing invocations', invocations)
                 const fetchQueue = invocations.filter((item) => item.queue === 'fetch')
                 const fetchResults = await this.runManyWithHeartbeat(fetchQueue, (item) =>
                     this.fetchExecutor.execute(item)
@@ -734,13 +731,13 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
             invocations.map(async (item) => {
                 const id = item.invocation.id
                 if (item.finished) {
-                    console.log('Updating job to completed', id)
+                    status.debug('⚡️', 'Updating job to completed', id)
                     this.cyclotronWorker?.updateJob(id, 'completed')
                 } else if (item.error) {
-                    console.log('Updating job to failed', id)
+                    status.debug('⚡️', 'Updating job to failed', id)
                     this.cyclotronWorker?.updateJob(id, 'failed')
                 } else {
-                    console.log('Updating job to available', id)
+                    status.debug('⚡️', 'Updating job to available', id)
                     this.cyclotronWorker?.updateJob(id, 'available', {
                         priority: item.invocation.priority,
                         vmState: serializeHogFunctionInvocation(item.invocation),
@@ -753,86 +750,70 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
         )
     }
 
-    private async innerStart() {
-        try {
-            while (!this.isStopping) {
-                const jobs = await this.cyclotronWorker!.dequeueJobsWithVmState(this.queue, this.limit)
-                const invocations: HogFunctionInvocation[] = []
+    private async handleJobBatch(jobs: Job[]) {
+        console.log('RECEIVED JOBS', jobs)
+        const invocations: HogFunctionInvocation[] = []
 
-                if (!jobs.length) {
-                    await delay(100)
-                    continue
-                }
-
-                for (const job of jobs) {
-                    // NOTE: This is all a bit messy and might be better to refactor into a helper
-                    if (!job.functionId) {
-                        throw new Error('Bad job: ' + JSON.stringify(job))
-                    }
-                    const hogFunction = this.hogFunctionManager.getHogFunction(job.functionId)
-
-                    if (!hogFunction) {
-                        // Here we need to mark the job as failed
-
-                        status.error('Error finding hog function', {
-                            id: job.functionId,
-                        })
-                        this.cyclotronWorker?.updateJob(job.id, 'failed')
-                        await this.cyclotronWorker?.flushJob(job.id)
-                        continue
-                    }
-
-                    const parsedState = job.vmState as HogFunctionInvocationSerialized
-
-                    // TODO: Should ID come from the job or the state?
-                    invocations.push({
-                        id: job.id,
-                        globals: parsedState.globals,
-                        teamId: hogFunction.team_id,
-                        hogFunction,
-                        priority: job.priority,
-                        queue: (job.queueName as any) ?? 'hog',
-                        queueParameters: job.parameters as HogFunctionInvocationQueueParameters | undefined,
-                        vmState: parsedState.vmState,
-                        timings: parsedState.timings,
-                    })
-                }
-
-                await this.processBatch(invocations)
+        for (const job of jobs) {
+            // NOTE: This is all a bit messy and might be better to refactor into a helper
+            if (!job.functionId) {
+                throw new Error('Bad job: ' + JSON.stringify(job))
             }
-        } catch (err) {
-            this.isUnhealthy = true
-            console.error('Error in Cyclotron worker', err)
-            throw err
+            const hogFunction = this.hogFunctionManager.getHogFunction(job.functionId)
+
+            if (!hogFunction) {
+                // Here we need to mark the job as failed
+
+                status.error('Error finding hog function', {
+                    id: job.functionId,
+                })
+                this.cyclotronWorker?.updateJob(job.id, 'failed')
+                await this.cyclotronWorker?.flushJob(job.id)
+                continue
+            }
+
+            const parsedState = job.vmState as HogFunctionInvocationSerialized
+
+            // TODO: Should ID come from the job or the state?
+            invocations.push({
+                id: job.id,
+                globals: parsedState.globals,
+                teamId: hogFunction.team_id,
+                hogFunction,
+                priority: job.priority,
+                queue: (job.queueName as any) ?? 'hog',
+                queueParameters: job.parameters as HogFunctionInvocationQueueParameters | undefined,
+                vmState: parsedState.vmState,
+                timings: parsedState.timings,
+            })
         }
 
-        console.log('Cyclotron worker stopped')
+        await this.processBatch(invocations)
     }
 
     public async start() {
         await super.start()
 
-        this.cyclotronWorker = new CyclotronWorker({ dbUrl: this.hub.CYCLOTRON_DATABASE_URL })
-        await this.cyclotronWorker.connect()
-
-        // Consumer `start` expects an async task is started, and not that `start` itself blocks
-        // indefinitely.
-        this.runningWorker = this.innerStart()
-
-        return Promise.resolve()
+        this.cyclotronWorker = new CyclotronWorker({
+            pool: { dbUrl: this.hub.CYCLOTRON_DATABASE_URL },
+            queueName: this.queue,
+            includeVmState: true,
+        })
+        await this.cyclotronWorker.connect((jobs) => this.handleJobBatch(jobs))
     }
 
     public async stop() {
         await super.stop()
-        // this.cyclotronWorker.disconnect()
+        await this.cyclotronWorker?.disconnect()
         await this.runningWorker
     }
 
     public isHealthy() {
-        return this.isUnhealthy
+        return this.cyclotronWorker?.isHealthy() ?? false
     }
 }
 
+// Mostly used for testing
 export class CdpCyclotronWorkerFetch extends CdpCyclotronWorker {
     protected name = 'CdpCyclotronWorkerFetch'
     protected queue = 'fetch' as const
