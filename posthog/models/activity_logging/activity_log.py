@@ -220,6 +220,7 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "property_type_format",
     ],
     "Team": ["uuid", "updated_at", "api_token", "created_at", "id"],
+    "Project": ["id", "created_at"],
 }
 
 

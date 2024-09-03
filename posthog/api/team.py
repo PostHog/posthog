@@ -3,7 +3,6 @@ from functools import cached_property
 from typing import Any, Optional, cast
 from datetime import timedelta
 
-from django.core.cache import cache
 from django.shortcuts import get_object_or_404
 from loginas.utils import is_impersonated_session
 from posthog.jwt import PosthogJwtAudience, encode_jwt
@@ -18,7 +17,6 @@ from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import (
-    Change,
     Detail,
     dict_changes_between,
     load_activity,
@@ -30,9 +28,8 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import APIScopeObjectOrNotSupported
 from posthog.models.signals import mute_selected_signals
-from posthog.models.team.team import set_team_in_cache
 from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data
-from posthog.models.utils import UUIDT, generate_random_token_project
+from posthog.models.utils import UUIDT
 from posthog.permissions import (
     CREATE_METHODS,
     APIScopePermission,
@@ -457,7 +454,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             activity="deleted",
             detail=Detail(name=str(team_name)),
         )
-        # TRICKY: We pass in Team here as otherwise the access to "current_team" can fail if it was deleted
+        # TRICKY: We pass in `team` here as access to `user.current_team` can fail if it was deleted
         report_user_action(user, f"team deleted", team=team)
 
     @action(
@@ -468,31 +465,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def reset_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
         team = self.get_object()
-        old_token = team.api_token
-        team.api_token = generate_random_token_project()
-        team.save()
-
-        log_activity(
-            organization_id=team.organization_id,
-            team_id=team.pk,
-            user=cast(User, request.user),
-            was_impersonated=is_impersonated_session(request),
-            scope="Team",
-            item_id=team.pk,
-            activity="updated",
-            detail=Detail(
-                name=str(team.name),
-                changes=[
-                    Change(
-                        type="Team",
-                        action="changed",
-                        field="api_token",
-                    )
-                ],
-            ),
-        )
-
-        set_team_in_cache(old_token, None)
+        team.reset_token_and_save(is_impersonated_session=is_impersonated_session(request))
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 
     @action(
@@ -502,8 +475,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def is_generating_demo_data(self, request: request.Request, id: str, **kwargs) -> response.Response:
         team = self.get_object()
-        cache_key = f"is_generating_demo_data_{team.pk}"
-        return response.Response({"is_generating_demo_data": cache.get(cache_key) == "True"})
+        return response.Response({"is_generating_demo_data": team.get_is_generating_demo_data()})
 
     @action(methods=["GET"], detail=True)
     def activity(self, request: request.Request, **kwargs):

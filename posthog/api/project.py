@@ -2,7 +2,6 @@ from datetime import timedelta
 from functools import cached_property
 from typing import Any, Optional, cast
 
-from django.core.cache import cache
 from django.shortcuts import get_object_or_404
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, request, response, serializers, viewsets
@@ -17,7 +16,6 @@ from posthog.event_usage import report_user_action
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import (
-    Change,
     Detail,
     dict_changes_between,
     load_activity,
@@ -30,9 +28,9 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import APIScopeObjectOrNotSupported
 from posthog.models.project import Project
 from posthog.models.signals import mute_selected_signals
-from posthog.models.team.team import set_team_in_cache
+from posthog.models.team.team import Team
 from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data
-from posthog.models.utils import UUIDT, generate_random_token_project
+from posthog.models.utils import UUIDT
 from posthog.permissions import (
     APIScopePermission,
     OrganizationAdminWritePermissions,
@@ -220,7 +218,17 @@ class ProjectSerializer(ProjectBasicSerializer, UserPermissionsSerializerMixin):
         request.user.save()
 
         log_activity(
-            organization_id=team.organization_id,
+            organization_id=project.organization_id,
+            team_id=project.pk,
+            user=request.user,
+            was_impersonated=is_impersonated_session(request),
+            scope="Project",
+            item_id=project.pk,
+            activity="created",
+            detail=Detail(name=str(project.name)),
+        )
+        log_activity(
+            organization_id=project.organization_id,
             team_id=team.pk,
             user=request.user,
             was_impersonated=is_impersonated_session(request),
@@ -235,6 +243,7 @@ class ProjectSerializer(ProjectBasicSerializer, UserPermissionsSerializerMixin):
     def update(self, instance: Project, validated_data: dict[str, Any]) -> Project:
         team = instance.passthrough_team
         team_before_update = team.__dict__.copy()
+        project_before_update = instance.__dict__.copy()
 
         if (
             "session_replay_config" in validated_data
@@ -279,21 +288,40 @@ class ProjectSerializer(ProjectBasicSerializer, UserPermissionsSerializerMixin):
             team.save()
 
         team_after_update = team.__dict__.copy()
-        changes = dict_changes_between("Team", team_before_update, team_after_update, use_field_exclusions=True)
-
-        log_activity(
-            organization_id=cast(UUIDT, instance.organization_id),
-            team_id=instance.pk,
-            user=cast(User, self.context["request"].user),
-            was_impersonated=is_impersonated_session(request),
-            scope="Team",
-            item_id=instance.pk,
-            activity="updated",
-            detail=Detail(
-                name=str(instance.name),
-                changes=changes,
-            ),
+        project_after_update = instance.__dict__.copy()
+        team_changes = dict_changes_between("Team", team_before_update, team_after_update, use_field_exclusions=True)
+        project_changes = dict_changes_between(
+            "Project", project_before_update, project_after_update, use_field_exclusions=True
         )
+
+        if team_changes:
+            log_activity(
+                organization_id=cast(UUIDT, instance.organization_id),
+                team_id=instance.pk,
+                user=cast(User, self.context["request"].user),
+                was_impersonated=is_impersonated_session(request),
+                scope="Team",
+                item_id=instance.pk,
+                activity="updated",
+                detail=Detail(
+                    name=str(team.name),
+                    changes=team_changes,
+                ),
+            )
+        if project_changes:
+            log_activity(
+                organization_id=cast(UUIDT, instance.organization_id),
+                team_id=instance.pk,
+                user=cast(User, self.context["request"].user),
+                was_impersonated=is_impersonated_session(request),
+                scope="Project",
+                item_id=instance.pk,
+                activity="updated",
+                detail=Detail(
+                    name=str(instance.name),
+                    changes=project_changes,
+                ),
+            )
 
         return instance
 
@@ -373,7 +401,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         user = cast(User, self.request.user)
 
-        teams = list(project.teams.all())
+        teams: list[Team] = list(project.teams.all())
         delete_bulky_postgres_data(team_ids=[team.id for team in teams])
         delete_batch_exports(team_ids=[team.pk for team in teams])
 
@@ -399,13 +427,29 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             team_id=project_id,
             user=user,
             was_impersonated=is_impersonated_session(self.request),
-            scope="Team",  # TODO: Change to "Project"
+            scope="Project",
             item_id=project_id,
             activity="deleted",
             detail=Detail(name=str(project_name)),
         )
-        # TRICKY: We pass in Team here as otherwise the access to "current_team" can fail if it was deleted
-        report_user_action(user, f"team deleted", team=teams[0])  # TODO: Change to "project deleted"
+        report_user_action(
+            user,
+            f"project deleted",
+            {"project_name": project_name},
+            team=teams[0],
+        )
+        for team in teams:
+            log_activity(
+                organization_id=cast(UUIDT, organization_id),
+                team_id=team.pk,
+                user=user,
+                was_impersonated=is_impersonated_session(self.request),
+                scope="Team",
+                item_id=team.pk,
+                activity="deleted",
+                detail=Detail(name=str(team.name)),
+            )
+            report_user_action(user, f"team deleted", team=team)
 
     @action(
         methods=["PATCH"],
@@ -415,32 +459,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def reset_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
         project = self.get_object()
-        team = project.passthrough_team
-        old_token = team.api_token
-        team.api_token = generate_random_token_project()
-        team.save()
-
-        log_activity(
-            organization_id=team.organization_id,
-            team_id=team.pk,
-            user=cast(User, request.user),
-            was_impersonated=is_impersonated_session(request),
-            scope="Team",
-            item_id=team.pk,
-            activity="updated",
-            detail=Detail(
-                name=str(team.name),
-                changes=[
-                    Change(
-                        type="Team",
-                        action="changed",
-                        field="api_token",
-                    )
-                ],
-            ),
-        )
-
-        set_team_in_cache(old_token, None)
+        project.passthrough_team.reset_token_and_save(is_impersonated_session=is_impersonated_session(request))
         return response.Response(ProjectSerializer(project, context=self.get_serializer_context()).data)
 
     @action(
@@ -450,12 +469,11 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def is_generating_demo_data(self, request: request.Request, id: str, **kwargs) -> response.Response:
         project = self.get_object()
-        cache_key = f"is_generating_demo_data_{project.pk}"
-        return response.Response({"is_generating_demo_data": cache.get(cache_key) == "True"})
+        return response.Response({"is_generating_demo_data": project.passthrough_team.get_is_generating_demo_data()})
 
     @action(methods=["GET"], detail=True)
     def activity(self, request: request.Request, **kwargs):
-        # TODO: Rework for Project scope
+        # TODO: This is currently the same as in TeamViewSet - we should rework for the Project scope
         limit = int(request.query_params.get("limit", "10"))
         page = int(request.query_params.get("page", "1"))
 

@@ -1,9 +1,9 @@
 import re
 from decimal import Decimal
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any, Optional, cast
+from typing import Any, Optional, cast
 from zoneinfo import ZoneInfo
-
+from django.core import cache
 import posthoganalytics
 import pydantic
 import pytz
@@ -40,8 +40,7 @@ from ...hogql.modifiers import set_default_modifier_values
 from ...schema import HogQLQueryModifiers, PathCleaningFilter, PersonsOnEventsMode
 from .team_caching import get_team_in_cache, set_team_in_cache
 
-if TYPE_CHECKING:
-    from posthog.models.user import User
+from posthog.models.user import User
 
 TIMEZONES = [(tz, tz) for tz in pytz.all_timezones]
 
@@ -448,6 +447,36 @@ class Team(UUIDClassicModel):
             except pydantic.ValidationError:
                 continue
         return filters
+
+    def reset_token_and_save(self, *, is_impersonated_session: bool):
+        from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+
+        old_token = self.api_token
+        self.api_token = generate_random_token_project()
+        self.save()
+        set_team_in_cache(old_token, None)
+        log_activity(
+            organization_id=self.organization_id,
+            team_id=self.pk,
+            user=cast(User, self.user),
+            was_impersonated=is_impersonated_session,
+            scope="Team",
+            item_id=self.pk,
+            activity="updated",
+            detail=Detail(
+                name=str(self.name),
+                changes=[
+                    Change(
+                        type="Team",
+                        action="changed",
+                        field="api_token",
+                    )
+                ],
+            ),
+        )
+
+    def get_is_generating_demo_data(self) -> bool:
+        return cache.get(f"is_generating_demo_data_{self.pk}") == "True"
 
     def all_users_with_access(self) -> QuerySet["User"]:
         from ee.models.explicit_team_membership import ExplicitTeamMembership
