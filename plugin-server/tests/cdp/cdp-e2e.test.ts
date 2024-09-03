@@ -7,7 +7,7 @@ import {
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../../src/cdp/types'
 import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '../../src/config/kafka-topics'
 import { Hub, Team } from '../../src/types'
-import { createHub } from '../../src/utils/db/hub'
+import { closeHub, createHub } from '../../src/utils/db/hub'
 import { waitForExpect } from '../helpers/expectations'
 import { getFirstTeam, resetTestDatabase } from '../helpers/sql'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './examples'
@@ -35,7 +35,6 @@ describe('CDP E2E', () => {
         let cyclotronWorker: CdpCyclotronWorker | undefined
         let cyclotronFetchWorker: CdpCyclotronWorkerFetch | undefined
         let hub: Hub
-        let closeHub: () => Promise<void>
         let team: Team
         let kafkaObserver: TestKafkaObserver
         let fnFetchNoFilters: HogFunctionType
@@ -48,7 +47,7 @@ describe('CDP E2E', () => {
 
         beforeEach(async () => {
             await resetTestDatabase()
-            ;[hub, closeHub] = await createHub()
+            hub = await createHub()
             team = await getFirstTeam(hub)
 
             fnFetchNoFilters = await insertHogFunction({
@@ -102,7 +101,7 @@ describe('CDP E2E', () => {
                 cyclotronWorker?.stop(),
                 cyclotronFetchWorker?.stop(),
             ])
-            await closeHub()
+            await closeHub(hub)
         })
 
         afterAll(() => {
