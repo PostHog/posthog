@@ -1,3 +1,5 @@
+import { DateTime } from 'luxon'
+
 import { ExceptionsManager } from '../../src/cdp/exceptions-manager'
 import { Hub } from '../../src/types'
 import { createHogExecutionGlobals, insertHogFunction as _insertHogFunction } from './fixtures'
@@ -5,6 +7,7 @@ import { createHogExecutionGlobals, insertHogFunction as _insertHogFunction } fr
 describe('Exceptions Manager', () => {
     jest.setTimeout(1000)
     let exceptionsManager: ExceptionsManager
+    let startTime: DateTime
 
     let mockGroups: { team_id: number; status: string; fingerprint: string[]; merged_fingerprints: string[][] }[] = []
 
@@ -16,6 +19,7 @@ describe('Exceptions Manager', () => {
 
     beforeEach(() => {
         exceptionsManager = new ExceptionsManager(mockHub as unknown as Hub)
+        startTime = DateTime.fromMillis(1620000000000)
     })
 
     describe('unit tests', () => {
@@ -43,17 +47,29 @@ describe('Exceptions Manager', () => {
             const items = [
                 // Should enrich a simple exception
                 createHogExecutionGlobals({
-                    event: { name: '$exception', properties: { $exception_fingerprint: ['custom_fp-1'] } } as any,
+                    event: {
+                        name: '$exception',
+                        properties: { $exception_fingerprint: ['custom_fp-1'] },
+                        timestamp: startTime,
+                    } as any,
                     project: { id: 1 } as any,
                 }),
                 // Should enrich archived fingerprints
                 createHogExecutionGlobals({
-                    event: { name: '$exception', properties: { $exception_fingerprint: ['custom_fp-2'] } } as any,
+                    event: {
+                        name: '$exception',
+                        properties: { $exception_fingerprint: ['custom_fp-2'] },
+                        timestamp: startTime,
+                    } as any,
                     project: { id: 1 } as any,
                 }),
                 // Should get the right fingerprint for its team
                 createHogExecutionGlobals({
-                    event: { name: '$exception', properties: { $exception_fingerprint: ['custom_fp-1'] } } as any,
+                    event: {
+                        name: '$exception',
+                        properties: { $exception_fingerprint: ['custom_fp-1'] },
+                        timestamp: startTime,
+                    } as any,
                     project: { id: 2 } as any,
                 }),
             ]
@@ -68,7 +84,7 @@ describe('Exceptions Manager', () => {
                       "SyntaxError",
                     ],
                   },
-                  "timestamp": "2024-09-03T10:58:54.703Z",
+                  "timestamp": "2021-05-03T01:00:00.000+01:00",
                   "url": "http://localhost:8000/events/1",
                   "uuid": "uuid",
                 }
@@ -82,7 +98,7 @@ describe('Exceptions Manager', () => {
                       "TypeError",
                     ],
                   },
-                  "timestamp": "2024-09-03T10:58:54.703Z",
+                  "timestamp": "2021-05-03T01:00:00.000+01:00",
                   "url": "http://localhost:8000/events/1",
                   "uuid": "uuid",
                 }
@@ -96,7 +112,7 @@ describe('Exceptions Manager', () => {
                       "ApiError",
                     ],
                   },
-                  "timestamp": "2024-09-03T10:58:54.703Z",
+                  "timestamp": "2021-05-03T01:00:00.000+01:00",
                   "url": "http://localhost:8000/events/1",
                   "uuid": "uuid",
                 }
@@ -105,7 +121,11 @@ describe('Exceptions Manager', () => {
 
         it('does nothing if no fingerprint mapping found', async () => {
             const globals = createHogExecutionGlobals({
-                event: { name: '$exception', properties: { $exception_fingerprint: ['unmapped_fingerprint'] } } as any,
+                event: {
+                    name: '$exception',
+                    properties: { $exception_fingerprint: ['unmapped_fingerprint'] },
+                    timestamp: startTime,
+                } as any,
                 project: { id: 1 } as any,
             })
             await exceptionsManager.enrichExceptions([globals])
@@ -119,7 +139,7 @@ describe('Exceptions Manager', () => {
                       "unmapped_fingerprint",
                     ],
                   },
-                  "timestamp": "2024-09-03T10:58:54.718Z",
+                  "timestamp": "2021-05-03T01:00:00.000+01:00",
                   "url": "http://localhost:8000/events/1",
                   "uuid": "uuid",
                 }
@@ -128,7 +148,11 @@ describe('Exceptions Manager', () => {
 
         it('does nothing for non exception events', async () => {
             const globals = createHogExecutionGlobals({
-                event: { name: 'custom_event', properties: { $exception_fingerprint: ['custom_fp-1'] } } as any,
+                event: {
+                    name: 'custom_event',
+                    properties: { $exception_fingerprint: ['custom_fp-1'] },
+                    timestamp: startTime,
+                } as any,
                 project: {
                     id: 1,
                 } as any,
@@ -144,7 +168,7 @@ describe('Exceptions Manager', () => {
                       "custom_fp-1",
                     ],
                   },
-                  "timestamp": "2024-09-03T10:58:54.718Z",
+                  "timestamp": "2021-05-03T01:00:00.000+01:00",
                   "url": "http://localhost:8000/events/1",
                   "uuid": "uuid",
                 }
@@ -155,11 +179,19 @@ describe('Exceptions Manager', () => {
     it('cached exception group queries', async () => {
         const globals = [
             createHogExecutionGlobals({
-                event: { name: '$exception', properties: { $exception_fingerprint: ['custom_fp-1'] } } as any,
+                event: {
+                    name: '$exception',
+                    properties: { $exception_fingerprint: ['custom_fp-1'] },
+                    timestamp: startTime,
+                } as any,
                 project: { id: 1 } as any,
             }),
             createHogExecutionGlobals({
-                event: { name: '$exception', properties: { $exception_fingerprint: ['custom_fp-1'] } } as any,
+                event: {
+                    name: '$exception',
+                    properties: { $exception_fingerprint: ['custom_fp-1'] },
+                    timestamp: startTime,
+                } as any,
                 project: { id: 2 } as any,
             }),
         ]
@@ -173,7 +205,11 @@ describe('Exceptions Manager', () => {
 
         globals.push(
             createHogExecutionGlobals({
-                event: { name: '$exception', properties: { $exception_fingerprint: ['custom_fp-1'] } } as any,
+                event: {
+                    name: '$exception',
+                    properties: { $exception_fingerprint: ['custom_fp-1'] },
+                    timestamp: startTime,
+                } as any,
                 project: { id: 3 } as any,
             })
         )
@@ -185,11 +221,19 @@ describe('Exceptions Manager', () => {
     it('caches group status', async () => {
         const globals = [
             createHogExecutionGlobals({
-                event: { name: '$exception', properties: { $exception_fingerprint: ['custom_fp-1'] } } as any,
+                event: {
+                    name: '$exception',
+                    properties: { $exception_fingerprint: ['custom_fp-1'] },
+                    timestamp: startTime,
+                } as any,
                 project: { id: 1 } as any,
             }),
             createHogExecutionGlobals({
-                event: { name: '$exception', properties: { $exception_fingerprint: ['custom_fp-2'] } } as any,
+                event: {
+                    name: '$exception',
+                    properties: { $exception_fingerprint: ['custom_fp-2'] },
+                    timestamp: startTime,
+                } as any,
                 project: { id: 1 } as any,
             }),
         ]

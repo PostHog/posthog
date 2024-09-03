@@ -110,7 +110,6 @@ export class ExceptionsManager {
     public isIgnored(item: HogFunctionInvocationGlobals): boolean {
         const fingerprint = JSON.stringify(item.event.properties['$exception_fingerprint'])
         const groupsForTeam = this.fingerprintMappingCache.get(item.project.id)
-        console.log(groupsForTeam)
         return groupsForTeam && groupsForTeam[fingerprint]
             ? ['archived', 'resolved'].includes(groupsForTeam[fingerprint].status)
             : false
