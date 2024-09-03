@@ -33,8 +33,7 @@ export class ExceptionsManager {
                 Object.entries(cached).forEach(([primaryFingerprint, { mergedFingerprints }]) => {
                     mergedFingerprints.forEach((mergedFingerprint) => {
                         const stringifiedFingerprint = JSON.stringify(mergedFingerprint)
-                        exceptionFingerprintMapping[`${teamId}:${stringifiedFingerprint}`] =
-                            JSON.parse(primaryFingerprint)
+                        exceptionFingerprintMapping[`${teamId}:${stringifiedFingerprint}`] = primaryFingerprint
                     })
                 })
             }
@@ -79,12 +78,6 @@ export class ExceptionsManager {
         return exceptionFingerprintMapping
     }
 
-    public isActive(item: HogFunctionInvocationGlobals): boolean {
-        const fingerprint = item.event.properties['$exception_fingerprint'].join(',')
-        const groupsForTeam = this.fingerprintMappingCache.get(item.project.id)
-        return groupsForTeam && groupsForTeam[fingerprint] ? groupsForTeam[fingerprint].active : false
-    }
-
     /**
      * This function looks complex but is trying to be as optimized as possible.
      *
@@ -112,5 +105,11 @@ export class ExceptionsManager {
         })
 
         return items
+    }
+
+    public isActive(item: HogFunctionInvocationGlobals): boolean {
+        const fingerprint = item.event.properties['$exception_fingerprint'].join(',')
+        const groupsForTeam = this.fingerprintMappingCache.get(item.project.id)
+        return groupsForTeam && groupsForTeam[fingerprint] ? groupsForTeam[fingerprint].active : false
     }
 }

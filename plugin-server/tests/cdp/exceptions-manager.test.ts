@@ -83,7 +83,7 @@ describe('Exceptions Manager', () => {
                       "SyntaxError",
                     ],
                   },
-                  "timestamp": "2024-09-03T10:04:25.627Z",
+                  "timestamp": "2024-09-03T10:39:31.422Z",
                   "url": "http://localhost:8000/events/1",
                   "uuid": "uuid",
                 }
@@ -97,7 +97,7 @@ describe('Exceptions Manager', () => {
                       "TypeError",
                     ],
                   },
-                  "timestamp": "2024-09-03T10:04:25.627Z",
+                  "timestamp": "2024-09-03T10:39:31.422Z",
                   "url": "http://localhost:8000/events/1",
                   "uuid": "uuid",
                 }
@@ -111,7 +111,7 @@ describe('Exceptions Manager', () => {
                       "ApiError",
                     ],
                   },
-                  "timestamp": "2024-09-03T10:04:25.627Z",
+                  "timestamp": "2024-09-03T10:39:31.422Z",
                   "url": "http://localhost:8000/events/1",
                   "uuid": "uuid",
                 }
@@ -139,7 +139,7 @@ describe('Exceptions Manager', () => {
                       "unmapped_fingerprint",
                     ],
                   },
-                  "timestamp": "2024-09-03T10:04:25.654Z",
+                  "timestamp": "2024-09-03T10:39:31.436Z",
                   "url": "http://localhost:8000/events/1",
                   "uuid": "uuid",
                 }
@@ -169,7 +169,7 @@ describe('Exceptions Manager', () => {
                       "custom_fp-1",
                     ],
                   },
-                  "timestamp": "2024-09-03T10:04:25.655Z",
+                  "timestamp": "2024-09-03T10:39:31.436Z",
                   "url": "http://localhost:8000/events/1",
                   "uuid": "uuid",
                 }
@@ -177,33 +177,33 @@ describe('Exceptions Manager', () => {
         })
     })
 
-    // it('cached group type queries', async () => {
-    //     const globals = [
-    //         createHogExecutionGlobals({
-    //             project: { id: 1 } as any,
-    //             event: { properties: { $groups: { GroupA: 'id-1', GroupB: 'id-2' } } } as any,
-    //         }),
-    //         createHogExecutionGlobals({
-    //             project: { id: 2 } as any,
-    //             event: { properties: { $groups: { GroupA: 'id-1', GroupB: 'id-2' } } } as any,
-    //         }),
-    //     ]
-    //     await exceptionsManager.enrichExceptions(globals)
-    //     expect(mockHub.postgres.query).toHaveBeenCalledTimes(2)
-    //     mockHub.postgres.query.mockClear()
+    it('cached exception group queries', async () => {
+        const globals = [
+            createHogExecutionGlobals({
+                event: { name: '$exception', properties: { $exception_fingerprint: ['custom_fp-1'] } } as any,
+                project: { id: 1 } as any,
+            }),
+            createHogExecutionGlobals({
+                event: { name: '$exception', properties: { $exception_fingerprint: ['custom_fp-2'] } } as any,
+                project: { id: 2 } as any,
+            }),
+        ]
+        await exceptionsManager.enrichExceptions(globals)
+        expect(mockHub.postgres.query).toHaveBeenCalledTimes(1)
+        mockHub.postgres.query.mockClear()
 
-    //     await exceptionsManager.enrichExceptions(globals)
-    //     expect(mockHub.postgres.query).toHaveBeenCalledTimes(1)
-    //     mockHub.postgres.query.mockClear()
+        await exceptionsManager.enrichExceptions(globals)
+        expect(mockHub.postgres.query).not.toHaveBeenCalled()
+        mockHub.postgres.query.mockClear()
 
-    //     globals.push(
-    //         createHogExecutionGlobals({
-    //             project: { id: 3 } as any,
-    //             event: { properties: { $groups: { GroupA: 'id-1', GroupB: 'id-2' } } } as any,
-    //         })
-    //     )
+        globals.push(
+            createHogExecutionGlobals({
+                event: { name: '$exception', properties: { $exception_fingerprint: ['custom_fp-1'] } } as any,
+                project: { id: 3 } as any,
+            })
+        )
 
-    //     await exceptionsManager.enrichExceptions(globals)
-    //     expect(mockHub.postgres.query).toHaveBeenCalledTimes(2)
-    // })
+        await exceptionsManager.enrichExceptions(globals)
+        expect(mockHub.postgres.query).toHaveBeenCalledTimes(1)
+    })
 })
