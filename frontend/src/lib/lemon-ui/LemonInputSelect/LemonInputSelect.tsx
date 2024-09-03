@@ -87,6 +87,9 @@ export function LemonInputSelect({
 
     const separateOnComma = allowCustomValues && mode === 'multiple'
 
+    // We stringify the objects to prevent wasteful recalculations (esp. Fuse). Note: labelComponent is not serializable
+    const optionsKey = JSON.stringify(options, (key, value) => (key === 'labelComponent' ? value?.name : value))
+    const valuesKey = JSON.stringify(values)
     const allOptionsMap: Map<string, LemonInputSelectOption> = useMemo(() => {
         // Custom values are values that are not in the options list
         const customValues = values.filter((value) => !options.some((option) => option.key === value))
@@ -101,7 +104,7 @@ export function LemonInputSelect({
         // The below is a side effect (boo!) - but it's fine, since it's idempotent
         fuseRef.current.setCollection(Array.from(allOptionsMap.values()))
         return allOptionsMap
-    }, [options, values])
+    }, [optionsKey, valuesKey])
 
     const visibleOptions = useMemo(() => {
         const ret: LemonInputSelectOption[] = []
