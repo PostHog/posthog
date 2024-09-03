@@ -131,6 +131,22 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                                 onChange={(value) => {
                                                     if (experimentForm.variants) {
                                                         const webVariant = experimentForm.variants[variant]
+                                                        const variantCount = Object.keys(experimentForm.variants).length - 1
+                                                        if (variantCount >0) {
+                                                            // redistribute rollout_percentages based on this value.
+                                                            const leftOverPercentage = 100 - value
+                                                            // if this variant's rollout_percentage is now 50%
+                                                            // we re-distribute the difference to the other variants.
+                                                            // so, since there are (ex) 2 other variants, they can both
+                                                            // be maximum 25%
+                                                            const perVariantRollout = leftOverPercentage / variantCount
+                                                            for (const existingVariant in experimentForm.variants) {
+                                                                if (experimentForm.variants[existingVariant]) {
+                                                                    experimentForm.variants[existingVariant].rollout_percentage = Number(perVariantRollout)
+                                                                }
+                                                            }
+                                                        }
+
                                                         if(webVariant) {
                                                             webVariant.rollout_percentage = value
                                                             setExperimentFormValue('variants', experimentForm.variants)
