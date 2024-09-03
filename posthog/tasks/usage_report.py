@@ -75,6 +75,11 @@ class UsageReportCounters:
     event_count_in_period: int
     enhanced_persons_event_count_in_period: int
     event_count_with_groups_in_period: int
+    event_count_from_langfuse_in_period: int
+    event_count_from_helicone_in_period: int
+    event_count_from_keywords_ai_in_period: int
+    event_count_from_traceloop_in_period: int
+
     anonymous_personful_event_count_in_period: int
     # Recordings
     recording_count_in_period: int
@@ -473,6 +478,82 @@ def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datet
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_event_count_from_helicone_in_period(begin: datetime, end: datetime) -> list[tuple[int, int]]:
+    result = sync_execute(
+        """
+        SELECT team_id, count(1) as count
+        FROM events
+        WHERE timestamp between %(begin)s AND %(end)s
+        AND ($group_0 != '' OR $group_1 != '' OR $group_2 != '' OR $group_3 != '' OR $group_4 != '')
+        AND event LIKE 'helicone_%'
+        GROUP BY team_id
+    """,
+        {"begin": begin, "end": end},
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
+    )
+    return result
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_event_count_from_langfuse_in_period(begin: datetime, end: datetime) -> list[tuple[int, int]]:
+    result = sync_execute(
+        """
+        SELECT team_id, count(1) as count
+        FROM events
+        WHERE timestamp between %(begin)s AND %(end)s
+        AND ($group_0 != '' OR $group_1 != '' OR $group_2 != '' OR $group_3 != '' OR $group_4 != '')
+        AND event LIKE 'langfuse_%'
+        GROUP BY team_id
+    """,
+        {"begin": begin, "end": end},
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
+    )
+    return result
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_event_count_from_keywords_ai_in_period(begin: datetime, end: datetime) -> list[tuple[int, int]]:
+    result = sync_execute(
+        """
+        SELECT team_id, count(1) as count
+        FROM events
+        WHERE timestamp between %(begin)s AND %(end)s
+        AND ($group_0 != '' OR $group_1 != '' OR $group_2 != '' OR $group_3 != '' OR $group_4 != '')
+        AND event LIKE 'keywords_ai_%'
+        GROUP BY team_id
+    """,
+        {"begin": begin, "end": end},
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
+    )
+    return result
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_event_count_from_traceloop_in_period(begin: datetime, end: datetime) -> list[tuple[int, int]]:
+    result = sync_execute(
+        """
+        SELECT team_id, count(1) as count
+        FROM events
+        WHERE timestamp between %(begin)s AND %(end)s
+        AND ($group_0 != '' OR $group_1 != '' OR $group_2 != '' OR $group_3 != '' OR $group_4 != '')
+        AND event LIKE 'traceloop_%'
+        GROUP BY team_id
+    """,
+        {"begin": begin, "end": end},
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
+    )
+    return result
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_recording_count_in_period(
     begin: datetime, end: datetime, snapshot_source: Literal["mobile", "web"] = "web"
 ) -> list[tuple[int, int]]:
@@ -675,6 +756,18 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_event_count_with_groups_in_period": get_teams_with_event_count_with_groups_in_period(
             period_start, period_end
         ),
+        "teams_with_event_count_from_helicone_in_period": get_teams_with_event_count_from_helicone_in_period(
+            period_start, period_end
+        ),
+        "teams_with_event_count_from_langfuse_in_period": get_teams_with_event_count_from_langfuse_in_period(
+            period_start, period_end
+        ),
+        "teams_with_event_count_from_keywords_ai_in_period": get_teams_with_event_count_from_keywords_ai_in_period(
+            period_start, period_end
+        ),
+        "teams_with_event_count_from_traceloop_in_period": get_teams_with_event_count_from_traceloop_in_period(
+            period_start, period_end
+        ),
         "teams_with_recording_count_in_period": get_teams_with_recording_count_in_period(
             period_start, period_end, snapshot_source="web"
         ),
@@ -842,6 +935,14 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
             team.id, 0
         ),
         event_count_with_groups_in_period=all_data["teams_with_event_count_with_groups_in_period"].get(team.id, 0),
+        event_count_from_langfuse_in_period=all_data["teams_with_event_count_from_langfuse_in_period"].get(team.id, 0),
+        event_count_from_traceloop_in_period=all_data["teams_with_event_count_from_traceloop_in_period"].get(
+            team.id, 0
+        ),
+        event_count_from_helicone_in_period=all_data["teams_with_event_count_from_helicone_in_period"].get(team.id, 0),
+        event_count_from_keywords_ai_in_period=all_data["teams_with_event_count_from_keywords_ai_in_period"].get(
+            team.id, 0
+        ),
         recording_count_in_period=all_data["teams_with_recording_count_in_period"].get(team.id, 0),
         mobile_recording_count_in_period=all_data["teams_with_mobile_recording_count_in_period"].get(team.id, 0),
         group_types_total=all_data["teams_with_group_types_total"].get(team.id, 0),
