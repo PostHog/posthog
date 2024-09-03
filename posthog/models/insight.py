@@ -1,5 +1,5 @@
 from functools import cached_property
-from typing import Optional, cast
+from typing import Optional
 
 from sentry_sdk import capture_exception
 import structlog
@@ -141,7 +141,9 @@ class Insight(models.Model):
                 **(
                     dashboard_filters_override
                     if dashboard_filters_override is not None
-                    else cast(dict, dashboard.filters)
+                    else dashboard.filters
+                    if dashboard
+                    else {}
                 )
             }
             dashboard_properties = dashboard_filters.pop("properties") if dashboard_filters.get("properties") else None
@@ -203,7 +205,13 @@ class Insight(models.Model):
 
         return apply_dashboard_filters_to_dict(
             self.query,
-            dashboard_filters_override if dashboard_filters_override is not None else dashboard.filters,
+            (
+                dashboard_filters_override
+                if dashboard_filters_override is not None
+                else dashboard.filters
+                if dashboard
+                else {}
+            ),
             self.team,
         )
 

@@ -568,7 +568,9 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
                     (
                         dashboard_filters_override
                         if dashboard_filters_override is not None
-                        else cast(dict, dashboard.filters)
+                        else dashboard.filters
+                        if dashboard
+                        else {}
                     ),
                     instance.team,
                 )
