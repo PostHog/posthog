@@ -29,10 +29,7 @@ jest.mock('../../src/utils/fetch', () => {
 const mockFetch: jest.Mock = require('../../src/utils/fetch').trackedFetch
 
 describe('CDP E2E', () => {
-    describe.each([
-        // 'kafka',
-        'cyclotron',
-    ])('e2e fetch call: %s', (mode) => {
+    describe.each(['kafka', 'cyclotron'])('e2e fetch call: %s', (mode) => {
         let processedEventsConsumer: CdpProcessedEventsConsumer
         let functionProcessor: CdpFunctionCallbackConsumer
         let cyclotronWorker: CdpCyclotronWorker | undefined
@@ -46,11 +43,6 @@ describe('CDP E2E', () => {
 
         const insertHogFunction = async (hogFunction: Partial<HogFunctionType>) => {
             const item = await _insertHogFunction(hub.postgres, team.id, hogFunction)
-            // Trigger the reload that django would do
-            // await processedEventsConsumer.hogFunctionManager.reloadAllHogFunctions()
-            // await functionProcessor.hogFunctionManager.reloadAllHogFunctions()
-            // await cyclotronWorker?.hogFunctionManager.reloadAllHogFunctions()
-            // await cyclotronFetchWorker?.hogFunctionManager.reloadAllHogFunctions()
             return item
         }
 
@@ -64,8 +56,6 @@ describe('CDP E2E', () => {
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
                 ...HOG_FILTERS_EXAMPLES.no_filters,
             })
-
-            console.log(fnFetchNoFilters.id)
 
             if (mode === 'cyclotron') {
                 hub.CDP_CYCLOTRON_ENABLED_TEAMS = '*'
@@ -105,18 +95,14 @@ describe('CDP E2E', () => {
         })
 
         afterEach(async () => {
-            try {
-                await Promise.all([
-                    processedEventsConsumer?.stop(),
-                    functionProcessor?.stop(),
-                    kafkaObserver?.stop(),
-                    cyclotronWorker?.stop(),
-                    cyclotronFetchWorker?.stop(),
-                ])
-                await closeHub()
-            } catch (e) {
-                console.error('Error in afterEach:', e)
-            }
+            await Promise.all([
+                processedEventsConsumer?.stop(),
+                functionProcessor?.stop(),
+                kafkaObserver?.stop(),
+                cyclotronWorker?.stop(),
+                cyclotronFetchWorker?.stop(),
+            ])
+            await closeHub()
         })
 
         afterAll(() => {
@@ -152,7 +138,24 @@ describe('CDP E2E', () => {
                 ]
             `)
 
-            expect(kafkaObserver.messages).toMatchObject([
+            const logMessages = kafkaObserver.messages.filter((m) => m.topic === KAFKA_LOG_ENTRIES)
+            const metricsMessages = kafkaObserver.messages.filter((m) => m.topic === KAFKA_APP_METRICS_2)
+
+            expect(metricsMessages).toMatchObject([
+                {
+                    topic: 'clickhouse_app_metrics2_test',
+                    value: {
+                        app_source: 'hog_function',
+                        app_source_id: fnFetchNoFilters.id.toString(),
+                        count: 1,
+                        metric_kind: 'success',
+                        metric_name: 'succeeded',
+                        team_id: 2,
+                    },
+                },
+            ])
+
+            expect(logMessages).toMatchObject([
                 {
                     topic: 'log_entries_test',
                     value: {
@@ -172,17 +175,6 @@ describe('CDP E2E', () => {
                         message: expect.stringContaining(
                             "Suspending function due to async function call 'fetch'. Payload:"
                         ),
-                        team_id: 2,
-                    },
-                },
-                {
-                    topic: 'clickhouse_app_metrics2_test',
-                    value: {
-                        app_source: 'hog_function',
-                        app_source_id: fnFetchNoFilters.id.toString(),
-                        count: 1,
-                        metric_kind: 'success',
-                        metric_name: 'succeeded',
                         team_id: 2,
                     },
                 },

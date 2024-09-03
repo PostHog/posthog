@@ -724,8 +724,6 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
             },
         })
 
-        console.log('invocationResults', invocationResults)
-
         await this.processInvocationResults(invocationResults)
         await this.updateJobs(invocationResults)
         await this.produceQueuedMessages()
@@ -738,11 +736,14 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
                 if (item.finished) {
                     console.log('Updating job to completed', id)
                     this.cyclotronWorker?.updateJob(id, 'completed')
+                } else if (item.error) {
+                    console.log('Updating job to failed', id)
+                    this.cyclotronWorker?.updateJob(id, 'failed')
                 } else {
                     console.log('Updating job to available', id)
                     this.cyclotronWorker?.updateJob(id, 'available', {
                         priority: item.invocation.priority,
-                        vmState: item.invocation,
+                        vmState: serializeHogFunctionInvocation(item.invocation),
                         queueName: item.invocation.queue,
                         parameters: item.invocation.queueParameters ?? null,
                     })
@@ -755,26 +756,13 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
     private async innerStart() {
         try {
             while (!this.isStopping) {
-                const jobs = await runInstrumentedFunction({
-                    statsKey: `cdpConsumer.cyclotronWorker.dequeueJobsWithVmState`,
-                    func: async () => {
-                        status.info('!', `Dequeing jobs: ${this.queue}`)
-                        return await this.cyclotronWorker!.dequeueJobsWithVmState(this.queue, this.limit)
-                    },
-                    timeout: 3000,
-                })
-
-                status.info('!', `Dequeued jobs ${jobs.length}: ${this.queue}`)
-
-                // TODO: How do we "hold" these dequeued jobs?
+                const jobs = await this.cyclotronWorker!.dequeueJobsWithVmState(this.queue, this.limit)
                 const invocations: HogFunctionInvocation[] = []
 
                 if (!jobs.length) {
                     await delay(100)
-                    return
+                    continue
                 }
-
-                console.log('jobs', jobs)
 
                 for (const job of jobs) {
                     // NOTE: This is all a bit messy and might be better to refactor into a helper

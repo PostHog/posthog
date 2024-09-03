@@ -33,8 +33,6 @@ export class CyclotronManager {
             metadata: job.metadata ? serializeObject('metadata', job.metadata) : null,
         }
 
-        console.log('Creating job:', jobInitInternal)
-
         const json = JSON.stringify(jobInitInternal)
         return await cyclotron.createJob(json, job.blob ? job.blob.buffer : undefined)
     }

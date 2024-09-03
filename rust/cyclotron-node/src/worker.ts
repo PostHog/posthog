@@ -45,11 +45,10 @@ export class CyclotronWorker {
             cyclotron.setParameters(id, serializeObject('parameters', updates.parameters))
         }
         if (updates?.metadata) {
-            cyclotron.setMetadata(id, updates.metadata)
+            cyclotron.setMetadata(id, serializeObject('metadata', updates.metadata))
         }
-
         if (updates?.vmState) {
-            cyclotron.setMetadata(id, updates.metadata)
+            cyclotron.setVmState(id, serializeObject('vmState', updates.vmState))
         }
     }
 
