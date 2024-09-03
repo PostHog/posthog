@@ -15,7 +15,7 @@ export interface StatusBlueprint {
 
 export class Status implements StatusBlueprint {
     mode?: string
-    logger: pino.Logger
+    private logger?: pino.Logger
     prompt: string
     transport: any
 
@@ -59,11 +59,16 @@ export class Status implements StatusBlueprint {
 
     close() {
         this.transport?.end()
+        this.logger = undefined
     }
 
     buildMethod(type: keyof StatusBlueprint): StatusMethod {
         return (icon: string, message: string, extra: object) => {
             const logMessage = `[${this.prompt}] ${icon} ${message}`
+
+            if (!this.logger) {
+                throw new Error(`Logger has been closed! Cannot log: ${logMessage}`)
+            }
             if (extra instanceof Object) {
                 this.logger[type]({ ...extra, msg: logMessage })
             } else {

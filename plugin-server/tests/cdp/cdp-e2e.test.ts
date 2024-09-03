@@ -1,17 +1,13 @@
-import { KafkaConsumer, LibrdKafkaError, Message } from 'node-rdkafka'
-
 import { CdpFunctionCallbackConsumer, CdpProcessedEventsConsumer } from '../../src/cdp/cdp-consumers'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../../src/cdp/types'
-import { KAFKA_APP_METRICS_2 } from '../../src/config/kafka-topics'
-import { BatchConsumer, startBatchConsumer } from '../../src/kafka/batch-consumer'
-import { createRdConnectionConfigFromEnvVars } from '../../src/kafka/config'
-import { createKafkaConsumer } from '../../src/kafka/consumer'
+import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '../../src/config/kafka-topics'
 import { Hub, Team } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
-import { delay } from '../../src/utils/utils'
+import { waitForExpect } from '../helpers/expectations'
 import { getFirstTeam, resetTestDatabase } from '../helpers/sql'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './examples'
 import { createHogExecutionGlobals, insertHogFunction as _insertHogFunction } from './fixtures'
+import { createKafkaObserver, TestKafkaObserver } from './helpers/kafka-observer'
 
 jest.mock('../../src/utils/fetch', () => {
     return {
@@ -27,51 +23,13 @@ jest.mock('../../src/utils/fetch', () => {
 
 const mockFetch: jest.Mock = require('../../src/utils/fetch').trackedFetch
 
-jest.setTimeout(1000)
-
-type KafkaObserver = {
-    messages: Message[]
-    consumer: KafkaConsumer
-    stop: () => Promise<void>
-}
-const createKafkaObserver = async (hub: Hub): Promise<KafkaObserver> => {
-    const consumer = await createKafkaConsumer({
-        ...createRdConnectionConfigFromEnvVars(hub),
-        'group.id': 'test-group',
-    })
-
-    consumer.connect()
-    consumer.subscribe([KAFKA_APP_METRICS_2])
-    const messages: Message[] = []
-
-    const poll = async () => {
-        await delay(50)
-        if (!consumer.isConnected()) {
-            return
-        }
-        const newMessages = await new Promise<Message[]>((res, rej) =>
-            consumer.consume(1000, (err, messages) => (err ? rej(err) : res(messages)))
-        )
-        messages.push(...newMessages)
-        poll()
-    }
-
-    poll()
-
-    return {
-        messages,
-        consumer,
-        stop: () => new Promise((res) => consumer.disconnect(res)),
-    }
-}
-
 describe('CDP E2E', () => {
     let processedEventsConsumer: CdpProcessedEventsConsumer
     let functionProcessor: CdpFunctionCallbackConsumer
     let hub: Hub
     let closeHub: () => Promise<void>
     let team: Team
-    let kafkaObserver: KafkaObserver
+    let kafkaObserver: TestKafkaObserver
 
     const insertHogFunction = async (hogFunction: Partial<HogFunctionType>) => {
         const item = await _insertHogFunction(hub.postgres, team.id, hogFunction)
@@ -86,7 +44,7 @@ describe('CDP E2E', () => {
         ;[hub, closeHub] = await createHub()
         team = await getFirstTeam(hub)
 
-        kafkaObserver = await createKafkaObserver(hub)
+        kafkaObserver = await createKafkaObserver(hub, [KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES])
 
         processedEventsConsumer = new CdpProcessedEventsConsumer(hub)
         await processedEventsConsumer.start()
@@ -97,18 +55,19 @@ describe('CDP E2E', () => {
     })
 
     afterEach(async () => {
-        jest.setTimeout(10000)
-        await processedEventsConsumer.stop()
-        await functionProcessor.stop()
-        await kafkaObserver.stop()
-        await closeHub()
+        try {
+            await Promise.all([processedEventsConsumer.stop(), functionProcessor.stop(), kafkaObserver.stop()])
+            await closeHub()
+        } catch (e) {
+            console.error('Error in afterEach:', e)
+        }
     })
 
     afterAll(() => {
         jest.useRealTimers()
     })
 
-    describe('full fetch function', () => {
+    describe.each(['kafka', 'cyclotron'])('e2e fetch call: %s', (mode) => {
         /**
          * Tests here are somewhat expensive so should mostly simulate happy paths and the more e2e scenarios
          */
@@ -134,64 +93,106 @@ describe('CDP E2E', () => {
                         $current_url: 'https://posthog.com',
                         $lib_version: '1.0.0',
                     },
+                    timestamp: '2024-09-03T09:00:00Z',
                 } as any,
             })
+
+            if (mode === 'cyclotron') {
+                hub.CDP_CYCLOTRON_ENABLED_TEAMS = '*'
+                hub.CYCLOTRON_DATABASE_URL = 'postgres://localhost:5432/test_cyclotron'
+            }
         })
-
-        // const gatherProducedMessages = () => {
-        //     const allMessages = decodeAllKafkaMessages()
-
-        //     allMessages.forEach((message) => {
-        //         if (message.topic === 'clickhouse_app_metrics2_test') {
-        //             kafkaMessages.metrics.push(message)
-        //         } else if (message.topic === 'log_entries_test') {
-        //             kafkaMessages.logs.push(message)
-        //         } else if (message.topic === 'cdp_function_callbacks_test') {
-        //             kafkaMessages.invocations.push(message)
-        //         } else {
-        //             throw new Error(`Unknown topic: ${message.topic}`)
-        //         }
-        //     })
-
-        //     mockProducer.produce.mockClear()
-        // }
 
         it('should invoke a function via kafka transportation until completed', async () => {
             // NOTE: We can skip kafka as the entry point
             const invocations = await processedEventsConsumer.processBatch([globals])
             expect(invocations).toHaveLength(1)
-            // gatherProducedMessages()
 
-            // expect(kafkaMessages.invocations).toHaveLength(1)
-            // expect(kafkaMessages.invocations[0].topic).toEqual('cdp_function_callbacks_test')
-            // // mockProducer.produce.mockClear()
+            await waitForExpect(() => {
+                expect(kafkaObserver.messages).toHaveLength(6)
+            })
 
-            // while (kafkaMessages.invocations.length) {
-            //     await functionProcessor._handleKafkaBatch([convertToKafkaMessage(kafkaMessages.invocations[0])])
-            //     kafkaMessages.invocations = []
-            //     gatherProducedMessages()
-            // }
+            expect(mockFetch).toHaveBeenCalledTimes(1)
 
-            // expect(kafkaMessages.metrics).toMatchObject([
-            //     {
-            //         key: fnFetchNoFilters.id.toString(),
-            //         value: {
-            //             app_source: 'hog_function',
-            //             app_source_id: fnFetchNoFilters.id.toString(),
-            //             count: 1,
-            //             metric_kind: 'success',
-            //             metric_name: 'succeeded',
-            //             team_id: 2,
-            //         },
-            //     },
-            // ])
-            // expect(kafkaMessages.logs.map((x) => x.value.message)).toEqual([
-            //     'Executing function',
-            //     "Suspending function due to async function call 'fetch'. Payload: 1902 bytes",
-            //     'Resuming function',
-            //     'Fetch response:, {"status":200,"body":{"success":true}}',
-            //     expect.stringContaining('Function completed'),
-            // ])
+            expect(mockFetch.mock.calls[0]).toMatchInlineSnapshot(`
+                Array [
+                  "https://example.com/posthog-webhook",
+                  Object {
+                    "body": "{\\"event\\":{\\"uuid\\":\\"b3a1fe86-b10c-43cc-acaf-d208977608d0\\",\\"name\\":\\"$pageview\\",\\"distinct_id\\":\\"distinct_id\\",\\"url\\":\\"http://localhost:8000/events/1\\",\\"properties\\":{\\"$current_url\\":\\"https://posthog.com\\",\\"$lib_version\\":\\"1.0.0\\"},\\"timestamp\\":\\"2024-09-03T09:00:00Z\\"},\\"groups\\":{},\\"nested\\":{\\"foo\\":\\"http://localhost:8000/events/1\\"},\\"person\\":{\\"uuid\\":\\"uuid\\",\\"name\\":\\"test\\",\\"url\\":\\"http://localhost:8000/persons/1\\",\\"properties\\":{\\"email\\":\\"test@posthog.com\\"}},\\"event_url\\":\\"http://localhost:8000/events/1-test\\"}",
+                    "headers": Object {
+                      "version": "v=1.0.0",
+                    },
+                    "method": "POST",
+                    "timeout": 10000,
+                  },
+                ]
+            `)
+
+            expect(kafkaObserver.messages).toMatchObject([
+                {
+                    topic: 'log_entries_test',
+                    value: {
+                        level: 'debug',
+                        log_source: 'hog_function',
+                        log_source_id: fnFetchNoFilters.id.toString(),
+                        message: 'Executing function',
+                        team_id: 2,
+                    },
+                },
+                {
+                    topic: 'log_entries_test',
+                    value: {
+                        level: 'debug',
+                        log_source: 'hog_function',
+                        log_source_id: fnFetchNoFilters.id.toString(),
+                        message: expect.stringContaining(
+                            "Suspending function due to async function call 'fetch'. Payload:"
+                        ),
+                        team_id: 2,
+                    },
+                },
+                {
+                    topic: 'clickhouse_app_metrics2_test',
+                    value: {
+                        app_source: 'hog_function',
+                        app_source_id: fnFetchNoFilters.id.toString(),
+                        count: 1,
+                        metric_kind: 'success',
+                        metric_name: 'succeeded',
+                        team_id: 2,
+                    },
+                },
+                {
+                    topic: 'log_entries_test',
+                    value: {
+                        level: 'debug',
+                        log_source: 'hog_function',
+                        log_source_id: fnFetchNoFilters.id.toString(),
+                        message: 'Resuming function',
+                        team_id: 2,
+                    },
+                },
+                {
+                    topic: 'log_entries_test',
+                    value: {
+                        level: 'info',
+                        log_source: 'hog_function',
+                        log_source_id: fnFetchNoFilters.id.toString(),
+                        message: `Fetch response:, {"status":200,"body":{"success":true}}`,
+                        team_id: 2,
+                    },
+                },
+                {
+                    topic: 'log_entries_test',
+                    value: {
+                        level: 'debug',
+                        log_source: 'hog_function',
+                        log_source_id: fnFetchNoFilters.id.toString(),
+                        message: expect.stringContaining('Function completed in'),
+                        team_id: 2,
+                    },
+                },
+            ])
         })
     })
 })

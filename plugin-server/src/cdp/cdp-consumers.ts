@@ -369,6 +369,9 @@ abstract class CdpConsumerBase {
         addSentryBreadcrumbsEventListeners(this.batchConsumer.consumer)
 
         this.batchConsumer.consumer.on('disconnected', async (err) => {
+            if (!this.isStopping) {
+                return
+            }
             // since we can't be guaranteed that the consumer will be stopped before some other code calls disconnect
             // we need to listen to disconnect and make sure we're stopped
             status.info('🔁', `${this.name} batch consumer disconnected, cleaning up`, { err })
