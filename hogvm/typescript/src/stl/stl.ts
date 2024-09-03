@@ -591,6 +591,37 @@ export const STL: Record<string, STLFunction> = {
         minArgs: 0,
         maxArgs: 2,
     },
+    typeof: {
+        fn: (args) => {
+            if (args[0] === null || args[0] === undefined) {
+                return 'null'
+            } else if (isHogDateTime(args[0])) {
+                return 'datetime'
+            } else if (isHogDate(args[0])) {
+                return 'date'
+            } else if (isHogError(args[0])) {
+                return 'error'
+            } else if (isHogCallable(args[0]) || isHogClosure(args[0])) {
+                return 'function'
+            } else if (Array.isArray(args[0])) {
+                if ((args[0] as any).__isHogTuple) {
+                    return 'tuple'
+                }
+                return 'array'
+            } else if (typeof args[0] === 'object') {
+                return 'object'
+            } else if (typeof args[0] === 'number') {
+                return Number.isInteger(args[0]) ? 'integer' : 'float'
+            } else if (typeof args[0] === 'string') {
+                return 'string'
+            } else if (typeof args[0] === 'boolean') {
+                return 'boolean'
+            }
+            return 'unknown'
+        },
+        minArgs: 1,
+        maxArgs: 1,
+    },
 }
 
 export const ASYNC_STL: Record<string, AsyncSTLFunction> = {
