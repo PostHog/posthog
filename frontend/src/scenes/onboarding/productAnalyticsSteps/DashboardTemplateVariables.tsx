@@ -1,7 +1,7 @@
 import { IconCheckCircle, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonCollapse, LemonLabel } from '@posthog/lemon-ui'
+import { LemonButton, LemonCollapse, LemonInput, LemonLabel } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { dashboardTemplateVariablesLogic } from 'scenes/dashboard/dashboardTemplateVariablesLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
@@ -13,6 +13,8 @@ function VariableSelector({ variable }: { variable: DashboardTemplateVariableTyp
         variables: activeDashboardTemplate?.variables || [],
     })
     const { setVariable, resetVariable, incrementActiveVariableIndex } = useActions(theDashboardTemplateVariablesLogic)
+    const [customEventName, setCustomEventName] = useState<string | null>(null)
+    const [showCustomEventField, setShowCustomEventField] = useState(false)
 
     const FALLBACK_EVENT = {
         id: '$other_event',
@@ -28,7 +30,7 @@ function VariableSelector({ variable }: { variable: DashboardTemplateVariableTyp
                     {variable.name}
                 </LemonLabel>
             </div>
-            {variable.touched && (
+            {variable.touched && !customEventName && (
                 <div className="flex justify-between items-center bg-bg-3000-light p-2 pl-3 rounded mb-4">
                     <div>
                         <IconCheckCircle className="text-success font-bold" />{' '}
@@ -45,19 +47,72 @@ function VariableSelector({ variable }: { variable: DashboardTemplateVariableTyp
                     </div>
                 </div>
             )}
+            {showCustomEventField && (
+                <div className="mb-4">
+                    <LemonLabel info="Set the name that you'll use for a custom event (eg a backend event) instead of selecting an event from your site.">
+                        Custom event name
+                    </LemonLabel>
+                    <div className="flex gap-x-2 w-full">
+                        <LemonInput
+                            className="grow"
+                            onChange={(v) => {
+                                if (v) {
+                                    setCustomEventName(v)
+                                    setVariable(variable.name, {
+                                        events: [{ id: v, math: 'dau', type: 'events' }],
+                                    })
+                                } else {
+                                    setCustomEventName(null)
+                                    resetVariable(variable.id)
+                                }
+                            }}
+                            onBlur={() => {
+                                if (customEventName) {
+                                    setVariable(variable.name, {
+                                        events: [{ id: customEventName, math: 'dau', type: 'events' }],
+                                    })
+                                } else {
+                                    resetVariable(variable.id)
+                                    setShowCustomEventField(false)
+                                }
+                            }}
+                        />
+                        <div>
+                            <LemonButton
+                                icon={<IconTrash />}
+                                type="tertiary"
+                                size="small"
+                                onClick={() => {
+                                    resetVariable(variable.id)
+                                    setCustomEventName(null)
+                                    setShowCustomEventField(false)
+                                }}
+                            />
+                        </div>
+                    </div>
+                </div>
+            )}
             <div className="flex">
                 {variable.touched ? (
                     <LemonButton type="primary" status="alt" onClick={incrementActiveVariableIndex}>
                         Continue
                     </LemonButton>
                 ) : (
-                    <LemonButton
-                        type="primary"
-                        status="alt"
-                        onClick={() => setVariable(variable.name, { events: [FALLBACK_EVENT] })}
-                    >
-                        Select from site
-                    </LemonButton>
+                    <div className="flex gap-x-2">
+                        <LemonButton
+                            type="primary"
+                            status="alt"
+                            onClick={() => {
+                                setShowCustomEventField(false)
+                                setVariable(variable.name, { events: [FALLBACK_EVENT] })
+                            }}
+                        >
+                            Select from site
+                        </LemonButton>
+                        <LemonButton type="secondary" status="alt" onClick={() => setShowCustomEventField(true)}>
+                            or use custom event
+                        </LemonButton>
+                    </div>
                 )}
             </div>
         </div>
