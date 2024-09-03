@@ -11,7 +11,7 @@ import v8Profiler from 'v8-profiler-next'
 
 import { getPluginServerCapabilities } from '../capabilities'
 import { CdpApi } from '../cdp/cdp-api'
-import { CdpFunctionCallbackConsumer, CdpProcessedEventsConsumer } from '../cdp/cdp-consumers'
+import { CdpCyclotronWorker, CdpFunctionCallbackConsumer, CdpProcessedEventsConsumer } from '../cdp/cdp-consumers'
 import { defaultConfig, sessionRecordingConsumerConfig } from '../config/config'
 import { Hub, PluginServerCapabilities, PluginsServerConfig } from '../types'
 import { createHub, createKafkaClient, createKafkaProducerWrapper } from '../utils/db/hub'
@@ -520,16 +520,13 @@ export async function startPluginsServer(
             }
         }
 
-        // if (capabilities.cdpCyclotronWorker) {
-        //     ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, capabilities)
-        //     if (hub.CYCLOTRON_DATABASE_URL) {
-        //         const worker = new CdpCyclotronWorker(hub)
-        //         await worker.start()
-        //     } else {
-        //         // This is a temporary solution until we *require* Cyclotron to be configured.
-        //         status.warn('💥', 'CYCLOTRON_DATABASE_URL is not set, not running Cyclotron worker')
-        //     }
-        // }
+        if (capabilities.cdpCyclotronWorker) {
+            ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, capabilities)
+            const worker = new CdpCyclotronWorker(hub)
+            await worker.start()
+            shutdownCallbacks.push(async () => await worker.stop())
+            healthChecks['cdp-cyclotron-worker'] = () => worker.isHealthy() ?? false
+        }
 
         if (capabilities.http) {
             const app = setupCommonRoutes(healthChecks, serverInstance?.queue ?? undefined)
