@@ -11,7 +11,12 @@ import v8Profiler from 'v8-profiler-next'
 
 import { getPluginServerCapabilities } from '../capabilities'
 import { CdpApi } from '../cdp/cdp-api'
-import { CdpCyclotronWorker, CdpFunctionCallbackConsumer, CdpProcessedEventsConsumer } from '../cdp/cdp-consumers'
+import {
+    CdpCyclotronWorker,
+    CdpCyclotronWorkerFetch,
+    CdpFunctionCallbackConsumer,
+    CdpProcessedEventsConsumer,
+} from '../cdp/cdp-consumers'
 import { defaultConfig, sessionRecordingConsumerConfig } from '../config/config'
 import { Hub, PluginServerCapabilities, PluginsServerConfig } from '../types'
 import { createHub, createKafkaClient, createKafkaProducerWrapper } from '../utils/db/hub'
@@ -524,6 +529,12 @@ export async function startPluginsServer(
             ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, capabilities)
             const worker = new CdpCyclotronWorker(hub)
             await worker.start()
+
+            if (process.env.EXPERIMENTAL_CDP_FETCH_WORKER) {
+                const fetchWorker = new CdpCyclotronWorkerFetch(hub)
+                await fetchWorker.start()
+            }
+
             shutdownCallbacks.push(async () => await worker.stop())
             healthChecks['cdp-cyclotron-worker'] = () => worker.isHealthy() ?? false
         }
