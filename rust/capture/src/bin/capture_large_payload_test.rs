@@ -10,7 +10,7 @@ async fn main() {
 
     let client = reqwest::Client::new();
 
-    let large_prop = "a".repeat(1000 * 1000); // ~1MB
+    let large_prop = "a".repeat(1000 * 500);
     let distint_id: &str = "nvjaeknfaeklnfk.am.s,";
 
     let body = json!(
@@ -31,9 +31,10 @@ async fn main() {
     let compressed = encoder.finish().unwrap();
     println!("compressed size: {}", compressed.len());
 
-    let concurrency = Arc::new(Semaphore::new(100));
+    let concurrency = Arc::new(Semaphore::new(1000));
 
     let mut count = 0;
+    let mut last_print = std::time::Instant::now();
     loop {
         let permit = concurrency.clone().acquire_owned().await.unwrap();
         let _client = client.clone();
@@ -43,8 +44,9 @@ async fn main() {
             drop(permit);
         });
         count += 1;
-        if count % 200 == 0 {
+        if last_print.elapsed().as_secs() >= 1 {
             println!("sent: {}", count);
+            last_print = std::time::Instant::now();
         }
     }
 }

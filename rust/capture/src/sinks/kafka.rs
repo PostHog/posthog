@@ -31,7 +31,7 @@ impl rdkafka::ClientContext for KafkaContext {
         gauge!("capture_kafka_callback_queue_depth",).set(stats.replyq as f64);
         gauge!("capture_kafka_producer_queue_depth",).set(stats.msg_cnt as f64);
         gauge!("capture_kafka_producer_queue_depth_limit",).set(stats.msg_max as f64);
-        gauge!("capture_kafka_producer_queue_bytes",).set(stats.msg_max as f64);
+        gauge!("capture_kafka_producer_queue_bytes",).set(stats.msg_size as f64);
         gauge!("capture_kafka_producer_queue_bytes_limit",).set(stats.msg_size_max as f64);
 
         for (topic, stats) in stats.topics {

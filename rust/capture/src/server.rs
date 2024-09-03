@@ -84,6 +84,9 @@ where
         let sink = KafkaSink::new(config.kafka, sink_liveness, partition)
             .expect("failed to start Kafka sink");
 
+        // warn!("Kafka sink is disabled, using SleepSink");
+        // let sink = SleepSink;
+
         router::router(
             crate::time::SystemTime {},
             liveness,
