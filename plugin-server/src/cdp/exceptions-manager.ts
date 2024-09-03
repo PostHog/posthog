@@ -18,7 +18,6 @@ export class ExceptionsManager {
     fingerprintMappingCache: LRUCache<number, Record<string, ExceptionGroup>> // team_id: { primary_fingerprint: ExceptionGroup }
 
     constructor(private hub: Hub) {
-        // There is only 5 per team so we can have a very high cache and a very long cooldown
         this.fingerprintMappingCache = new LRUCache({ max: 1_000_000, maxAge: FINGERPRINT_CACHE_AGE_MS })
     }
 
