@@ -1,5 +1,3 @@
-import { DateTime } from 'luxon'
-
 import { ExceptionsManager } from '../../src/cdp/exceptions-manager'
 import { Hub } from '../../src/types'
 import { createHogExecutionGlobals, insertHogFunction as _insertHogFunction } from './fixtures'
@@ -7,7 +5,6 @@ import { createHogExecutionGlobals, insertHogFunction as _insertHogFunction } fr
 describe('Exceptions Manager', () => {
     jest.setTimeout(1000)
     let exceptionsManager: ExceptionsManager
-    let startTime: DateTime
 
     let mockGroups: { team_id: number; status: string; fingerprint: string[]; merged_fingerprints: string[][] }[] = []
 
@@ -19,7 +16,6 @@ describe('Exceptions Manager', () => {
 
     beforeEach(() => {
         exceptionsManager = new ExceptionsManager(mockHub as unknown as Hub)
-        startTime = DateTime.fromMillis(1620000000000)
     })
 
     describe('unit tests', () => {
@@ -50,7 +46,7 @@ describe('Exceptions Manager', () => {
                     event: {
                         name: '$exception',
                         properties: { $exception_fingerprint: ['custom_fp-1'] },
-                        timestamp: startTime,
+                        timestamp: '2024-04-17T12:06:46.861Z',
                     } as any,
                     project: { id: 1 } as any,
                 }),
@@ -59,7 +55,7 @@ describe('Exceptions Manager', () => {
                     event: {
                         name: '$exception',
                         properties: { $exception_fingerprint: ['custom_fp-2'] },
-                        timestamp: startTime,
+                        timestamp: '2024-04-17T12:06:46.861Z',
                     } as any,
                     project: { id: 1 } as any,
                 }),
@@ -68,7 +64,7 @@ describe('Exceptions Manager', () => {
                     event: {
                         name: '$exception',
                         properties: { $exception_fingerprint: ['custom_fp-1'] },
-                        timestamp: startTime,
+                        timestamp: '2024-04-17T12:06:46.861Z',
                     } as any,
                     project: { id: 2 } as any,
                 }),
@@ -84,7 +80,7 @@ describe('Exceptions Manager', () => {
                       "SyntaxError",
                     ],
                   },
-                  "timestamp": "2021-05-03T01:00:00.000+01:00",
+                  "timestamp": "2024-04-17T12:06:46.861Z",
                   "url": "http://localhost:8000/events/1",
                   "uuid": "uuid",
                 }
@@ -98,7 +94,7 @@ describe('Exceptions Manager', () => {
                       "TypeError",
                     ],
                   },
-                  "timestamp": "2021-05-03T01:00:00.000+01:00",
+                  "timestamp": "2024-04-17T12:06:46.861Z",
                   "url": "http://localhost:8000/events/1",
                   "uuid": "uuid",
                 }
@@ -112,7 +108,7 @@ describe('Exceptions Manager', () => {
                       "ApiError",
                     ],
                   },
-                  "timestamp": "2021-05-03T01:00:00.000+01:00",
+                  "timestamp": "2024-04-17T12:06:46.861Z",
                   "url": "http://localhost:8000/events/1",
                   "uuid": "uuid",
                 }
@@ -124,7 +120,7 @@ describe('Exceptions Manager', () => {
                 event: {
                     name: '$exception',
                     properties: { $exception_fingerprint: ['unmapped_fingerprint'] },
-                    timestamp: startTime,
+                    timestamp: '2024-04-17T12:06:46.861Z',
                 } as any,
                 project: { id: 1 } as any,
             })
@@ -139,7 +135,7 @@ describe('Exceptions Manager', () => {
                       "unmapped_fingerprint",
                     ],
                   },
-                  "timestamp": "2021-05-03T01:00:00.000+01:00",
+                  "timestamp": "2024-04-17T12:06:46.861Z",
                   "url": "http://localhost:8000/events/1",
                   "uuid": "uuid",
                 }
@@ -151,7 +147,7 @@ describe('Exceptions Manager', () => {
                 event: {
                     name: 'custom_event',
                     properties: { $exception_fingerprint: ['custom_fp-1'] },
-                    timestamp: startTime,
+                    timestamp: '2024-04-17T12:06:46.861Z',
                 } as any,
                 project: {
                     id: 1,
@@ -168,7 +164,7 @@ describe('Exceptions Manager', () => {
                       "custom_fp-1",
                     ],
                   },
-                  "timestamp": "2021-05-03T01:00:00.000+01:00",
+                  "timestamp": "2024-04-17T12:06:46.861Z",
                   "url": "http://localhost:8000/events/1",
                   "uuid": "uuid",
                 }
@@ -182,7 +178,7 @@ describe('Exceptions Manager', () => {
                 event: {
                     name: '$exception',
                     properties: { $exception_fingerprint: ['custom_fp-1'] },
-                    timestamp: startTime,
+                    timestamp: '2024-04-17T12:06:46.861Z',
                 } as any,
                 project: { id: 1 } as any,
             }),
@@ -190,7 +186,7 @@ describe('Exceptions Manager', () => {
                 event: {
                     name: '$exception',
                     properties: { $exception_fingerprint: ['custom_fp-1'] },
-                    timestamp: startTime,
+                    timestamp: '2024-04-17T12:06:46.861Z',
                 } as any,
                 project: { id: 2 } as any,
             }),
@@ -208,7 +204,7 @@ describe('Exceptions Manager', () => {
                 event: {
                     name: '$exception',
                     properties: { $exception_fingerprint: ['custom_fp-1'] },
-                    timestamp: startTime,
+                    timestamp: '2024-04-17T12:06:46.861Z',
                 } as any,
                 project: { id: 3 } as any,
             })
@@ -224,7 +220,7 @@ describe('Exceptions Manager', () => {
                 event: {
                     name: '$exception',
                     properties: { $exception_fingerprint: ['custom_fp-1'] },
-                    timestamp: startTime,
+                    timestamp: '2024-04-17T12:06:46.861Z',
                 } as any,
                 project: { id: 1 } as any,
             }),
@@ -232,7 +228,7 @@ describe('Exceptions Manager', () => {
                 event: {
                     name: '$exception',
                     properties: { $exception_fingerprint: ['custom_fp-2'] },
-                    timestamp: startTime,
+                    timestamp: '2024-04-17T12:06:46.861Z',
                 } as any,
                 project: { id: 1 } as any,
             }),
