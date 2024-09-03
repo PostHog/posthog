@@ -1,7 +1,7 @@
 import { DateTime, Settings } from 'luxon'
 
 import { DateTimePropertyTypeFormat, Hub, PropertyDefinitionTypeEnum, PropertyType } from '../../../src/types'
-import { createHub } from '../../../src/utils/db/hub'
+import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { PostgresUse } from '../../../src/utils/db/postgres'
 import { posthog } from '../../../src/utils/posthog'
 import { UUIDT } from '../../../src/utils/utils'
@@ -21,14 +21,13 @@ jest.mock('../../../src/utils/posthog', () => ({
 
 describe('PropertyDefinitionsManager()', () => {
     let hub: Hub
-    let closeHub: () => Promise<void>
     let manager: PropertyDefinitionsManager
     let teamId: number
     let organizationId: string
     let groupTypeManager: GroupTypeManager
 
     beforeEach(async () => {
-        ;[hub, closeHub] = await createHub()
+        hub = await createHub()
         organizationId = await createOrganization(hub.db.postgres)
         teamId = await createTeam(hub.db.postgres, organizationId)
         groupTypeManager = new GroupTypeManager(hub.postgres, hub.teamManager, hub.SITE_URL)
@@ -38,7 +37,7 @@ describe('PropertyDefinitionsManager()', () => {
     })
 
     afterEach(async () => {
-        await closeHub()
+        await closeHub(hub)
     })
 
     describe('updateEventNamesAndProperties()', () => {
