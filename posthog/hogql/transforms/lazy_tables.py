@@ -213,6 +213,7 @@ class LazyTableResolver(TraversingVisitor):
                             lazy_join=table_type.lazy_join,
                             from_table=from_table,
                             to_table=to_table,
+                            lazy_join_type=table_type,
                         )
                     new_join = joins_to_add[to_table]
                     if table_type == field.table_type:
@@ -255,6 +256,7 @@ class LazyTableResolver(TraversingVisitor):
                                 lazy_join=table_type.table_type.lazy_join,
                                 from_table=from_table,
                                 to_table=to_table,
+                                lazy_join_type=table_type.table_type,
                             )
                         new_join = joins_to_add[to_table]
                         if table_type == field.table_type:
@@ -348,9 +350,6 @@ class LazyTableResolver(TraversingVisitor):
                     break
                 join_ptr = join_ptr.next_join
 
-        # Store all the constraint fields we've seen for each join to decide where in the order of joins the next join should be added
-        field_chain_finder = FieldFinder()
-
         # For all the collected joins, create the join subqueries, and add them to the table.
         for to_table, join_scope in joins_to_add.items():
             join_to_add: ast.JoinExpr = join_scope.lazy_join.join_function(
@@ -380,6 +379,7 @@ class LazyTableResolver(TraversingVisitor):
             if join_to_add.type is not None:
                 select_type.tables[to_table] = join_to_add.type
 
+            field_chain_finder = FieldFinder()
             field_chain_finder.visit(join_to_add.constraint)
 
             select_from_alias: str | int | None = None
@@ -389,7 +389,21 @@ class LazyTableResolver(TraversingVisitor):
                 if node.select_from and node.select_from.table and isinstance(node.select_from.table, ast.Field):
                     select_from_alias = node.select_from.table.chain[0]
 
-            constraint_tables = [x[0] for x in field_chain_finder.field_chains if x[0] != select_from_alias]
+            # Store all the constraint tables we've seen for this join to decide where in the order of joins the next join should be added
+            constraint_tables: list[str | int] = []
+            for field_chain in field_chain_finder.field_chains:
+                if field_chain[0] == select_from_alias:
+                    continue
+
+                added = False
+                for constraint_table_join in joins_to_add.values():
+                    if field_chain[0] == constraint_table_join.lazy_join_type.field:
+                        constraint_tables.append(constraint_table_join.to_table)
+                        added = True
+                        break
+
+                if not added:
+                    constraint_tables.append(field_chain[0])
 
             join_ptr = node.select_from
             added = False
