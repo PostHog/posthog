@@ -755,9 +755,17 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
     private async innerStart() {
         try {
             while (!this.isStopping) {
-                // TODO: Add a timeout check
-                console.log('Dequeueing jobs')
-                const jobs = await this.cyclotronWorker!.dequeueJobsWithVmState(this.queue, this.limit)
+                const jobs = await runInstrumentedFunction({
+                    statsKey: `cdpConsumer.cyclotronWorker.dequeueJobsWithVmState`,
+                    func: async () => {
+                        status.info('!', `Dequeing jobs: ${this.queue}`)
+                        return await this.cyclotronWorker!.dequeueJobsWithVmState(this.queue, this.limit)
+                    },
+                    timeout: 3000,
+                })
+
+                status.info('!', `Dequeued jobs ${jobs.length}: ${this.queue}`)
+
                 // TODO: How do we "hold" these dequeued jobs?
                 const invocations: HogFunctionInvocation[] = []
 
@@ -765,7 +773,8 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
                     await delay(100)
                     return
                 }
-                console.log('Dequeued jobs', this.queue, jobs)
+
+                console.log('jobs', jobs)
 
                 for (const job of jobs) {
                     // NOTE: This is all a bit messy and might be better to refactor into a helper
@@ -780,6 +789,8 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
                         status.error('Error finding hog function', {
                             id: job.functionId,
                         })
+                        this.cyclotronWorker?.updateJob(job.id, 'failed')
+                        await this.cyclotronWorker?.flushJob(job.id)
                         continue
                     }
 
