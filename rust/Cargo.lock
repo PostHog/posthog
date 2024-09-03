@@ -19,9 +19,9 @@ checksum = "f26201604c87b1e01bd3d98f8d5d9a8fcbb815e8cedb41ffccbeb4bf593a35fe"
 
 [[package]]
 name = "ahash"
-version = "0.8.7"
+version = "0.8.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77c3a9648d43b9cd48db467b3f87fdd6e146bcc88ab0180006cef2179fe11d01"
+checksum = "e89da841a80418a9b391ebaea17f5c112ffaaa96f621d2c285b5174da76b9011"
 dependencies = [
  "cfg-if",
  "getrandom",
@@ -641,6 +641,7 @@ dependencies = [
  "thiserror",
  "time",
  "tokio",
+ "tower",
  "tower-http",
  "tracing",
  "tracing-opentelemetry",
@@ -708,6 +709,23 @@ dependencies = [
  "futures",
  "reqwest 0.12.3",
  "tokio",
+]
+
+[[package]]
+name = "common-kafka"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "envconfig",
+ "futures",
+ "health",
+ "rdkafka",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "time",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -860,6 +878,7 @@ dependencies = [
  "axum 0.7.5",
  "chrono",
  "common-dns",
+ "common-kafka",
  "common-metrics",
  "cyclotron-core",
  "envconfig",
@@ -868,11 +887,13 @@ dependencies = [
  "http 1.1.0",
  "httpmock",
  "rand",
+ "rdkafka",
  "reqwest 0.12.3",
  "serde",
  "serde_json",
  "sqlx",
  "thiserror",
+ "time",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -885,12 +906,16 @@ version = "0.1.0"
 dependencies = [
  "axum 0.7.5",
  "chrono",
+ "common-kafka",
  "common-metrics",
  "cyclotron-core",
  "envconfig",
  "eyre",
  "health",
+ "rdkafka",
+ "serde_json",
  "sqlx",
+ "time",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -1584,10 +1609,8 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
- "envconfig",
- "health",
+ "common-kafka",
  "http 1.1.0",
- "rdkafka",
  "reqwest 0.12.3",
  "serde",
  "serde_json",
@@ -1596,7 +1619,6 @@ dependencies = [
  "time",
  "tokio",
  "tracing",
- "uuid",
 ]
 
 [[package]]
@@ -1605,6 +1627,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "axum 0.7.5",
+ "common-kafka",
  "common-metrics",
  "envconfig",
  "eyre",
@@ -1630,6 +1653,7 @@ dependencies = [
  "axum 0.7.5",
  "chrono",
  "common-dns",
+ "common-kafka",
  "common-metrics",
  "envconfig",
  "futures",
@@ -2820,12 +2844,15 @@ dependencies = [
 name = "property-defs-rs"
 version = "0.1.0"
 dependencies = [
+ "ahash",
  "axum 0.7.5",
  "chrono",
+ "common-metrics",
  "envconfig",
  "futures",
  "health",
  "metrics",
+ "quick_cache",
  "rdkafka",
  "serde",
  "serde_json",
@@ -2890,6 +2917,18 @@ dependencies = [
  "wasi 0.11.0+wasi-snapshot-preview1",
  "web-sys",
  "winapi",
+]
+
+[[package]]
+name = "quick_cache"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "27a893a83255c587d31137bc7e350387b49267b0deac44120fd8fa8bd0d61645"
+dependencies = [
+ "ahash",
+ "equivalent",
+ "hashbrown 0.14.3",
+ "parking_lot",
 ]
 
 [[package]]

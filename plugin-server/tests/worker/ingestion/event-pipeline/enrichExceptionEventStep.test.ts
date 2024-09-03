@@ -37,7 +37,6 @@ describe('enrichExceptionEvent()', () => {
                     produce: jest.fn((e) => Promise.resolve(e)),
                 },
             },
-            nextStep: (...args: any[]) => args,
         }
     })
 

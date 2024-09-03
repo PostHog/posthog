@@ -15,16 +15,77 @@ pub struct Config {
     #[envconfig(default = "10")]
     pub max_concurrent_transactions: usize,
 
-    #[envconfig(default = "10000")]
-    pub max_batch_size: usize,
-
-    // If a worker recieves a batch smaller than this, it will simply not commit the offset and
-    // sleep for a while, since DB ops/event scales inversely to batch size
+    // We issue writes (UPSERTS) to postgres in batches of this size.
+    // Total concurrent DB ops is max_concurrent_transactions * update_batch_size
     #[envconfig(default = "1000")]
-    pub min_batch_size: usize,
+    pub update_batch_size: usize,
 
-    #[envconfig(default = "100")]
-    pub next_event_wait_timeout_ms: u64,
+    // We issue updates in batches of update_batch_size, or when we haven't
+    // received a new update in this many seconds
+    #[envconfig(default = "300")]
+    pub max_issue_period: u64,
+
+    // Propdefs spawns N workers to pull events from kafka,
+    // marshal, and convert to updates. The number of
+    // concurrent update batches sent to postgres is controlled
+    // by max_concurrent_transactions
+    #[envconfig(default = "4")]
+    pub worker_loop_count: usize,
+
+    // We maintain an internal cache, to avoid sending the same UPSERT multiple times. This is it's size.
+    #[envconfig(default = "1000000")]
+    pub cache_capacity: usize,
+
+    // We impose a slow-start, where each batch update operation is delayed by
+    // this many milliseconds, multiplied by the % of the cache currently unused. The idea
+    // is that we want to drip-feed updates to the DB during warmup, since
+    // cache fill rate is highest when it's most empty, and cache fill rate
+    // is exactly equivalent to the rate at which we can issue updates to the DB.
+    // The maths here is:
+    //     max(writes/s) = max_concurrent_transactions * update_batch_size / transaction_seconds
+    // By artificially inflating transaction_time, we put a cap on writes/s. This cap is
+    // then loosened as the cache fills, until we're operating in "normal" mode and
+    // only presenting "true" DB backpressure (in the form of write time) to the main loop.
+    #[envconfig(default = "1000")]
+    pub cache_warming_delay_ms: u32,
+
+    // This is the slow-start cutoff. Once the cache is this full, we
+    // don't delay the batch updates any more. 50% is fine for testing,
+    // in production you want to be using closer to 80-90%
+    #[envconfig(default = "0.5")]
+    pub cache_warming_cutoff: f64,
+
+    // Each worker maintains a small local batch of updates, which it
+    // flushes to the main thread (updating/filtering by the
+    // cross-thread cache while it does). This is that batch size.
+    #[envconfig(default = "10000")]
+    pub compaction_batch_size: usize,
+
+    // Workers send updates back to the main thread over a channel,
+    // which has a depth of this many slots. If the main thread slows,
+    // which usually means if postgres is slow, the workers will block
+    // after filling this channel.
+    #[envconfig(default = "1000")]
+    pub channel_slots_per_worker: usize,
+
+    // If an event has some ridiculous number of updates, we skip it
+    #[envconfig(default = "10000")]
+    pub update_count_skip_threshold: usize,
+
+    // Do everything except actually write to the DB
+    #[envconfig(default = "true")]
+    pub skip_writes: bool,
+
+    // Do everything except actually read or write from the DB
+    #[envconfig(default = "true")]
+    pub skip_reads: bool,
+
+    // We maintain a small cache for mapping from group names to group type indexes.
+    // You have very few reasons to ever change this... group type index resolution
+    // is done as a final step before writing an update, and is low-cost even without
+    // caching, compared to the rest of the process.
+    #[envconfig(default = "100000")]
+    pub group_type_cache_size: usize,
 
     #[envconfig(from = "BIND_HOST", default = "::")]
     pub host: String,
@@ -43,7 +104,7 @@ pub struct KafkaConfig {
     pub kafka_tls: bool,
     #[envconfig(default = "false")]
     pub verify_ssl_certificate: bool,
-    #[envconfig(default = "autocomplete-rs")]
+    #[envconfig(default = "property-definitions-rs")]
     pub consumer_group: String,
 }
 

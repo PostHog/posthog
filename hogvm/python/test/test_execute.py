@@ -4,7 +4,11 @@ from collections.abc import Callable
 
 
 from hogvm.python.execute import execute_bytecode, get_nested_value
-from hogvm.python.operation import Operation as op, HOGQL_BYTECODE_IDENTIFIER as _H, HOGQL_BYTECODE_VERSION as VERSION
+from hogvm.python.operation import (
+    Operation as op,
+    HOGQL_BYTECODE_IDENTIFIER as _H,
+    HOGQL_BYTECODE_VERSION as VERSION,
+)
 from hogvm.python.utils import UncaughtHogVMException
 from posthog.hogql.bytecode import create_bytecode
 from posthog.hogql.parser import parse_expr, parse_program
@@ -122,7 +126,7 @@ class TestBytecodeExecute:
             raise AssertionError("Expected Exception not raised")
 
         try:
-            execute_bytecode([_H, VERSION, op.CALL_GLOBAL, "notAFunction", 1], {})
+            execute_bytecode([_H, VERSION, op.CALL_GLOBAL, "replaceOne", 1], {})
         except Exception as e:
             assert str(e) == "Stack underflow"
         else:
@@ -488,7 +492,7 @@ class TestBytecodeExecute:
     def test_bytecode_functions(self):
         program = parse_program(
             """
-            fn add(a, b) {
+            fun add(a, b) {
                 return a + b;
             }
             return add(3, 4);
@@ -497,10 +501,11 @@ class TestBytecodeExecute:
         bytecode = create_bytecode(program)
         assert bytecode == [
             "_H",
-            1,
-            op.DECLARE_FN,
+            VERSION,
+            op.CALLABLE,
             "add",
             2,
+            0,
             6,
             op.GET_LOCAL,
             1,
@@ -508,14 +513,18 @@ class TestBytecodeExecute:
             0,
             op.PLUS,
             op.RETURN,
+            op.CLOSURE,
+            0,
             op.INTEGER,
             3,
             op.INTEGER,
             4,
-            op.CALL_GLOBAL,
-            "add",
+            op.GET_LOCAL,
+            0,
+            op.CALL_LOCAL,
             2,
             op.RETURN,
+            op.POP,
         ]
 
         response = execute_bytecode(bytecode).result
@@ -524,7 +533,7 @@ class TestBytecodeExecute:
         assert (
             self._run_program(
                 """
-                fn add(a, b) {
+                fun add(a, b) {
                     return a + b;
                 }
                 return add(3, 4) + 100 + add(1, 1);
@@ -536,10 +545,10 @@ class TestBytecodeExecute:
         assert (
             self._run_program(
                 """
-                fn add(a, b) {
+                fun add(a, b) {
                     return a + b;
                 }
-                fn divide(a, b) {
+                fun divide(a, b) {
                     return a / b;
                 }
                 return divide(add(3, 4) + 100 + add(2, 1), 2);
@@ -551,11 +560,11 @@ class TestBytecodeExecute:
         assert (
             self._run_program(
                 """
-                fn add(a, b) {
+                fun add(a, b) {
                     let c := a + b;
                     return c;
                 }
-                fn divide(a, b) {
+                fun divide(a, b) {
                     return a / b;
                 }
                 return divide(add(3, 4) + 100 + add(2, 1), 10);
@@ -568,7 +577,7 @@ class TestBytecodeExecute:
         assert (
             self._run_program(
                 """
-                fn fibonacci(number) {
+                fun fibonacci(number) {
                     if (number < 2) {
                         return number;
                     } else {
@@ -585,7 +594,7 @@ class TestBytecodeExecute:
         assert (
             self._run_program(
                 """
-                fn doIt(a) {
+                fun doIt(a) {
                     let url := 'basdfasdf';
                     let second := 2 + 3;
                     return second;
@@ -600,7 +609,7 @@ class TestBytecodeExecute:
         assert (
             self._run_program(
                 """
-                fn doIt() {
+                fun doIt() {
                     let url := 'basdfasdf';
                     let second := 2 + 3;
                     return second;

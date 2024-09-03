@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use chrono::{Duration, Utc};
 
+use common_kafka::test::create_mock_kafka;
 use cyclotron_core::{Bytes, Job, JobInit, QueueError, Worker};
 use cyclotron_fetch::{
     config::AppConfig,
@@ -39,9 +40,12 @@ pub async fn get_app_test_context(db: PgPool) -> AppContext {
         allow_internal_ips: true,
     };
 
+    let (_, mock_producer) = create_mock_kafka().await;
+
     AppContext {
         worker,
         client,
+        kafka_producer: mock_producer,
         concurrency_limit,
         liveness,
         config,

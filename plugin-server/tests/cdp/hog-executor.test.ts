@@ -87,7 +87,7 @@ describe('Hog Executor', () => {
                 {
                     timestamp: expect.any(DateTime),
                     level: 'debug',
-                    message: "Suspending function due to async function call 'fetch'. Payload: 1456 bytes",
+                    message: "Suspending function due to async function call 'fetch'. Payload: 1814 bytes",
                 },
             ])
         })
@@ -199,7 +199,7 @@ describe('Hog Executor', () => {
             expect(asyncExecResult.finished).toBe(true)
             expect(logs.map((log) => log.message)).toEqual([
                 'Executing function',
-                "Suspending function due to async function call 'fetch'. Payload: 1456 bytes",
+                "Suspending function due to async function call 'fetch'. Payload: 1814 bytes",
                 'Resuming function',
                 'Fetch response:, {"status":200,"body":"success"}',
                 'Function completed in 100ms. Sync: 0ms. Mem: 746 bytes. Ops: 22.',
@@ -227,7 +227,7 @@ describe('Hog Executor', () => {
             expect(asyncExecResult.finished).toBe(true)
             expect(logs.map((log) => log.message)).toEqual([
                 'Executing function',
-                "Suspending function due to async function call 'fetch'. Payload: 1456 bytes",
+                "Suspending function due to async function call 'fetch'. Payload: 1814 bytes",
                 'Resuming function',
                 'Fetch response:, {"status":200,"body":{"foo":"bar"}}', // The body is parsed
                 'Function completed in 100ms. Sync: 0ms. Mem: 746 bytes. Ops: 22.',

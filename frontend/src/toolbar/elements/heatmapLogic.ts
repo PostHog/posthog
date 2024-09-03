@@ -14,7 +14,7 @@ import {
     HeatmapJsDataPoint,
     HeatmapRequestType,
 } from 'lib/components/heatmaps/types'
-import { calculateViewportRange, DEFAULT_HEATMAP_FILTERS } from 'lib/components/heatmaps/utils'
+import { calculateViewportRange, DEFAULT_HEATMAP_FILTERS } from 'lib/components/IframedToolbarBrowser/utils'
 import { dateFilterToText } from 'lib/utils'
 import { createVersionChecker } from 'lib/utils/semver'
 import { PostHog } from 'posthog-js'

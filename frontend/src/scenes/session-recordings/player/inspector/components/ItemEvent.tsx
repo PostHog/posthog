@@ -83,7 +83,7 @@ export function ItemEvent({ item, expanded, setExpanded }: ItemEventProps): JSX.
 
     return (
         <div data-attr="item-event">
-            <LemonButton noPadding onClick={() => setExpanded(!expanded)} fullWidth>
+            <LemonButton noPadding onClick={() => setExpanded(!expanded)} fullWidth className="font-normal">
                 <div className="flex flex-row w-full justify-between gap-2 items-center p-2 text-xs cursor-pointer truncate">
                     <div>
                         <PropertyKeyInfo

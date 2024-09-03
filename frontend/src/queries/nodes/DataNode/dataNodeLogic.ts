@@ -426,7 +426,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         isShowingCachedResults: [
             () => [(_, props) => props.cachedResults ?? null, (_, props) => props.query],
             (cachedResults: AnyResponseType | null, query: DataNode): boolean => {
-                return !!cachedResults || ('query' in query && JSON.stringify(query.query) in cache.localResults)
+                return (
+                    !!cachedResults ||
+                    (cache.localResults && 'query' in query && JSON.stringify(query.query) in cache.localResults)
+                )
             },
         ],
         query: [(_, p) => [p.query], (query) => query],
