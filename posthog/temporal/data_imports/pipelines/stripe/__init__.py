@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Any, Optional
 import dlt
 from dlt.sources.helpers.rest_client.paginators import BasePaginator
 from dlt.sources.helpers.requests import Response, Request
@@ -10,6 +10,41 @@ from stripe import StripeClient
 
 def get_resource(name: str, is_incremental: bool) -> EndpointResource:
     resources: dict[str, EndpointResource] = {
+        "Account": {
+            "name": "Account",
+            "table_name": "account",
+            "primary_key": "id",
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if is_incremental
+            else "replace",
+            "columns": get_dlt_mapping_for_external_table("stripe_account"),  # type: ignore
+            "endpoint": {
+                "data_selector": "data",
+                "path": "/v1/accounts",
+                "params": {
+                    # the parameters below can optionally be configured
+                    "created[gte]": {
+                        "type": "incremental",
+                        "cursor_path": "created",
+                        "initial_value": 0,  # type: ignore
+                    }
+                    if is_incremental
+                    else None,
+                    # "currency": "OPTIONAL_CONFIG",
+                    # "ending_before": "OPTIONAL_CONFIG",
+                    # "expand": "OPTIONAL_CONFIG",
+                    "limit": 100,
+                    # "payout": "OPTIONAL_CONFIG",
+                    # "source": "OPTIONAL_CONFIG",
+                    # "starting_after": "OPTIONAL_CONFIG",
+                    # "type": "OPTIONAL_CONFIG",
+                },
+            },
+            "table_format": "delta",
+        },
         "BalanceTransaction": {
             "name": "BalanceTransaction",
             "table_name": "balance_transaction",
@@ -264,7 +299,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
 
 
 class StripePaginator(BasePaginator):
-    def update_state(self, response: Response) -> None:
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         res = response.json()
 
         self._starting_after = None

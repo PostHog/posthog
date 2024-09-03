@@ -1,15 +1,20 @@
 {
     "name": "@posthog/hogvm",
-    "version": "1.0.38",
+    "version": "1.0.43",
     "description": "PostHog Hog Virtual Machine",
     "types": "dist/index.d.ts",
+    "source": "src/index.ts",
     "main": "dist/index.js",
+    "module": "dist/module.js",
     "packageManager": "pnpm@8.3.1",
     "scripts": {
         "test": "jest --runInBand --forceExit",
-        "build": "pnpm clean && pnpm compile",
-        "clean": "rm -rf dist/*",
-        "compile": "tsc -p tsconfig.build.json",
+        "clean": "rm -rf dist .parcel-cache",
+        "build": "pnpm clean && pnpm build:stl && pnpm build:parcel && pnpm build:cli",
+        "build:stl": "cd ../.. && python3 -m hogvm.stl.compile",
+        "build:parcel": "parcel build",
+        "build:compile": "tsc -p tsconfig.build.json",
+        "build:cli": "cp ./src/cli.js ./dist/cli.js",
         "check": "tsc -p tsconfig.build.json --noEmit",
         "prettier": "prettier --write src",
         "prettier:check": "prettier --check src",
@@ -19,13 +24,18 @@
     "repository": "https://github.com/PostHog/posthog-plugin-server",
     "license": "MIT",
     "devDependencies": {
+        "@parcel/packager-ts": "2.12.0",
+        "@parcel/transformer-typescript-types": "2.12.0",
         "@swc-node/register": "^1.9.1",
         "@swc/core": "^1.5.7",
         "@swc/jest": "^0.2.36",
         "@types/luxon": "^3.4.2",
         "@types/node": "^20.14.2",
+        "crypto-browserify": "^3.12.0",
         "jest": "^28.1.1",
+        "parcel": "^2.12.0",
         "prettier": "^3.2.5",
+        "re2": "^1.21.3",
         "typescript": "^5.4.5"
     },
     "files": [
@@ -37,11 +47,9 @@
         ".prettierrc"
     ],
     "peerDependencies": {
-        "luxon": "^3.4.4",
-        "re2": "^1.21.3"
+        "luxon": "^3.4.4"
     },
     "dependencies": {
-        "luxon": "^3.4.4",
-        "re2": "^1.21.3"
+        "luxon": "^3.4.4"
     }
 }

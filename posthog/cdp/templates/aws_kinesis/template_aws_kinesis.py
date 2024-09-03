@@ -8,7 +8,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Put data to an AWS Kinesis stream",
     icon_url="/static/services/aws-kinesis.png",
     hog="""
-fn getPayload() {
+fun getPayload() {
   let region := inputs.aws_region
   let service := 'kinesis'
   let amzDate := formatDateTime(now(), '%Y%m%dT%H%i%sZ')

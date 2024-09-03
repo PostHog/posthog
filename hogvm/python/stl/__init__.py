@@ -23,7 +23,7 @@ from .date import (
     is_hog_date,
 )
 from .crypto import sha256Hex, md5Hex, sha256HmacChainHex
-from ..objects import is_hog_error, new_hog_error
+from ..objects import is_hog_error, new_hog_error, is_hog_callable, is_hog_closure
 from ..utils import like
 
 if TYPE_CHECKING:
@@ -130,12 +130,16 @@ def jsonStringify(args: list[Any], team: Optional["Team"], stdout: Optional[list
 
     def json_safe(obj):
         if isinstance(obj, dict) or isinstance(obj, list) or isinstance(obj, tuple):
-            if id(obj) in marked:
+            if id(obj) in marked and not is_hog_callable(obj) and not is_hog_closure(obj):
                 return None
             else:
                 marked.add(id(obj))
                 try:
                     if isinstance(obj, dict):
+                        if is_hog_callable(obj):
+                            return f"fn<{obj['name']}({obj['argCount']})>"
+                        if is_hog_closure(obj):
+                            return f"fn<{obj['callable']['name']}({obj['callable']['argCount']})>"
                         return {json_safe(k): json_safe(v) for k, v in obj.items()}
                     elif isinstance(obj, list):
                         return [json_safe(v) for v in obj]
@@ -310,6 +314,34 @@ def _formatDateTime(args: list[Any], team: Optional["Team"], stdout: Optional[li
     return formatDateTime(args[0], args[1], args[2] if len(args) > 2 else None)
 
 
+def _typeof(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> str:
+    if args[0] is None:
+        return "null"
+    elif is_hog_datetime(args[0]):
+        return "datetime"
+    elif is_hog_date(args[0]):
+        return "date"
+    elif is_hog_error(args[0]):
+        return "error"
+    elif is_hog_callable(args[0]) or is_hog_closure(args[0]):
+        return "function"
+    elif isinstance(args[0], list):
+        return "array"
+    elif isinstance(args[0], tuple):
+        return "tuple"
+    elif isinstance(args[0], dict):
+        return "object"
+    elif args[0] is True or args[0] is False:
+        return "boolean"
+    elif isinstance(args[0], int):
+        return "integer"
+    elif isinstance(args[0], float):
+        return "float"
+    elif isinstance(args[0], str):
+        return "string"
+    return "unknown"
+
+
 STL: dict[str, STLFunction] = {
     "concat": STLFunction(
         fn=lambda args, team, stdout, timeout: "".join(
@@ -420,6 +452,7 @@ STL: dict[str, STLFunction] = {
         minArgs=0,
         maxArgs=2,
     ),
+    "typeof": STLFunction(fn=_typeof, minArgs=1, maxArgs=1),
     # only in python, async function in nodejs
     "sleep": STLFunction(fn=sleep, minArgs=1, maxArgs=1),
     "run": STLFunction(fn=run, minArgs=1, maxArgs=1),

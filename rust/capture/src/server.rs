@@ -8,8 +8,8 @@ use tokio::net::TcpListener;
 
 use crate::config::Config;
 
-use crate::limiters::billing::BillingLimiter;
 use crate::limiters::overflow::OverflowLimiter;
+use crate::limiters::redis::RedisLimiter;
 use crate::redis::RedisClient;
 use crate::router;
 use crate::sinks::kafka::KafkaSink;
@@ -24,12 +24,14 @@ where
     let redis_client =
         Arc::new(RedisClient::new(config.redis_url).expect("failed to create redis client"));
 
-    let billing = BillingLimiter::new(
+    let billing_limiter = RedisLimiter::new(
         Duration::seconds(5),
         redis_client.clone(),
         config.redis_key_prefix,
     )
     .expect("failed to create billing limiter");
+
+    let event_max_bytes = config.kafka.kafka_producer_message_max_bytes as usize;
 
     let app = if config.print_sink {
         // Print sink is only used for local debug, don't allow a container with it to run on prod
@@ -44,9 +46,11 @@ where
             liveness,
             PrintSink {},
             redis_client,
-            billing,
+            billing_limiter,
             config.export_prometheus,
             config.capture_mode,
+            config.concurrency_limit,
+            event_max_bytes,
         )
     } else {
         let sink_liveness = liveness
@@ -85,9 +89,11 @@ where
             liveness,
             sink,
             redis_client,
-            billing,
+            billing_limiter,
             config.export_prometheus,
             config.capture_mode,
+            config.concurrency_limit,
+            event_max_bytes,
         )
     };
 

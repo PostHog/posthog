@@ -144,6 +144,10 @@ impl KafkaSink {
                 (config.kafka_producer_queue_mib * 1024).to_string(),
             );
 
+        if !&config.kafka_client_id.is_empty() {
+            client_config.set("client.id", &config.kafka_client_id);
+        }
+
         if config.kafka_tls {
             client_config
                 .set("security.protocol", "ssl")
@@ -183,10 +187,14 @@ impl KafkaSink {
             CaptureError::NonRetryableSinkError
         })?;
 
+        let token = event.token.clone();
+        let data_type = event.data_type;
         let event_key = event.key();
-        let session_id = event.session_id.as_deref();
+        let session_id = event.session_id.clone();
 
-        let (topic, partition_key): (&str, Option<&str>) = match &event.data_type {
+        drop(event); // Events can be EXTREMELY memory hungry
+
+        let (topic, partition_key): (&str, Option<&str>) = match data_type {
             DataType::AnalyticsHistorical => (&self.historical_topic, Some(event_key.as_str())), // We never trigger overflow on historical events
             DataType::AnalyticsMain => {
                 // TODO: deprecate capture-led overflow or move logic in handler
@@ -208,7 +216,11 @@ impl KafkaSink {
             DataType::ExceptionMain => (&self.exceptions_topic, Some(event_key.as_str())),
             DataType::SnapshotMain => (
                 &self.main_topic,
-                Some(session_id.ok_or(CaptureError::MissingSessionId)?),
+                Some(
+                    session_id
+                        .as_deref()
+                        .ok_or(CaptureError::MissingSessionId)?,
+                ),
             ),
         };
 
@@ -220,7 +232,7 @@ impl KafkaSink {
             timestamp: None,
             headers: Some(OwnedHeaders::new().insert(Header {
                 key: "token",
-                value: Some(&event.token),
+                value: Some(&token),
             })),
         }) {
             Ok(ack) => Ok(ack),
@@ -358,6 +370,7 @@ mod tests {
             kafka_exceptions_topic: "events_plugin_ingestion".to_string(),
             kafka_heatmaps_topic: "events_plugin_ingestion".to_string(),
             kafka_tls: false,
+            kafka_client_id: "".to_string(),
         };
         let sink = KafkaSink::new(config, handle, limiter).expect("failed to create sink");
         (cluster, sink)

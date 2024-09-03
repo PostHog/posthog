@@ -1,6 +1,6 @@
-import { exec } from '@posthog/hogvm'
 import { createHash } from 'crypto'
 
+import { execHog } from './hog-executor'
 import { CdpRedis } from './redis'
 import { HogFunctionInvocationGlobals, HogFunctionType } from './types'
 
@@ -50,10 +50,9 @@ export class HogMasker {
         invocationsWithMasker.forEach((item) => {
             if (item.hogFunction.masking) {
                 // TODO: Catch errors
-                const value = exec(item.hogFunction.masking.bytecode, {
+                const value = execHog(item.hogFunction.masking.bytecode, {
                     globals: item.globals,
                     timeout: 50,
-                    maxAsyncSteps: 0,
                 })
                 // What to do if it is null....
                 const hash = createHash('md5').update(String(value.result)).digest('hex').substring(0, 32)

@@ -131,7 +131,7 @@ export const TARGET_AREA_TO_NAME = [
             {
                 value: 'experiments',
                 'data-attr': `support-form-target-area-experiments`,
-                label: 'A/B testing',
+                label: 'Experiments',
             },
             {
                 value: 'data_warehouse',

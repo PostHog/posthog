@@ -1,9 +1,9 @@
-fn execFunction() {
+fun execFunction() {
   print('execFunction')
 }
 
-fn execFunctionNested() {
-  fn execFunction() {
+fun execFunctionNested() {
+  fun execFunction() {
     print('execFunctionNew')
   }
   print('execFunctionNested')
@@ -16,11 +16,11 @@ execFunction()
 
 print('--------')
 
-fn secondExecFunction() {
+fun secondExecFunction() {
   print('secondExecFunction')
 }
 
-fn secondExecFunctionNested() {
+fun secondExecFunctionNested() {
   print('secondExecFunctionNested')
   secondExecFunction()
 }

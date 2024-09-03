@@ -37,8 +37,8 @@ class TestSessionsAPI(APIBaseTest):
             "$end_timestamp",
             "$entry_current_url",
             "$entry_pathname",
-            "$exit_current_url",
-            "$exit_pathname",
+            "$end_current_url",
+            "$end_pathname",
             "$entry_gad_source",
             "$entry_gclid",
             "$entry_referring_domain",
@@ -48,9 +48,11 @@ class TestSessionsAPI(APIBaseTest):
             "$entry_utm_source",
             "$entry_utm_term",
             "$pageview_count",
+            "$screen_count",
             "$session_duration",
             "$start_timestamp",
             "$is_bounce",
+            "$last_external_click_url",
         }
         assert actual_properties == expected_properties
 

@@ -1128,6 +1128,11 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: <span>Whether the session was a bounce.</span>,
             examples: ['true', 'false'],
         },
+        $last_external_click_url: {
+            label: 'Last external click URL',
+            description: <span>The last external URL clicked in this session</span>,
+            examples: ['https://example.com/interesting-article?parameter=true'],
+        },
     },
     groups: {
         $group_key: {
@@ -1153,6 +1158,17 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         visited_page: {
             label: 'Visited page',
             description: 'URL a user visited during their session',
+        },
+    },
+    log_entries: {
+        level: {
+            label: 'Console log level',
+            description: 'Level of the ',
+            examples: ['info', 'warn', 'error'],
+        },
+        message: {
+            label: 'Console log message',
+            description: 'The contents of the log message',
         },
     },
 } satisfies Partial<Record<TaxonomicFilterGroupType, Record<string, CoreFilterDefinition>>>
