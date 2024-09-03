@@ -768,7 +768,6 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
     }
 
     private async handleJobBatch(jobs: Job[]) {
-        console.log('RECEIVED JOBS', jobs)
         const invocations: HogFunctionInvocation[] = []
 
         for (const job of jobs) {
