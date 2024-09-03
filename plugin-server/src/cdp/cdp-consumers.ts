@@ -241,7 +241,10 @@ abstract class CdpConsumerBase {
                     teamId: invocation.globals.project.id,
                     functionId: invocation.hogFunction.id,
                     queueName: invocation.queue,
-                    parameters: invocation.queueParameters ? JSON.stringify(invocation.queueParameters) : undefined,
+                    queueParameters: invocation.queueParameters
+                        ? JSON.stringify(invocation.queueParameters)
+                        : undefined,
+                    queueBlob: invocation.queueBlob,
                     priority: invocation.priority,
                     vmState: JSON.stringify(serializedInvocation), // TODO: This doesn't feel right but we need timings, globals and vmstate to all be somewhere :thinking:
                 })
@@ -704,6 +707,9 @@ export class CdpCyclotronWorker extends CdpFunctionCallbackConsumer {
         try {
             const limit = 100 // TODO: Make configurable.
             while (!this.isStopping) {
+                // TODO: Add a timeout check
+                await cyclotron.dequeueJobsWithVmState('hog', limit, (jobs) => {})
+
                 const jobs = await cyclotron.dequeueJobsWithVmState('hog', limit)
                 // TODO: How do we "hold" these dequeued jobs?
                 const invocations: HogFunctionInvocation[] = []
@@ -749,7 +755,6 @@ export class CdpCyclotronWorker extends CdpFunctionCallbackConsumer {
 
     public async start() {
         await super.start()
-        // await cyclotron.initManager({ shards: [{ dbUrl: this.hub.CYCLOTRON_DATABASE_URL }] })
         await cyclotron.initWorker({ dbUrl: this.hub.CYCLOTRON_DATABASE_URL })
 
         // Consumer `start` expects an async task is started, and not that `start` itself blocks

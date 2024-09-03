@@ -158,6 +158,7 @@ async function flushJob(jobId: string): Promise<void> {
     return await cyclotron.flushJob(jobId)
 }
 
+// TODO: Remove promise type returns
 function setState(jobId: string, jobState: JobState): Promise<void> {
     return cyclotron.setState(jobId, jobState)
 }
