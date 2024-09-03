@@ -125,7 +125,7 @@ export function DashboardTemplateVariables(): JSX.Element {
         variables: activeDashboardTemplate?.variables || [],
     })
     const { variables, activeVariableIndex } = useValues(theDashboardTemplateVariablesLogic)
-    const { setVariables } = useActions(theDashboardTemplateVariablesLogic)
+    const { setVariables, setActiveVariableIndex } = useActions(theDashboardTemplateVariablesLogic)
 
     // TODO: onboarding-dashboard-templates: this is a hack, I'm not sure why it's not set properly initially.
     useEffect(() => {
@@ -136,7 +136,7 @@ export function DashboardTemplateVariables(): JSX.Element {
         <div className="mb-4 DashboardTemplateVariables max-w-192">
             <LemonCollapse
                 activeKey={variables[activeVariableIndex]?.id}
-                panels={variables.map((v) => ({
+                panels={variables.map((v, i) => ({
                     key: v.id,
                     header: (
                         <div>
@@ -146,6 +146,9 @@ export function DashboardTemplateVariables(): JSX.Element {
                     ),
                     content: <VariableSelector variable={v} {...v} />,
                     className: 'p-4 bg-white',
+                    onHeaderClick: () => {
+                        setActiveVariableIndex(i)
+                    },
                 }))}
                 embedded
                 size="small"
