@@ -15,6 +15,7 @@ from posthog.temporal.data_imports.external_data_job import (
     ExternalDataJobWorkflow,
     ExternalDataWorkflowInputs,
 )
+from posthog.temporal.data_imports.workflow_activities.check_billing_limits import check_billing_limits_activity
 from posthog.temporal.data_imports.workflow_activities.create_job_model import (
     CreateExternalDataJobModelActivityInputs,
     create_external_data_job_model_activity,
@@ -696,6 +697,7 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
                         update_external_data_job_model,
                         import_data_activity,
                         create_source_templates,
+                        check_billing_limits_activity,
                     ],
                     workflow_runner=UnsandboxedWorkflowRunner(),
                 ):
