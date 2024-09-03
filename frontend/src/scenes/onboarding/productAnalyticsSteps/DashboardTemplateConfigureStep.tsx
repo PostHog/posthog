@@ -5,13 +5,13 @@ import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/Au
 import { IframedToolbarBrowser } from 'lib/components/IframedToolbarBrowser/IframedToolbarBrowser'
 import { iframedToolbarBrowserLogic } from 'lib/components/IframedToolbarBrowser/iframedToolbarBrowserLogic'
 import { useRef, useState } from 'react'
-import { DashboardTemplateVariables } from 'scenes/dashboard/DashboardTemplateVariables'
 import { dashboardTemplateVariablesLogic } from 'scenes/dashboard/dashboardTemplateVariablesLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
 import { OnboardingStepKey } from '../onboardingLogic'
 import { OnboardingStep } from '../OnboardingStep'
 import { sdksLogic } from '../sdks/sdksLogic'
+import { DashboardTemplateVariables } from './DashboardTemplateVariables'
 import { onboardingTemplateConfigLogic } from './onboardingTemplateConfigLogic'
 
 export const OnboardingDashboardTemplateConfigureStep = ({
@@ -23,11 +23,14 @@ export const OnboardingDashboardTemplateConfigureStep = ({
     const { activeDashboardTemplate } = useValues(onboardingTemplateConfigLogic)
     const { createDashboardFromTemplate } = useActions(newDashboardLogic)
     const { isLoading } = useValues(newDashboardLogic)
-    const { variables } = useValues(dashboardTemplateVariablesLogic)
     const { snippetHosts } = useValues(sdksLogic)
     const { addUrl } = useActions(authorizedUrlListLogic({ actionId: null, type: AuthorizedUrlListType.TOOLBAR_URLS }))
     const { setBrowserUrl } = useActions(iframedToolbarBrowserLogic({ iframeRef, clearBrowserUrlOnUnmount: true }))
     const { browserUrl } = useValues(iframedToolbarBrowserLogic({ iframeRef, clearBrowserUrlOnUnmount: true }))
+    const theDashboardTemplateVariablesLogic = dashboardTemplateVariablesLogic({
+        variables: activeDashboardTemplate?.variables || [],
+    })
+    const { variables, allVariablesAreTouched } = useValues(theDashboardTemplateVariablesLogic)
 
     const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -105,6 +108,10 @@ export const OnboardingDashboardTemplateConfigureStep = ({
                             )}
                         </div>
                         <div className="col-span-2">
+                            <p>
+                                Follow the instructions below to map your data to PostHog events. When complete, we'll
+                                automatically generate a dashboard for your analytics.
+                            </p>
                             <DashboardTemplateVariables />
                             <LemonButton
                                 type="primary"
@@ -119,6 +126,7 @@ export const OnboardingDashboardTemplateConfigureStep = ({
                                 fullWidth
                                 center
                                 className="mt-6"
+                                disabledReason={!allVariablesAreTouched && 'Please select an event for each variable'}
                             >
                                 Create dashboard
                             </LemonButton>
