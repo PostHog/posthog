@@ -338,13 +338,13 @@ class ClickhouseTrendExperimentResult:
 
         if len(test_variants) >= 10:
             raise ValidationError(
-                "Can't calculate A/B test results for more than 10 variants",
+                "Can't calculate experiment results for more than 10 variants",
                 code="too_much_data",
             )
 
         if len(test_variants) < 1:
             raise ValidationError(
-                "Can't calculate A/B test results for less than 2 variants",
+                "Can't calculate experiment results for less than 2 variants",
                 code="no_data",
             )
 
@@ -413,7 +413,7 @@ def calculate_probability_of_winning_for_each(variants: list[Variant]) -> list[P
 
     if len(variants) > 10:
         raise ValidationError(
-            "Can't calculate A/B test results for more than 10 variants",
+            "Can't calculate experiment results for more than 10 variants",
             code="too_much_data",
         )
 
@@ -447,7 +447,7 @@ def intermediate_poisson_term(count: int, iterator: int, relative_exposure: floa
 
 def poisson_p_value(control_count, control_exposure, test_count, test_exposure):
     """
-    Calculates the p-value of the A/B test.
+    Calculates the p-value of the experiment.
     Calculations from: https://www.evanmiller.org/statistical-formulas-for-programmers.html#count_test
     """
     relative_exposure = test_exposure / (control_exposure + test_exposure)

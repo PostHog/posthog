@@ -3,6 +3,8 @@ use cyclotron_core::PoolConfig;
 use envconfig::Envconfig;
 use uuid::Uuid;
 
+use common_kafka::config::KafkaConfig;
+
 #[derive(Envconfig)]
 pub struct Config {
     #[envconfig(from = "BIND_HOST", default = "::")]
@@ -61,6 +63,9 @@ pub struct Config {
 
     #[envconfig(default = "4000")]
     pub retry_backoff_base_ms: i64,
+
+    #[envconfig(nested = true)]
+    pub kafka: KafkaConfig,
 }
 
 #[allow(dead_code)]
@@ -86,7 +91,7 @@ pub struct AppConfig {
 }
 
 impl Config {
-    pub fn to_components(self) -> (AppConfig, PoolConfig) {
+    pub fn to_components(self) -> (AppConfig, PoolConfig, KafkaConfig) {
         let app_config = AppConfig {
             host: self.host,
             port: self.port,
@@ -112,6 +117,6 @@ impl Config {
             idle_timeout_seconds: Some(self.pg_idle_timeout_seconds),
         };
 
-        (app_config, pool_config)
+        (app_config, pool_config, self.kafka)
     }
 }

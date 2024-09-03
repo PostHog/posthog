@@ -11,6 +11,7 @@ use tracing::instrument;
 use uuid::Uuid;
 
 use crate::api::CaptureError;
+use crate::prometheus::report_dropped_events;
 use crate::token::validate_token;
 
 #[derive(Deserialize, Default)]
@@ -148,6 +149,7 @@ impl RawRequest {
                 buf.extend_from_slice(&chunk[..got]);
                 if buf.len() > limit {
                     tracing::error!("GZIP decompression limit reached");
+                    report_dropped_events("event_too_big", 1);
                     return Err(CaptureError::EventTooBig);
                 }
             }
@@ -167,6 +169,7 @@ impl RawRequest {
             })?;
             if s.len() > limit {
                 tracing::error!("Request size limit reached");
+                report_dropped_events("event_too_big", 1);
                 return Err(CaptureError::EventTooBig);
             }
             s

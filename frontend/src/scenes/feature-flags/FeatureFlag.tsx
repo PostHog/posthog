@@ -787,7 +787,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                         <span className="card-secondary mt-4">Type</span>
                         <span>
                             {featureFlag.filters.multivariate
-                                ? 'Multiple variants with rollout percentages (A/B/C test)'
+                                ? 'Multiple variants with rollout percentages (A/B/n test)'
                                 : 'Release toggle (boolean)'}
                         </span>
 
@@ -868,7 +868,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                             : undefined,
                                 },
                                 {
-                                    label: <span>Multiple variants with rollout percentages (A/B test)</span>,
+                                    label: <span>Multiple variants with rollout percentages (A/B/n test)</span>,
                                     value: 'multivariate',
                                 },
                             ]}

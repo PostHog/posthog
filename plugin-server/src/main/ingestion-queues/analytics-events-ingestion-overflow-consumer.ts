@@ -50,5 +50,10 @@ export const startAnalyticsEventsIngestionOverflowConsumer = async ({
 
     const { isHealthy } = await queue.start()
 
-    return { queue, isHealthy }
+    return {
+        id: 'analytics-ingestion-overflow',
+        onShutdown: async () => await queue.stop(),
+        healthcheck: isHealthy,
+        batchConsumer: queue.consumer,
+    }
 }

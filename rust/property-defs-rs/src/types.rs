@@ -3,10 +3,16 @@ use std::{fmt, hash::Hash, str::FromStr};
 use chrono::{DateTime, Duration, DurationRound, RoundingError, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use sqlx::{Executor, Postgres};
 use tracing::warn;
+use uuid::Uuid;
 
-use crate::metrics_consts::EVENTS_SKIPPED;
+use crate::metrics_consts::{EVENTS_SKIPPED, UPDATES_SKIPPED};
 
+// We skip updates for events we generate
+pub const EVENTS_WITHOUT_PROPERTIES: [&str; 1] = ["$$plugin_metrics"];
+
+// These properties have special meaning, and are ignored
 pub const SKIP_PROPERTIES: [&str; 9] = [
     "$set",
     "$set_once",
@@ -44,7 +50,7 @@ pub enum PropertyValueType {
     String,
     Numeric,
     Boolean,
-    Duration,
+    Duration, // Unused, but exists.
 }
 
 impl fmt::Display for PropertyValueType {
@@ -66,13 +72,22 @@ pub enum GroupType {
     Resolved(String, i32),
 }
 
+impl GroupType {
+    pub fn resolve(self, index: i32) -> Self {
+        match self {
+            GroupType::Unresolved(name) => GroupType::Resolved(name, index),
+            GroupType::Resolved(name, _) => GroupType::Resolved(name, index),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PropertyDefinition {
     pub team_id: i32,
     pub name: String,
     pub is_numerical: bool,
     pub property_type: Option<PropertyValueType>,
-    pub event_type: Option<PropertyParentType>,
+    pub event_type: PropertyParentType,
     pub group_type_index: Option<GroupType>,
     pub property_type_format: Option<String>, // Deprecated
     pub volume_30_day: Option<i64>,           // Deprecated
@@ -102,6 +117,19 @@ pub enum Update {
     EventProperty(EventProperty),
 }
 
+impl Update {
+    pub async fn issue<'c, E>(&self, executor: E) -> Result<(), sqlx::Error>
+    where
+        E: Executor<'c, Database = Postgres>,
+    {
+        match self {
+            Update::Event(e) => e.issue(executor).await,
+            Update::Property(p) => p.issue(executor).await,
+            Update::EventProperty(ep) => ep.issue(executor).await,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Event {
     pub team_id: i32,
@@ -115,7 +143,9 @@ impl From<&Event> for EventDefinition {
             name: sanitize_event_name(&event.event),
             team_id: event.team_id,
             // We round last seen to the nearest day, as per the TS impl. Unwrap is safe here because we
-            // the duration is positive, non-zero, and smaller than time since epoch
+            // the duration is positive, non-zero, and smaller than time since epoch. We use this
+            // in the hash value, so updates which would modify this in the DB are issued even
+            // if another otherwise-identical event definition is in the cache
             last_seen_at: floor_datetime(Utc::now(), Duration::days(1)).unwrap(),
         }
     }
@@ -123,6 +153,17 @@ impl From<&Event> for EventDefinition {
 
 impl Event {
     pub fn into_updates(self, skip_threshold: usize) -> Vec<Update> {
+        if EVENTS_WITHOUT_PROPERTIES.contains(&self.event.as_str()) {
+            metrics::counter!(EVENTS_SKIPPED, &[("reason", "no_properties_event")]).increment(1);
+            return vec![];
+        }
+
+        if !will_fit_in_postgres_column(&self.event) {
+            metrics::counter!(EVENTS_SKIPPED, &[("reason", "name_wont_fit_in_postgres")])
+                .increment(1);
+            return vec![];
+        }
+
         let team_id = self.team_id;
         let event = self.event.clone();
 
@@ -132,7 +173,7 @@ impl Event {
                 "Event {} for team {} has more than 10,000 properties, skipping",
                 event, team_id
             );
-            metrics::counter!(EVENTS_SKIPPED).increment(1);
+            metrics::counter!(EVENTS_SKIPPED, &[("reason", "too_many_properties")]).increment(1);
             return vec![];
         }
 
@@ -209,6 +250,15 @@ impl Event {
                 continue;
             }
 
+            if !will_fit_in_postgres_column(key) {
+                metrics::counter!(
+                    UPDATES_SKIPPED,
+                    &[("reason", "property_name_wont_fit_in_postgres")]
+                )
+                .increment(2); // We're skipping one EventProperty, and one PropertyDefinition
+                continue;
+            }
+
             updates.push(Update::EventProperty(EventProperty {
                 team_id: self.team_id,
                 event: self.event.clone(),
@@ -223,7 +273,7 @@ impl Event {
                 name: key.clone(),
                 is_numerical,
                 property_type,
-                event_type: Some(parent_type),
+                event_type: parent_type,
                 group_type_index: group_type.clone(),
                 property_type_format: None,
                 volume_30_day: None,
@@ -333,7 +383,10 @@ impl Hash for GroupType {
     }
 }
 
-fn floor_datetime(dt: DateTime<Utc>, duration: Duration) -> Result<DateTime<Utc>, RoundingError> {
+pub fn floor_datetime(
+    dt: DateTime<Utc>,
+    duration: Duration,
+) -> Result<DateTime<Utc>, RoundingError> {
     let rounded = dt.duration_round(duration)?;
 
     // If we rounded up
@@ -341,5 +394,88 @@ fn floor_datetime(dt: DateTime<Utc>, duration: Duration) -> Result<DateTime<Utc>
         Ok(rounded - duration)
     } else {
         Ok(rounded)
+    }
+}
+
+// We impose some limits on some fields for legacy reasons, and drop updates that don't conform to them
+pub const DJANGO_MAX_CHARFIELD_LENGTH: usize = 400;
+fn will_fit_in_postgres_column(str: &str) -> bool {
+    str.len() <= DJANGO_MAX_CHARFIELD_LENGTH / 2
+}
+
+// Postgres doesn't like nulls in strings, so we replace them with uFFFD.
+// This allocates, so only do it right when hitting the DB. We handle nulls
+// in strings just fine.
+pub fn sanitize_string(s: &str) -> String {
+    s.replace('\u{0000}', "\u{FFFD}")
+}
+
+// The queries below are pulled more-or-less exactly from the TS impl.
+
+impl EventDefinition {
+    pub async fn issue<'c, E>(&self, executor: E) -> Result<(), sqlx::Error>
+    where
+        E: Executor<'c, Database = Postgres>,
+    {
+        sqlx::query!(
+            r#"
+            INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, last_seen_at, created_at)
+            VALUES ($1, $2, NULL, NULL, $3, $4, NOW()) ON CONFLICT
+            ON CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq
+            DO UPDATE SET last_seen_at = $4
+        "#,
+            Uuid::now_v7(),
+            self.name,
+            self.team_id,
+            self.last_seen_at
+        ).execute(executor).await.map(|_| ())
+    }
+}
+
+impl PropertyDefinition {
+    pub async fn issue<'c, E>(&self, executor: E) -> Result<(), sqlx::Error>
+    where
+        E: Executor<'c, Database = Postgres>,
+    {
+        let group_type_index = match &self.group_type_index {
+            Some(GroupType::Resolved(_, i)) => Some(*i as i16),
+            _ => {
+                warn!("Group type not resolved for property definition, skipping");
+                None
+            }
+        };
+
+        sqlx::query!(
+            r#"
+            INSERT INTO posthog_propertydefinition (id, name, type, group_type_index, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type)
+            VALUES ($1, $2, $3, $4, $5, NULL, NULL, $6, $7)
+            ON CONFLICT (team_id, name, type, coalesce(group_type_index, -1))
+            DO UPDATE SET property_type=EXCLUDED.property_type WHERE posthog_propertydefinition.property_type IS NULL
+        "#,
+            Uuid::now_v7(),
+            self.name,
+            self.event_type as i16,
+            group_type_index,
+            self.is_numerical,
+            self.team_id,
+            self.property_type.as_ref().map(|t| t.to_string())
+        ).execute(executor).await.map(|_| ())
+    }
+}
+
+impl EventProperty {
+    pub async fn issue<'c, E>(&self, executor: E) -> Result<(), sqlx::Error>
+    where
+        E: Executor<'c, Database = Postgres>,
+    {
+        sqlx::query!(
+            r#"INSERT INTO posthog_eventproperty (event, property, team_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING"#,
+            self.event,
+            self.property,
+            self.team_id
+        )
+        .execute(executor)
+        .await
+        .map(|_| ())
     }
 }

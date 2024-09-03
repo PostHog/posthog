@@ -24,6 +24,14 @@ services:
             service: redis
         volumes:
             - redis-data:/data
+
+    redis7:
+        extends:
+            file: docker-compose.base.yml
+            service: redis7
+        volumes:
+            - redis7-data:/data
+
     clickhouse:
         #
         # Note: please keep the default version in sync across
@@ -112,9 +120,11 @@ services:
             OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
             OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
             OBJECT_STORAGE_ENABLED: true
+            CDP_REDIS_HOST: redis7
         depends_on:
             - db
             - redis
+            - redis7
             - clickhouse
             - kafka
             - objectstorage
@@ -215,4 +225,5 @@ volumes:
     caddy-data:
     caddy-config:
     redis-data:
+    redis7-data:
     kafka-data:

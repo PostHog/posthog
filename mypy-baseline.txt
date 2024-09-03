@@ -780,6 +780,7 @@ posthog/temporal/data_imports/pipelines/stripe/__init__.py:0: error: Unused "typ
 posthog/temporal/data_imports/pipelines/stripe/__init__.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 posthog/temporal/data_imports/pipelines/stripe/__init__.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 posthog/temporal/data_imports/pipelines/stripe/__init__.py:0: error: Unused "type: ignore" comment  [unused-ignore]
+posthog/temporal/data_imports/pipelines/stripe/__init__.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 posthog/tasks/test/test_email.py:0: error: Argument 1 to "send_batch_export_run_failure" has incompatible type "UUID"; expected "str"  [arg-type]
 posthog/tasks/test/test_email.py:0: error: Argument 1 to "send_batch_export_run_failure" has incompatible type "UUID"; expected "str"  [arg-type]
 posthog/tasks/test/test_email.py:0: error: Argument 1 to "send_batch_export_run_failure" has incompatible type "UUID"; expected "str"  [arg-type]
