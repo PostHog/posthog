@@ -1,7 +1,7 @@
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const cyclotron = require('../index.node')
 
-export interface PoolConfig {
+export type PoolConfig = {
     dbUrl: string
     maxConnections?: number
     minConnections?: number
@@ -11,7 +11,7 @@ export interface PoolConfig {
 }
 
 // Type as expected by Cyclotron.
-interface InternalPoolConfig {
+type InternalPoolConfig = {
     db_url: string
     max_connections?: number
     min_connections?: number
@@ -20,29 +20,17 @@ interface InternalPoolConfig {
     idle_timeout_seconds?: number
 }
 
-export interface ManagerConfig {
+export type ManagerConfig = {
     shards: PoolConfig[]
 }
 
 // Type as expected by Cyclotron.
-interface InternalManagerConfig {
+type InternalManagerConfig = {
     shards: InternalPoolConfig[]
 }
 
-export interface JobInit {
-    teamId: number
-    functionId: string
-    queueName: string
-    priority?: number
-    scheduled?: Date
-    vmState?: string
-    parameters?: string
-    blob?: Uint8Array
-    metadata?: string
-}
-
 // Type as expected by Cyclotron.
-interface InternalJobInit {
+type InternalJobInit = {
     team_id: number
     function_id: string
     queue_name: string
@@ -55,7 +43,7 @@ interface InternalJobInit {
 
 export type JobState = 'available' | 'running' | 'completed' | 'failed' | 'paused'
 
-export interface Job {
+export type Job = {
     id: string
     teamId: number
     functionId: string | null
@@ -75,8 +63,31 @@ export interface Job {
     blob: Uint8Array | null
 }
 
-async function initWorker(poolConfig: PoolConfig): Promise<void> {
-    const initWorkerInternal: InternalPoolConfig = {
+export type JobInit = {
+    teamId: number
+    functionId: string
+    queueName: string
+    priority?: number
+    scheduled?: Date
+    vmState?: string
+    parameters?: string
+    blob?: Uint8Array
+    metadata?: string
+}
+
+// helpers
+
+function serializeObject(name: string, obj: Record<string, any> | null): string | null {
+    if (obj === null) {
+        return null
+    } else if (typeof obj === 'object' && obj !== null) {
+        return JSON.stringify(obj)
+    }
+    throw new Error(`${name} must be either an object or null`)
+}
+
+function convertToInternalPoolConfig(poolConfig: PoolConfig): InternalPoolConfig {
+    return {
         db_url: poolConfig.dbUrl,
         max_connections: poolConfig.maxConnections,
         min_connections: poolConfig.minConnections,
@@ -84,49 +95,44 @@ async function initWorker(poolConfig: PoolConfig): Promise<void> {
         max_lifetime_seconds: poolConfig.maxLifetimeSeconds,
         idle_timeout_seconds: poolConfig.idleTimeoutSeconds,
     }
-    return await cyclotron.initWorker(JSON.stringify(initWorkerInternal))
+}
+
+// Management API
+async function initWorker(poolConfig: PoolConfig): Promise<void> {
+    return await cyclotron.initWorker(JSON.stringify(convertToInternalPoolConfig(poolConfig)))
 }
 
 async function initManager(managerConfig: ManagerConfig): Promise<void> {
     const managerConfigInternal: InternalManagerConfig = {
-        shards: managerConfig.shards.map((shard) => ({
-            db_url: shard.dbUrl,
-            max_connections: shard.maxConnections,
-            min_connections: shard.minConnections,
-            acquire_timeout_seconds: shard.acquireTimeoutSeconds,
-            max_lifetime_seconds: shard.maxLifetimeSeconds,
-            idle_timeout_seconds: shard.idleTimeoutSeconds,
-        })),
+        shards: managerConfig.shards.map((shard) => convertToInternalPoolConfig(shard)),
     }
     return await cyclotron.initManager(JSON.stringify(managerConfigInternal))
 }
 
 async function maybeInitWorker(poolConfig: PoolConfig): Promise<void> {
-    const initWorkerInternal: InternalPoolConfig = {
-        db_url: poolConfig.dbUrl,
-        max_connections: poolConfig.maxConnections,
-        min_connections: poolConfig.minConnections,
-        acquire_timeout_seconds: poolConfig.acquireTimeoutSeconds,
-        max_lifetime_seconds: poolConfig.maxLifetimeSeconds,
-        idle_timeout_seconds: poolConfig.idleTimeoutSeconds,
-    }
-    return await cyclotron.maybeInitWorker(JSON.stringify(initWorkerInternal))
+    return await cyclotron.maybeInitWorker(JSON.stringify(convertToInternalPoolConfig(poolConfig)))
 }
 
 async function maybeInitManager(managerConfig: ManagerConfig): Promise<void> {
     const managerConfigInternal: InternalManagerConfig = {
-        shards: managerConfig.shards.map((shard) => ({
-            db_url: shard.dbUrl,
-            max_connections: shard.maxConnections,
-            min_connections: shard.minConnections,
-            acquire_timeout_seconds: shard.acquireTimeoutSeconds,
-            max_lifetime_seconds: shard.maxLifetimeSeconds,
-            idle_timeout_seconds: shard.idleTimeoutSeconds,
-        })),
+        shards: managerConfig.shards.map((shard) => convertToInternalPoolConfig(shard)),
     }
     return await cyclotron.maybeInitManager(JSON.stringify(managerConfigInternal))
 }
 
+async function dequeueJobs(queueName: string, limit: number): Promise<Job[]> {
+    return await cyclotron.dequeueJobs(queueName, limit)
+}
+
+async function dequeueJobsWithVmState(queueName: string, limit: number): Promise<Job[]> {
+    return await cyclotron.dequeueJobsWithVmState(queueName, limit)
+}
+
+async function flushJob(jobId: string): Promise<void> {
+    return await cyclotron.flushJob(jobId)
+}
+
+// Job API
 async function createJob(job: JobInit): Promise<void> {
     job.priority ??= 1
     job.scheduled ??= new Date()
@@ -146,60 +152,39 @@ async function createJob(job: JobInit): Promise<void> {
     return await cyclotron.createJob(json, job.blob ? job.blob.buffer : undefined)
 }
 
-async function dequeueJobs(queueName: string, limit: number): Promise<Job[]> {
-    return await cyclotron.dequeueJobs(queueName, limit)
-}
-
-async function dequeueJobsWithVmState(queueName: string, limit: number): Promise<Job[]> {
-    return await cyclotron.dequeueJobsWithVmState(queueName, limit)
-}
-
-async function flushJob(jobId: string): Promise<void> {
-    return await cyclotron.flushJob(jobId)
-}
-
 // TODO: Remove promise type returns
-function setState(jobId: string, jobState: JobState): Promise<void> {
+function setState(jobId: string, jobState: JobState): void {
     return cyclotron.setState(jobId, jobState)
 }
 
-function setQueue(jobId: string, queueName: string): Promise<void> {
+function setQueue(jobId: string, queueName: string): void {
     return cyclotron.setQueue(jobId, queueName)
 }
 
-function setPriority(jobId: string, priority: number): Promise<void> {
+function setPriority(jobId: string, priority: number): void {
     return cyclotron.setPriority(jobId, priority)
 }
 
-function setScheduledAt(jobId: string, scheduledAt: Date): Promise<void> {
+function setScheduledAt(jobId: string, scheduledAt: Date): void {
     return cyclotron.setScheduledAt(jobId, scheduledAt.toISOString())
 }
 
-function serializeObject(name: string, obj: Record<string, any> | null): string | null {
-    if (obj === null) {
-        return null
-    } else if (typeof obj === 'object' && obj !== null) {
-        return JSON.stringify(obj)
-    }
-    throw new Error(`${name} must be either an object or null`)
-}
-
-function setVmState(jobId: string, vmState: Record<string, any> | null): Promise<void> {
+function setVmState(jobId: string, vmState: Record<string, any> | null): void {
     const serialized = serializeObject('vmState', vmState)
     return cyclotron.setVmState(jobId, serialized)
 }
 
-function setMetadata(jobId: string, metadata: Record<string, any> | null): Promise<void> {
+function setMetadata(jobId: string, metadata: Record<string, any> | null): void {
     const serialized = serializeObject('metadata', metadata)
     return cyclotron.setMetadata(jobId, serialized)
 }
 
-function setParameters(jobId: string, parameters: Record<string, any> | null): Promise<void> {
+function setParameters(jobId: string, parameters: Record<string, any> | null): void {
     const serialized = serializeObject('parameters', parameters)
     return cyclotron.setParameters(jobId, serialized)
 }
 
-function setBlob(jobId: string, blob: Uint8Array | null): Promise<void> {
+function setBlob(jobId: string, blob: Uint8Array | null): void {
     return cyclotron.setBlob(jobId, blob)
 }
 

@@ -210,7 +210,7 @@ abstract class CdpConsumerBase {
     }
 
     protected async queueInvocation(invocation: HogFunctionInvocation) {
-        // TODO: Add cylcotron check here and enqueue that way
+        // TODO: Add cyclotron check here and enqueue that way
         // For now we just enqueue to kafka
         // For kafka style this is overkill to enqueue this way but it simplifies migrating to the new system
 
@@ -236,26 +236,30 @@ abstract class CdpConsumerBase {
                 // vmState?: VMState
                 // timings: HogFunctionTiming[]
 
-                await cyclotron.createJob({
-                    id: invocation.id,
+                const job = await cyclotron.createJob({
                     teamId: invocation.globals.project.id,
                     functionId: invocation.hogFunction.id,
                     queueName: invocation.queue,
-                    queueParameters: invocation.queueParameters
-                        ? JSON.stringify(invocation.queueParameters)
-                        : undefined,
-                    queueBlob: invocation.queueBlob,
+                    parameters: invocation.queueParameters ? JSON.stringify(invocation.queueParameters) : undefined,
+                    // queueBlob: invocation.blob,
                     priority: invocation.priority,
                     vmState: JSON.stringify(serializedInvocation), // TODO: This doesn't feel right but we need timings, globals and vmstate to all be somewhere :thinking:
                 })
+
+                console.log('Created job', job)
             } else {
                 // Ideally we could just have an "upsertJob" method or something...
-                await cyclotron.updateJob(invocation.id, {
-                    queue: invocation.queue,
-                    parameters: invocation.queueParameters ? JSON.stringify(invocation.queueParameters) : undefined,
-                    priority: invocation.priority,
-                    vmState: JSON.stringify(serializedInvocation),
-                })
+                cyclotron.setQueue(invocation.id, invocation.queue)
+                cyclotron.setVmState(invocation.id, serializedInvocation)
+                cyclotron.setPriority(invocation.id, invocation.priority)
+                cyclotron.setParameters(invocation.id, invocation.queueParameters ?? null)
+
+                // await cyclotron.updateJob(invocation.id, {
+                //     queue: invocation.queue,
+                //     parameters: invocation.queueParameters ? JSON.stringify(invocation.queueParameters) : undefined,
+                //     priority: invocation.priority,
+                //     vmState: JSON.stringify(serializedInvocation),
+                // })
             }
 
             return
@@ -653,6 +657,7 @@ export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
                                     invocationSerialized.hogFunctionId
                                 )
                                 if (!hogFunction) {
+                                    console.log('HERE!!!!', invocationSerialized)
                                     status.error('Error finding hog function', {
                                         id: invocationSerialized.hogFunctionId,
                                     })
