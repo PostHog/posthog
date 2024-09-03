@@ -32,7 +32,9 @@ export class ExceptionsManager {
             if (cached) {
                 Object.entries(cached).forEach(([primaryFingerprint, { mergedFingerprints }]) => {
                     mergedFingerprints.forEach((mergedFingerprint) => {
-                        exceptionFingerprintMapping[`${teamId}:${mergedFingerprint}`] = primaryFingerprint
+                        const stringifiedFingerprint = JSON.stringify(mergedFingerprint)
+                        exceptionFingerprintMapping[`${teamId}:${stringifiedFingerprint}`] =
+                            JSON.parse(primaryFingerprint)
                     })
                 })
             }
@@ -54,7 +56,7 @@ export class ExceptionsManager {
                 if (!acc[row.team_id]) {
                     acc[row.team_id] = {}
                 }
-                const stringifiedFingerprint = encodeURIComponent(row.fingerprint.join(','))
+                const stringifiedFingerprint = JSON.stringify(row.fingerprint)
                 acc[row.team_id][stringifiedFingerprint] = {
                     mergedFingerprints: row.merged_fingerprints,
                     active: acc.status === 'active',
@@ -67,7 +69,8 @@ export class ExceptionsManager {
                 this.fingerprintMappingCache.set(parseInt(teamId), exceptionTrackingGroups)
                 Object.entries(exceptionTrackingGroups).forEach(([primaryFingerprint, { mergedFingerprints }]) => {
                     mergedFingerprints.forEach((mergedFingerprint) => {
-                        exceptionFingerprintMapping[`${teamId}:${mergedFingerprint}`] = primaryFingerprint
+                        const stringifiedFingerprint = JSON.stringify(mergedFingerprint)
+                        exceptionFingerprintMapping[`${teamId}:${stringifiedFingerprint}`] = primaryFingerprint
                     })
                 })
             })
@@ -99,10 +102,11 @@ export class ExceptionsManager {
 
             if (fingerprint) {
                 const team_id = item.project.id
-                const primaryFingerprint = byTeamType[`${team_id}:${encodeURIComponent(fingerprint.join(','))}`]
+                const stringifiedFingerprint = JSON.stringify(fingerprint)
+                const primaryFingerprint = byTeamType[`${team_id}:${stringifiedFingerprint}`]
 
                 if (primaryFingerprint) {
-                    item.event.properties['$exception_fingerprint'] = primaryFingerprint
+                    item.event.properties['$exception_fingerprint'] = JSON.parse(primaryFingerprint)
                 }
             }
         })
