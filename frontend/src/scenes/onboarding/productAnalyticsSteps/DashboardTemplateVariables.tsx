@@ -1,4 +1,4 @@
-import { IconCheckCircle, IconTrash } from '@posthog/icons'
+import { IconCheckCircle, IconInfo, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCollapse, LemonInput, LemonLabel } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
@@ -25,10 +25,9 @@ function VariableSelector({ variable }: { variable: DashboardTemplateVariableTyp
     return (
         <div className="pl-7">
             <div className="mb-2">
-                <p>Select the element that indicates:</p>
-                <LemonLabel showOptional={!variable.required} info={<>{variable.description}</>}>
-                    {variable.name}
-                </LemonLabel>
+                <p>
+                    <IconInfo /> {variable.description}
+                </p>
             </div>
             {variable.touched && !customEventName && (
                 <div className="flex justify-between items-center bg-bg-3000-light p-2 pl-3 rounded mb-4">

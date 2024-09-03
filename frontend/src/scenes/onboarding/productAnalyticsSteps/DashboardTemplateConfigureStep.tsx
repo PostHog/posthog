@@ -109,8 +109,8 @@ export const OnboardingDashboardTemplateConfigureStep = ({
                         </div>
                         <div className="col-span-2">
                             <p>
-                                Follow the instructions below to map your data to PostHog events. When complete, we'll
-                                automatically generate a dashboard for your analytics.
+                                For each action below, select an element on your site that indicates when that action is
+                                taken, or enter a custom event name that you'll send from your backend.
                             </p>
                             <DashboardTemplateVariables />
                             <LemonButton
