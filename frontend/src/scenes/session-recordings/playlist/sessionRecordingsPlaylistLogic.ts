@@ -157,7 +157,7 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
 
     return {
         kind: NodeKind.RecordingsQuery,
-        order: 'start_time',
+        order: 'latest',
         date_from: universalFilters.date_from,
         date_to: universalFilters.date_to,
         properties,
@@ -343,22 +343,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         limit: RECORDINGS_LIMIT,
                     }
 
-                    if (values.orderBy === 'start_time') {
-                        if (direction === 'older') {
-                            params.date_to = values.sessionRecordings[values.sessionRecordings.length - 1]?.start_time
-                        }
+                    if (direction === 'older') {
+                        params.offset = values.sessionRecordings.length
+                    }
 
-                        if (direction === 'newer') {
-                            params.date_from = values.sessionRecordings[0]?.start_time
-                        }
-                    } else {
-                        if (direction === 'older') {
-                            params.offset = values.sessionRecordings.length
-                        }
-
-                        if (direction === 'newer') {
-                            params.offset = 0
-                        }
+                    if (direction === 'newer') {
+                        params.offset = 0
                     }
 
                     await breakpoint(400) // Debounce for lots of quick filter changes
@@ -400,7 +390,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         const fetchedRecordings = await api.recordings.list({
                             kind: NodeKind.RecordingsQuery,
                             session_ids: recordingIds,
-                            order: 'start_time',
+                            order: 'latest',
                         })
 
                         recordings = [...recordings, ...fetchedRecordings.results]
@@ -414,7 +404,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     })),
     reducers(({ props }) => ({
         orderBy: [
-            'start_time' as RecordingsQuery['order'],
+            'latest' as RecordingsQuery['order'],
             { persist: true },
             {
                 setOrderBy: (_, { orderBy }) => orderBy,
