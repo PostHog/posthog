@@ -54,7 +54,7 @@ export default meta
 
 const Template: StoryFn<typeof LemonInputSelect> = (props: LemonInputSelectProps) => {
     const [value, setValue] = useState(props.value || [])
-    return <LemonInputSelect {...props} value={value} onChange={setValue} className="w-80" />
+    return <LemonInputSelect {...props} value={value} onChange={setValue} className="w-140" />
 }
 
 export const Default: Story = Template.bind({})
