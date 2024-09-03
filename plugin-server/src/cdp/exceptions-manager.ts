@@ -88,9 +88,7 @@ export class ExceptionsManager {
      * It replaces the fingerprint of exception event items with the primary fingerprint
      * so that masking can be correctly applied to merged fingerprints.
      */
-    public async adaptExceptionFingerprints(
-        items: HogFunctionInvocationGlobals[]
-    ): Promise<HogFunctionInvocationGlobals[]> {
+    public async enrichExceptions(items: HogFunctionInvocationGlobals[]): Promise<HogFunctionInvocationGlobals[]> {
         const exceptionEventItems = items.filter((x) => x.event.name === '$exception')
         const byTeamType = await this.fetchExceptionFingerprintMapping(
             Array.from(new Set(exceptionEventItems.map((global) => global.project.id)))

@@ -23,6 +23,7 @@ import { status } from '../utils/status'
 import { castTimestampOrNow } from '../utils/utils'
 import { RustyHook } from '../worker/rusty-hook'
 import { AsyncFunctionExecutor } from './async-function-executor'
+import { ExceptionsManager } from './exceptions-manager'
 import { GroupsManager } from './groups-manager'
 import { HogExecutor } from './hog-executor'
 import { HogFunctionManager } from './hog-function-manager'
@@ -89,6 +90,7 @@ abstract class CdpConsumerBase {
     hogWatcher: HogWatcher
     hogMasker: HogMasker
     groupsManager: GroupsManager
+    exceptionsManager: ExceptionsManager
     isStopping = false
     messagesToProduce: HogFunctionMessageToProduce[] = []
     redis: CdpRedis
@@ -111,6 +113,7 @@ abstract class CdpConsumerBase {
         const rustyHook = this.hub?.rustyHook ?? new RustyHook(this.hub)
         this.asyncFunctionExecutor = new AsyncFunctionExecutor(this.hub, rustyHook)
         this.groupsManager = new GroupsManager(this.hub)
+        this.exceptionsManager = new ExceptionsManager(this.hub)
     }
 
     private async captureInternalPostHogEvent(
@@ -332,6 +335,9 @@ abstract class CdpConsumerBase {
 
                 // TODO: Add a helper to hog functions to determine if they require groups or not and then only load those
                 await this.groupsManager.enrichGroups(invocationGlobals)
+
+                // TODO: Add a helper to hog functions to determine if they were created from the exceptions template and only load those
+                await this.exceptionsManager.enrichExceptions(invocationGlobals)
 
                 // Find all functions that could need running
                 invocationGlobals.forEach((globals) => {
@@ -643,6 +649,9 @@ export class CdpOverflowConsumer extends CdpConsumerBase {
             func: async () => {
                 // TODO: Add a helper to hog functions to determine if they require groups or not and then only load those
                 await this.groupsManager.enrichGroups(invocationGlobals.map((x) => x.globals))
+
+                // TODO: Add a helper to hog functions to determine if they were created from the exceptions template and only load those
+                await this.exceptionsManager.enrichExceptions(invocationGlobals.map((x) => x.globals))
 
                 const invocations = invocationGlobals
                     .map((item) =>
