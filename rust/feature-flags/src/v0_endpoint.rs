@@ -85,5 +85,5 @@ fn record_request_metadata(
     tracing::Span::current().record("method", method.as_str());
     tracing::Span::current().record("path", path.as_str().trim_end_matches('/'));
     tracing::Span::current().record("ip", ip.to_string());
-    tracing::Span::current().record("sent_at", &meta.sent_at.unwrap_or(0).to_string());
+    tracing::Span::current().record("sent_at", meta.sent_at.unwrap_or(0).to_string());
 }
