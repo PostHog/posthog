@@ -49,18 +49,18 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
     const notebookNode = useNotebookNode()
 
     const sections: PlaylistSection<SessionRecordingType>[] = []
-    const headerActions = []
+    const headerActions = [
+        {
+            key: 'settings',
+            tooltip: 'Playlist settings',
+            content: <SessionRecordingsPlaylistSettings />,
+            icon: <IconGear />,
+        },
+    ]
 
     const onSummarizeClick = (recording: SessionRecordingType): void => {
         summarizeSession(recording.id)
     }
-
-    headerActions.push({
-        key: 'settings',
-        tooltip: 'Playlist settings',
-        content: <SessionRecordingsPlaylistSettings />,
-        icon: <IconGear />,
-    })
 
     if (pinnedRecordings.length) {
         sections.push({

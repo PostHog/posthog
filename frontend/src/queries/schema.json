@@ -8632,11 +8632,27 @@
                             "$ref": "#/definitions/DurationType"
                         },
                         {
-                            "const": "start_time",
+                            "const": "latest",
+                            "type": "string"
+                        },
+                        {
+                            "const": "earliest",
                             "type": "string"
                         },
                         {
                             "const": "console_error_count",
+                            "type": "string"
+                        },
+                        {
+                            "const": "click_count",
+                            "type": "string"
+                        },
+                        {
+                            "const": "keypress_count",
+                            "type": "string"
+                        },
+                        {
+                            "const": "mouse_activity_count",
                             "type": "string"
                         }
                     ]
