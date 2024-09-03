@@ -9,7 +9,7 @@ type ExceptionFingerprintByTeamType = Record<string, string>
 
 type ExceptionGroup = {
     mergedFingerprints: string[][]
-    active: boolean
+    status: string
 }
 
 const FINGERPRINT_CACHE_AGE_MS = 60 * 10 * 1000 // 10 minutes
@@ -58,7 +58,7 @@ export class ExceptionsManager {
                 const stringifiedFingerprint = JSON.stringify(row.fingerprint)
                 acc[row.team_id][stringifiedFingerprint] = {
                     mergedFingerprints: row.merged_fingerprints,
-                    active: acc.status === 'active',
+                    status: row.status,
                 }
                 return acc
             }, {})
@@ -107,9 +107,12 @@ export class ExceptionsManager {
         return items
     }
 
-    public isActive(item: HogFunctionInvocationGlobals): boolean {
-        const fingerprint = item.event.properties['$exception_fingerprint'].join(',')
+    public isIgnored(item: HogFunctionInvocationGlobals): boolean {
+        const fingerprint = JSON.stringify(item.event.properties['$exception_fingerprint'])
         const groupsForTeam = this.fingerprintMappingCache.get(item.project.id)
-        return groupsForTeam && groupsForTeam[fingerprint] ? groupsForTeam[fingerprint].active : false
+        console.log(groupsForTeam)
+        return groupsForTeam && groupsForTeam[fingerprint]
+            ? ['archived', 'resolved'].includes(groupsForTeam[fingerprint].status)
+            : false
     }
 }

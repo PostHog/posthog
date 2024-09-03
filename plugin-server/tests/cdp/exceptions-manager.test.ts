@@ -43,32 +43,17 @@ describe('Exceptions Manager', () => {
             const items = [
                 // Should enrich a simple exception
                 createHogExecutionGlobals({
-                    event: {
-                        name: '$exception',
-                        properties: {
-                            $exception_fingerprint: ['custom_fp-1'],
-                        },
-                    } as any,
+                    event: { name: '$exception', properties: { $exception_fingerprint: ['custom_fp-1'] } } as any,
                     project: { id: 1 } as any,
                 }),
                 // Should enrich archived fingerprints
                 createHogExecutionGlobals({
-                    event: {
-                        name: '$exception',
-                        properties: {
-                            $exception_fingerprint: ['custom_fp-2'],
-                        },
-                    } as any,
+                    event: { name: '$exception', properties: { $exception_fingerprint: ['custom_fp-2'] } } as any,
                     project: { id: 1 } as any,
                 }),
                 // Should get the right fingerprint for its team
                 createHogExecutionGlobals({
-                    event: {
-                        name: '$exception',
-                        properties: {
-                            $exception_fingerprint: ['custom_fp-1'],
-                        },
-                    } as any,
+                    event: { name: '$exception', properties: { $exception_fingerprint: ['custom_fp-1'] } } as any,
                     project: { id: 2 } as any,
                 }),
             ]
@@ -83,7 +68,7 @@ describe('Exceptions Manager', () => {
                       "SyntaxError",
                     ],
                   },
-                  "timestamp": "2024-09-03T10:39:31.422Z",
+                  "timestamp": "2024-09-03T10:58:54.703Z",
                   "url": "http://localhost:8000/events/1",
                   "uuid": "uuid",
                 }
@@ -97,7 +82,7 @@ describe('Exceptions Manager', () => {
                       "TypeError",
                     ],
                   },
-                  "timestamp": "2024-09-03T10:39:31.422Z",
+                  "timestamp": "2024-09-03T10:58:54.703Z",
                   "url": "http://localhost:8000/events/1",
                   "uuid": "uuid",
                 }
@@ -111,7 +96,7 @@ describe('Exceptions Manager', () => {
                       "ApiError",
                     ],
                   },
-                  "timestamp": "2024-09-03T10:39:31.422Z",
+                  "timestamp": "2024-09-03T10:58:54.703Z",
                   "url": "http://localhost:8000/events/1",
                   "uuid": "uuid",
                 }
@@ -120,12 +105,7 @@ describe('Exceptions Manager', () => {
 
         it('does nothing if no fingerprint mapping found', async () => {
             const globals = createHogExecutionGlobals({
-                event: {
-                    name: '$exception',
-                    properties: {
-                        $exception_fingerprint: ['unmapped_fingerprint'],
-                    },
-                } as any,
+                event: { name: '$exception', properties: { $exception_fingerprint: ['unmapped_fingerprint'] } } as any,
                 project: { id: 1 } as any,
             })
             await exceptionsManager.enrichExceptions([globals])
@@ -139,7 +119,7 @@ describe('Exceptions Manager', () => {
                       "unmapped_fingerprint",
                     ],
                   },
-                  "timestamp": "2024-09-03T10:39:31.436Z",
+                  "timestamp": "2024-09-03T10:58:54.718Z",
                   "url": "http://localhost:8000/events/1",
                   "uuid": "uuid",
                 }
@@ -148,12 +128,7 @@ describe('Exceptions Manager', () => {
 
         it('does nothing for non exception events', async () => {
             const globals = createHogExecutionGlobals({
-                event: {
-                    name: 'custom_event',
-                    properties: {
-                        $exception_fingerprint: ['custom_fp-1'],
-                    },
-                } as any,
+                event: { name: 'custom_event', properties: { $exception_fingerprint: ['custom_fp-1'] } } as any,
                 project: {
                     id: 1,
                 } as any,
@@ -169,7 +144,7 @@ describe('Exceptions Manager', () => {
                       "custom_fp-1",
                     ],
                   },
-                  "timestamp": "2024-09-03T10:39:31.436Z",
+                  "timestamp": "2024-09-03T10:58:54.718Z",
                   "url": "http://localhost:8000/events/1",
                   "uuid": "uuid",
                 }
@@ -184,7 +159,7 @@ describe('Exceptions Manager', () => {
                 project: { id: 1 } as any,
             }),
             createHogExecutionGlobals({
-                event: { name: '$exception', properties: { $exception_fingerprint: ['custom_fp-2'] } } as any,
+                event: { name: '$exception', properties: { $exception_fingerprint: ['custom_fp-1'] } } as any,
                 project: { id: 2 } as any,
             }),
         ]
@@ -205,5 +180,23 @@ describe('Exceptions Manager', () => {
 
         await exceptionsManager.enrichExceptions(globals)
         expect(mockHub.postgres.query).toHaveBeenCalledTimes(1)
+    })
+
+    it('caches group status', async () => {
+        const globals = [
+            createHogExecutionGlobals({
+                event: { name: '$exception', properties: { $exception_fingerprint: ['custom_fp-1'] } } as any,
+                project: { id: 1 } as any,
+            }),
+            createHogExecutionGlobals({
+                event: { name: '$exception', properties: { $exception_fingerprint: ['custom_fp-2'] } } as any,
+                project: { id: 1 } as any,
+            }),
+        ]
+
+        await exceptionsManager.enrichExceptions(globals)
+
+        expect(exceptionsManager.isIgnored(globals[0])).toBe(false)
+        expect(exceptionsManager.isIgnored(globals[1])).toBe(true)
     })
 })
