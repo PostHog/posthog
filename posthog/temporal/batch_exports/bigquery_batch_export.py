@@ -238,6 +238,9 @@ class BigQueryClient(bigquery.Client):
             field_names += f"`{field.name}`"
             values += f"stage.`{field.name}`"
 
+        if not update_clause:
+            raise ValueError("Empty update clause")
+
         merge_query = f"""
         MERGE `{final_table.full_table_id.replace(":", ".", 1)}` final
         USING `{stage_table.full_table_id.replace(":", ".", 1)}` stage
