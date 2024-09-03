@@ -119,6 +119,21 @@ jobs:
                   cache-dependency-path: '**/requirements*.txt'
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
+            - name: Install rust
+              uses: dtolnay/rust-toolchain@1.77
+
+            - uses: actions/cache@v4
+              with:
+                  path: |
+                      ~/.cargo/registry
+                      ~/.cargo/git
+                      rust/target
+                  key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+
+            - name: Run cargo build
+              working-directory: rust
+              run: cargo build --all --locked --release && find target/release/ -maxdepth 1 -executable -type f | xargs strip
+
             # uv is a fast pip alternative: https://github.com/astral-sh/uv/
             - run: pip install uv
 
