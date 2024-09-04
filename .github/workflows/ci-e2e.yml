@@ -227,7 +227,6 @@ jobs:
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
               uses: cypress-io/github-action@v6
               with:
-                  browser: chrome
                   config-file: cypress.e2e.config.ts
                   config: retries=2
                   spec: ${{ matrix.chunk }}
