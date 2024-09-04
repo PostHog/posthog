@@ -4,14 +4,17 @@ import collections.abc
 import dataclasses
 import datetime as dt
 import enum
+import itertools
 import re
 import typing
 import uuid
 
 import dlt
 import dlt.extract
+import structlog
 import temporalio.activity
 import temporalio.common
+import temporalio.exceptions
 import temporalio.workflow
 from deltalake import DeltaTable
 from django.conf import settings
@@ -25,6 +28,8 @@ from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.warehouse.models import DataWarehouseModelPath, DataWarehouseSavedQuery
 from posthog.warehouse.util import database_sync_to_async
+
+logger = structlog.get_logger()
 
 CLICKHOUSE_DLT_MAPPING = {
     "UUID": "text",
@@ -516,6 +521,67 @@ async def get_posthog_tables(team_id: int) -> list[str]:
 
 
 @dataclasses.dataclass
+class StartRunInputs:
+    dag: DAG
+    run_at: str
+    team_id: int
+
+
+@temporalio.activity.defn
+async def start_run(inputs: StartRunInputs) -> None:
+    """Activity that starts a run by updating statuses of associated models."""
+    run_at = dt.datetime.fromisoformat(inputs.run_at)
+
+    async with asyncio.TaskGroup() as tg:
+        for label in inputs.dag.keys():
+            tg.create_task(
+                update_saved_query_status(label, DataWarehouseSavedQuery.Status.RUNNING, run_at, inputs.team_id)
+            )
+
+
+@dataclasses.dataclass
+class FinishRunInputs:
+    results: Results
+    run_at: str
+    team_id: int
+
+
+@temporalio.activity.defn
+async def finish_run(inputs: FinishRunInputs) -> None:
+    """Activity that finishes a run by updating statuses of associated models."""
+    run_at = dt.datetime.fromisoformat(inputs.run_at)
+
+    async with asyncio.TaskGroup() as tg:
+        for label in inputs.results.completed:
+            tg.create_task(
+                update_saved_query_status(label, DataWarehouseSavedQuery.Status.COMPLETED, run_at, inputs.team_id)
+            )
+
+        for label in itertools.chain(inputs.results.failed, inputs.results.ancestor_failed):
+            tg.create_task(
+                update_saved_query_status(label, DataWarehouseSavedQuery.Status.FAILED, run_at, inputs.team_id)
+            )
+
+
+async def update_saved_query_status(
+    label: str, status: DataWarehouseSavedQuery.Status, run_at: dt.datetime, team_id: int
+):
+    filter_params: dict[str, int | str | uuid.UUID] = {"team_id": team_id}
+
+    try:
+        model_id = uuid.UUID(label)
+        filter_params["id"] = model_id
+    except ValueError:
+        filter_params["name"] = label
+
+    saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.filter(**filter_params).get)()
+    saved_query.last_run_at = run_at
+    saved_query.status = status
+
+    await database_sync_to_async(saved_query.save)()
+
+
+@dataclasses.dataclass
 class RunWorkflowInputs:
     """Inputs to `RunWorkflow`.
 
@@ -528,7 +594,7 @@ class RunWorkflowInputs:
     select: list[str] = dataclasses.field(default_factory=list)
 
 
-@temporalio.workflow.defn(name="data-models-run")
+@temporalio.workflow.defn(name="data-modeling-run")
 class RunWorkflow(PostHogWorkflow):
     """A Temporal Workflow to run PostHog data models.
 
@@ -550,13 +616,38 @@ class RunWorkflow(PostHogWorkflow):
             ),
         )
 
-        run_model_activity_inputs = RunDagActivityInputs(team_id=inputs.team_id, dag=dag)
+        run_at = dt.datetime.now(dt.UTC).isoformat()
 
+        start_run_inputs = StartRunInputs(dag=dag, run_at=run_at, team_id=inputs.team_id)
+        await temporalio.workflow.execute_activity(
+            start_run,
+            start_run_inputs,
+            start_to_close_timeout=dt.timedelta(minutes=5),
+            retry_policy=temporalio.common.RetryPolicy(
+                initial_interval=dt.timedelta(seconds=10),
+                maximum_interval=dt.timedelta(seconds=60),
+                maximum_attempts=0,
+            ),
+        )
+
+        run_model_activity_inputs = RunDagActivityInputs(team_id=inputs.team_id, dag=dag)
         results = await temporalio.workflow.execute_activity(
             run_dag_activity,
             run_model_activity_inputs,
             start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=temporalio.common.RetryPolicy(
+                maximum_attempts=0,
+            ),
+        )
+
+        finish_run_inputs = FinishRunInputs(results=results, run_at=run_at, team_id=inputs.team_id)
+        await temporalio.workflow.execute_activity(
+            finish_run,
+            finish_run_inputs,
+            start_to_close_timeout=dt.timedelta(minutes=5),
+            retry_policy=temporalio.common.RetryPolicy(
+                initial_interval=dt.timedelta(seconds=10),
+                maximum_interval=dt.timedelta(seconds=60),
                 maximum_attempts=0,
             ),
         )
