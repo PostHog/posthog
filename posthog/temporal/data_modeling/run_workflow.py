@@ -261,10 +261,23 @@ async def handle_model_ready(model: ModelNode, team_id: int, queue: asyncio.Queu
 
 
 async def materialize_model(model_label: str, team: Team) -> tuple[str, DeltaTable]:
-    """Materialize a given model by running its query in a dlt pipeline."""
-    saved_query = await database_sync_to_async(
-        DataWarehouseSavedQuery.objects.filter(team=team, id=uuid.UUID(model_label)).get
-    )()
+    """Materialize a given model by running its query in a dlt pipeline.
+
+    Arguments:
+        model_label: A label representing the ID or the name of the model to materialize.
+            If it's a valid UUID, then we will assume it's the ID, otherwise we'll assume
+            it is the model's name.
+        team: The team the model belongs to.
+    """
+    try:
+        model_id = uuid.UUID(model_label)
+        filter_params = {"id": model_id}
+    except ValueError:
+        model_name = model_label
+        filter_params = {"name": model_name}
+
+    saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.filter(team=team, **filter_params).get)()
+
     query_columns = saved_query.columns
     if not query_columns:
         query_columns = await database_sync_to_async(saved_query.get_columns)()
@@ -356,6 +369,13 @@ class BuildDagActivityInputs:
     select: list[str] = dataclasses.field(default_factory=list)
 
 
+# Pattern matches model labels prefixed and/or suffixed by a '+' and additionally numbers.
+# For example:
+# '+my_model': "Run my_model and all of its ancestors"
+# '1+my_model': "Run my_model and its direct parents"
+# '+my_model+': "Run my_model, all of its ancestors, and all of its descendants"
+# 'my_model+': "Run my_model and all of its descendants"
+# 'my_model+1': "Run my_model and its direct children"
 SelectorPattern = re.compile(
     r"^(?P<ancestors_marker>(?P<ancestors>[0-9]*)\+|\+)?(?P<label>[a-zA-Z0-9_]+)(?P<descendants_marker>\+|\+(?P<descendants>[0-9]*))?$"
 )
@@ -368,6 +388,15 @@ class InvalidSelector(Exception):
 
 @dataclasses.dataclass
 class Selector:
+    """A selector represents the models to select from a set of paths.
+
+    Attributes:
+        label: The model we are selecting around.
+        ancestors: How many ancestors to select from the model from each of the paths.
+        descendants: How many descendants to select from the model from each of the paths.
+        paths: The paths we are doing the selection from.
+    """
+
     label: str
     ancestors: int | typing.Literal["ALL"]
     descendants: int | typing.Literal["ALL"]
@@ -376,6 +405,7 @@ class Selector:
 
 @temporalio.activity.defn
 async def build_dag_activity(inputs: BuildDagActivityInputs) -> DAG:
+    """Construct a DAG from provided selector inputs."""
     async with Heartbeater():
         selectors = []
 
