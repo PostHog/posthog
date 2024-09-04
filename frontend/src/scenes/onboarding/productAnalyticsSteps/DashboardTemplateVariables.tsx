@@ -48,9 +48,11 @@ function VariableSelector({ variable }: { variable: DashboardTemplateVariableTyp
             )}
             {showCustomEventField && (
                 <div className="mb-4">
-                    <LemonLabel info="Set the name that you'll use for a custom event (eg a backend event) instead of selecting an event from your site.">
-                        Custom event name
-                    </LemonLabel>
+                    <LemonLabel>Custom event name</LemonLabel>
+                    <p>
+                        Set the name that you'll use for a custom event (eg. a backend event) instead of selecting an
+                        event from your site.
+                    </p>
                     <div className="flex gap-x-2 w-full">
                         <LemonInput
                             className="grow"
@@ -108,8 +110,8 @@ function VariableSelector({ variable }: { variable: DashboardTemplateVariableTyp
                         >
                             Select from site
                         </LemonButton>
-                        <LemonButton type="secondary" status="alt" onClick={() => setShowCustomEventField(true)}>
-                            or use custom event
+                        <LemonButton type="secondary" onClick={() => setShowCustomEventField(true)}>
+                            Use custom event
                         </LemonButton>
                     </div>
                 )}
