@@ -45,6 +45,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         COMPLETED = "Completed"
         FAILED = "Failed"
         RUNNING = "Running"
+        STARTING = "Starting"
 
     name = models.CharField(max_length=128, validators=[validate_saved_query_name])
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
