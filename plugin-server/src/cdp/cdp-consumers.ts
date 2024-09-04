@@ -237,8 +237,6 @@ abstract class CdpConsumerBase {
         await runInstrumentedFunction({
             statsKey: `cdpConsumer.handleEachBatch.produceResults`,
             func: async () => {
-                console.log('Processing invocations results', results.length)
-
                 await Promise.all(
                     results.map(async (result) => {
                         // Tricky: We want to pull all the logs out as we don't want them to be passed around to any subsequent functions
@@ -634,12 +632,6 @@ export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
                             }
                         })
                     )
-
-                    invocations.forEach((item) => {
-                        if (!item.hogFunction?.id) {
-                            console.error('No hog function id', item)
-                        }
-                    })
 
                     return invocations
                 },
