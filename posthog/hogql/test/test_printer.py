@@ -177,7 +177,7 @@ class TestPrinter(BaseTest):
             context = HogQLContext(team_id=self.team.pk)
             self.assertEqual(
                 self._expr("person.properties.bla", context),
-                "events__pdi__person.properties___bla",
+                "events__person.properties___bla",
             )
 
         with override_settings(PERSON_ON_EVENTS_OVERRIDE=True):
