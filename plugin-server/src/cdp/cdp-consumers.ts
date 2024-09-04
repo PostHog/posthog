@@ -400,39 +400,8 @@ abstract class CdpConsumerBase {
                     })
                 })
 
-                const overflowGlobalsAndFunctions: Record<string, HogFunctionOverflowedGlobals> = {}
-
-                const notOverflowedInvocations = notMaskedInvocations.filter((item) => {
-                    const state = states[item.hogFunction.id].state
-
-                    if (state === HogWatcherState.degraded) {
-                        const key = `${item.globals.project.id}-${item.globals.event.uuid}`
-                        overflowGlobalsAndFunctions[key] = overflowGlobalsAndFunctions[key] || {
-                            globals: item.globals,
-                            hogFunctionIds: [],
-                        }
-
-                        overflowGlobalsAndFunctions[key].hogFunctionIds.push(item.hogFunction.id)
-                        counterFunctionInvocation.inc({ outcome: 'overflowed' }, 1)
-                        return false
-                    }
-
-                    return true
-                })
-
-                Object.values(overflowGlobalsAndFunctions).forEach((item) => {
-                    this.messagesToProduce.push({
-                        topic: KAFKA_CDP_FUNCTION_OVERFLOW,
-                        value: {
-                            source: 'event_invocations',
-                            payload: item,
-                        },
-                        key: item.globals.event.uuid,
-                    })
-                })
-
                 const results = (
-                    await this.runManyWithHeartbeat(notOverflowedInvocations, (item) =>
+                    await this.runManyWithHeartbeat(notMaskedInvocations, (item) =>
                         this.hogExecutor.executeFunction(item.globals, item.hogFunction)
                     )
                 ).filter((x) => !!x) as HogFunctionInvocationResult[]
