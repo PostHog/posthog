@@ -1,4 +1,4 @@
-import { actions, kea, path, props, propsChanged, reducers, selectors } from 'kea'
+import { actions, kea, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { isEmptyObject } from 'lib/utils'
 
 import { DashboardTemplateVariableType, FilterType, Optional } from '~/types'
@@ -26,7 +26,9 @@ export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLog
         }),
         setActiveVariableIndex: (index: number) => ({ index }),
         incrementActiveVariableIndex: true,
+        possiblyIncrementActiveVariableIndex: true,
         resetVariable: (variableId: string) => ({ variableId }),
+        goToNextUntouchedActiveVariableIndex: true,
     }),
     reducers({
         variables: [
@@ -80,6 +82,27 @@ export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLog
                 return variables.every((v) => v.touched)
             },
         ],
+    })),
+    listeners(({ actions, props, values }) => ({
+        possiblyIncrementActiveVariableIndex: () => {
+            if (props.variables.length > 0 && values.activeVariableIndex < props.variables.length - 1) {
+                actions.incrementActiveVariableIndex()
+            }
+        },
+        goToNextUntouchedActiveVariableIndex: () => {
+            let nextIndex = values.variables.findIndex((v, i) => !v.touched && i > values.activeVariableIndex)
+            if (nextIndex !== -1) {
+                actions.setActiveVariableIndex(nextIndex)
+                return
+            }
+            if (nextIndex == -1) {
+                nextIndex = values.variables.findIndex((v) => !v.touched)
+                if (nextIndex == -1) {
+                    nextIndex = values.activeVariableIndex
+                }
+            }
+            actions.setActiveVariableIndex(nextIndex)
+        },
     })),
     propsChanged(({ actions, props }, oldProps) => {
         if (props.variables !== oldProps.variables) {

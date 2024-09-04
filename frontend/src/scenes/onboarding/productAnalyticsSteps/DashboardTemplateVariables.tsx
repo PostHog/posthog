@@ -18,7 +18,9 @@ function VariableSelector({
     const theDashboardTemplateVariablesLogic = dashboardTemplateVariablesLogic({
         variables: activeDashboardTemplate?.variables || [],
     })
-    const { setVariable, resetVariable, incrementActiveVariableIndex } = useActions(theDashboardTemplateVariablesLogic)
+    const { setVariable, resetVariable, goToNextUntouchedActiveVariableIndex, incrementActiveVariableIndex } =
+        useActions(theDashboardTemplateVariablesLogic)
+    const { allVariablesAreTouched, variables, activeVariableIndex } = useValues(theDashboardTemplateVariablesLogic)
     const [customEventName, setCustomEventName] = useState<string | null>(null)
     const [showCustomEventField, setShowCustomEventField] = useState(false)
 
@@ -104,9 +106,24 @@ function VariableSelector({
             ) : (
                 <div className="flex">
                     {variable.touched ? (
-                        <LemonButton type="primary" status="alt" onClick={incrementActiveVariableIndex}>
-                            Continue
-                        </LemonButton>
+                        <>
+                            {!allVariablesAreTouched ||
+                            (allVariablesAreTouched && variables.length !== activeVariableIndex + 1) ? (
+                                <LemonButton
+                                    type="primary"
+                                    status="alt"
+                                    onClick={() =>
+                                        !allVariablesAreTouched
+                                            ? goToNextUntouchedActiveVariableIndex()
+                                            : variables.length !== activeVariableIndex + 1
+                                            ? incrementActiveVariableIndex()
+                                            : null
+                                    }
+                                >
+                                    Continue
+                                </LemonButton>
+                            ) : null}
+                        </>
                     ) : (
                         <div className="flex gap-x-2">
                             <LemonButton
