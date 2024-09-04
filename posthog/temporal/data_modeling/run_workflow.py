@@ -521,14 +521,14 @@ async def get_posthog_tables(team_id: int) -> list[str]:
 
 
 @dataclasses.dataclass
-class StartRunInputs:
+class StartRunActivityInputs:
     dag: DAG
     run_at: str
     team_id: int
 
 
 @temporalio.activity.defn
-async def start_run(inputs: StartRunInputs) -> None:
+async def start_run_activity(inputs: StartRunActivityInputs) -> None:
     """Activity that starts a run by updating statuses of associated models."""
     run_at = dt.datetime.fromisoformat(inputs.run_at)
 
@@ -540,14 +540,14 @@ async def start_run(inputs: StartRunInputs) -> None:
 
 
 @dataclasses.dataclass
-class FinishRunInputs:
+class FinishRunActivityInputs:
     results: Results
     run_at: str
     team_id: int
 
 
 @temporalio.activity.defn
-async def finish_run(inputs: FinishRunInputs) -> None:
+async def finish_run_activity(inputs: FinishRunActivityInputs) -> None:
     """Activity that finishes a run by updating statuses of associated models."""
     run_at = dt.datetime.fromisoformat(inputs.run_at)
 
@@ -618,10 +618,10 @@ class RunWorkflow(PostHogWorkflow):
 
         run_at = dt.datetime.now(dt.UTC).isoformat()
 
-        start_run_inputs = StartRunInputs(dag=dag, run_at=run_at, team_id=inputs.team_id)
+        start_run_activity_inputs = StartRunActivityInputs(dag=dag, run_at=run_at, team_id=inputs.team_id)
         await temporalio.workflow.execute_activity(
-            start_run,
-            start_run_inputs,
+            start_run_activity,
+            start_run_activity_inputs,
             start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=temporalio.common.RetryPolicy(
                 initial_interval=dt.timedelta(seconds=10),
@@ -640,10 +640,10 @@ class RunWorkflow(PostHogWorkflow):
             ),
         )
 
-        finish_run_inputs = FinishRunInputs(results=results, run_at=run_at, team_id=inputs.team_id)
+        finish_run_activity_inputs = FinishRunActivityInputs(results=results, run_at=run_at, team_id=inputs.team_id)
         await temporalio.workflow.execute_activity(
-            finish_run,
-            finish_run_inputs,
+            finish_run_activity,
+            finish_run_activity_inputs,
             start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=temporalio.common.RetryPolicy(
                 initial_interval=dt.timedelta(seconds=10),
