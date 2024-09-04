@@ -229,7 +229,7 @@ abstract class CdpConsumerBase {
         this.messagesToProduce.push({
             topic: KAFKA_CDP_FUNCTION_CALLBACKS,
             value: request,
-            key: invocation.hogFunction.id,
+            key: `${invocation.hogFunction.id}:${invocation.id}`,
         })
     }
 
