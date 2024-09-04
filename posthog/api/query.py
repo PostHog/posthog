@@ -166,7 +166,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             for message in chain.stream({"question": validated_body.messages[0].content}):
                 if message:
                     last_message = message[0].model_dump_json()
-                    yield message[0].model_dump_json()
+                    yield last_message
 
             if not last_message:
                 yield json.dumps({"reasoning_steps": ["Schema validation failed"]})
