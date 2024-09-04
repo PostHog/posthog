@@ -3750,3 +3750,36 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual([sr["session_id"] for sr in session_recordings], [session_id])
+
+    @freeze_time("2021-01-21T20:00:00.000Z")
+    @snapshot_clickhouse_queries
+    def test_ordering(self):
+        session_id_one = f"test_ordering-{str(uuid4())}"
+        session_id_two = f"test_ordering-{str(uuid4())}"
+        session_id_three = f"test_ordering-{str(uuid4())}"
+
+        produce_replay_summary(
+            session_id=session_id_one,
+            team_id=self.team.id,
+            mouse_activity_count=50,
+            first_timestamp=(self.an_hour_ago + relativedelta(seconds=60)),
+        )
+        produce_replay_summary(
+            session_id=session_id_two,
+            team_id=self.team.id,
+            mouse_activity_count=100,
+            first_timestamp=(self.an_hour_ago),
+        )
+        produce_replay_summary(
+            session_id=session_id_three,
+            team_id=self.team.id,
+            mouse_activity_count=10,
+            first_timestamp=(self.an_hour_ago + relativedelta(minutes=10)),
+        )
+
+        # ensures conversion to start_time
+        (session_recordings, _, _) = self._filter_recordings_by({"order": "latest"})
+        assert [r["session_id"] for r in session_recordings] == [session_id_three, session_id_one, session_id_two]
+
+        (session_recordings, _, _) = self._filter_recordings_by({"order": "mouse_activity_count"})
+        assert [r["session_id"] for r in session_recordings] == [session_id_two, session_id_one, session_id_three]

@@ -174,10 +174,7 @@ class SessionRecordingListFromFilters:
 
     def _order_by_clause(self) -> ast.OrderExpr:
         field = "start_time" if self._filter.order == "latest" else self._filter.order
-        return ast.OrderExpr(
-            expr=ast.Field(chain=[field]),
-            order="ASC" if self._filter.order == "earliest" else "DESC",
-        )
+        return ast.OrderExpr(expr=ast.Field(chain=[field]), order="DESC")
 
     def _where_predicates(self) -> Union[ast.And, ast.Or]:
         exprs: list[ast.Expr] = [
