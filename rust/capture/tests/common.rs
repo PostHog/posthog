@@ -51,6 +51,8 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
         kafka_heatmaps_topic: "events_plugin_ingestion".to_string(),
         kafka_tls: false,
         kafka_client_id: "".to_string(),
+        kafka_metadata_max_age_ms: 60000,
+        kafka_producer_max_retries: 2,
     },
     otel_url: None,
     otel_sampling_rate: 0.0,

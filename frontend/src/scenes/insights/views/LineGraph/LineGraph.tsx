@@ -749,7 +749,7 @@ export function LineGraph_({
                                     d.compareLabels?.[i],
                                 ]
                             } else if (d.breakdownLabels?.[i]) {
-                                labelDescriptors = [d.breakdownLabels[i], d.compareLabels?.[i]]
+                                labelDescriptors = [d.actions?.[i]?.name, d.breakdownLabels[i], d.compareLabels?.[i]]
                             } else if (d.labels?.[i]) {
                                 labelDescriptors = [d.labels[i], d.compareLabels?.[i]]
                             } else {
