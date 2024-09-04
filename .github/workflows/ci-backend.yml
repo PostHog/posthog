@@ -224,8 +224,8 @@ jobs:
 
     django:
         needs: changes
-        # change for tmate test
-        timeout-minutes: 60
+        # increase for tmate testing
+        timeout-minutes: 30
 
         name: Django tests – ${{ matrix.segment }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
         runs-on: ubuntu-latest

@@ -1,6 +1,6 @@
 from typing import Any
 
-from posthog.users_scripts.aggregate_funnel import calculate_funnel_from_user_events
+from posthog.user_scripts.aggregate_funnel import calculate_funnel_from_user_events
 
 
 def test():

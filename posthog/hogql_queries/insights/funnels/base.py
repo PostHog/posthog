@@ -467,8 +467,7 @@ class FunnelBase(ABC):
         funnel_events_query.select = [*funnel_events_query.select, *all_step_cols]
 
         if breakdown and breakdownType == BreakdownType.COHORT:
-            if funnel_events_query.select_from is None:
-                raise ValidationError("Apologies, there was an error adding cohort breakdowns to the query.")
+            assert funnel_events_query.select_from is not None
             funnel_events_query.select_from.next_join = self._get_cohort_breakdown_join()
 
         if not skip_step_filter:

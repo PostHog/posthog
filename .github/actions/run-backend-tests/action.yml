@@ -136,8 +136,10 @@ runs:
           run: bin/check_kafka_clickhouse_up
 
         - name: Wait for Temporal
+          if: ${{ inputs.segment == 'Temporal' }}
           shell: bash
-          run: bin/check_temporal_up
+          run: |
+              bin/check_temporal_up
 
         - name: Determine if --snapshot-update should be on
           # Skip on forks (due to GITHUB_TOKEN being read-only in PRs coming from them) except for persons-on-events
@@ -165,9 +167,11 @@ runs:
                   --durations=100 --durations-min=1.0 --store-durations \
                   $PYTEST_ARGS
 
-        - name: Setup tmate session
-          if: failure()
-          uses: mxschmitt/action-tmate@v3
+        # Uncomment this code to create an ssh-able console so you can debug issues with github actions
+        # (Consider changing the timeout in ci-backend.yml to have more time)
+        # - name: Setup tmate session
+        #   if: failure()
+        #   uses: mxschmitt/action-tmate@v3
 
         - name: Run /decide read replica tests
           id: run-decide-read-replica-tests
