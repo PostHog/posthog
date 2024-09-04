@@ -166,9 +166,9 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         temporal = sync_connect()
         inputs = RunWorkflowInputs(team_id=saved_query.team_id, select=[saved_query.id.hex])
         workflow_id = f"data-modeling-run-{saved_query.id.hex}"
-        async_to_sync(temporal.start_workflow)(
-            "data-modeling-run",
-            inputs,
+        async_to_sync(temporal.start_workflow)(  # type: ignore
+            "data-modeling-run",  # type: ignore
+            inputs,  # type: ignore
             id=workflow_id,
             task_queue=DATA_WAREHOUSE_TASK_QUEUE,
         )

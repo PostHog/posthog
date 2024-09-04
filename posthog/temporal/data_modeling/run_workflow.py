@@ -161,7 +161,7 @@ async def run_dag_activity(inputs: RunDagActivityInputs) -> Results:
     completed = set()
     ancestor_failed = set()
     failed = set()
-    queue = asyncio.Queue()
+    queue: asyncio.Queue[QueueMessage] = asyncio.Queue()
 
     for node in inputs.dag.values():
         if not node.parents:
@@ -229,7 +229,7 @@ async def run_dag_activity(inputs: RunDagActivityInputs) -> Results:
         return Results(completed, failed, ancestor_failed)
 
 
-async def put_models_in_queue(models: collections.abc.Iterable[ModelNode], queue: asyncio.Queue) -> None:
+async def put_models_in_queue(models: collections.abc.Iterable[ModelNode], queue: asyncio.Queue[QueueMessage]) -> None:
     """Put models in queue.
 
     Intended to handle the queue put calls in the background to avoid blocking the main thread.
@@ -241,7 +241,7 @@ async def put_models_in_queue(models: collections.abc.Iterable[ModelNode], queue
             tg.create_task(queue.put(QueueMessage(status=ModelStatus.READY, label=model.label)))
 
 
-async def handle_model_ready(model: ModelNode, team_id: int, queue: asyncio.Queue) -> None:
+async def handle_model_ready(model: ModelNode, team_id: int, queue: asyncio.Queue[QueueMessage]) -> None:
     """Handle a model that is ready to run by materializing.
 
     After materializing is done, we can report back to the execution queue the result. If
@@ -274,12 +274,13 @@ async def materialize_model(model_label: str, team: Team) -> tuple[str, DeltaTab
             it is the model's name.
         team: The team the model belongs to.
     """
+    filter_params: dict[str, str | uuid.UUID] = {}
     try:
         model_id = uuid.UUID(model_label)
-        filter_params = {"id": model_id}
+        filter_params["id"] = model_id
     except ValueError:
         model_name = model_label
-        filter_params = {"name": model_name}
+        filter_params["name"] = model_name
 
     saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.filter(team=team, **filter_params).get)()
 
@@ -428,15 +429,13 @@ async def build_dag_activity(inputs: BuildDagActivityInputs) -> DAG:
                     "path", flat=True
                 )
             )
-            ancestors = 0
+            ancestors: int | typing.Literal["ALL"] = 0
             if selector_match.group("ancestors_marker"):
-                ancestors_match = selector_match.group("ancestors")
-                ancestors = int(ancestors_match) if ancestors_match else "ALL"
+                ancestors = int(selector_match.group("ancestors")) if selector_match.group("ancestors") else "ALL"
 
-            descendants = 0
+            descendants: int | typing.Literal["ALL"] = 0
             if selector_match.group("descendants_marker"):
-                descendants_match = selector_match.group("descendants")
-                descendants = int(descendants_match) if descendants_match else "ALL"
+                descendants = int(selector_match.group("descendants")) if selector_match.group("descendants") else "ALL"
 
             selectors.append(
                 Selector(
