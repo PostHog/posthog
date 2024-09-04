@@ -44,6 +44,7 @@ import {
     createInvocation,
     gzipObject,
     prepareLogEntriesForClickhouse,
+    serializeInvocation,
     unGzipObject,
 } from './utils'
 
@@ -217,12 +218,7 @@ abstract class CdpConsumerBase {
         // For now we just enqueue to kafka
         // For kafka style this is overkill to enqueue this way but it simplifies migrating to the new system
 
-        const serializedInvocation: HogFunctionInvocationSerialized = {
-            ...invocation,
-            hogFunctionId: invocation.hogFunction.id,
-        }
-
-        delete (serializedInvocation as any).hogFunction
+        const serializedInvocation = serializeInvocation(invocation)
 
         const request: HogFunctionInvocationSerializedCompressed = {
             state: await gzipObject(serializedInvocation),
