@@ -4,13 +4,8 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    replaces = [
-        ("posthog", "0464_datawarehousesavedquery_last_ran_at_and_more"),
-        ("posthog", "0465_alter_datawarehousesavedquery_last_run_status"),
-    ]
-
     dependencies = [
-        ("posthog", "0463_datawarehousemodelpath_and_more"),
+        ("posthog", "0465_datawarehouse_stripe_account"),
     ]
 
     operations = [
