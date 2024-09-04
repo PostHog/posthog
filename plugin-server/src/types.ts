@@ -119,6 +119,7 @@ export type CdpConfig = {
     CDP_REDIS_HOST: string
     CDP_REDIS_PORT: number
     CDP_REDIS_PASSWORD: string
+    CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: boolean
 }
 
 export interface PluginsServerConfig extends CdpConfig {
