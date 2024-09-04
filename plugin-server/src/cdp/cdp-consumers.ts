@@ -658,9 +658,12 @@ export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
                                     invocationSerialized.queueParameters = item.asyncFunctionResponse
                                 }
 
-                                const hogFunction = this.hogFunctionManager.getHogFunction(
-                                    invocationSerialized.hogFunctionId
-                                )
+                                const hogFunction =
+                                    invocationSerialized.hogFunction ??
+                                    (invocationSerialized.hogFunctionId
+                                        ? this.hogFunctionManager.getHogFunction(invocationSerialized.hogFunctionId)
+                                        : undefined)
+
                                 if (!hogFunction) {
                                     status.error('Error finding hog function', {
                                         id: invocationSerialized.hogFunctionId,

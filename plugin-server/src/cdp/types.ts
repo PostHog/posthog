@@ -222,7 +222,8 @@ export type HogHooksFetchResponse = {
 
 export type HogFunctionInvocationSerialized = Omit<HogFunctionInvocation, 'hogFunction'> & {
     // When serialized to kafka / cyclotron we only store the ID
-    hogFunctionId: HogFunctionType['id']
+    hogFunctionId?: HogFunctionType['id']
+    hogFunction?: HogFunctionType
 }
 
 export type HogFunctionInvocationSerializedCompressed = {
