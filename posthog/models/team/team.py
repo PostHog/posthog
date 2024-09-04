@@ -1,7 +1,7 @@
 import re
 from decimal import Decimal
 from functools import lru_cache
-from typing import Any, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 from zoneinfo import ZoneInfo
 from django.core import cache
 import posthoganalytics
@@ -40,7 +40,8 @@ from ...hogql.modifiers import set_default_modifier_values
 from ...schema import HogQLQueryModifiers, PathCleaningFilter, PersonsOnEventsMode
 from .team_caching import get_team_in_cache, set_team_in_cache
 
-from posthog.models.user import User
+if TYPE_CHECKING:
+    from posthog.models.user import User
 
 TIMEZONES = [(tz, tz) for tz in pytz.all_timezones]
 
@@ -458,7 +459,7 @@ class Team(UUIDClassicModel):
         log_activity(
             organization_id=self.organization_id,
             team_id=self.pk,
-            user=cast(User, self.user),
+            user=cast("User", self.user),
             was_impersonated=is_impersonated_session,
             scope="Team",
             item_id=self.pk,
