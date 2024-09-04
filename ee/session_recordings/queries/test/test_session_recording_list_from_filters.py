@@ -90,7 +90,7 @@ class TestClickhouseSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBas
                 False,
                 False,
                 False,
-                PersonsOnEventsMode.DISABLED,
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
                 False,
             ],
             [
