@@ -112,7 +112,7 @@ export const OnboardingDashboardTemplateConfigureStep = ({
                                 For each action below, select an element on your site that indicates when that action is
                                 taken, or enter a custom event name that you'll send from your backend.
                             </p>
-                            <DashboardTemplateVariables />
+                            <DashboardTemplateVariables hasSelectedSite={!!browserUrl} />
                             <LemonButton
                                 type="primary"
                                 status="alt"

@@ -1,5 +1,5 @@
 import { IconCheckCircle, IconInfo, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonCollapse, LemonInput, LemonLabel } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCollapse, LemonInput, LemonLabel } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 import { dashboardTemplateVariablesLogic } from 'scenes/dashboard/dashboardTemplateVariablesLogic'
@@ -7,7 +7,13 @@ import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
 import { DashboardTemplateVariableType } from '~/types'
 
-function VariableSelector({ variable }: { variable: DashboardTemplateVariableType }): JSX.Element {
+function VariableSelector({
+    variable,
+    hasSelectedSite,
+}: {
+    variable: DashboardTemplateVariableType
+    hasSelectedSite: boolean
+}): JSX.Element {
     const { activeDashboardTemplate } = useValues(newDashboardLogic)
     const theDashboardTemplateVariablesLogic = dashboardTemplateVariablesLogic({
         variables: activeDashboardTemplate?.variables || [],
@@ -93,34 +99,38 @@ function VariableSelector({ variable }: { variable: DashboardTemplateVariableTyp
                     </div>
                 </div>
             )}
-            <div className="flex">
-                {variable.touched ? (
-                    <LemonButton type="primary" status="alt" onClick={incrementActiveVariableIndex}>
-                        Continue
-                    </LemonButton>
-                ) : (
-                    <div className="flex gap-x-2">
-                        <LemonButton
-                            type="primary"
-                            status="alt"
-                            onClick={() => {
-                                setShowCustomEventField(false)
-                                setVariable(variable.name, { events: [FALLBACK_EVENT] })
-                            }}
-                        >
-                            Select from site
+            {!hasSelectedSite ? (
+                <LemonBanner type="warning">Please select a site to continue. </LemonBanner>
+            ) : (
+                <div className="flex">
+                    {variable.touched ? (
+                        <LemonButton type="primary" status="alt" onClick={incrementActiveVariableIndex}>
+                            Continue
                         </LemonButton>
-                        <LemonButton type="secondary" onClick={() => setShowCustomEventField(true)}>
-                            Use custom event
-                        </LemonButton>
-                    </div>
-                )}
-            </div>
+                    ) : (
+                        <div className="flex gap-x-2">
+                            <LemonButton
+                                type="primary"
+                                status="alt"
+                                onClick={() => {
+                                    setShowCustomEventField(false)
+                                    setVariable(variable.name, { events: [FALLBACK_EVENT] })
+                                }}
+                            >
+                                Select from site
+                            </LemonButton>
+                            <LemonButton type="secondary" onClick={() => setShowCustomEventField(true)}>
+                                Use custom event
+                            </LemonButton>
+                        </div>
+                    )}
+                </div>
+            )}
         </div>
     )
 }
 
-export function DashboardTemplateVariables(): JSX.Element {
+export function DashboardTemplateVariables({ hasSelectedSite }: { hasSelectedSite: boolean }): JSX.Element {
     const { activeDashboardTemplate } = useValues(newDashboardLogic)
     const theDashboardTemplateVariablesLogic = dashboardTemplateVariablesLogic({
         variables: activeDashboardTemplate?.variables || [],
@@ -145,7 +155,7 @@ export function DashboardTemplateVariables(): JSX.Element {
                             {v.touched && <IconCheckCircle className="text-success ml-2 text-base" />}
                         </div>
                     ),
-                    content: <VariableSelector variable={v} {...v} />,
+                    content: <VariableSelector variable={v} {...v} hasSelectedSite={hasSelectedSite} />,
                     className: 'p-4 bg-white',
                     onHeaderClick: () => {
                         setActiveVariableIndex(i)
