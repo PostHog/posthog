@@ -217,7 +217,7 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     },
     [Scene.DataModel]: {
         projectBased: true,
-        name: 'Data model',
+        name: 'Visualize person schema',
         defaultDocsPath: '/docs/data-datawarehouse',
         layout: 'app-canvas',
     },

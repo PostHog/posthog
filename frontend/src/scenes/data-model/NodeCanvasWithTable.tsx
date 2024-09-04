@@ -376,9 +376,6 @@ const NodeCanvasWithTable = ({
                     tableName={tableName}
                 />
             </div>
-            <div className="absolute top-5 left-5">
-                <h3>Visualize person schema</h3>
-            </div>
         </div>
     )
 }

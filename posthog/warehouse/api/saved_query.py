@@ -15,6 +15,7 @@ from posthog.hogql.metadata import is_valid_view
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.warehouse.models import DataWarehouseJoin, DataWarehouseModelPath, DataWarehouseSavedQuery
+import uuid
 
 logger = structlog.get_logger(__name__)
 
@@ -180,7 +181,17 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
 
             ancestors = ancestors.union(model_path.path[start:-1])
 
-        return response.Response({"ancestors": ancestors})
+        # Optimistically convert ancestor strings to UUIDs
+        ancestor_ids = set()
+        for ancestor in ancestors:
+            try:
+                ancestor_uuid = uuid.UUID(ancestor)
+                ancestor_ids.add(ancestor_uuid)
+            except ValueError:
+                ancestor_ids.add(ancestor)
+                continue
+
+        return response.Response({"ancestors": ancestor_ids})
 
     @action(methods=["POST"], detail=True)
     def descendants(self, request: request.Request, *args, **kwargs) -> response.Response:
@@ -211,4 +222,13 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
 
             descendants = descendants.union(model_path.path[start:end])
 
-        return response.Response({"descendants": descendants})
+        descendant_ids = set()
+        for descendant in descendants:
+            try:
+                descendant_uuid = uuid.UUID(descendant)
+                descendant_ids.add(descendant_uuid)
+            except ValueError:
+                descendant_ids.add(descendant)
+                continue
+
+        return response.Response({"descendants": descendant_ids})

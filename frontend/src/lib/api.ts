@@ -2072,13 +2072,13 @@ const api = {
         ): Promise<DataWarehouseSavedQuery> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).update({ data })
         },
-        async ancestors(viewId: DataWarehouseSavedQuery['id'], level: number): Promise<Record<string, string[]>> {
+        async ancestors(viewId: DataWarehouseSavedQuery['id'], level?: number): Promise<Record<string, string[]>> {
             return await new ApiRequest()
                 .dataWarehouseSavedQuery(viewId)
                 .withAction('ancestors')
                 .create({ data: { level } })
         },
-        async descendants(viewId: DataWarehouseSavedQuery['id'], level: number): Promise<Record<string, string[]>> {
+        async descendants(viewId: DataWarehouseSavedQuery['id'], level?: number): Promise<Record<string, string[]>> {
             return await new ApiRequest()
                 .dataWarehouseSavedQuery(viewId)
                 .withAction('descendants')
