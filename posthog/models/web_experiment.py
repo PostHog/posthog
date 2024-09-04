@@ -7,7 +7,8 @@ from posthog.models import Experiment
 
 class WebExperimentManager(models.Manager):
     def get_queryset(self):
-        return super(WebExperimentManager, self).get_queryset()
+        return super(WebExperimentManager, self).get_queryset().filter(
+            type='web')
 
 class WebExperiment(Experiment):
     objects = WebExperimentManager()

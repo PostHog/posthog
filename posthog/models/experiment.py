@@ -4,6 +4,10 @@ from django.utils import timezone
 
 
 class Experiment(models.Model):
+
+    class ExperimentType(models.TextChoices):
+        WEB = "web", "web"
+
     name = models.CharField(max_length=400)
     description = models.CharField(max_length=400, null=True, blank=True)
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
@@ -32,6 +36,7 @@ class Experiment(models.Model):
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     archived = models.BooleanField(default=False)
+    type = models.CharField(max_length=40, choices=ExperimentType.choices)
 
     def get_feature_flag_key(self):
         return self.feature_flag.key

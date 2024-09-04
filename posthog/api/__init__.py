@@ -347,7 +347,7 @@ router.register(r"event", LegacyEventViewSet, basename="event")
 # Nested endpoints CH
 projects_router.register(r"events", EventViewSet, "environment_events", ["team_id"])
 projects_router.register(r"actions", ActionViewSet, "project_actions", ["project_id"])
-projects_router.register(r"experiments", ExperimentViewSet, "experiments", ["project_id"])
+projects_router.register(r"toolbar_experiments", ExperimentViewSet, "toolbar_experiments", ["project_id"])
 projects_router.register(r"cohorts", CohortViewSet, "project_cohorts", ["project_id"])
 projects_router.register(r"persons", PersonViewSet, "environment_persons", ["team_id"])
 projects_router.register(r"elements", ElementViewSet, "environment_elements", ["team_id"])  # TODO: Can be removed?

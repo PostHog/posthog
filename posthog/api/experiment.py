@@ -1,10 +1,12 @@
 import json
+from datetime import datetime
 from typing import Any
 from django.http import HttpResponse, JsonResponse
 from rest_framework import status, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 
+from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import get_token
 from django.views.decorators.csrf import csrf_exempt
@@ -12,7 +14,7 @@ from posthog.auth import (
     TemporaryTokenAuthentication,
 )
 from posthog.exceptions import generate_exception_response
-from posthog.models import Team, WebExperiment
+from posthog.models import Team, WebExperiment, Experiment
 from posthog.utils_cors import cors_response
 
 
@@ -59,7 +61,7 @@ class ExperimentsAPISerializer(serializers.ModelSerializer):
     #
     #     multivariate = experiment.feature_flag.filters.get("multivariate", None)
     #     if multivariate is None:
-    #         return
+    #         re      return
     #
     #     variants = multivariate.get("variants", [])
     #     if len(variants) == 0:
@@ -93,7 +95,50 @@ class ExperimentsAPISerializer(serializers.ModelSerializer):
 
     def create(self, validated_data: dict[str, Any]) -> Any:
         print("creating instance, validated_data is ", validated_data)
-        print("creating instance, transforms is", self.extract_transforms(validated_data))
+        create_params = {
+            'name': validated_data.get('name', ''),
+            'description': '',
+            'type': 'web',
+        }
+        variants = validated_data.get("variants", None)
+        multivariant_variants = self.extract_transforms(validated_data)
+        filters = {
+            "groups": [{"properties": [], "rollout_percentage": 100}],
+            "payloads": multivariant_variants.get('payloads', None),
+            "multivariate": multivariant_variants.get('variants', None),
+            'events': [
+                {
+                    'type': 'events',
+                    'id': '$pageview',
+                    'order': 0,
+                    'name': '$pageview'
+                }
+            ]
+        }
+
+        for variant, transforms in variants.items():
+            filters['payloads'][variant] = json.dumps({"data": transforms.get("transforms", {})})
+
+        print("creating instance, filters is ", filters)
+
+        feature_flag_serializer = FeatureFlagSerializer(
+            data={
+                "key": f'{validated_data.get("name")}-feature',
+                "name": f'Feature Flag for Experiment {validated_data["name"]}',
+                "filters": filters,
+                "active": False,
+            },
+            context=self.context,
+        )
+
+        feature_flag_serializer.is_valid(raise_exception=True)
+        feature_flag = feature_flag_serializer.save()
+
+        experiment = Experiment.objects.create(
+            team_id=self.context["team_id"], feature_flag=feature_flag, **create_params
+        )
+        return experiment
+        # print("creating instance, transforms is", self.extract_transforms(validated_data))
 
     def update(self, instance: WebExperiment, validated_data: dict[str, Any]) -> Any:
         print("updating instance, validated_data is ", validated_data, " instance is ", instance)

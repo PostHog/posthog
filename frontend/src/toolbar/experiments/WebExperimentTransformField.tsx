@@ -34,7 +34,7 @@ const ELEMENT_TRANSFORM_OPTIONS: LemonSegmentedButtonOption<elementTransformKind
 
 export function WebExperimentTransformField({ variant, tIndex, transform }: WebExperimentTransformFieldProps): JSX.Element {
 
-    const [transformSelected, setTransformSelected] = useState(transform.html ? "html": transform.text ? "text" : "css")
+    const [transformSelected, setTransformSelected] = useState(transform.html ? "html": "text")
     const {
         experimentForm,
     } = useValues(experimentsTabLogic)

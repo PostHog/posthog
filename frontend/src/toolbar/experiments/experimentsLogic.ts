@@ -20,7 +20,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
             {
                 // eslint-disable-next-line @typescript-eslint/no-unused-vars
                 getExperiments: async (_ = null, breakpoint: () => void) => {
-                    const response = await toolbarFetch('/api/projects/@current/experiments/')
+                    const response = await toolbarFetch('/api/projects/@current/toolbar_experiments/')
                     const results = await response.json()
 
                     if (response.status === 403) {
