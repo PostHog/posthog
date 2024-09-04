@@ -157,7 +157,9 @@ export type HogFunctionQueueParametersFetchRequest = {
     url: string
     method: string
     body: string
-    headers: Record<string, string>
+    return_queue: string
+    max_tries?: number
+    headers?: Record<string, string>
 }
 
 export type HogFunctionQueueParametersFetchResponse = {
@@ -165,7 +167,7 @@ export type HogFunctionQueueParametersFetchResponse = {
     error?: any
     /** The data to be passed to the Hog function from the response */
     response?: {
-        status: number
+        status: number | 'failure'
         body: any
     } | null
     timings?: HogFunctionTiming[]

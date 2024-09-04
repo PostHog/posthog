@@ -164,14 +164,15 @@ export class HogExecutor {
                 invocation.queue = 'hog'
                 invocation.queueParameters = undefined
 
+                const status = typeof response?.status === 'number' ? response.status : 503
+
                 // Special handling for fetch
-                // TODO: Would be good to have a dedicated value in the fetch response for the status code
-                if (response?.status && response.status >= 400) {
+                if (status >= 400) {
                     // Generic warn log for bad status codes
                     logs.push({
                         level: 'warn',
                         timestamp: DateTime.now(),
-                        message: `Fetch returned bad status: ${response.status}`,
+                        message: `Fetch returned bad status: ${status}`,
                     })
                 }
 
@@ -337,6 +338,7 @@ export class HogExecutor {
                                 method,
                                 headers,
                                 body,
+                                return_queue: 'hog',
                             }
 
                             break
