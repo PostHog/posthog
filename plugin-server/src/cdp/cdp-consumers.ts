@@ -548,8 +548,15 @@ export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
                 // NOTE: In the future this service will never do fetching (unless we decide we want to do it in node at some point)
                 // This is just "for now" to support the transition to cyclotron
                 const fetchQueue = invocations.filter((item) => item.queue === 'fetch')
-                const fetchResults = await this.runManyWithHeartbeat(fetchQueue, (item) =>
-                    this.fetchExecutor.execute(item)
+
+                const fetchResults = await Promise.all(
+                    fetchQueue.map((item) => {
+                        return runInstrumentedFunction({
+                            statsKey: `cdpConsumer.handleEachBatch.fetchExecutor.execute`,
+                            func: () => this.fetchExecutor.execute(item),
+                            timeout: 1000,
+                        })
+                    })
                 )
 
                 const hogQueue = invocations.filter((item) => item.queue === 'hog')
