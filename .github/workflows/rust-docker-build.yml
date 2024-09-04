@@ -95,8 +95,8 @@ jobs:
             - name: Container image digest
               id: digest
               run: |
-                echo ${{ steps.docker_build.outputs.digest }}
-                echo "${{matrix.image}}_digest=${{ steps.docker_build.outputs.digest }}" >> $GITHUB_OUTPUT
+                  echo ${{ steps.docker_build.outputs.digest }}
+                  echo "${{matrix.image}}_digest=${{ steps.docker_build.outputs.digest }}" >> $GITHUB_OUTPUT
 
     deploy:
         name: Deploy capture-replay
