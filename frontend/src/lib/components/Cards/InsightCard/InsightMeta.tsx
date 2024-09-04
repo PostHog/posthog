@@ -140,7 +140,7 @@ export function InsightMeta({
             moreButtons={
                 <>
                     <>
-                        <LemonButton to={urls.insightView(short_id)} fullWidth>
+                        <LemonButton to={urls.insightView(short_id, filtersOverride)} fullWidth>
                             View
                         </LemonButton>
                         {refresh && (

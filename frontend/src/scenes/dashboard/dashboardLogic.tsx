@@ -1322,7 +1322,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
         '/dashboard/:id': () => {
             actions.setSubscriptionMode(false, undefined)
             actions.setTextTileId(null)
-            actions.setDashboardMode(null, DashboardEventSource.Browser)
         },
         '/dashboard/:id/sharing': () => {
             actions.setSubscriptionMode(false, undefined)

@@ -91,7 +91,11 @@ export const urls = {
         ).url,
     insightEdit: (id: InsightShortId): string => `/insights/${id}/edit`,
     insightView: (id: InsightShortId, filtersOverride?: DashboardFilter): string =>
-        `/insights/${id}${filtersOverride !== undefined ? `?filters_override=${JSON.stringify(filtersOverride)}` : ''}`,
+        `/insights/${id}${
+            filtersOverride !== undefined
+                ? `?filters_override=${encodeURIComponent(JSON.stringify(filtersOverride))}`
+                : ''
+        }`,
     insightSubcriptions: (id: InsightShortId): string => `/insights/${id}/subscriptions`,
     insightSubcription: (id: InsightShortId, subscriptionId: string): string =>
         `/insights/${id}/subscriptions/${subscriptionId}`,
