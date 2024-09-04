@@ -252,9 +252,10 @@ function sortRecordings(recordings: SessionRecordingType[], order: RecordingsQue
     }
 
     return recordings.sort((a, b) => {
-        const orderA = a[orderKey] || 0
-        const orderB = b[orderKey] || 0
-        return orderA > orderB ? -1 : 1
+        const orderA = a[orderKey]
+        const orderB = b[orderKey]
+        const incomparible = orderA === undefined || orderB === undefined
+        return incomparible ? 0 : orderA > orderB ? -1 : 1
     })
 }
 
