@@ -162,14 +162,11 @@ function ViewedIndicator(): JSX.Element {
 }
 
 function durationToShow(recording: SessionRecordingType, order: RecordingsQuery['order']): number | undefined {
-    switch (order) {
-        case 'active_seconds':
-            return recording.active_seconds
-        case 'inactive_seconds':
-            return recording.inactive_seconds
-        default:
-            return recording.recording_duration
-    }
+    return order === 'active_seconds'
+        ? recording.active_seconds
+        : order === 'inactive_seconds'
+        ? recording.inactive_seconds
+        : recording.recording_duration
 }
 
 export function SessionRecordingPreview({
