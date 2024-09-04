@@ -149,6 +149,8 @@ export function convertToHogFunctionFilterGlobal(globals: HogFunctionInvocationG
     } satisfies HogFunctionFilterGlobals
 
     if (elementsChain) {
+        // The elements_chain_* fields are stored as materialized columns in ClickHouse.
+        // We use the same formula to calculate them here, and make them lazy-loaded.
         Object.defineProperties(response, {
             elements_chain_href: {
                 get: () => (response.elements_chain_href = getElementsChainHref(elementsChain)),
