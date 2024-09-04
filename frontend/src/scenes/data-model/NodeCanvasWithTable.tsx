@@ -6,7 +6,7 @@ import { FixedField, JoinedField, TableFields } from './TableFields'
 import { Edge, Node, NodePosition, NodePositionWithBounds, NodeWithDepth, Position } from './types'
 
 const VERTICAL_SPACING = 150
-const HORIZONTAL_SPACING = 200
+const HORIZONTAL_SPACING = 250
 
 const assignDepths = (nodes: Node[]): NodeWithDepth[] => {
     const nodeMap: { [id: string]: NodeWithDepth } = {}
@@ -330,7 +330,7 @@ const NodeCanvasWithTable = ({
                                C ${controlPoint1X} ${controlPoint1Y}, 
                                  ${controlPoint2X} ${controlPoint2Y}, 
                                  ${edge.to.x + offset.x} ${edge.to.y + offset.y}`}
-                            stroke="black"
+                            stroke="var(--text-3000)"
                             strokeWidth="2"
                             fill="none"
                         />
@@ -395,7 +395,7 @@ interface TableFieldNodeProps {
 
 function TableFieldNode({ nodeRef, rowsRefs, fixedFields, joinedFields, tableName }: TableFieldNodeProps): JSX.Element {
     return (
-        <div ref={nodeRef} className="w-[500px] bg-white border border-black border-2 rounded-lg">
+        <div ref={nodeRef} className="w-[500px] bg-bg-3000 border border-black border-2 rounded-lg">
             <TableFields
                 fixedFields={fixedFields}
                 joinedFields={joinedFields}

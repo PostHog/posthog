@@ -41,7 +41,7 @@ export function TableFields({ fixedFields, joinedFields, rowsRefs, tableName }: 
                     <h4>Schema</h4>
                 </div>
                 <LemonTable
-                    className="bg-[white] rounded-none"
+                    className="bg-bg-3000 rounded-none"
                     columns={[
                         {
                             key: 'column',
@@ -73,7 +73,7 @@ export function TableFields({ fixedFields, joinedFields, rowsRefs, tableName }: 
                     </LemonButton>
                 </div>
                 <LemonTable
-                    className="bg-[white] rounded-none"
+                    className="bg-bg-3000 rounded-none"
                     columns={[
                         {
                             key: 'name',
