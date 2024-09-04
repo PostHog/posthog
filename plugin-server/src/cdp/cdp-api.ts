@@ -148,7 +148,8 @@ export class CdpApi {
                             invocation: {
                                 ...invocation,
                                 queue: 'hog',
-                                queueParameters: { response: { status: 200, body: {} } },
+                                queueParameters: { response: { status: 200 } },
+                                queueBlob: Buffer.from('{}'),
                             },
                             finished: false,
                             logs: [

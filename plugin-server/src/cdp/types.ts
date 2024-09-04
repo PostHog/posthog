@@ -156,7 +156,6 @@ export interface HogFunctionTiming {
 export type HogFunctionQueueParametersFetchRequest = {
     url: string
     method: string
-    // body: string
     return_queue: string
     max_tries?: number
     headers?: Record<string, string>
@@ -168,7 +167,6 @@ export type HogFunctionQueueParametersFetchResponse = {
     /** The data to be passed to the Hog function from the response */
     response?: {
         status: number
-        body?: any
     } | null
     timings?: HogFunctionTiming[]
     logs?: LogEntry[]

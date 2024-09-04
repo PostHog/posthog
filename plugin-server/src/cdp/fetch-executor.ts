@@ -93,11 +93,11 @@ export class FetchExecutor {
 
         const params = invocation.queueParameters as HogFunctionQueueParametersFetchRequest
         const body = invocation.queueBlob ? invocation.queueBlob.toString() : undefined
+        let responseBody = ''
 
         const resParams: HogFunctionQueueParametersFetchResponse = {
             response: {
                 status: 0,
-                body: {},
             },
             error: null,
             timings: [],
@@ -112,12 +112,7 @@ export class FetchExecutor {
                 timeout: this.serverConfig.EXTERNAL_REQUEST_TIMEOUT_MS,
             })
 
-            let responseBody = await fetchResponse.text()
-            try {
-                responseBody = JSON.parse(responseBody)
-            } catch (err) {
-                // Ignore
-            }
+            responseBody = await fetchResponse.text()
 
             const duration = performance.now() - start
 
@@ -128,7 +123,6 @@ export class FetchExecutor {
 
             resParams.response = {
                 status: fetchResponse.status,
-                body: responseBody,
             }
         } catch (err) {
             status.error('🦔', `[HogExecutor] Error during fetch`, { error: String(err) })
@@ -140,6 +134,7 @@ export class FetchExecutor {
                 ...invocation,
                 queue: 'hog',
                 queueParameters: resParams,
+                queueBlob: Buffer.from(responseBody),
             },
             finished: false,
             logs: [],
