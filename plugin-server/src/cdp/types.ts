@@ -71,7 +71,6 @@ export type HogFunctionInvocationGlobals = {
         properties: Record<string, any>
         timestamp: string
         url: string
-        elements_chain?: string
     }
     person?: {
         uuid: string
