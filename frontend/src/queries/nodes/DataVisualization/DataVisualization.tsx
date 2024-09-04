@@ -9,6 +9,7 @@ import { AnimationType } from 'lib/animations/animations'
 import { Animation } from 'lib/components/Animation/Animation'
 import { useCallback, useState } from 'react'
 import { DatabaseTableTreeWithItems } from 'scenes/data-warehouse/external/DataWarehouseTables'
+import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 import { urls } from 'scenes/urls'
 
@@ -104,6 +105,8 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         sourceFeatures,
         response,
         responseLoading,
+        responseError,
+        queryCancelled,
         isChartSettingsPanelOpen,
     } = useValues(dataVisualizationLogic)
 
@@ -202,7 +205,27 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                             'pt-[46px]': showEditingUI,
                         })}
                     >
-                        {component}
+                        {visualizationType !== ChartDisplayType.ActionsTable && responseError ? (
+                            <div
+                                className={clsx('rounded bg-bg-light relative flex flex-1 flex-col p-2', {
+                                    border: showEditingUI,
+                                })}
+                            >
+                                <InsightErrorState
+                                    query={props.query}
+                                    excludeDetail
+                                    title={
+                                        queryCancelled
+                                            ? 'The query was cancelled'
+                                            : response && 'error' in response
+                                            ? (response as any).error
+                                            : responseError
+                                    }
+                                />
+                            </div>
+                        ) : (
+                            component
+                        )}
                     </div>
                 </div>
             </div>

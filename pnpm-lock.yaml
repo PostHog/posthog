@@ -56,8 +56,8 @@ dependencies:
     specifier: ^1.0.44
     version: 1.0.44(luxon@3.5.0)
   '@posthog/icons':
-    specifier: 0.7.3
-    version: 0.7.3(react-dom@18.2.0)(react@18.2.0)
+    specifier: 0.8.1
+    version: 0.8.1(react-dom@18.2.0)(react@18.2.0)
   '@posthog/plugin-scaffold':
     specifier: ^1.4.4
     version: 1.4.4
@@ -5422,8 +5422,8 @@ packages:
       luxon: 3.5.0
     dev: false
 
-  /@posthog/icons@0.7.3(react-dom@18.2.0)(react@18.2.0):
-    resolution: {integrity: sha512-dw8qLS6aSBGGIjo/d24/yuLOgkFAov4C7yOhomMfhce/RwS+u96XXghVolioRHppnAn48pgGnBQIXEELGVEvPA==}
+  /@posthog/icons@0.8.1(react-dom@18.2.0)(react@18.2.0):
+    resolution: {integrity: sha512-/ryXgFnWGzHmwijHE/0gQcEyAD/WkKuwf3NCMG4ibmGMpEqm/d12/+Ccuf3Zj2VZuc+0atGCHkHOiSNJ8dw97A==}
     peerDependencies:
       react: '>=16.14.0'
       react-dom: '>=16.14.0'
@@ -15427,7 +15427,7 @@ packages:
       image-size: 0.5.5
       make-dir: 2.1.0
       mime: 1.6.0
-      native-request: 1.1.2
+      native-request: 1.1.0
       source-map: 0.6.1
     dev: true
 
@@ -16163,8 +16163,8 @@ packages:
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
 
-  /native-request@1.1.2:
-    resolution: {integrity: sha512-/etjwrK0J4Ebbcnt35VMWnfiUX/B04uwGJxyJInagxDqf2z5drSt/lsOvEMWGYunz1kaLZAFrV4NDAbOoDKvAQ==}
+  /native-request@1.1.0:
+    resolution: {integrity: sha512-uZ5rQaeRn15XmpgE0xoPL8YWqcX90VtCFglYwAgkvKM5e8fog+vePLAhHxuuv/gRkrQxIeh5U3q9sMNUrENqWw==}
     requiresBuild: true
     dev: true
     optional: true

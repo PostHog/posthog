@@ -8,14 +8,17 @@ import {
     BreakdownType,
     ChartDisplayCategory,
     ChartDisplayType,
+    CohortPropertyFilter,
     CountPerActorMathType,
     DurationType,
     EventPropertyFilter,
     EventType,
+    FeaturePropertyFilter,
     FilterLogicalOperator,
     FilterType,
     FunnelsFilterType,
     GroupMathType,
+    GroupPropertyFilter,
     HogQLMathType,
     InsightShortId,
     InsightType,
@@ -824,6 +827,79 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     breakdownFilter?: BreakdownFilter
     /** Compare to date range */
     compareFilter?: CompareFilter
+}
+
+export type AIPropertyFilter =
+    | EventPropertyFilter
+    | PersonPropertyFilter
+    // | ElementPropertyFilter
+    | SessionPropertyFilter
+    | CohortPropertyFilter
+    // | RecordingPropertyFilter
+    // | LogEntryPropertyFilter
+    // | HogQLPropertyFilter
+    // | EmptyPropertyFilter
+    // | DataWarehousePropertyFilter
+    // | DataWarehousePersonPropertyFilter
+    | GroupPropertyFilter
+    | FeaturePropertyFilter
+
+export interface AIEventsNode
+    extends Omit<EventsNode, 'fixedProperties' | 'properties' | 'math_hogql' | 'limit' | 'groupBy'> {
+    properties?: AIPropertyFilter[]
+    fixedProperties?: AIPropertyFilter[]
+}
+
+export interface AIActionsNode
+    extends Omit<EventsNode, 'fixedProperties' | 'properties' | 'math_hogql' | 'limit' | 'groupBy'> {
+    properties?: AIPropertyFilter[]
+    fixedProperties?: AIPropertyFilter[]
+}
+
+export interface ExperimentalAITrendsQuery {
+    kind: NodeKind.TrendsQuery
+    /**
+     * Granularity of the response. Can be one of `hour`, `day`, `week` or `month`
+     *
+     * @default day
+     */
+    interval?: IntervalType
+    /** Events and actions to include */
+    series: (AIEventsNode | AIActionsNode)[]
+    /** Properties specific to the trends insight */
+    trendsFilter?: TrendsFilter
+    /** Breakdown of the events and actions */
+    breakdownFilter?: Omit<
+        BreakdownFilter,
+        | 'breakdown'
+        | 'breakdown_type'
+        | 'breakdown_normalize_url'
+        | 'histogram_bin_count'
+        | 'breakdown_group_type_index'
+    >
+    /** Compare to date range */
+    compareFilter?: CompareFilter
+    /** Date range for the query */
+    dateRange?: InsightDateRange
+    /**
+     * Exclude internal and test users by applying the respective filters
+     *
+     * @default false
+     */
+    filterTestAccounts?: boolean
+    /**
+     * Property filters for all series
+     *
+     * @default []
+     */
+    properties?: AIPropertyFilter[]
+
+    /**
+     * Groups aggregation
+     */
+    aggregation_group_type_index?: integer
+    /** Sampling rate */
+    samplingFactor?: number | null
 }
 
 /** `FunnelsFilterType` minus everything inherited from `FilterType` and persons modal related params */
