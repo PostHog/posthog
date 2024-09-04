@@ -89,6 +89,7 @@ MSSQLErrors = {
 
 class ExternalDataJobSerializers(serializers.ModelSerializer):
     schema = serializers.SerializerMethodField(read_only=True)
+    status = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = ExternalDataJob
@@ -112,6 +113,12 @@ class ExternalDataJobSerializers(serializers.ModelSerializer):
             "latest_error",
             "workflow_run_id",
         ]
+
+    def get_status(self, instance: ExternalDataJob):
+        if instance.status == ExternalDataJob.Status.CANCELLED:
+            return "Billing limits"
+
+        return instance.status
 
     def get_schema(self, instance: ExternalDataJob):
         return SimpleExternalDataSchemaSerializer(
@@ -167,7 +174,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
         if any_failures:
             return ExternalDataSchema.Status.ERROR
         elif any_cancelled:
-            return ExternalDataSchema.Status.CANCELLED
+            return "Billing limits"
         elif any_paused:
             return ExternalDataSchema.Status.PAUSED
         elif any_running:
