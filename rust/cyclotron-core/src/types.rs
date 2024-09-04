@@ -1,8 +1,7 @@
-use std::str::FromStr;
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::{PgHasArrayType, PgTypeInfo};
+use std::str::FromStr;
 use uuid::Uuid;
 
 use crate::QueueError;
@@ -142,4 +141,15 @@ impl Default for BulkInsertResult {
     fn default() -> Self {
         Self::new()
     }
+}
+
+// Result of janitor's `delete_completed_and_failed_jobs`
+#[derive(sqlx::FromRow, Debug)]
+pub struct AggregatedDelete {
+    // `last_transition` column truncated to the hour.
+    pub hour: DateTime<Utc>,
+    pub team_id: i64,
+    pub function_id: Option<String>,
+    pub state: String,
+    pub count: i64,
 }

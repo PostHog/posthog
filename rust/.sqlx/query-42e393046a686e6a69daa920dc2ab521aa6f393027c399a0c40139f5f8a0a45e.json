@@ -1,0 +1,12 @@
+{
+    "db_name": "PostgreSQL",
+    "query": "INSERT INTO posthog_eventproperty (event, property, team_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+    "describe": {
+        "columns": [],
+        "parameters": {
+            "Left": ["Varchar", "Varchar", "Int4"]
+        },
+        "nullable": []
+    },
+    "hash": "42e393046a686e6a69daa920dc2ab521aa6f393027c399a0c40139f5f8a0a45e"
+}

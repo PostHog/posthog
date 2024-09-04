@@ -64,3 +64,23 @@ test(toFloat('bla'))                      // null
 test(toUUID('asd'))                       // 'asd'
 test(1 == null)                           // false
 test(1 != null)                           // true
+test('1' = 1)                             // true
+test(1 = '1')                             // true
+test(1 == true)                           // true
+test(0 == true)                           // false
+test(2 == true)                           // false
+test(1 != false)                          // true
+test(1 = '2')                             // false
+test(1 == '2')                            // false
+test(1 != '2')                            // true
+test(1 < '2')                             // true
+test(1 <= '2')                            // true
+test(1 > '2')                             // false
+test(1 >= '2')                            // false
+test('1' = 2)                             // false
+test('1' == 2)                            // false
+test('1' != 2)                            // true
+test('1' < 2)                             // true
+test('1' <= 2)                            // true
+test('1' > 2)                             // false
+test('1' >= 2)                            // false

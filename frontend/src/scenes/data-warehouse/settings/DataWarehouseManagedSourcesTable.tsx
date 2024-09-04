@@ -27,6 +27,7 @@ const StatusTagSetting = {
     Completed: 'success',
     Error: 'danger',
     Failed: 'danger',
+    'Billing limits': 'danger',
 }
 
 export function DataWarehouseManagedSourcesTable(): JSX.Element {

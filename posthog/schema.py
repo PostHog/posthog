@@ -408,7 +408,6 @@ class ErrorTrackingGroup(BaseModel):
     )
     assignee: Optional[float] = None
     description: Optional[str] = None
-    events: Optional[list[dict[str, Any]]] = None
     exception_type: Optional[str] = None
     fingerprint: list[str]
     first_seen: AwareDatetime
@@ -4868,7 +4867,6 @@ class ErrorTrackingQuery(BaseModel):
     )
     assignee: Optional[int] = None
     dateRange: DateRange
-    eventColumns: Optional[list[str]] = None
     filterGroup: Optional[PropertyGroupFilter] = None
     filterTestAccounts: Optional[bool] = None
     fingerprint: Optional[list[str]] = None
@@ -4877,7 +4875,6 @@ class ErrorTrackingQuery(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    offset: Optional[int] = None
     order: Optional[Order] = None
     response: Optional[ErrorTrackingQueryResponse] = None
     select: Optional[list[str]] = None

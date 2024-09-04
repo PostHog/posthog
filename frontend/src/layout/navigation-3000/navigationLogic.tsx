@@ -485,7 +485,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                         },
                         {
                             identifier: Scene.Experiments,
-                            label: 'A/B testing',
+                            label: 'Experiments',
                             icon: <IconTestTube />,
                             logic: isUsingSidebar ? experimentsSidebarLogic : undefined,
                             to: isUsingSidebar ? undefined : urls.experiments(),

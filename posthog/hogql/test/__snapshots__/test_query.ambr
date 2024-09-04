@@ -107,7 +107,7 @@
   FROM (
   SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id, nullIf(nullIf(argMinMerge(raw_sessions.entry_url), %(hogql_val_0)s), %(hogql_val_1)s) AS `$entry_current_url`, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_2)s)) AS `$start_timestamp`, raw_sessions.session_id_v7 AS session_id_v7 
   FROM raw_sessions 
-  WHERE equals(raw_sessions.team_id, 420) 
+  WHERE and(equals(raw_sessions.team_id, 420), ifNull(lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), toDateTime64('2024-07-06 00:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), toDateTime64('2024-07-04 00:00:00.000000', 6, 'UTC')), 0)) 
   GROUP BY raw_sessions.session_id_v7, raw_sessions.session_id_v7) AS sessions 
   WHERE and(ifNull(less(sessions.`$start_timestamp`, toDateTime64('2024-07-06 00:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(sessions.`$start_timestamp`, toDateTime64('2024-07-04 00:00:00.000000', 6, 'UTC')), 0)) 
   LIMIT 100 

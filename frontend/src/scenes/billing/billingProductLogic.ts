@@ -272,7 +272,6 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 const projectedAmount = parseInt(product.projected_amount_usd || '0')
                 return product.tiers && projectedAmount ? projectedAmount * 1.5 : DEFAULT_BILLING_LIMIT
             }
-
             actions.setIsEditingBillingLimit(false)
             actions.setBillingLimitInput(
                 values.hasCustomLimitSet ? values.customLimitUsd : calculateDefaultBillingLimit(props.product)
@@ -335,7 +334,12 @@ export const billingProductLogic = kea<billingProductLogicType>([
     forms(({ actions, props, values }) => ({
         billingLimitInput: {
             errors: ({ input }) => ({
-                input: input === null || Number.isInteger(input) ? undefined : 'Please enter a whole number',
+                input:
+                    input === null || Number.isInteger(input)
+                        ? input > 25000
+                            ? 'Please enter a number less than 25,000'
+                            : undefined
+                        : 'Please enter a whole number',
             }),
             submit: async ({ input }) => {
                 const addonTiers =
