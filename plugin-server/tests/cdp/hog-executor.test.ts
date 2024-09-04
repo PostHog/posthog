@@ -264,7 +264,157 @@ describe('Hog Executor', () => {
             expect(resultsShouldMatch.nonMatchingFunctions).toHaveLength(0)
         })
 
-        it('can use elements_chain materialized fields', () => {
+        it('can use elements_chain_texts', () => {
+            const fn = createHogFunction({
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.elements_text_filter,
+            })
+
+            mockFunctionManager.getTeamHogFunctions.mockReturnValue([fn])
+            const elementsChain = (buttonText: string) =>
+                `span.LemonButton__content:attr__class="LemonButton__content"nth-child="2"nth-of-type="2"text="${buttonText}";span.LemonButton__chrome:attr__class="LemonButton__chrome"nth-child="1"nth-of-type="1";button.LemonButton.LemonButton--has-icon.LemonButton--secondary.LemonButton--status-default:attr__class="LemonButton LemonButton--secondary LemonButton--status-default LemonButton--has-icon"attr__type="button"nth-child="1"nth-of-type="1"text="${buttonText}";div.flex.gap-4.items-center:attr__class="flex gap-4 items-center"nth-child="1"nth-of-type="1";div.flex.flex-wrap.gap-4.justify-between:attr__class="flex gap-4 justify-between flex-wrap"nth-child="3"nth-of-type="3";div.flex.flex-1.flex-col.gap-4.h-full.relative.w-full:attr__class="relative w-full flex flex-col gap-4 flex-1 h-full"nth-child="1"nth-of-type="1";div.LemonTabs__content:attr__class="LemonTabs__content"nth-child="2"nth-of-type="1";div.LemonTabs.LemonTabs--medium:attr__class="LemonTabs LemonTabs--medium"attr__style="--lemon-tabs-slider-width: 48px; --lemon-tabs-slider-offset: 0px;"nth-child="1"nth-of-type="1";div.Navigation3000__scene:attr__class="Navigation3000__scene"nth-child="2"nth-of-type="2";main:nth-child="2"nth-of-type="1";div.Navigation3000:attr__class="Navigation3000"nth-child="1"nth-of-type="1";div:attr__id="root"attr_id="root"nth-child="3"nth-of-type="1";body.overflow-hidden:attr__class="overflow-hidden"attr__theme="light"nth-child="2"nth-of-type="1"`
+
+            const hogGlobals1 = createHogExecutionGlobals({
+                groups: {},
+                event: {
+                    uuid: 'uuid',
+                    name: '$autocapture',
+                    distinct_id: 'distinct_id',
+                    url: 'http://localhost:8000/events/1',
+                    properties: {
+                        $lib_version: '1.2.3',
+                        $elements_chain: elementsChain('Not our text'),
+                    },
+                    timestamp: new Date().toISOString(),
+                },
+            })
+
+            const resultsShouldntMatch = executor.findMatchingFunctions(hogGlobals1)
+            expect(resultsShouldntMatch.matchingFunctions).toHaveLength(0)
+            expect(resultsShouldntMatch.nonMatchingFunctions).toHaveLength(1)
+
+            const hogGlobals2 = createHogExecutionGlobals({
+                groups: {},
+                event: {
+                    uuid: 'uuid',
+                    name: '$autocapture',
+                    distinct_id: 'distinct_id',
+                    url: 'http://localhost:8000/events/1',
+                    properties: {
+                        $lib_version: '1.2.3',
+                        $elements_chain: elementsChain('Reload'),
+                    },
+                    timestamp: new Date().toISOString(),
+                },
+            })
+
+            const resultsShouldMatch = executor.findMatchingFunctions(hogGlobals2)
+            expect(resultsShouldMatch.matchingFunctions).toHaveLength(1)
+            expect(resultsShouldMatch.nonMatchingFunctions).toHaveLength(0)
+        })
+
+        // it('can use elements_chain_href', () => {
+        //     const fn = createHogFunction({
+        //         ...HOG_EXAMPLES.simple_fetch,
+        //         ...HOG_INPUTS_EXAMPLES.simple_fetch,
+        //         ...HOG_FILTERS_EXAMPLES.elements_href_filter,
+        //     })
+        //
+        //     mockFunctionManager.getTeamHogFunctions.mockReturnValue([fn])
+        //     const elementsChain =
+        //         `span.LemonButton__content:attr__class="LemonButton__content"nth-child="2"nth-of-type="2"text="Reload";span.LemonButton__chrome:attr__class="LemonButton__chrome"nth-child="1"nth-of-type="1";button.LemonButton.LemonButton--has-icon.LemonButton--secondary.LemonButton--status-default:attr__class="LemonButton LemonButton--secondary LemonButton--status-default LemonButton--has-icon"attr__type="button"nth-child="1"nth-of-type="1"text="${buttonText}";div.flex.gap-4.items-center:attr__class="flex gap-4 items-center"nth-child="1"nth-of-type="1";div.flex.flex-wrap.gap-4.justify-between:attr__class="flex gap-4 justify-between flex-wrap"nth-child="3"nth-of-type="3";div.flex.flex-1.flex-col.gap-4.h-full.relative.w-full:attr__class="relative w-full flex flex-col gap-4 flex-1 h-full"nth-child="1"nth-of-type="1";div.LemonTabs__content:attr__class="LemonTabs__content"nth-child="2"nth-of-type="1";div.LemonTabs.LemonTabs--medium:attr__class="LemonTabs LemonTabs--medium"attr__style="--lemon-tabs-slider-width: 48px; --lemon-tabs-slider-offset: 0px;"nth-child="1"nth-of-type="1";div.Navigation3000__scene:attr__class="Navigation3000__scene"nth-child="2"nth-of-type="2";main:nth-child="2"nth-of-type="1";div.Navigation3000:attr__class="Navigation3000"nth-child="1"nth-of-type="1";div:attr__id="root"attr_id="root"nth-child="3"nth-of-type="1";body.overflow-hidden:attr__class="overflow-hidden"attr__theme="light"nth-child="2"nth-of-type="1"`
+        //
+        //     const hogGlobals1 = createHogExecutionGlobals({
+        //         groups: {},
+        //         event: {
+        //             uuid: 'uuid',
+        //             name: '$autocapture',
+        //             distinct_id: 'distinct_id',
+        //             url: 'http://localhost:8000/events/1',
+        //             properties: {
+        //                 $lib_version: '1.2.3',
+        //                 $elements_chain: elementsChain('Not our text'),
+        //             },
+        //             timestamp: new Date().toISOString(),
+        //         },
+        //     })
+        //
+        //     const resultsShouldntMatch = executor.findMatchingFunctions(hogGlobals1)
+        //     expect(resultsShouldntMatch.matchingFunctions).toHaveLength(0)
+        //     expect(resultsShouldntMatch.nonMatchingFunctions).toHaveLength(1)
+        //
+        //     const hogGlobals2 = createHogExecutionGlobals({
+        //         groups: {},
+        //         event: {
+        //             uuid: 'uuid',
+        //             name: '$autocapture',
+        //             distinct_id: 'distinct_id',
+        //             url: 'http://localhost:8000/events/1',
+        //             properties: {
+        //                 $lib_version: '1.2.3',
+        //                 $elements_chain: elementsChain('Reload'),
+        //             },
+        //             timestamp: new Date().toISOString(),
+        //         },
+        //     })
+        //
+        //     const resultsShouldMatch = executor.findMatchingFunctions(hogGlobals2)
+        //     expect(resultsShouldMatch.matchingFunctions).toHaveLength(1)
+        //     expect(resultsShouldMatch.nonMatchingFunctions).toHaveLength(0)
+        // })
+
+        it('can use elements_chain_elements', () => {
+            const fn = createHogFunction({
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.elements_text_filter,
+            })
+
+            mockFunctionManager.getTeamHogFunctions.mockReturnValue([fn])
+            const elementsChain = (tag: string) =>
+                `span.LemonButton__content:attr__class="LemonButton__content"nth-child="2"nth-of-type="2"text="Reload";span.LemonButton__chrome:attr__class="LemonButton__chrome"nth-child="1"nth-of-type="1";${tag}.LemonButton.LemonButton--has-icon.LemonButton--secondary.LemonButton--status-default:attr__class="LemonButton LemonButton--secondary LemonButton--status-default LemonButton--has-icon"attr__type="button"nth-child="1"nth-of-type="1"text="Reload";div.flex.gap-4.items-center:attr__class="flex gap-4 items-center"nth-child="1"nth-of-type="1";div.flex.flex-wrap.gap-4.justify-between:attr__class="flex gap-4 justify-between flex-wrap"nth-child="3"nth-of-type="3";div.flex.flex-1.flex-col.gap-4.h-full.relative.w-full:attr__class="relative w-full flex flex-col gap-4 flex-1 h-full"nth-child="1"nth-of-type="1";div.LemonTabs__content:attr__class="LemonTabs__content"nth-child="2"nth-of-type="1";div.LemonTabs.LemonTabs--medium:attr__class="LemonTabs LemonTabs--medium"attr__style="--lemon-tabs-slider-width: 48px; --lemon-tabs-slider-offset: 0px;"nth-child="1"nth-of-type="1";div.Navigation3000__scene:attr__class="Navigation3000__scene"nth-child="2"nth-of-type="2";main:nth-child="2"nth-of-type="1";div.Navigation3000:attr__class="Navigation3000"nth-child="1"nth-of-type="1";div:attr__id="root"attr_id="root"nth-child="3"nth-of-type="1";body.overflow-hidden:attr__class="overflow-hidden"attr__theme="light"nth-child="2"nth-of-type="1"`
+
+            const hogGlobals1 = createHogExecutionGlobals({
+                groups: {},
+                event: {
+                    uuid: 'uuid',
+                    name: '$autocapture',
+                    distinct_id: 'distinct_id',
+                    url: 'http://localhost:8000/events/1',
+                    properties: {
+                        $lib_version: '1.2.3',
+                        $elements_chain: elementsChain('marquee'),
+                    },
+                    timestamp: new Date().toISOString(),
+                },
+            })
+
+            const resultsShouldntMatch = executor.findMatchingFunctions(hogGlobals1)
+            expect(resultsShouldntMatch.matchingFunctions).toHaveLength(0)
+            expect(resultsShouldntMatch.nonMatchingFunctions).toHaveLength(1)
+
+            const hogGlobals2 = createHogExecutionGlobals({
+                groups: {},
+                event: {
+                    uuid: 'uuid',
+                    name: '$autocapture',
+                    distinct_id: 'distinct_id',
+                    url: 'http://localhost:8000/events/1',
+                    properties: {
+                        $lib_version: '1.2.3',
+                        $elements_chain: elementsChain('button'),
+                    },
+                    timestamp: new Date().toISOString(),
+                },
+            })
+
+            const resultsShouldMatch = executor.findMatchingFunctions(hogGlobals2)
+            expect(resultsShouldMatch.matchingFunctions).toHaveLength(1)
+            expect(resultsShouldMatch.nonMatchingFunctions).toHaveLength(0)
+        })
+
+        it('can use elements_chain_ids', () => {
             const fn = createHogFunction({
                 ...HOG_EXAMPLES.simple_fetch,
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
