@@ -246,15 +246,6 @@ abstract class CdpConsumerBase {
                 await Promise.all(
                     results.map(async (result) => {
                         // Tricky: We want to pull all the logs out as we don't want them to be passed around to any subsequent functions
-                        if (result.finished || result.error) {
-                            this.produceAppMetric({
-                                team_id: result.invocation.teamId,
-                                app_source_id: result.invocation.hogFunction.id,
-                                metric_kind: result.error ? 'failure' : 'success',
-                                metric_name: result.error ? 'failed' : 'succeeded',
-                                count: 1,
-                            })
-                        }
 
                         this.produceLogs(result)
 
@@ -274,8 +265,16 @@ abstract class CdpConsumerBase {
                             })
                         }
 
-                        if (!result.finished) {
-                            // If it isn't finished then we need to put it back on the queue
+                        if (result.finished || result.error) {
+                            this.produceAppMetric({
+                                team_id: result.invocation.teamId,
+                                app_source_id: result.invocation.hogFunction.id,
+                                metric_kind: result.error ? 'failure' : 'success',
+                                metric_name: result.error ? 'failed' : 'succeeded',
+                                count: 1,
+                            })
+                        } else {
+                            // Means there is follow up so we enqueue it
                             await this.queueInvocation(result.invocation)
                         }
                     })
