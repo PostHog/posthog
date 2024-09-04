@@ -182,11 +182,16 @@ async def run_dag_activity(inputs: RunDagActivityInputs) -> Results:
                     node = inputs.dag[label]
                     completed.add(node.label)
 
+                    to_queue = []
                     for child_label in node.children:
                         child_node = inputs.dag[child_label]
 
                         if completed >= child_node.parents:
-                            await queue.put(QueueMessage(status=ModelStatus.READY, label=child_label))
+                            to_queue.append(child_node)
+
+                    task = asyncio.create_task(put_models_in_queue(to_queue, queue))
+                    running_tasks.add(task)
+                    task.add_done_callback(running_tasks.discard)
 
                     queue.task_done()
 
@@ -217,6 +222,18 @@ async def run_dag_activity(inputs: RunDagActivityInputs) -> Results:
                 break
 
         return Results(completed, failed, ancestor_failed)
+
+
+async def put_models_in_queue(models: collections.abc.Iterable[ModelNode], queue: asyncio.Queue) -> None:
+    """Put models in queue.
+
+    Intended to handle the queue put calls in the background to avoid blocking the main thread.
+    We wait for all models to be put into the queue, concurrently, in a `asyncio.TaskGroup`.
+    """
+
+    async with asyncio.TaskGroup() as tg:
+        for model in models:
+            tg.create_task(queue.put(QueueMessage(status=ModelStatus.READY, label=model.label)))
 
 
 async def handle_model_ready(model: ModelNode, team_id: int, queue: asyncio.Queue) -> None:
