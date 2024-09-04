@@ -93,7 +93,7 @@ describe('HogFunctionManager', () => {
                 team_id: teamId1,
                 name: 'Test Hog Function team 1',
                 enabled: true,
-                bytecode: null,
+                bytecode: {},
                 filters: null,
                 inputs_schema: [
                     {

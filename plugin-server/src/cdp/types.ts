@@ -7,6 +7,7 @@ import {
     ElementPropertyFilter,
     EventPropertyFilter,
     PersonPropertyFilter,
+    Team,
 } from '../types'
 
 export type HogBytecode = any[]
@@ -99,11 +100,6 @@ export type HogFunctionInvocationGlobalsWithInputs = HogFunctionInvocationGlobal
     inputs: Record<string, any>
 }
 
-export type HogFunctionOverflowedGlobals = {
-    hogFunctionIds: HogFunctionType['id'][]
-    globals: HogFunctionInvocationGlobals
-}
-
 export type HogFunctionFilterGlobals = {
     // Filter Hog is built in the same way as analytics so the global object is meant to be an event
     event: string
@@ -157,23 +153,14 @@ export interface HogFunctionTiming {
     duration_ms: number
 }
 
-// This is the "persistent" state of a hog function invocation
-export type HogFunctionInvocation = {
-    id: string
-    globals: HogFunctionInvocationGlobals
-    teamId: number
-    hogFunctionId: HogFunctionType['id']
-    // The current vmstate (set if the invocation is paused)
-    vmState?: VMState
-    timings: HogFunctionTiming[]
+export type HogFunctionQueueParametersFetchRequest = {
+    url: string
+    method: string
+    body: string
+    headers: Record<string, string>
 }
 
-export type HogFunctionAsyncFunctionRequest = {
-    name: string
-    args: any[]
-}
-
-export type HogFunctionAsyncFunctionResponse = {
+export type HogFunctionQueueParametersFetchResponse = {
     /** An error message to indicate something went wrong and the invocation should be stopped */
     error?: any
     /** The data to be passed to the Hog function from the response */
@@ -185,12 +172,33 @@ export type HogFunctionAsyncFunctionResponse = {
     logs?: LogEntry[]
 }
 
+export type HogFunctionInvocationQueueParameters =
+    | HogFunctionQueueParametersFetchRequest
+    | HogFunctionQueueParametersFetchResponse
+
+export type HogFunctionInvocation = {
+    id: string
+    globals: HogFunctionInvocationGlobals
+    teamId: Team['id']
+    hogFunction: HogFunctionType
+    queue: 'hog' | 'fetch'
+    queueParameters?: HogFunctionInvocationQueueParameters
+    // The current vmstate (set if the invocation is paused)
+    vmState?: VMState
+    timings: HogFunctionTiming[]
+}
+
+export type HogFunctionAsyncFunctionRequest = {
+    name: string
+    args: any[]
+}
+
 // The result of an execution
 export type HogFunctionInvocationResult = {
     invocation: HogFunctionInvocation
     finished: boolean
     error?: any
-    asyncFunctionRequest?: HogFunctionAsyncFunctionRequest
+    // asyncFunctionRequest?: HogFunctionAsyncFunctionRequest
     logs: LogEntry[]
     capturedPostHogEvents?: HogFunctionCapturedEvent[]
 }
@@ -202,13 +210,20 @@ export type HogFunctionInvocationAsyncRequest = {
     asyncFunctionRequest?: HogFunctionAsyncFunctionRequest
 }
 
-export type HogFunctionInvocationAsyncResponse = {
+export type HogHooksFetchResponse = {
     state: string // Serialized HogFunctionInvocation
     teamId: number
     hogFunctionId: HogFunctionType['id']
+    asyncFunctionResponse: HogFunctionQueueParametersFetchResponse
+}
 
-    // FOLLOWUP: do we want to type this more strictly?
-    asyncFunctionResponse: HogFunctionAsyncFunctionResponse
+export type HogFunctionInvocationSerialized = Omit<HogFunctionInvocation, 'hogFunction'> & {
+    // When serialized to kafka / cyclotron we only store the ID
+    hogFunctionId: HogFunctionType['id']
+}
+
+export type HogFunctionInvocationSerializedCompressed = {
+    state: string // Serialized HogFunctionInvocation
 }
 
 // Mostly copied from frontend types
@@ -259,16 +274,13 @@ export type IntegrationType = {
     created_by_id?: number
 }
 
-type CdpOverflowMessageInvocations = {
-    source: 'event_invocations'
-    payload: HogFunctionOverflowedGlobals
-}
-
-export type CdpOverflowMessage = CdpOverflowMessageInvocations
-
 export type HogFunctionMessageToProduce = {
     topic: string
-    value: CdpOverflowMessage | HogFunctionLogEntrySerialized | HogFunctionInvocationAsyncResponse | AppMetric2Type
+    value:
+        | HogFunctionLogEntrySerialized
+        | HogHooksFetchResponse
+        | AppMetric2Type
+        | HogFunctionInvocationSerializedCompressed
     key: string
 }
 
