@@ -12,6 +12,7 @@ import {
     HogFunctionInvocation,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationResult,
+    HogFunctionInvocationSerialized,
     HogFunctionLogEntrySerialized,
     HogFunctionType,
     ParsedClickhouseEvent,
@@ -223,4 +224,14 @@ export function createInvocation(
         queue: 'hog',
         timings: [],
     }
+}
+
+export function serializeInvocation(invocation: HogFunctionInvocation): HogFunctionInvocationSerialized {
+    const serializedInvocation: HogFunctionInvocationSerialized = {
+        ...invocation,
+        hogFunctionId: invocation.hogFunction.id,
+    }
+
+    delete (serializedInvocation as any).hogFunction
+    return invocation
 }

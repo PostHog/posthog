@@ -44,6 +44,7 @@ import {
     createInvocation,
     gzipObject,
     prepareLogEntriesForClickhouse,
+    serializeInvocation,
     unGzipObject,
 } from './utils'
 
@@ -217,12 +218,7 @@ abstract class CdpConsumerBase {
         // For now we just enqueue to kafka
         // For kafka style this is overkill to enqueue this way but it simplifies migrating to the new system
 
-        const serializedInvocation: HogFunctionInvocationSerialized = {
-            ...invocation,
-            hogFunctionId: invocation.hogFunction.id,
-        }
-
-        delete (serializedInvocation as any).hogFunction
+        const serializedInvocation = serializeInvocation(invocation)
 
         const request: HogFunctionInvocationSerializedCompressed = {
             state: await gzipObject(serializedInvocation),
@@ -233,7 +229,7 @@ abstract class CdpConsumerBase {
         this.messagesToProduce.push({
             topic: KAFKA_CDP_FUNCTION_CALLBACKS,
             value: request,
-            key: invocation.hogFunction.id,
+            key: `${invocation.hogFunction.id}:${invocation.id}`,
         })
     }
 
@@ -552,8 +548,15 @@ export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
                 // NOTE: In the future this service will never do fetching (unless we decide we want to do it in node at some point)
                 // This is just "for now" to support the transition to cyclotron
                 const fetchQueue = invocations.filter((item) => item.queue === 'fetch')
-                const fetchResults = await this.runManyWithHeartbeat(fetchQueue, (item) =>
-                    this.fetchExecutor.execute(item)
+
+                const fetchResults = await Promise.all(
+                    fetchQueue.map((item) => {
+                        return runInstrumentedFunction({
+                            statsKey: `cdpConsumer.handleEachBatch.fetchExecutor.execute`,
+                            func: () => this.fetchExecutor.execute(item),
+                            timeout: 1000,
+                        })
+                    })
                 )
 
                 const hogQueue = invocations.filter((item) => item.queue === 'hog')
@@ -604,11 +607,11 @@ export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
                                     invocationSerialized.queueParameters = item.asyncFunctionResponse
                                 }
 
-                                const hogFunction =
-                                    invocationSerialized.hogFunction ??
-                                    (invocationSerialized.hogFunctionId
-                                        ? this.hogFunctionManager.getHogFunction(invocationSerialized.hogFunctionId)
-                                        : undefined)
+                                const hogFunctionId =
+                                    invocationSerialized.hogFunctionId ?? invocationSerialized.hogFunction?.id
+                                const hogFunction = hogFunctionId
+                                    ? this.hogFunctionManager.getHogFunction(hogFunctionId)
+                                    : undefined
 
                                 if (!hogFunction) {
                                     status.error('Error finding hog function', {

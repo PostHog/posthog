@@ -12,7 +12,7 @@ import {
     HogFunctionQueueParametersFetchRequest,
     HogFunctionQueueParametersFetchResponse,
 } from './types'
-import { gzipObject } from './utils'
+import { gzipObject, serializeInvocation } from './utils'
 
 export const BUCKETS_KB_WRITTEN = [0, 128, 512, 1024, 2024, 4096, 10240, Infinity]
 
@@ -52,7 +52,7 @@ export class FetchExecutor {
             if (this.hogHookEnabledForTeams(invocation.teamId)) {
                 // This is very temporary until we are commited to Cyclotron
                 const payload: HogFunctionInvocationAsyncRequest = {
-                    state: await gzipObject(invocation),
+                    state: await gzipObject(serializeInvocation(invocation)),
                     teamId: invocation.teamId,
                     hogFunctionId: invocation.hogFunction.id,
                     asyncFunctionRequest: {
