@@ -7,7 +7,11 @@ class TestTemplateRudderstack(BaseHogFunctionTemplateTest):
     template = template_rudderstack
 
     def _inputs(self, **kwargs):
-        inputs = {"host": "https://hosted.rudderlabs.com", "token": "asjdkfasdkjfaskfkjfhdsf"}
+        inputs = {
+            "host": "https://hosted.rudderlabs.com",
+            "token": "asjdkfasdkjfaskfkjfhdsf",
+            "identifier": "a08ff8e1-a5ee-49cc-99e9-564e455c33f0",
+        }
         inputs.update(kwargs)
         return inputs
 
@@ -18,10 +22,11 @@ class TestTemplateRudderstack(BaseHogFunctionTemplateTest):
                 "event": {
                     "uuid": "96a04bdc-6021-4120-a3e3-f1988f59ba5f",
                     "timestamp": "2024-08-29T13:40:22.713Z",
-                    "distinct_id": "a08ff8e1-a5ee-49cc-99e9-564e455c33f0",
+                    "distinct_id": "85bcd2e4-d10d-4a99-9dc8-43789b7226a1",
                     "name": "$pageview",
                     "properties": {"$current_url": "https://example.com", "$browser": "Chrome"},
-                }
+                },
+                "person": {"uuid": "a08ff8e1-a5ee-49cc-99e9-564e455c33f0"},
             },
         )
 
