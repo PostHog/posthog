@@ -26,7 +26,6 @@ export function DashboardItems(): JSX.Element {
         highlightedInsightId,
         refreshStatus,
         canEditDashboard,
-        stale,
         itemsLoading,
     } = useValues(dashboardLogic)
     const {
@@ -60,6 +59,7 @@ export function DashboardItems(): JSX.Element {
                 <ReactGridLayout
                     width={gridWrapperWidth}
                     className={className}
+                    draggableHandle=".CardMeta"
                     isDraggable={dashboardMode === DashboardMode.Edit}
                     isResizable={dashboardMode === DashboardMode.Edit}
                     layouts={layouts}
@@ -99,7 +99,7 @@ export function DashboardItems(): JSX.Element {
                             isDragging.current = false
                         }, 250)
                     }}
-                    draggableCancel=".anticon,table,button,.Popover"
+                    draggableCancel="a,table,button,.Popover"
                 >
                     {tiles?.map((tile) => {
                         const { insight, text } = tile
@@ -139,7 +139,6 @@ export function DashboardItems(): JSX.Element {
                                 <InsightCard
                                     key={tile.id}
                                     insight={insight}
-                                    stale={stale}
                                     loadingQueued={isRefreshingQueued(insight.short_id)}
                                     loading={isRefreshing(insight.short_id)}
                                     apiErrored={refreshStatus[insight.short_id]?.error || false}

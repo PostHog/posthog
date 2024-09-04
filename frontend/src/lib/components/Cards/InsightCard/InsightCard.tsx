@@ -33,8 +33,6 @@ export interface InsightCardProps extends Resizeable, React.HTMLAttributes<HTMLD
     loadingQueued?: boolean
     /** Whether the insight is loading. */
     loading?: boolean
-    /** Whether the insight likely showing stale data. */
-    stale?: boolean
     /** Whether an error occurred on the server. */
     apiErrored?: boolean
     /** Whether the card should be highlighted with a blue border. */
@@ -71,7 +69,6 @@ function InsightCardInternal(
         ribbonColor,
         loadingQueued,
         loading,
-        stale,
         apiErrored,
         timedOut,
         highlighted,
@@ -124,7 +121,7 @@ function InsightCardInternal(
             style={{ ...(divProps?.style ?? {}), ...(theme?.boxStyle ?? {}) }}
             ref={ref}
         >
-            <ErrorBoundary>
+            <ErrorBoundary tags={{ feature: 'insight' }}>
                 <BindLogic logic={insightLogic} props={insightLogicProps}>
                     <InsightMeta
                         insight={insight}
@@ -152,7 +149,6 @@ function InsightCardInternal(
                             context={{
                                 insightProps: insightLogicProps,
                             }}
-                            stale={stale}
                             readOnly
                             embedded
                         />

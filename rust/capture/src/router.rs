@@ -8,30 +8,33 @@ use axum::{
     Router,
 };
 use health::HealthRegistry;
+use tower::limit::ConcurrencyLimitLayer;
 use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 
-use crate::{
-    limiters::billing::BillingLimiter, redis::Client, sinks, time::TimeSource, v0_endpoint,
-};
+use crate::{limiters::redis::RedisLimiter, redis::Client, sinks, time::TimeSource, v0_endpoint};
 
+use crate::config::CaptureMode;
 use crate::prometheus::{setup_metrics_recorder, track_metrics};
 
 const EVENT_BODY_SIZE: usize = 2 * 1024 * 1024; // 2MB
 const BATCH_BODY_SIZE: usize = 20 * 1024 * 1024; // 20MB, up from the default 2MB used for normal event payloads
+const RECORDING_BODY_SIZE: usize = 25 * 1024 * 1024; // 25MB, up from the default 2MB used for normal event payloads
 
 #[derive(Clone)]
 pub struct State {
     pub sink: Arc<dyn sinks::Event + Send + Sync>,
     pub timesource: Arc<dyn TimeSource + Send + Sync>,
     pub redis: Arc<dyn Client + Send + Sync>,
-    pub billing: BillingLimiter,
+    pub billing_limiter: RedisLimiter,
+    pub event_size_limit: usize,
 }
 
 async fn index() -> &'static str {
     "capture"
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn router<
     TZ: TimeSource + Send + Sync + 'static,
     S: sinks::Event + Send + Sync + 'static,
@@ -41,14 +44,18 @@ pub fn router<
     liveness: HealthRegistry,
     sink: S,
     redis: Arc<R>,
-    billing: BillingLimiter,
+    billing_limiter: RedisLimiter,
     metrics: bool,
+    capture_mode: CaptureMode,
+    concurrency_limit: Option<usize>,
+    event_size_limit: usize,
 ) -> Router {
     let state = State {
         sink: Arc::new(sink),
         timesource: Arc::new(timesource),
         redis,
-        billing,
+        billing_limiter,
+        event_size_limit,
     };
 
     // Very permissive CORS policy, as old SDK versions
@@ -106,9 +113,31 @@ pub fn router<
         .route("/_readiness", get(index))
         .route("/_liveness", get(move || ready(liveness.get_status())));
 
-    let router = Router::new()
-        .merge(batch_router)
-        .merge(event_router)
+    let recordings_router = Router::new()
+        .route(
+            "/s",
+            post(v0_endpoint::recording)
+                .get(v0_endpoint::recording)
+                .options(v0_endpoint::options),
+        )
+        .route(
+            "/s/",
+            post(v0_endpoint::recording)
+                .get(v0_endpoint::recording)
+                .options(v0_endpoint::options),
+        )
+        .layer(DefaultBodyLimit::max(RECORDING_BODY_SIZE));
+
+    let mut router = match capture_mode {
+        CaptureMode::Events => Router::new().merge(batch_router).merge(event_router),
+        CaptureMode::Recordings => Router::new().merge(recordings_router),
+    };
+
+    if let Some(limit) = concurrency_limit {
+        router = router.layer(ConcurrencyLimitLayer::new(limit));
+    }
+
+    let router = router
         .merge(status_router)
         .layer(TraceLayer::new_for_http())
         .layer(cors)

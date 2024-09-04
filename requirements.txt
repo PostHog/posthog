@@ -129,13 +129,13 @@ defusedxml==0.6.0
     # via
     #   python3-openid
     #   social-auth-core
-deltalake==0.18.2
+deltalake==0.19.1
     # via dlt
 distro==1.9.0
     # via openai
 dj-database-url==0.5.0
     # via -r requirements.in
-django==4.2.14
+django==4.2.15
     # via
     #   -r requirements.in
     #   django-axes
@@ -206,7 +206,7 @@ djangorestframework-csv==2.1.1
     # via -r requirements.in
 djangorestframework-dataclasses==1.2.0
     # via -r requirements.in
-dlt==0.5.3
+dlt==0.5.4
     # via -r requirements.in
 dnspython==2.2.1
     # via -r requirements.in
@@ -214,7 +214,7 @@ drf-exceptions-hog==0.4.0
     # via -r requirements.in
 drf-extensions==0.7.0
     # via -r requirements.in
-drf-spectacular==0.27.1
+drf-spectacular==0.27.2
     # via -r requirements.in
 et-xmlfile==1.1.0
     # via openpyxl
@@ -258,8 +258,6 @@ googleapis-common-protos==1.60.0
     # via
     #   google-api-core
     #   grpcio-status
-greenlet==3.0.3
-    # via sqlalchemy
 grpcio==1.57.0
     # via
     #   google-api-core
@@ -275,7 +273,7 @@ h11==0.13.0
     #   wsproto
 hexbytes==1.0.0
     # via dlt
-hogql-parser==1.0.36
+hogql-parser==1.0.40
     # via -r requirements.in
 httpcore==1.0.2
     # via httpx
@@ -434,8 +432,6 @@ pyarrow==17.0.0
     #   -r requirements.in
     #   deltalake
     #   dlt
-pyarrow-hotfix==0.6
-    # via deltalake
 pyasn1==0.5.0
     # via
     #   pyasn1-modules
@@ -456,10 +452,14 @@ pyjwt==2.4.0
     #   simple-salesforce
     #   snowflake-connector-python
     #   social-auth-core
+pymssql==2.3.0
+    # via -r requirements.in
 pymysql==1.1.1
     # via -r requirements.in
 pynacl==1.5.0
     # via paramiko
+pyodbc==5.1.0
+    # via -r requirements.in
 pyopenssl==23.0.0
     # via
     #   snowflake-connector-python
@@ -660,7 +660,7 @@ types-protobuf==4.22.0.0
     # via temporalio
 types-setuptools==69.0.0.0
     # via requirements-parser
-typing-extensions==4.7.1
+typing-extensions==4.12.2
     # via
     #   dlt
     #   openai

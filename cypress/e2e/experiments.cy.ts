@@ -17,7 +17,7 @@ describe('Experiments', () => {
 
     it('create experiment', () => {
         cy.visit('/experiments')
-        cy.get('[data-attr=top-bar-name]').should('contain', 'A/B testing')
+        cy.get('[data-attr=top-bar-name]').should('contain', 'Experiments')
 
         // Name, flag key, description
         cy.get('[data-attr=create-experiment]').first().click()

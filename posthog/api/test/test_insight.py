@@ -311,6 +311,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 dashboard=mock.ANY,
                 execution_mode=ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
                 user=mock.ANY,
+                filters_override=None,
             )
 
         with patch(
@@ -322,6 +323,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 dashboard=mock.ANY,
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
                 user=mock.ANY,
+                filters_override=None,
             )
 
     def test_get_insight_by_short_id(self) -> None:

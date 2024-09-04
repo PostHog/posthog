@@ -1,7 +1,5 @@
 import { afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { INSIGHTS_PER_PAGE, savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
@@ -28,8 +26,6 @@ export const insightsSidebarLogic = kea<insightsSidebarLogicType>([
             ['activeScene', 'sceneParams'],
             navigation3000Logic,
             ['searchTerm'],
-            featureFlagLogic,
-            ['featureFlags'],
         ],
         actions: [savedInsightsLogic, ['loadInsights', 'setSavedInsightsFilters', 'duplicateInsight']],
     })),
@@ -49,10 +45,6 @@ export const insightsSidebarLogic = kea<insightsSidebarLogicType>([
         ],
     })),
     selectors(({ actions, values, cache }) => ({
-        queryBasedInsightSaving: [
-            (s) => [s.featureFlags],
-            (featureFlags) => !!featureFlags[FEATURE_FLAGS.QUERY_BASED_INSIGHTS_SAVING],
-        ],
         contents: [
             (s) => [s.insights, s.infiniteInsights, s.insightsLoading, teamLogic.selectors.currentTeamId],
             (insights, infiniteInsights, insightsLoading, currentTeamId) => [
@@ -102,10 +94,6 @@ export const insightsSidebarLogic = kea<insightsSidebarLogicType>([
                                                     object: insight,
                                                     endpoint: `projects/${currentTeamId}/insights`,
                                                     callback: actions.loadInsights,
-                                                    options: {
-                                                        writeAsQuery: values.queryBasedInsightSaving,
-                                                        readAsQuery: true,
-                                                    },
                                                 })
                                             },
                                             status: 'danger',
@@ -115,11 +103,7 @@ export const insightsSidebarLogic = kea<insightsSidebarLogicType>([
                                 },
                             ],
                             onRename: async (newName) => {
-                                const updatedItem = await insightsApi.update(
-                                    insight.id,
-                                    { name: newName },
-                                    { writeAsQuery: values.queryBasedInsightSaving, readAsQuery: true }
-                                )
+                                const updatedItem = await insightsApi.update(insight.id, { name: newName })
                                 insightsModel.actions.renameInsightSuccess(updatedItem)
                             },
                         } as BasicListItem

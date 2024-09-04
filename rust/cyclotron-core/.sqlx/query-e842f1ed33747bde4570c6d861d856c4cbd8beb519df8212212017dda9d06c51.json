@@ -1,0 +1,38 @@
+{
+    "db_name": "PostgreSQL",
+    "query": "\nWITH to_delete AS (\n    DELETE FROM cyclotron_jobs\n    WHERE state IN ('failed', 'completed')\n    RETURNING last_transition, team_id, function_id::text, state::text\n),\naggregated_data AS (\n    SELECT\n        date_trunc('hour', last_transition) AS hour,\n        team_id,\n        function_id,\n        state,\n        COUNT(*) AS count\n    FROM to_delete\n    GROUP BY hour, team_id, function_id, state\n)\nSELECT\n    hour as \"hour!\",\n    team_id as \"team_id!\",\n    function_id,\n    state as \"state!\",\n    count as \"count!\"\nFROM aggregated_data",
+    "describe": {
+        "columns": [
+            {
+                "ordinal": 0,
+                "name": "hour!",
+                "type_info": "Timestamptz"
+            },
+            {
+                "ordinal": 1,
+                "name": "team_id!",
+                "type_info": "Int4"
+            },
+            {
+                "ordinal": 2,
+                "name": "function_id",
+                "type_info": "Text"
+            },
+            {
+                "ordinal": 3,
+                "name": "state!",
+                "type_info": "Text"
+            },
+            {
+                "ordinal": 4,
+                "name": "count!",
+                "type_info": "Int8"
+            }
+        ],
+        "parameters": {
+            "Left": []
+        },
+        "nullable": [null, false, null, null, null]
+    },
+    "hash": "e842f1ed33747bde4570c6d861d856c4cbd8beb519df8212212017dda9d06c51"
+}

@@ -18,16 +18,18 @@ from posthog.errors import wrap_query_error
 from posthog.settings import TEST
 from posthog.utils import generate_short_id, patchable
 from prometheus_client import Counter, Gauge
+from sentry_sdk import set_tag
 
 QUERY_ERROR_COUNTER = Counter(
     "clickhouse_query_failure",
     "Query execution failure signal is dispatched when a query fails.",
-    labelnames=["exception_type"],
+    labelnames=["exception_type", "query_type"],
 )
 
 QUERY_EXECUTION_TIME_GAUGE = Gauge(
     "clickhouse_query_execution_time",
     "Clickhouse query execution time",
+    labelnames=["query_type"],
 )
 
 InsertParams = Union[list, tuple, types.GeneratorType]
@@ -125,10 +127,17 @@ def sync_execute(
         query_id = validated_client_query_id()
         core_settings = {**default_settings(), **(settings or {})}
         tags["query_settings"] = core_settings
+
+        query_type = tags.get("query_type", "Other")
+        set_tag("query_type", query_type)
+        if team_id is not None:
+            set_tag("team_id", team_id)
+
         settings = {
             **core_settings,
             "log_comment": json.dumps(tags, separators=(",", ":")),
         }
+
         try:
             result = client.execute(
                 prepared_sql,
@@ -139,13 +148,15 @@ def sync_execute(
             )
         except Exception as e:
             err = wrap_query_error(e)
-            QUERY_ERROR_COUNTER.labels(exception_type=type(err).__name__).inc()
+            exception_type = type(err).__name__
+            set_tag("clickhouse_exception_type", exception_type)
+            QUERY_ERROR_COUNTER.labels(exception_type=exception_type, query_type=query_type).inc()
 
             raise err from e
         finally:
             execution_time = perf_counter() - start_time
 
-            QUERY_EXECUTION_TIME_GAUGE.set(execution_time * 1000.0)
+            QUERY_EXECUTION_TIME_GAUGE.labels(query_type=query_type).set(execution_time * 1000.0)
 
             if query_counter := getattr(thread_local_storage, "query_counter", None):
                 query_counter.total_query_time += execution_time

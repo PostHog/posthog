@@ -1,4 +1,4 @@
-name: Build rust container images
+name: Build and deploy rust container images
 
 on:
     workflow_dispatch:
@@ -19,11 +19,17 @@ jobs:
                     - hook-api
                     - hook-janitor
                     - hook-worker
+                    - cyclotron-janitor
+                    - cyclotron-fetch
+                    - property-defs-rs
         runs-on: depot-ubuntu-22.04-4
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
             contents: read # allow reading the repo contents
             packages: write # allow push to ghcr.io
+
+        outputs:
+            capture_digest: ${{ steps.digest.outputs.capture_digest }}
 
         defaults:
             run:
@@ -87,4 +93,40 @@ jobs:
                   build-args: BIN=${{ matrix.image }}
 
             - name: Container image digest
-              run: echo ${{ steps.docker_build.outputs.digest }}
+              id: digest
+              run: |
+                  echo ${{ steps.docker_build.outputs.digest }}
+                  echo "${{matrix.image}}_digest=${{ steps.docker_build.outputs.digest }}" >> $GITHUB_OUTPUT
+
+    deploy:
+        name: Deploy capture-replay
+        runs-on: ubuntu-latest
+        needs: build
+        if: github.ref == 'refs/heads/master'
+        steps:
+            - name: get deployer token
+              id: deployer
+              uses: getsentry/action-github-app-token@v3
+              with:
+                  app_id: ${{ secrets.DEPLOYER_APP_ID }}
+                  private_key: ${{ secrets.DEPLOYER_APP_PRIVATE_KEY }}
+
+            - name: Trigger livestream deployment
+              uses: peter-evans/repository-dispatch@v3
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ needs.build.outputs.capture_digest }}"
+                          }
+                        },
+                        "release": "capture-replay",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": ${{ toJson(github.repository) }},
+                        "labels": [],
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                      }

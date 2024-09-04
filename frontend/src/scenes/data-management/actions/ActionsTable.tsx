@@ -1,4 +1,4 @@
-import { IconCheckCircle } from '@posthog/icons'
+import { IconCheckCircle, IconPin, IconPinFilled } from '@posthog/icons'
 import { LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import api from 'lib/api'
@@ -28,7 +28,7 @@ import { urls } from '../../urls'
 export function ActionsTable(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { actionsLoading } = useValues(actionsModel({ params: 'include_count=1' }))
-    const { loadActions } = useActions(actionsModel)
+    const { loadActions, pinAction, unpinAction } = useActions(actionsModel)
 
     const { filterType, searchTerm, actionsFiltered, shouldShowEmptyState } = useValues(actionsLogic)
     const { setFilterType, setSearchTerm } = useActions(actionsLogic)
@@ -56,6 +56,24 @@ export function ActionsTable(): JSX.Element {
     }
 
     const columns: LemonTableColumns<ActionType> = [
+        {
+            width: 0,
+            title: 'Pinned',
+            dataIndex: 'pinned_at',
+            sorter: (a: ActionType, b: ActionType) =>
+                (b.pinned_at ? new Date(b.pinned_at).getTime() : 0) -
+                (a.pinned_at ? new Date(a.pinned_at).getTime() : 0),
+            render: function Render(pinned, action) {
+                return (
+                    <LemonButton
+                        size="small"
+                        onClick={pinned ? () => unpinAction(action) : () => pinAction(action)}
+                        tooltip={pinned ? 'Unpin action' : 'Pin action'}
+                        icon={pinned ? <IconPinFilled /> : <IconPin />}
+                    />
+                )
+            },
+        },
         {
             title: 'Name',
             dataIndex: 'name',
@@ -170,7 +188,7 @@ export function ActionsTable(): JSX.Element {
                                     Duplicate
                                 </LemonButton>
                                 <LemonButton
-                                    to={urls.replay(ReplayTabs.Recent, {
+                                    to={urls.replay(ReplayTabs.Home, {
                                         filter_group: {
                                             type: FilterLogicalOperator.And,
                                             values: [

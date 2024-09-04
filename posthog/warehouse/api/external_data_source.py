@@ -6,7 +6,7 @@ from psycopg2 import OperationalError
 from sentry_sdk import capture_exception
 import structlog
 from rest_framework import filters, serializers, status, viewsets
-from rest_framework.decorators import action
+from posthog.api.utils import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -16,7 +16,7 @@ from posthog.warehouse.data_load.service import (
     delete_external_data_schedule,
     cancel_external_data_workflow,
     delete_data_import_folder,
-    is_any_external_data_job_paused,
+    is_any_external_data_schema_paused,
     trigger_external_data_source_workflow,
 )
 from posthog.warehouse.models import ExternalDataSource, ExternalDataSchema, ExternalDataJob
@@ -33,6 +33,8 @@ from posthog.temporal.data_imports.pipelines.hubspot.auth import (
     get_hubspot_access_token_from_code,
 )
 from posthog.warehouse.models.external_data_schema import (
+    filter_mssql_incremental_fields,
+    filter_mysql_incremental_fields,
     filter_postgres_incremental_fields,
     filter_snowflake_incremental_fields,
     get_sql_schemas_for_source_type,
@@ -55,6 +57,8 @@ logger = structlog.get_logger(__name__)
 def get_generic_sql_error(source_type: ExternalDataSource.Type):
     if source_type == ExternalDataSource.Type.MYSQL:
         name = "MySQL"
+    elif source_type == ExternalDataSource.Type.MSSQL:
+        name = "SQL database"
     else:
         name = "Postgres"
 
@@ -75,6 +79,11 @@ SnowflakeErrors = {
     "Incorrect username or password was specified": "Incorrect username or password was specified",
     "This session does not have a current database": "Database specified not found",
     "Verify the account name is correct": "Can't find an account with the specified account ID",
+}
+MSSQLErrors = {
+    "Login failed for user": "Login failed for database",
+    "Adaptive Server is unavailable or does not exist": "Could not connect to SQL server - check server host and port",
+    "connection timed out": "Could not connect to SQL server - check server firewall settings",
 }
 
 
@@ -249,10 +258,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             elif self.prefix_exists(source_type, prefix):
                 return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Prefix already exists"})
 
-        if is_any_external_data_job_paused(self.team_id):
+        if is_any_external_data_schema_paused(self.team_id):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Monthly sync limit reached. Please contact PostHog support to increase your limit."},
+                data={"message": "Monthly sync limit reached. Please increase your billing limit to resume syncing."},
             )
 
         # TODO: remove dummy vars
@@ -264,7 +273,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             new_source_model = self._handle_zendesk_source(request, *args, **kwargs)
         elif source_type == ExternalDataSource.Type.SALESFORCE:
             new_source_model = self._handle_salesforce_source(request, *args, **kwargs)
-        elif source_type in [ExternalDataSource.Type.POSTGRES, ExternalDataSource.Type.MYSQL]:
+        elif source_type in [
+            ExternalDataSource.Type.POSTGRES,
+            ExternalDataSource.Type.MYSQL,
+            ExternalDataSource.Type.MSSQL,
+        ]:
             try:
                 new_source_model, sql_schemas = self._handle_sql_source(request, *args, **kwargs)
             except InternalPostgresError:
@@ -280,7 +293,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         payload = request.data["payload"]
         schemas = payload.get("schemas", None)
-        if source_type in [ExternalDataSource.Type.POSTGRES, ExternalDataSource.Type.MYSQL]:
+        if source_type in [
+            ExternalDataSource.Type.POSTGRES,
+            ExternalDataSource.Type.MYSQL,
+            ExternalDataSource.Type.MSSQL,
+        ]:
             default_schemas = sql_schemas
         elif source_type == ExternalDataSource.Type.SNOWFLAKE:
             default_schemas = snowflake_schemas
@@ -618,10 +635,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def reload(self, request: Request, *args: Any, **kwargs: Any):
         instance: ExternalDataSource = self.get_object()
 
-        if is_any_external_data_job_paused(self.team_id):
+        if is_any_external_data_schema_paused(self.team_id):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Monthly sync limit reached. Please contact PostHog support to increase your limit."},
+                data={"message": "Monthly sync limit reached. Please increase your billing limit to resume syncing."},
             )
 
         try:
@@ -668,7 +685,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
 
         # Get schemas and validate SQL credentials
-        if source_type in [ExternalDataSource.Type.POSTGRES, ExternalDataSource.Type.MYSQL]:
+        if source_type in [
+            ExternalDataSource.Type.POSTGRES,
+            ExternalDataSource.Type.MYSQL,
+            ExternalDataSource.Type.MSSQL,
+        ]:
+            # Importing pymssql requires mssql drivers to be installed locally - see posthog/warehouse/README.md
+            from pymssql import OperationalError as MSSQLOperationalError
+
             host = request.data.get("host", None)
             port = request.data.get("port", None)
             database = request.data.get("dbname", None)
@@ -761,6 +785,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": exposed_error or get_generic_sql_error(source_type)},
                 )
+            except MSSQLOperationalError as e:
+                error_msg = " ".join(str(n) for n in e.args)
+                exposed_error = self._expose_mssql_error(error_msg)
+
+                if exposed_error is None:
+                    capture_exception(e)
+
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": exposed_error or get_generic_sql_error(source_type)},
+                )
             except BaseSSHTunnelForwarderError as e:
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
@@ -768,16 +803,25 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
             except Exception as e:
                 capture_exception(e)
-                logger.exception("Could not fetch Postgres schemas", exc_info=e)
+                logger.exception("Could not fetch schemas", exc_info=e)
 
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": get_generic_sql_error(source_type)},
                 )
 
-            filtered_results = [
-                (table_name, filter_postgres_incremental_fields(columns)) for table_name, columns in result.items()
-            ]
+            if source_type == ExternalDataSource.Type.POSTGRES:
+                filtered_results = [
+                    (table_name, filter_postgres_incremental_fields(columns)) for table_name, columns in result.items()
+                ]
+            elif source_type == ExternalDataSource.Type.MYSQL:
+                filtered_results = [
+                    (table_name, filter_mysql_incremental_fields(columns)) for table_name, columns in result.items()
+                ]
+            elif source_type == ExternalDataSource.Type.MSSQL:
+                filtered_results = [
+                    (table_name, filter_mssql_incremental_fields(columns)) for table_name, columns in result.items()
+                ]
 
             result_mapped_to_options = [
                 {
@@ -936,6 +980,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         for key, value in PostgresErrors.items():
             if key in error_msg:
+                return value
+        return None
+
+    def _expose_mssql_error(self, error: str) -> str | None:
+        for key, value in MSSQLErrors.items():
+            if key in error:
                 return value
         return None
 

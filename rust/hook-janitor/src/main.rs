@@ -9,8 +9,8 @@ use std::{str::FromStr, time::Duration};
 use tokio::sync::Semaphore;
 use webhooks::WebhookCleaner;
 
-use hook_common::kafka_producer::create_kafka_producer;
-use hook_common::metrics::setup_metrics_routes;
+use common_kafka::kafka_producer::create_kafka_producer;
+use common_metrics::setup_metrics_routes;
 
 mod cleanup;
 mod config;

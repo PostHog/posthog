@@ -1,7 +1,7 @@
 from typing import Optional
 
 from rest_framework import request, response
-from rest_framework.decorators import action
+from posthog.api.utils import action
 
 from ee.clickhouse.queries.funnels.funnel_correlation_persons import (
     FunnelCorrelationActors,

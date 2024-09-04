@@ -1,0 +1,18 @@
+{
+    "db_name": "PostgreSQL",
+    "query": "SELECT vm_state FROM cyclotron_jobs WHERE id = $1 AND lock_id = $2",
+    "describe": {
+        "columns": [
+            {
+                "ordinal": 0,
+                "name": "vm_state",
+                "type_info": "Bytea"
+            }
+        ],
+        "parameters": {
+            "Left": ["Uuid", "Uuid"]
+        },
+        "nullable": [true]
+    },
+    "hash": "aa595eaf28c1f4b872c278be407b59cc00f3125413f4032ac3647a6b5ee1a632"
+}

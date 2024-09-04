@@ -59,6 +59,7 @@ export enum TileId {
     RETENTION = 'RETENTION',
     REPLAY = 'REPLAY',
     ERROR_TRACKING = 'ERROR_TRACKING',
+    GOALS = 'GOALS',
 }
 
 const loadPriorityMap: Record<TileId, number> = {
@@ -71,6 +72,7 @@ const loadPriorityMap: Record<TileId, number> = {
     [TileId.RETENTION]: 7,
     [TileId.REPLAY]: 8,
     [TileId.ERROR_TRACKING]: 9,
+    [TileId.GOALS]: 10,
 }
 
 interface BaseTile {
@@ -163,7 +165,8 @@ export enum DeviceTab {
 export enum PathTab {
     PATH = 'PATH',
     INITIAL_PATH = 'INITIAL_PATH',
-    EXIT_PATH = 'EXIT_PATH',
+    END_PATH = 'END_PATH',
+    EXIT_CLICK = 'EXIT_CLICK',
 }
 
 export enum GeographyTab {
@@ -263,6 +266,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     reducers({
         webAnalyticsFilters: [
             initialWebAnalyticsFilter,
+            { persist: true },
             {
                 setWebAnalyticsFilters: (_, { webAnalyticsFilters }) => webAnalyticsFilters,
                 togglePropertyFilter: (oldPropertyFilters, { key, value, type }): WebAnalyticsPropertyFilters => {
@@ -335,6 +339,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
         _graphsTab: [
             null as string | null,
+            { persist: true },
             {
                 setGraphsTab: (_, { tab }) => tab,
                 setStateFromUrl: (_, { state }) => state.graphsTab,
@@ -343,6 +348,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
         _sourceTab: [
             null as string | null,
+            { persist: true },
             {
                 setSourceTab: (_, { tab }) => tab,
                 setStateFromUrl: (_, { state }) => state.sourceTab,
@@ -351,6 +357,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
         _deviceTab: [
             null as string | null,
+            { persist: true },
             {
                 setDeviceTab: (_, { tab }) => tab,
                 setStateFromUrl: (_, { state }) => state.deviceTab,
@@ -359,6 +366,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
         _pathTab: [
             null as string | null,
+            { persist: true },
             {
                 setPathTab: (_, { tab }) => tab,
                 setStateFromUrl: (_, { state }) => state.pathTab,
@@ -367,6 +375,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
         _geographyTab: [
             null as string | null,
+            { persist: true },
             {
                 setGeographyTab: (_, { tab }) => tab,
                 setStateFromUrl: (_, { state }) => state.geographyTab,
@@ -374,7 +383,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
         ],
         isPathCleaningEnabled: [
-            false as boolean,
+            null as boolean | null,
+            { persist: true },
             {
                 setIsPathCleaningEnabled: (_, { isPathCleaningEnabled }) => isPathCleaningEnabled,
                 setStateFromUrl: (_, { state }) => state.isPathCleaningEnabled || false,
@@ -396,6 +406,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 dateTo: initialDateTo,
                 interval: initialInterval,
             },
+            { persist: true },
             {
                 setDates: (_, { dateTo, dateFrom }) => ({
                     dateTo,
@@ -425,6 +436,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
         shouldFilterTestAccounts: [
             false as boolean,
+            { persist: true },
             {
                 setShouldFilterTestAccounts: (_, { shouldFilterTestAccounts }) => shouldFilterTestAccounts,
             },
@@ -639,7 +651,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             [
                                 {
                                     id: PathTab.PATH,
-                                    title: 'Top paths',
+                                    title: 'Paths',
                                     linkText: 'Path',
                                     query: {
                                         full: true,
@@ -664,7 +676,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 },
                                 {
                                     id: PathTab.INITIAL_PATH,
-                                    title: 'Top entry paths',
+                                    title: 'Entry paths',
                                     linkText: 'Entry path',
                                     query: {
                                         full: true,
@@ -687,9 +699,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     showPathCleaningControls: true,
                                 },
                                 {
-                                    id: PathTab.EXIT_PATH,
-                                    title: 'Top exit paths',
-                                    linkText: 'Exit path',
+                                    id: PathTab.END_PATH,
+                                    title: 'End paths',
+                                    linkText: 'End path',
                                     query: {
                                         full: true,
                                         kind: NodeKind.DataTableNode,
@@ -706,10 +718,34 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         },
                                         embedded: false,
                                     },
-                                    insightProps: createInsightProps(TileId.PATHS, PathTab.EXIT_PATH),
+                                    insightProps: createInsightProps(TileId.PATHS, PathTab.END_PATH),
                                     canOpenModal: true,
                                     showPathCleaningControls: true,
                                 },
+                                featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LAST_CLICK]
+                                    ? {
+                                          id: PathTab.EXIT_CLICK,
+                                          title: 'Exit clicks',
+                                          linkText: 'Exit clicks',
+                                          query: {
+                                              full: true,
+                                              kind: NodeKind.DataTableNode,
+                                              source: {
+                                                  kind: NodeKind.WebStatsTableQuery,
+                                                  properties: webAnalyticsFilters,
+                                                  breakdownBy: WebStatsBreakdown.ExitClick,
+                                                  dateRange,
+                                                  includeScrollDepth: false,
+                                                  sampling,
+                                                  limit: 10,
+                                                  filterTestAccounts,
+                                              },
+                                              embedded: false,
+                                          },
+                                          insightProps: createInsightProps(TileId.PATHS, PathTab.END_PATH),
+                                          canOpenModal: true,
+                                      }
+                                    : null,
                             ] as (TabsTileTab | undefined)[]
                         ).filter(isNotNil),
                     },
@@ -725,7 +761,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         tabs: [
                             {
                                 id: SourceTab.CHANNEL,
-                                title: 'Top channels',
+                                title: 'Channels',
                                 linkText: 'Channel',
                                 query: {
                                     full: true,
@@ -763,7 +799,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             },
                             {
                                 id: SourceTab.REFERRING_DOMAIN,
-                                title: 'Top referrers',
+                                title: 'Referrers',
                                 linkText: 'Referring domain',
                                 query: {
                                     full: true,
@@ -784,7 +820,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
                             {
                                 id: SourceTab.UTM_SOURCE,
-                                title: 'Top sources',
+                                title: 'UTM sources',
                                 linkText: 'UTM source',
                                 query: {
                                     full: true,
@@ -804,7 +840,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             },
                             {
                                 id: SourceTab.UTM_MEDIUM,
-                                title: 'Top UTM medium',
+                                title: 'UTM medium',
                                 linkText: 'UTM medium',
                                 query: {
                                     full: true,
@@ -824,7 +860,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             },
                             {
                                 id: SourceTab.UTM_CAMPAIGN,
-                                title: 'Top UTM campaigns',
+                                title: 'UTM campaigns',
                                 linkText: 'UTM campaign',
                                 query: {
                                     full: true,
@@ -844,7 +880,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             },
                             {
                                 id: SourceTab.UTM_CONTENT,
-                                title: 'Top UTM content',
+                                title: 'UTM content',
                                 linkText: 'UTM content',
                                 query: {
                                     full: true,
@@ -864,7 +900,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             },
                             {
                                 id: SourceTab.UTM_TERM,
-                                title: 'Top UTM terms',
+                                title: 'UTM terms',
                                 linkText: 'UTM term',
                                 query: {
                                     full: true,
@@ -916,44 +952,27 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         tabs: [
                             {
                                 id: DeviceTab.DEVICE_TYPE,
-                                title: 'Device types',
+                                title: 'Device type',
                                 linkText: 'Device type',
                                 query: {
-                                    kind: NodeKind.InsightVizNode,
+                                    full: true,
+                                    kind: NodeKind.DataTableNode,
                                     source: {
-                                        kind: NodeKind.TrendsQuery,
-                                        breakdownFilter: { breakdown: '$device_type', breakdown_type: 'event' },
-                                        dateRange,
-                                        series: [
-                                            {
-                                                event: '$pageview',
-                                                name: 'Pageview',
-                                                kind: NodeKind.EventsNode,
-                                                math: BaseMathType.UniqueUsers,
-                                            },
-                                        ],
-                                        trendsFilter: {
-                                            display: ChartDisplayType.ActionsPie,
-                                            showLabelsOnSeries: true,
-                                        },
-                                        filterTestAccounts,
+                                        kind: NodeKind.WebStatsTableQuery,
                                         properties: webAnalyticsFilters,
+                                        breakdownBy: WebStatsBreakdown.DeviceType,
+                                        dateRange,
+                                        sampling,
+                                        limit: 10,
+                                        filterTestAccounts,
                                     },
-                                    hidePersonsModal: true,
-                                    vizSpecificOptions: {
-                                        [ChartDisplayType.ActionsPie]: {
-                                            disableHoverOffset: true,
-                                            hideAggregation: true,
-                                        },
-                                    },
-                                    embedded: true,
                                 },
                                 insightProps: createInsightProps(TileId.DEVICES, DeviceTab.DEVICE_TYPE),
-                                canOpenInsight: true,
+                                canOpenModal: true,
                             },
                             {
                                 id: DeviceTab.BROWSER,
-                                title: 'Top browsers',
+                                title: 'Browsers',
                                 linkText: 'Browser',
                                 query: {
                                     full: true,
@@ -973,7 +992,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             },
                             {
                                 id: DeviceTab.OS,
-                                title: 'Top OSs',
+                                title: 'OS',
                                 linkText: 'OS',
                                 query: {
                                     full: true,
@@ -1040,7 +1059,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                   },
                                   {
                                       id: GeographyTab.COUNTRIES,
-                                      title: 'Top countries',
+                                      title: 'Countries',
                                       linkText: 'Countries',
                                       query: {
                                           full: true,
@@ -1060,7 +1079,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                   },
                                   {
                                       id: GeographyTab.REGIONS,
-                                      title: 'Top regions',
+                                      title: 'Regions',
                                       linkText: 'Regions',
                                       query: {
                                           full: true,
@@ -1080,7 +1099,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                   },
                                   {
                                       id: GeographyTab.CITIES,
-                                      title: 'Top cities',
+                                      title: 'Cities',
                                       linkText: 'Cities',
                                       query: {
                                           full: true,
@@ -1108,6 +1127,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         layout: {
                             colSpanClassName: 'md:col-span-2',
                         },
+
                         query: {
                             kind: NodeKind.InsightVizNode,
                             source: {
@@ -1132,9 +1152,35 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             embedded: true,
                         },
                         insightProps: createInsightProps(TileId.RETENTION),
-                        canOpenInsight: true,
-                        canOpenModal: false,
+                        canOpenInsight: false,
+                        canOpenModal: true,
                     },
+                    featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOALS]
+                        ? {
+                              kind: 'query',
+                              tileId: TileId.GOALS,
+                              title: 'Goals',
+                              layout: {
+                                  colSpanClassName: 'md:col-span-2',
+                              },
+                              query: {
+                                  full: true,
+                                  kind: NodeKind.DataTableNode,
+                                  source: {
+                                      kind: NodeKind.WebGoalsQuery,
+                                      properties: webAnalyticsFilters,
+                                      dateRange,
+                                      sampling,
+                                      limit: 10,
+                                      filterTestAccounts,
+                                  },
+                                  embedded: true,
+                              },
+                              insightProps: createInsightProps(TileId.GOALS),
+                              canOpenInsight: false,
+                              canOpenModal: false,
+                          }
+                        : null,
                     featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_REPLAY]
                         ? {
                               kind: 'replay',
@@ -1175,7 +1221,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 const { tileId, tabId } = modalTileAndTab
                 const tile = tiles.find((tile) => tile.tileId === tileId)
                 if (!tile) {
-                    throw new Error('Developer Error, tile not found')
+                    return null
                 }
 
                 const extendQuery = (query: QuerySchema): QuerySchema => {
@@ -1194,7 +1240,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 if (tile.kind === 'tabs') {
                     const tab = tile.tabs.find((tab) => tab.id === tabId)
                     if (!tab) {
-                        throw new Error('Developer Error, tab not found')
+                        return null
                     }
                     return {
                         tileId,
@@ -1301,12 +1347,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
                     const tile = tiles.find((tile) => tile.tileId === tileId)
                     if (!tile) {
-                        throw new Error('Developer Error, tile not found')
+                        return undefined
                     }
                     if (tile.kind === 'tabs') {
                         const tab = tile.tabs.find((tab) => tab.id === tabId)
                         if (!tab) {
-                            throw new Error('Developer Error, tab not found')
+                            return undefined
                         }
                         return urls.insightNew(undefined, undefined, formatQueryForNewInsight(tab.query))
                     } else if (tile.kind === 'query') {
@@ -1418,12 +1464,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             const {
                 webAnalyticsFilters,
                 dateFilter: { dateTo, dateFrom, interval },
-                sourceTab,
-                deviceTab,
-                pathTab,
-                geographyTab,
-                graphsTab,
+                _sourceTab,
+                _deviceTab,
+                _pathTab,
+                _geographyTab,
+                _graphsTab,
                 isPathCleaningEnabled,
+                shouldFilterTestAccounts,
             } = values
 
             const urlParams = new URLSearchParams()
@@ -1435,23 +1482,26 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 urlParams.set('date_to', dateTo ?? '')
                 urlParams.set('interval', interval ?? '')
             }
-            if (deviceTab) {
-                urlParams.set('device_tab', deviceTab)
+            if (_deviceTab) {
+                urlParams.set('device_tab', _deviceTab)
             }
-            if (sourceTab) {
-                urlParams.set('source_tab', sourceTab)
+            if (_sourceTab) {
+                urlParams.set('source_tab', _sourceTab)
             }
-            if (graphsTab) {
-                urlParams.set('graphs_tab', graphsTab)
+            if (_graphsTab) {
+                urlParams.set('graphs_tab', _graphsTab)
             }
-            if (pathTab) {
-                urlParams.set('path_tab', pathTab)
+            if (_pathTab) {
+                urlParams.set('path_tab', _pathTab)
             }
-            if (geographyTab) {
-                urlParams.set('geography_tab', geographyTab)
+            if (_geographyTab) {
+                urlParams.set('geography_tab', _geographyTab)
             }
-            if (isPathCleaningEnabled) {
+            if (isPathCleaningEnabled != null) {
                 urlParams.set('path_cleaning', isPathCleaningEnabled.toString())
+            }
+            if (shouldFilterTestAccounts != null) {
+                urlParams.set('filter_test_accounts', shouldFilterTestAccounts.toString())
             }
             return `/web?${urlParams.toString()}`
         }
@@ -1483,22 +1533,41 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 path_tab,
                 geography_tab,
                 path_cleaning,
+                filter_test_accounts,
             }
         ) => {
-            const parsedFilters = isWebAnalyticsPropertyFilters(filters) ? filters : initialWebAnalyticsFilter
+            const parsedFilters = isWebAnalyticsPropertyFilters(filters) ? filters : undefined
 
-            actions.setStateFromUrl({
-                filters: parsedFilters,
-                dateFrom: date_from || null,
-                dateTo: date_to || null,
-                interval: interval || null,
-                deviceTab: device_tab || null,
-                sourceTab: source_tab || null,
-                graphsTab: graphs_tab || null,
-                pathTab: path_tab || null,
-                geographyTab: geography_tab || null,
-                isPathCleaningEnabled: [true, 'true', 1, '1'].includes(path_cleaning),
-            })
+            if (parsedFilters) {
+                actions.setWebAnalyticsFilters(parsedFilters)
+            }
+            if (date_from || date_to) {
+                actions.setDates(date_from, date_to)
+            }
+            if (interval) {
+                actions.setInterval(interval)
+            }
+            if (device_tab) {
+                actions.setDeviceTab(device_tab)
+            }
+            if (source_tab) {
+                actions.setSourceTab(source_tab)
+            }
+            if (graphs_tab) {
+                actions.setGraphsTab(graphs_tab)
+            }
+            if (path_tab) {
+                actions.setPathTab(path_tab)
+            }
+            if (geography_tab) {
+                actions.setGeographyTab(geography_tab)
+            }
+            if (path_cleaning) {
+                actions.setIsPathCleaningEnabled([true, 'true', 1, '1'].includes(path_cleaning))
+            }
+            if (filter_test_accounts) {
+                actions.setShouldFilterTestAccounts([true, 'true', 1, '1'].includes(filter_test_accounts))
+            }
         },
     })),
 ])

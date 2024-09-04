@@ -150,7 +150,7 @@ export const NotebookNodePlaylist = createPostHogWidgetNode<NotebookNodePlaylist
         },
     },
     pasteOptions: {
-        find: urls.replay(ReplayTabs.Recent) + '(.*)',
+        find: urls.replay(ReplayTabs.Home) + '(.*)',
         getAttributes: async (match) => {
             const url = new URL(match[0])
             const stringifiedFilters = url.searchParams.get('filters')

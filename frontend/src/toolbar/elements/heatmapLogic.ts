@@ -14,8 +14,9 @@ import {
     HeatmapJsDataPoint,
     HeatmapRequestType,
 } from 'lib/components/heatmaps/types'
-import { calculateViewportRange, DEFAULT_HEATMAP_FILTERS } from 'lib/components/heatmaps/utils'
+import { calculateViewportRange, DEFAULT_HEATMAP_FILTERS } from 'lib/components/IframedToolbarBrowser/utils'
 import { dateFilterToText } from 'lib/utils'
+import { createVersionChecker } from 'lib/utils/semver'
 import { PostHog } from 'posthog-js'
 import { collectAllElementsDeep, querySelectorAllDeep } from 'query-selector-shadow-dom'
 
@@ -28,7 +29,7 @@ import { FilterType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { heatmapLogicType } from './heatmapLogicType'
 
-export const SCROLL_DEPTH_JS_VERSION = [1, 99]
+export const doesVersionSupportScrollDepth = createVersionChecker('1.99')
 
 const emptyElementsStatsPages: PaginatedResponse<ElementsEventType> = {
     next: undefined,
@@ -438,18 +439,15 @@ export const heatmapLogic = kea<heatmapLogicType>([
             (s) => [s.posthog],
             (posthog: PostHog): 'version' | 'disabled' | null => {
                 const posthogVersion =
-                    posthog?._calculate_event_properties('test', {}, new Date())?.['$lib_version'] ?? '0.0.0'
-                const majorMinorVersion = posthogVersion.split('.')
-                const majorVersion = parseInt(majorMinorVersion[0], 10)
-                const minorVersion = parseInt(majorMinorVersion[1], 10)
+                    posthog?.version ??
+                    posthog?._calculate_event_properties('test', {}, new Date())?.['$lib_version'] ??
+                    '0.0.0'
 
                 if (!(posthog as any)?.scrollManager?.scrollY) {
                     return 'version'
                 }
 
-                const isSupported =
-                    majorVersion > SCROLL_DEPTH_JS_VERSION[0] ||
-                    (majorVersion === SCROLL_DEPTH_JS_VERSION[0] && minorVersion >= SCROLL_DEPTH_JS_VERSION[1])
+                const isSupported = doesVersionSupportScrollDepth(posthogVersion)
                 const isDisabled = posthog?.config.disable_scroll_properties
 
                 return !isSupported ? 'version' : isDisabled ? 'disabled' : null
