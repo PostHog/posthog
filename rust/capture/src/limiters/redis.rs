@@ -26,6 +26,7 @@ use crate::redis::Client;
 use thiserror::Error;
 use time::{Duration, OffsetDateTime};
 use tokio::sync::RwLock;
+use tracing::instrument;
 
 // todo: fetch from env
 const QUOTA_LIMITER_CACHE_KEY: &str = "@posthog/quota-limits/";
@@ -89,6 +90,7 @@ impl RedisLimiter {
         })
     }
 
+    #[instrument(skip_all)]
     async fn fetch_limited(
         client: &Arc<dyn Client + Send + Sync>,
         key_prefix: &str,
@@ -101,6 +103,7 @@ impl RedisLimiter {
             .await
     }
 
+    #[instrument(skip_all, fields(key = key))]
     pub async fn is_limited(&self, key: &str, resource: QuotaResource) -> bool {
         // hold the read lock to clone it, very briefly. clone is ok because it's very small 🤏
         // rwlock can have many readers, but one writer. the writer will wait in a queue with all
@@ -122,6 +125,9 @@ impl RedisLimiter {
             // open the update lock to change the update, and prevent anyone else from doing so
             let mut updated = self.updated.write().await;
             *updated = OffsetDateTime::now_utc();
+
+            let span = tracing::debug_span!("updating billing cache from redis");
+            let _span = span.enter();
 
             // a few requests might end up in here concurrently, but I don't think a few extra will
             // be a big problem. If it is, we can rework the concurrency a bit.

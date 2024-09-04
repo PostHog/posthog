@@ -11,6 +11,7 @@ use base64::Engine;
 use metrics::counter;
 use serde_json::json;
 use serde_json::Value;
+use tracing::instrument;
 
 use crate::limiters::redis::QuotaResource;
 use crate::prometheus::report_dropped_events;
@@ -132,6 +133,20 @@ async fn handle_common(
     Ok((context, events))
 }
 
+#[instrument(
+    skip_all,
+    fields(
+        path,
+        token,
+        batch_size,
+        user_agent,
+        content_encoding,
+        content_type,
+        version,
+        compression,
+        historical_migration
+    )
+)]
 #[debug_handler]
 pub async fn event(
     state: State<router::State>,
@@ -188,6 +203,20 @@ pub async fn event(
     }
 }
 
+#[instrument(
+    skip_all,
+    fields(
+        path,
+        token,
+        batch_size,
+        user_agent,
+        content_encoding,
+        content_type,
+        version,
+        compression,
+        historical_migration
+    )
+)]
 #[debug_handler]
 pub async fn recording(
     state: State<router::State>,
@@ -251,6 +280,7 @@ pub async fn options() -> Result<Json<CaptureResponse>, CaptureError> {
     }))
 }
 
+#[instrument(skip_all)]
 pub fn process_single_event(
     event: &RawEvent,
     context: &ProcessingContext,
@@ -285,6 +315,7 @@ pub fn process_single_event(
     })
 }
 
+#[instrument(skip_all, fields(events = events.len()))]
 pub async fn process_events<'a>(
     sink: Arc<dyn sinks::Event + Send + Sync>,
     events: &'a [RawEvent],
@@ -304,10 +335,11 @@ pub async fn process_events<'a>(
     }
 }
 
-pub async fn process_replay_events(
+#[instrument(skip_all, fields(events = events.len()))]
+pub async fn process_replay_events<'a>(
     sink: Arc<dyn sinks::Event + Send + Sync>,
     mut events: Vec<RawEvent>,
-    context: &ProcessingContext,
+    context: &'a ProcessingContext,
 ) -> Result<(), CaptureError> {
     // Grab metadata about the whole batch from the first event before
     // we drop all the events as we rip out the snapshot data
