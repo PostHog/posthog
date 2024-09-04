@@ -224,7 +224,6 @@ abstract class CdpConsumerBase {
         // TODO: Add cyclotron check here and enqueue that way
         // For now we just enqueue to kafka
         // For kafka style this is overkill to enqueue this way but it simplifies migrating to the new system
-
         const serializedInvocation = serializeHogFunctionInvocation(invocation)
 
         const request: HogFunctionInvocationSerializedCompressed = {
@@ -748,12 +747,12 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
         await Promise.all(
             invocations.map(async (item) => {
                 const id = item.invocation.id
-                if (item.finished) {
-                    status.debug('⚡️', 'Updating job to completed', id)
-                    this.cyclotronWorker?.updateJob(id, 'completed')
-                } else if (item.error) {
+                if (item.error) {
                     status.debug('⚡️', 'Updating job to failed', id)
                     this.cyclotronWorker?.updateJob(id, 'failed')
+                } else if (item.finished) {
+                    status.debug('⚡️', 'Updating job to completed', id)
+                    this.cyclotronWorker?.updateJob(id, 'completed')
                 } else {
                     status.debug('⚡️', 'Updating job to available', id)
                     this.cyclotronWorker?.updateJob(id, 'available', {

@@ -374,6 +374,7 @@ export class HogExecutor {
             }
         } catch (err) {
             result.error = err.message
+            result.finished = true // Explicitly set to true to prevent infinite loops
             status.error(
                 '🦔',
                 `[HogExecutor] Error executing function ${invocation.hogFunction.id} - ${invocation.hogFunction.name}`,
