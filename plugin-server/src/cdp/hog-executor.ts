@@ -159,9 +159,10 @@ export class HogExecutor {
                     error,
                     timings = [],
                 } = invocation.queueParameters as HogFunctionQueueParametersFetchResponse
+                let responseBody: any = undefined
                 if (response) {
                     // Convert from buffer to string
-                    response.body = invocation.queueBlob ? Buffer.from(invocation.queueBlob).toString() : undefined
+                    responseBody = invocation.queueBlob ? Buffer.from(invocation.queueBlob).toString() : undefined
                 }
 
                 // Reset the queue parameters to be sure
@@ -189,9 +190,9 @@ export class HogExecutor {
                     throw new Error(error)
                 }
 
-                if (typeof response?.body === 'string') {
+                if (typeof responseBody === 'string') {
                     try {
-                        response.body = JSON.parse(response.body)
+                        responseBody = JSON.parse(responseBody)
                     } catch (e) {
                         // pass - if it isn't json we just pass it on
                     }
