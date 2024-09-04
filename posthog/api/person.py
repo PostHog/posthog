@@ -359,6 +359,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         ],
     )
     def destroy(self, request: request.Request, pk=None, **kwargs):
+        """
+        Use this endpoint to delete individual persons. If you wnat to bulk delete, use the bulk_delete endpoint.
+        """
         try:
             person = self.get_object()
             person_id = person.id
@@ -390,6 +393,70 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return response.Response(status=202)
         except Person.DoesNotExist:
             raise NotFound(detail="Person not found.")
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "delete_events",
+                OpenApiTypes.BOOL,
+                description="If true, a task to delete all events associated with this person will be created and queued. The task does not run immediately and instead is batched together and at 5AM UTC every Sunday (controlled by environment variable CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON)",
+                default=False,
+            ),
+            OpenApiParameter(
+                "distinct_ids",
+                OpenApiTypes.OBJECT,
+                description="A list of distinct ids. We'll delete all persons associated with those distinct ids. The maximum amount of ids you can pass in one call is 100.",
+            ),
+            OpenApiParameter(
+                "ids",
+                OpenApiTypes.OBJECT,
+                description="A list of PostHog person ids. We'll automatically fetch all related persons and delete those. The maximum amount of ids you can pass in one call is 100.",
+            ),
+        ],
+    )
+    @action(methods=["POST"], detail=False, required_scopes=["person:write"])
+    def bulk_delete(self, request: request.Request, pk=None, **kwargs):
+        """
+        This endpoint allows you to bulk delete persons, either by the PostHog persons ID or by distinct IDs. You can pass through a maximum of 100 ids per call.
+        """
+        if request.data.get("distinct_ids"):
+            if len(request.data["distinct_ids"]) > 100:
+                raise ValidationError("You can only pass 100 distinct_ids in one call")
+            persons = self.get_queryset().filter(persondistinctid__distinct_id__in=request.data.get("distinct_ids"))
+        elif request.data.get("ids"):
+            if len(request.data["ids"]) > 100:
+                raise ValidationError("You can only pass 100 ids in one call")
+            persons = self.get_queryset().filter(uuid__in=request.data["ids"])
+        else:
+            raise ValidationError("You need to specify either distinct_ids or ids")
+
+        for person in persons:
+            delete_person(person=person)
+            self.perform_destroy(person)
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team_id,
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated_session(request),
+                item_id=person.id,
+                scope="Person",
+                activity="deleted",
+                detail=Detail(name=str(person.uuid)),
+            )
+            # Once the person is deleted, queue deletion of associated data, if that was requested
+            if request.data.get("delete_events"):
+                AsyncDeletion.objects.bulk_create(
+                    [
+                        AsyncDeletion(
+                            deletion_type=DeletionType.Person,
+                            team_id=self.team_id,
+                            key=str(person.uuid),
+                            created_by=cast(User, self.request.user),
+                        )
+                    ],
+                    ignore_conflicts=True,
+                )
+        return response.Response(status=202)
 
     @action(methods=["GET"], detail=False, required_scopes=["person:read"])
     def values(self, request: request.Request, **kwargs) -> response.Response:
