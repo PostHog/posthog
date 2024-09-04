@@ -7,6 +7,7 @@ use super::{deserialize_datetime, serialize_datetime};
 #[serde(rename_all = "lowercase")]
 pub enum Source {
     Hoghooks,
+    Cyclotron,
 }
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Clone)]
@@ -14,6 +15,7 @@ pub enum Source {
 pub enum Kind {
     Success,
     Failure,
+    Unknown,
 }
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Clone)]

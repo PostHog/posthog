@@ -230,24 +230,33 @@ class TestSavedQuery(APIBaseTest):
 
         self.assertEqual(response.status_code, 200, response.content)
         child_ancestors = response.json()["ancestors"]
-        self.assertEqual(child_ancestors, [saved_query_parent_id])
+        child_ancestors.sort()
+        self.assertEqual(child_ancestors, sorted([uuid.UUID(saved_query_parent_id).hex, "events", "persons"]))
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/warehouse_saved_queries/{saved_query_child_id}/ancestors", {"level": 1}
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        child_ancestors_level_1 = response.json()["ancestors"]
+        child_ancestors_level_1.sort()
+        self.assertEqual(child_ancestors_level_1, [uuid.UUID(saved_query_parent_id).hex])
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/warehouse_saved_queries/{saved_query_child_id}/ancestors", {"level": 2}
         )
-
         self.assertEqual(response.status_code, 200, response.content)
         child_ancestors_level_2 = response.json()["ancestors"]
         child_ancestors_level_2.sort()
-        self.assertEqual(child_ancestors_level_2, ["events", "persons"])
+        self.assertEqual(child_ancestors_level_2, sorted([uuid.UUID(saved_query_parent_id).hex, "events", "persons"]))
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/warehouse_saved_queries/{saved_query_child_id}/ancestors", {"level": 10}
         )
-
         self.assertEqual(response.status_code, 200, response.content)
         child_ancestors_level_10 = response.json()["ancestors"]
-        self.assertEqual(child_ancestors_level_10, [])
+        child_ancestors_level_10.sort()
+        self.assertEqual(child_ancestors_level_2, sorted([uuid.UUID(saved_query_parent_id).hex, "events", "persons"]))
 
     def test_descendants(self):
         query = """\
@@ -281,21 +290,67 @@ class TestSavedQuery(APIBaseTest):
             },
         )
 
+        response_grand_child = self.client.post(
+            f"/api/projects/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view_3",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from event_view_2",
+                },
+            },
+        )
+
         self.assertEqual(response_parent.status_code, 201, response_parent.content)
         self.assertEqual(response_child.status_code, 201, response_child.content)
+        self.assertEqual(response_grand_child.status_code, 201, response_grand_child.content)
 
         saved_query_parent_id = response_parent.json()["id"]
         saved_query_child_id = response_child.json()["id"]
+        saved_query_grand_child_id = response_grand_child.json()["id"]
         response = self.client.post(
             f"/api/projects/{self.team.id}/warehouse_saved_queries/{saved_query_parent_id}/descendants",
         )
 
         self.assertEqual(response.status_code, 200, response.content)
         parent_descendants = response.json()["descendants"]
-        self.assertEqual(parent_descendants, [uuid.UUID(saved_query_child_id).hex])
+        self.assertEqual(
+            sorted(parent_descendants),
+            sorted([uuid.UUID(saved_query_child_id).hex, uuid.UUID(saved_query_grand_child_id).hex]),
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/warehouse_saved_queries/{saved_query_parent_id}/descendants", {"level": 1}
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        parent_descendants_level_1 = response.json()["descendants"]
+        self.assertEqual(
+            parent_descendants_level_1,
+            [uuid.UUID(saved_query_child_id).hex],
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/warehouse_saved_queries/{saved_query_parent_id}/descendants", {"level": 2}
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        parent_descendants_level_2 = response.json()["descendants"]
+        self.assertEqual(
+            sorted(parent_descendants_level_2),
+            sorted([uuid.UUID(saved_query_child_id).hex, uuid.UUID(saved_query_grand_child_id).hex]),
+        )
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/warehouse_saved_queries/{saved_query_child_id}/descendants",
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        child_ancestors = response.json()["descendants"]
+        self.assertEqual(child_ancestors, [uuid.UUID(saved_query_grand_child_id).hex])
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/warehouse_saved_queries/{saved_query_grand_child_id}/descendants",
         )
 
         self.assertEqual(response.status_code, 200, response.content)

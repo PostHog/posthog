@@ -408,7 +408,6 @@ class ErrorTrackingGroup(BaseModel):
     )
     assignee: Optional[float] = None
     description: Optional[str] = None
-    events: Optional[list[dict[str, Any]]] = None
     exception_type: Optional[str] = None
     fingerprint: list[str]
     first_seen: AwareDatetime
@@ -1466,6 +1465,7 @@ class WebStatsBreakdown(StrEnum):
     PAGE = "Page"
     INITIAL_PAGE = "InitialPage"
     EXIT_PAGE = "ExitPage"
+    EXIT_CLICK = "ExitClick"
     INITIAL_CHANNEL_TYPE = "InitialChannelType"
     INITIAL_REFERRING_DOMAIN = "InitialReferringDomain"
     INITIAL_UTM_SOURCE = "InitialUTMSource"
@@ -4743,7 +4743,6 @@ class ErrorTrackingQuery(BaseModel):
     )
     assignee: Optional[int] = None
     dateRange: DateRange
-    eventColumns: Optional[list[str]] = None
     filterGroup: Optional[PropertyGroupFilter] = None
     filterTestAccounts: Optional[bool] = None
     fingerprint: Optional[list[str]] = None
@@ -4752,7 +4751,6 @@ class ErrorTrackingQuery(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    offset: Optional[int] = None
     order: Optional[Order] = None
     response: Optional[ErrorTrackingQueryResponse] = None
     select: Optional[list[str]] = None

@@ -7,6 +7,10 @@ edition = "2021"
 workspace = true
 
 [dependencies]
+
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+tikv-jemallocator = "0.6"
+
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 axum = { workspace = true }

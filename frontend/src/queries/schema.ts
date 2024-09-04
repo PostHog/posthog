@@ -1296,6 +1296,7 @@ export enum WebStatsBreakdown {
     Page = 'Page',
     InitialPage = 'InitialPage',
     ExitPage = 'ExitPage', // not supported in the legacy version
+    ExitClick = 'ExitClick',
     InitialChannelType = 'InitialChannelType',
     InitialReferringDomain = 'InitialReferringDomain',
     InitialUTMSource = 'InitialUTMSource',
@@ -1379,14 +1380,12 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     kind: NodeKind.ErrorTrackingQuery
     fingerprint?: string[]
     select?: HogQLExpression[]
-    eventColumns?: string[]
     order?: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
     dateRange: DateRange
     assignee?: integer | null
     filterGroup?: PropertyGroupFilter
     filterTestAccounts?: boolean
     limit?: integer
-    offset?: integer
 }
 
 export interface ErrorTrackingGroup {
@@ -1405,7 +1404,6 @@ export interface ErrorTrackingGroup {
     volume?: any
     assignee: number | null
     status: 'archived' | 'active' | 'resolved' | 'pending_release'
-    events?: Record<string, any>[]
 }
 
 export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<ErrorTrackingGroup[]> {

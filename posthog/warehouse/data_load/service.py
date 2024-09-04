@@ -188,11 +188,11 @@ def delete_data_import_folder(folder_path: str):
     s3.delete(f"{bucket_name}/{folder_path}", recursive=True)
 
 
-def is_any_external_data_job_paused(team_id: int) -> bool:
-    from posthog.warehouse.models import ExternalDataSource
+def is_any_external_data_schema_paused(team_id: int) -> bool:
+    from posthog.warehouse.models import ExternalDataSchema
 
     return (
-        ExternalDataSource.objects.exclude(deleted=True)
-        .filter(team_id=team_id, status=ExternalDataSource.Status.PAUSED)
+        ExternalDataSchema.objects.exclude(deleted=True)
+        .filter(team_id=team_id, status=ExternalDataSchema.Status.PAUSED)
         .exists()
     )

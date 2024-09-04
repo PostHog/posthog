@@ -589,7 +589,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                     },
                     {
                         icon: IconTestTube,
-                        display: 'Go to A/B testing',
+                        display: 'Go to Experiments',
                         executor: () => {
                             push(urls.experiments())
                         },

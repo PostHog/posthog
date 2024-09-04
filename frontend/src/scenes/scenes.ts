@@ -177,7 +177,7 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     },
     [Scene.Experiments]: {
         projectBased: true,
-        name: 'A/B testing',
+        name: 'Experiments',
         defaultDocsPath: '/docs/experiments',
         activityScope: ActivityScope.EXPERIMENT,
     },
@@ -385,7 +385,7 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     },
 }
 
-// NOTE: These redirects will fully replace the URL. If you want to keep support for query and hash params then you should use the above `preserveParams` function.
+// NOTE: These redirects will fully replace the URL. If you want to keep support for query and hash params then you should use a function (not string) redirect
 export const redirects: Record<
     string,
     string | ((params: Params, searchParams: Params, hashParams: Params) => string)
@@ -434,6 +434,9 @@ export const redirects: Record<
         return urls.replay()
     },
     '/replay': urls.replay(),
+    '/replay/recent': (_params, searchParams) => {
+        return urls.replay(undefined, searchParams.filters, searchParams.sessionRecordingId)
+    },
     '/settings': urls.settings(),
     '/project/settings': urls.settings('project'),
     '/organization/settings': urls.settings('organization'),

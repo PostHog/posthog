@@ -55,7 +55,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                         {isEvent && (
                             <LemonButton
                                 type="secondary"
-                                to={urls.replay(ReplayTabs.Recent, {
+                                to={urls.replay(ReplayTabs.Home, {
                                     filter_group: {
                                         type: FilterLogicalOperator.And,
                                         values: [

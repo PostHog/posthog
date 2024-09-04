@@ -639,7 +639,7 @@ export enum SavedInsightsTabs {
 }
 
 export enum ReplayTabs {
-    Recent = 'recent',
+    Home = 'home',
     Playlists = 'playlists',
     Errors = 'errors',
 }
@@ -3067,6 +3067,7 @@ export enum PropertyDefinitionType {
     Person = 'person',
     Group = 'group',
     Session = 'session',
+    LogEntry = 'log_entry',
 }
 
 export interface PropertyDefinition {
@@ -3923,7 +3924,7 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
 export interface ExternalDataJob {
     id: string
     created_at: string
-    status: 'Running' | 'Failed' | 'Completed' | 'Cancelled'
+    status: 'Running' | 'Failed' | 'Completed' | 'Billing limits'
     schema: SimpleExternalDataSourceSchema
     rows_synced: number
     latest_error: string

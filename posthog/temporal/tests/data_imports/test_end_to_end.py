@@ -9,8 +9,19 @@ from django.test import override_settings
 import pytest
 import pytest_asyncio
 import psycopg
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql_queries.insights.funnels.funnel import Funnel
+from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.models.team.team import Team
+from posthog.schema import (
+    BreakdownFilter,
+    BreakdownType,
+    EventsNode,
+    FunnelsQuery,
+    HogQLQueryModifiers,
+    PersonsOnEventsMode,
+)
 from posthog.temporal.data_imports import ACTIVITIES
 from posthog.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
 from posthog.temporal.utils import ExternalDataWorkflowInputs
@@ -27,6 +38,8 @@ from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
 from posthog.warehouse.models.external_data_job import get_latest_run_if_exists
 from dlt.sources.helpers.rest_client.client import RESTClient
 from dlt.common.configuration.specs.aws_credentials import AwsCredentials
+
+from posthog.warehouse.models.join import DataWarehouseJoin
 
 
 BUCKET_NAME = "test-pipeline"
@@ -573,6 +586,47 @@ async def test_delta_wrapper_files(team, stripe_balance_transaction, minio_clien
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
+async def test_funnels_lazy_joins_ordering(team, stripe_customer):
+    # Tests that funnels work in PERSON_ID_OVERRIDE_PROPERTIES_JOINED PoE mode when using extended person properties
+    await _run(
+        team=team,
+        schema_name="Customer",
+        table_name="stripe_customer",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        mock_data_response=stripe_customer["data"],
+    )
+
+    await sync_to_async(DataWarehouseJoin.objects.create)(
+        team=team,
+        source_table_name="persons",
+        source_table_key="properties.email",
+        joining_table_name="stripe_customer",
+        joining_table_key="email",
+        field_name="stripe_customer",
+    )
+
+    query = FunnelsQuery(
+        series=[EventsNode(), EventsNode()],
+        breakdownFilter=BreakdownFilter(
+            breakdown_type=BreakdownType.DATA_WAREHOUSE_PERSON_PROPERTY, breakdown="stripe_customer.email"
+        ),
+    )
+    funnel_class = Funnel(context=FunnelQueryContext(query=query, team=team))
+
+    query_ast = funnel_class.get_query()
+    await sync_to_async(execute_hogql_query)(
+        query_type="FunnelsQuery",
+        query=query_ast,
+        team=team,
+        modifiers=create_default_modifiers_for_team(
+            team, HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED)
+        ),
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
 async def test_postgres_schema_evolution(team, postgres_config, postgres_connection):
     await postgres_connection.execute(
         "CREATE TABLE IF NOT EXISTS {schema}.test_table (id integer)".format(schema=postgres_config["schema"])
@@ -631,3 +685,46 @@ async def test_postgres_schema_evolution(team, postgres_config, postgres_connect
     assert any(x == "new_col" for x in columns)
     assert any(x == "_dlt_id" for x in columns)
     assert any(x == "_dlt_load_id" for x in columns)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_billing_limits(team, stripe_customer):
+    source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=uuid.uuid4(),
+        connection_id=uuid.uuid4(),
+        destination_id=uuid.uuid4(),
+        team=team,
+        status="running",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+    )
+
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        name="Customer",
+        team_id=team.pk,
+        source_id=source.pk,
+        sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        sync_type_config={},
+    )
+
+    workflow_id = str(uuid.uuid4())
+    inputs = ExternalDataWorkflowInputs(
+        team_id=team.id,
+        external_data_source_id=source.pk,
+        external_data_schema_id=schema.id,
+    )
+
+    with mock.patch(
+        "posthog.temporal.data_imports.workflow_activities.check_billing_limits.list_limited_team_attributes",
+    ) as mock_list_limited_team_attributes:
+        mock_list_limited_team_attributes.return_value = [team.api_token]
+
+        await _execute_run(workflow_id, inputs, stripe_customer["data"])
+
+    job: ExternalDataJob = await sync_to_async(ExternalDataJob.objects.get)(team_id=team.id, schema_id=schema.pk)
+
+    assert job.status == ExternalDataJob.Status.CANCELLED
+
+    with pytest.raises(Exception):
+        await sync_to_async(execute_hogql_query)("SELECT * FROM stripe_customer", team)

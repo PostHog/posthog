@@ -212,6 +212,7 @@ export const FEATURE_FLAGS = {
     EXPERIMENT_MAKE_DECISION: 'experiment-make-decision', // owner: @jurajmajerik #team-feature-success
     DATA_MODELING: 'data-modeling', // owner: @EDsCODE #team-data-warehouse
     WEB_ANALYTICS_CONVERSION_GOALS: 'web-analytics-conversion-goals', // owner: @robbie-c
+    WEB_ANALYTICS_LAST_CLICK: 'web-analytics-last-click', // owner: @robbie-c
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

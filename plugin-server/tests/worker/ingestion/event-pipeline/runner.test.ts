@@ -11,6 +11,7 @@ import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipelin
 import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/processPersonsStep'
 import { processOnEventStep } from '../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
+import { EventsProcessor } from '../../../../src/worker/ingestion/process-event'
 
 jest.mock('../../../../src/worker/ingestion/event-pipeline/populateTeamDataStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/pluginsProcessEventStep')
@@ -101,7 +102,7 @@ describe('EventPipelineRunner', () => {
             },
             eventsToDropByToken: createEventsToDropByToken('drop_token:drop_id,drop_token_all:*'),
         }
-        runner = new TestEventPipelineRunner(hub, pluginEvent)
+        runner = new TestEventPipelineRunner(hub, pluginEvent, new EventsProcessor(hub))
 
         jest.mocked(populateTeamDataStep).mockResolvedValue(pluginEvent)
         jest.mocked(pluginsProcessEventStep).mockResolvedValue(pluginEvent)
@@ -271,7 +272,7 @@ describe('EventPipelineRunner', () => {
                         kafkaProducer: { queueMessage: jest.fn() },
                     },
                 }
-                const runner = new TestEventPipelineRunner(hub, event)
+                const runner = new TestEventPipelineRunner(hub, event, new EventsProcessor(hub))
                 jest.mocked(populateTeamDataStep).mockResolvedValue(event)
 
                 await runner.runEventPipeline(event)
@@ -309,7 +310,7 @@ describe('EventPipelineRunner', () => {
 
                 // setup just enough mocks that the right pipeline runs
 
-                runner = new TestEventPipelineRunner(hub, heatmapEvent)
+                runner = new TestEventPipelineRunner(hub, heatmapEvent, new EventsProcessor(hub))
 
                 jest.mocked(populateTeamDataStep).mockResolvedValue(heatmapEvent as any)
 
@@ -352,7 +353,7 @@ describe('EventPipelineRunner $process_person_profile=false', () => {
                     kafkaProducer: { queueMessage: jest.fn() },
                 },
             }
-            const runner = new TestEventPipelineRunner(hub, event)
+            const runner = new TestEventPipelineRunner(hub, event, new EventsProcessor(hub))
             jest.mocked(populateTeamDataStep).mockResolvedValue(event)
 
             await runner.runEventPipeline(event)

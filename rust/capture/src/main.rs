@@ -16,6 +16,13 @@ use tracing_subscriber::{EnvFilter, Layer};
 use capture::config::Config;
 use capture::server::serve;
 
+#[cfg(not(target_env = "msvc"))]
+use tikv_jemallocator::Jemalloc;
+
+#[cfg(not(target_env = "msvc"))]
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
+
 async fn shutdown() {
     let mut term = signal::unix::signal(signal::unix::SignalKind::terminate())
         .expect("failed to register SIGTERM handler");

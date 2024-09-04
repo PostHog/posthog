@@ -19,6 +19,7 @@ from hogvm.python.utils import (
     like,
     set_nested_value,
     calculate_cost,
+    unify_comparison_types,
 )
 
 if TYPE_CHECKING:
@@ -201,17 +202,23 @@ def execute_bytecode(
             case Operation.MOD:
                 push_stack(pop_stack() % pop_stack())
             case Operation.EQ:
-                push_stack(pop_stack() == pop_stack())
+                var1, var2 = unify_comparison_types(pop_stack(), pop_stack())
+                push_stack(var1 == var2)
             case Operation.NOT_EQ:
-                push_stack(pop_stack() != pop_stack())
+                var1, var2 = unify_comparison_types(pop_stack(), pop_stack())
+                push_stack(var1 != var2)
             case Operation.GT:
-                push_stack(pop_stack() > pop_stack())
+                var1, var2 = unify_comparison_types(pop_stack(), pop_stack())
+                push_stack(var1 > var2)
             case Operation.GT_EQ:
-                push_stack(pop_stack() >= pop_stack())
+                var1, var2 = unify_comparison_types(pop_stack(), pop_stack())
+                push_stack(var1 >= var2)
             case Operation.LT:
-                push_stack(pop_stack() < pop_stack())
+                var1, var2 = unify_comparison_types(pop_stack(), pop_stack())
+                push_stack(var1 < var2)
             case Operation.LT_EQ:
-                push_stack(pop_stack() <= pop_stack())
+                var1, var2 = unify_comparison_types(pop_stack(), pop_stack())
+                push_stack(var1 <= var2)
             case Operation.LIKE:
                 push_stack(like(pop_stack(), pop_stack()))
             case Operation.ILIKE:
