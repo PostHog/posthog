@@ -112,7 +112,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
                 )}
                 <Playlist
                     data-attr="session-recordings-playlist"
-                    notebooksHref={urls.replay(ReplayTabs.Recent, filters)}
+                    notebooksHref={urls.replay(ReplayTabs.Home, filters)}
                     title="Recordings"
                     embedded={!!notebookNode}
                     sections={sections}

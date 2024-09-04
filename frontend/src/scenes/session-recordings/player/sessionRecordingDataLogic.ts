@@ -881,12 +881,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 if (everyWindowMissingFullSnapshot) {
                     // video is definitely unplayable
                     posthog.capture('recording_has_no_full_snapshot', {
-                        ...windowsHaveFullSnapshot,
                         sessionId: sessionRecordingId,
                     })
                 } else if (anyWindowMissingFullSnapshot) {
                     posthog.capture('recording_window_missing_full_snapshot', {
-                        ...windowsHaveFullSnapshot,
                         sessionId: sessionRecordingId,
                     })
                 }
