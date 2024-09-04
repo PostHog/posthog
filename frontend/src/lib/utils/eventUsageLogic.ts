@@ -10,6 +10,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { isActionFilter, isEventFilter } from 'lib/components/UniversalFilters/utils'
 import type { Dayjs } from 'lib/dayjs'
 import { now } from 'lib/dayjs'
+import { TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { isCoreFilter, PROPERTY_KEYS } from 'lib/taxonomy'
 import { objectClean } from 'lib/utils'
 import posthog from 'posthog-js'
@@ -292,6 +293,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportPersonsModalViewed: (params: any) => ({
             params,
         }),
+        // timing
+        reportTimeToSeeData: (payload: TimeToSeeDataPayload) => ({ payload }),
         // insights
         reportInsightCreated: (query: Node | null) => ({ query }),
         reportInsightSaved: (query: Node | null, isNewInsight: boolean) => ({ query, isNewInsight }),
@@ -637,6 +640,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 posthog_properties_count,
             }
             posthog.capture('person viewed', properties)
+        },
+        reportTimeToSeeData: async ({ payload }) => {
+            posthog.capture('time to see data', payload)
         },
         reportInsightCreated: async ({ query }, breakpoint) => {
             // "insight created" essentially means that the user clicked "New insight"
