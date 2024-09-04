@@ -248,7 +248,6 @@ abstract class CdpConsumerBase {
 
                 await Promise.all(
                     results.map(async (result) => {
-                        // Tricky: We want to pull all the logs out as we don't want them to be passed around to any subsequent functions
                         if (result.finished || result.error) {
                             this.produceAppMetric({
                                 team_id: result.invocation.teamId,
