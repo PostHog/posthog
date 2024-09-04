@@ -13,7 +13,6 @@ import {
     HogFunctionInvocationGlobals,
     HogFunctionInvocationResult,
     HogFunctionLogEntrySerialized,
-    ParsedClickhouseEvent,
 } from './types'
 
 export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
@@ -35,26 +34,6 @@ const getPersonDisplayName = (team: Team, distinctId: string, properties: Record
         typeof propertyIdentifier !== 'string' ? JSON.stringify(propertyIdentifier) : propertyIdentifier
 
     return (customIdentifier || distinctId)?.trim()
-}
-
-export function convertToParsedClickhouseEvent(event: RawClickHouseEvent): ParsedClickhouseEvent {
-    const properties = event.properties ? JSON.parse(event.properties) : {}
-    if (event.elements_chain) {
-        properties['$elements_chain'] = event.elements_chain
-    }
-
-    return {
-        uuid: event.uuid,
-        event: event.event,
-        team_id: event.team_id,
-        distinct_id: event.distinct_id,
-        person_id: event.person_id,
-        timestamp: clickHouseTimestampToISO(event.timestamp),
-        created_at: clickHouseTimestampToISO(event.created_at),
-        properties: properties,
-        person_created_at: event.person_created_at ? clickHouseTimestampToISO(event.person_created_at) : undefined,
-        person_properties: event.person_properties ? JSON.parse(event.person_properties) : {},
-    }
 }
 
 // that we can keep to as a contract
@@ -106,16 +85,16 @@ export function convertToHogFunctionInvocationGlobals(
     return context
 }
 
-// Adapted from SQL: extract(elements_chain, '(?::|\")href="(.*?)"'),
-const hrefRegex = new RE2(/(?::|")href="(.*?)"/)
 function getElementsChainHref(elementsChain: string): string {
+    // Adapted from SQL: extract(elements_chain, '(?::|\")href="(.*?)"'),
+    const hrefRegex = new RE2(/(?::|")href="(.*?)"/)
     const hrefMatch = hrefRegex.exec(elementsChain)
     return hrefMatch ? hrefMatch[1] : ''
 }
 
-// Adapted from SQL: arrayDistinct(extractAll(elements_chain, '(?::|\")text="(.*?)"')),
-const textRegex = new RE2(/(?::|")text="(.*?)"/g)
 function getElementsChainTexts(elementsChain: string): string[] {
+    // Adapted from SQL: arrayDistinct(extractAll(elements_chain, '(?::|\")text="(.*?)"')),
+    const textRegex = new RE2(/(?::|")text="(.*?)"/g)
     const textMatches = new Set<string>()
     let textMatch
     while ((textMatch = textRegex.exec(elementsChain)) !== null) {
@@ -124,9 +103,9 @@ function getElementsChainTexts(elementsChain: string): string[] {
     return Array.from(textMatches)
 }
 
-// Adapted from SQL: arrayDistinct(extractAll(elements_chain, '(?::|\")id="(.*?)"')),
-const idRegex = new RE2(/(?::|")id="(.*?)"/g)
 function getElementsChainIds(elementsChain: string): string[] {
+    // Adapted from SQL: arrayDistinct(extractAll(elements_chain, '(?::|\")id="(.*?)"')),
+    const idRegex = new RE2(/(?::|")id="(.*?)"/g)
     const idMatches = new Set<string>()
     let idMatch
     while ((idMatch = idRegex.exec(elementsChain)) !== null) {
@@ -135,9 +114,9 @@ function getElementsChainIds(elementsChain: string): string[] {
     return Array.from(idMatches)
 }
 
-// Adapted from SQL: arrayDistinct(extractAll(elements_chain, '(?:^|;)(a|button|form|input|select|textarea|label)(?:\\.|$|:)'))
-const elementRegex = new RE2(/(?:^|;)(a|button|form|input|select|textarea|label)(?:\.|$|:)/g)
 function getElementsChainElements(elementsChain: string): string[] {
+    // Adapted from SQL: arrayDistinct(extractAll(elements_chain, '(?:^|;)(a|button|form|input|select|textarea|label)(?:\\.|$|:)'))
+    const elementRegex = new RE2(/(?:^|;)(a|button|form|input|select|textarea|label)(?:\.|$|:)/g)
     const elementMatches = new Set<string>()
     let elementMatch
     while ((elementMatch = elementRegex.exec(elementsChain)) !== null) {
