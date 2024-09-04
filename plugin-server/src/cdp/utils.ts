@@ -106,8 +106,8 @@ function getElementsChainTexts(elementsChain: string): string[] {
 }
 
 function getElementsChainIds(elementsChain: string): string[] {
-    // Adapted from SQL: arrayDistinct(extractAll(elements_chain, '(?::|\")id="(.*?)"')),
-    const idRegex = new RE2(/(?::|")id="(.*?)"/g)
+    // Adapted from SQL: arrayDistinct(extractAll(elements_chain, '(?::|\")attr_id="(.*?)"')),
+    const idRegex = new RE2(/(?::|")attr_id="(.*?)"/g)
     const idMatches = new Set<string>()
     let idMatch
     while ((idMatch = idRegex.exec(elementsChain)) !== null) {
@@ -150,24 +150,38 @@ export function convertToHogFunctionFilterGlobal(globals: HogFunctionInvocationG
         ...groups,
     } satisfies HogFunctionFilterGlobals
 
+    // The elements_chain_* fields are stored as materialized columns in ClickHouse.
+    // We use the same formula to calculate them here.
     if (elementsChain) {
-        // The elements_chain_* fields are stored as materialized columns in ClickHouse.
-        // We use the same formula to calculate them here, and make them lazy-loaded.
+        const cache: Record<string, any> = {}
         Object.defineProperties(response, {
             elements_chain_href: {
-                get: () => (response.elements_chain_href = getElementsChainHref(elementsChain)),
+                get: () => {
+                    cache.elements_chain_href ??= getElementsChainHref(elementsChain)
+                    return cache.elements_chain_href
+                },
             },
             elements_chain_texts: {
-                get: () => (response.elements_chain_texts = getElementsChainTexts(elementsChain)),
+                get: () => {
+                    cache.elements_chain_texts ??= getElementsChainTexts(elementsChain)
+                    return cache.elements_chain_texts
+                },
             },
             elements_chain_ids: {
-                get: () => (response.elements_chain_ids = getElementsChainIds(elementsChain)),
+                get: () => {
+                    cache.elements_chain_ids ??= getElementsChainIds(elementsChain)
+                    return cache.elements_chain_ids
+                },
             },
             elements_chain_elements: {
-                get: () => (response.elements_chain_elements = getElementsChainElements(elementsChain)),
+                get: () => {
+                    cache.elements_chain_elements ??= getElementsChainElements(elementsChain)
+                    return cache.elements_chain_elements
+                },
             },
         })
     }
+
     return response
 }
 
