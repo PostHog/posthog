@@ -67,6 +67,10 @@ export function SessionRecordingsPlaylistSettings(): JSX.Element {
                             value: 'console_error_count',
                             label: 'Most errors',
                         },
+                        {
+                            value: 'random_sample',
+                            label: 'Random sample',
+                        },
                     ]}
                     size="small"
                     value={orderBy}

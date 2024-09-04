@@ -110,7 +110,7 @@ class SessionRecordingListFromFilters:
 
     def _select(self) -> list[ast.Expr]:
         return [
-            ast.Field(chain=["s", "session_id"]),
+            ast.Alias(alias="session_id", expr=ast.Field(chain=["s", "session_id"])),
             ast.Call(name="any", args=[ast.Field(chain=["s", "team_id"])]),
             ast.Call(name="any", args=[ast.Field(chain=["s", "distinct_id"])]),
             ast.Alias(
@@ -174,7 +174,12 @@ class SessionRecordingListFromFilters:
 
     def _order_by_clause(self) -> ast.OrderExpr:
         field = "start_time" if self._filter.order == "latest" else self._filter.order
-        return ast.OrderExpr(expr=ast.Field(chain=[field]), order="DESC")
+        expr = (
+            ast.Call(name="sipHash64", args=[ast.Field(chain=["session_id"])])
+            if self._filter.order == "random_sample"
+            else ast.Field(chain=[field])
+        )
+        return ast.OrderExpr(expr=expr, order="DESC")
 
     def _where_predicates(self) -> Union[ast.And, ast.Or]:
         exprs: list[ast.Expr] = [

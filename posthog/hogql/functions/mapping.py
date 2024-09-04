@@ -597,6 +597,8 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     # conditional
     "if": HogQLFunctionMeta("if", 3, 3, case_sensitive=False),
     "multiIf": HogQLFunctionMeta("multiIf", 3, None),
+    # hashing
+    "sipHash64": HogQLFunctionMeta("sipHash64", 1, 1),
     # mathematical
     "e": HogQLFunctionMeta("e"),
     "pi": HogQLFunctionMeta("pi"),
