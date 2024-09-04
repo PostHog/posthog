@@ -1,8 +1,8 @@
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { windowValues } from 'kea-window-values'
-import { PostHogAppToolbarEvent } from 'lib/components/heatmaps/utils'
 import { HedgehogActor } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
 import { SPRITE_SIZE } from 'lib/components/HedgehogBuddy/sprites/sprites'
+import { PostHogAppToolbarEvent } from 'lib/components/IframedToolbarBrowser/utils'
 
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
