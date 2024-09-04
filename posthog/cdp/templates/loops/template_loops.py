@@ -38,4 +38,12 @@ fetch('https://app.loops.so/api/v1/events/send', {
             "required": True,
         }
     ],
+    filters={
+        "events": [
+            {"id": "$identify", "name": "$identify", "type": "events", "order": 0},
+            {"id": "$set", "name": "$set", "type": "events", "order": 1},
+        ],
+        "actions": [],
+        "filter_test_accounts": True,
+    },
 )
