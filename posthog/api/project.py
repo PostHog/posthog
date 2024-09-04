@@ -459,7 +459,9 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def reset_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
         project = self.get_object()
-        project.passthrough_team.reset_token_and_save(is_impersonated_session=is_impersonated_session(request))
+        project.passthrough_team.reset_token_and_save(
+            user=request.user, is_impersonated_session=is_impersonated_session(request)
+        )
         return response.Response(ProjectSerializer(project, context=self.get_serializer_context()).data)
 
     @action(

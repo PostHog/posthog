@@ -3,7 +3,7 @@ from decimal import Decimal
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any, Optional, cast
 from zoneinfo import ZoneInfo
-from django.core import cache
+from django.core.cache import cache
 import posthoganalytics
 import pydantic
 import pytz
@@ -449,7 +449,7 @@ class Team(UUIDClassicModel):
                 continue
         return filters
 
-    def reset_token_and_save(self, *, is_impersonated_session: bool):
+    def reset_token_and_save(self, *, user: "User", is_impersonated_session: bool):
         from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 
         old_token = self.api_token
@@ -459,7 +459,7 @@ class Team(UUIDClassicModel):
         log_activity(
             organization_id=self.organization_id,
             team_id=self.pk,
-            user=cast("User", self.user),
+            user=cast("User", user),
             was_impersonated=is_impersonated_session,
             scope="Team",
             item_id=self.pk,

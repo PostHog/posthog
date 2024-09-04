@@ -41,6 +41,7 @@ ActivityScope = Literal[
     "SessionRecordingPlaylist",
     "Comment",
     "Team",
+    "Project",
 ]
 ChangeAction = Literal["changed", "created", "deleted", "merged", "split", "exported"]
 
