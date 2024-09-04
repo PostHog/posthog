@@ -6826,6 +6826,9 @@
                     "description": "Client provided query ID. Can be used to retrieve the status or cancel the query.",
                     "type": "string"
                 },
+                "filters_override": {
+                    "$ref": "#/definitions/DashboardFilter"
+                },
                 "query": {
                     "$ref": "#/definitions/QuerySchema",
                     "description": "Submit a JSON string representing a query for PostHog data analysis, for example a HogQL query.\n\nExample payload:\n\n```\n\n{\"query\": {\"kind\": \"HogQLQuery\", \"query\": \"select * from events limit 100\"}}\n\n```\n\nFor more details on HogQL queries, see the [PostHog HogQL documentation](/docs/hogql#api-access)."

@@ -5564,6 +5564,7 @@ class QueryRequest(BaseModel):
     client_query_id: Optional[str] = Field(
         default=None, description="Client provided query ID. Can be used to retrieve the status or cancel the query."
     )
+    filters_override: Optional[DashboardFilter] = None
     query: Union[
         EventsNode,
         ActionsNode,
@@ -5607,7 +5608,6 @@ class QueryRequest(BaseModel):
         discriminator="kind",
     )
     refresh: Optional[Union[bool, str]] = None
-    filters_override: Optional[DashboardFilter] = None
 
 
 class QuerySchemaRoot(
