@@ -139,27 +139,28 @@ export function convertToHogFunctionFilterGlobal(globals: HogFunctionInvocationG
         event: globals.event.name,
         elements_chain: elementsChain,
         elements_chain_href: '',
-        elements_chain_texts: [],
-        elements_chain_ids: [],
-        elements_chain_elements: [],
+        elements_chain_texts: [] as string[],
+        elements_chain_ids: [] as string[],
+        elements_chain_elements: [] as string[],
         timestamp: globals.event.timestamp,
         properties: globals.event.properties,
         person: globals.person ? { properties: globals.person.properties } : undefined,
         ...groups,
-    }
+    } satisfies HogFunctionFilterGlobals
+
     if (elementsChain) {
         Object.defineProperties(response, {
             elements_chain_href: {
-                get: () => getElementsChainHref(elementsChain),
+                get: () => (response.elements_chain_href = getElementsChainHref(elementsChain)),
             },
             elements_chain_texts: {
-                get: () => getElementsChainTexts(elementsChain),
+                get: () => (response.elements_chain_texts = getElementsChainTexts(elementsChain)),
             },
             elements_chain_ids: {
-                get: () => getElementsChainIds(elementsChain),
+                get: () => (response.elements_chain_ids = getElementsChainIds(elementsChain)),
             },
             elements_chain_elements: {
-                get: () => getElementsChainElements(elementsChain),
+                get: () => (response.elements_chain_elements = getElementsChainElements(elementsChain)),
             },
         })
     }
