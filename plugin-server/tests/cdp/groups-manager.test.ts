@@ -50,6 +50,7 @@ describe('Groups Manager', () => {
 
         it('does nothing if no group properties found', async () => {
             const globals = createHogExecutionGlobals({
+                groups: undefined,
                 event: {
                     properties: {
                         $groups: { GroupA: 'id-1', GroupB: 'id-2' },
@@ -84,6 +85,7 @@ describe('Groups Manager', () => {
                 { team_id: 1, group_type_index: 1, group_key: 'id-2', group_properties: { prop: 'value-2' } },
             ]
             const globals = createHogExecutionGlobals({
+                groups: undefined,
                 event: {
                     properties: {
                         $groups: { GroupA: 'id-1', GroupB: 'id-2' },
@@ -125,14 +127,17 @@ describe('Groups Manager', () => {
             const items = [
                 // Should get both groups enriched
                 createHogExecutionGlobals({
+                    groups: undefined,
                     event: { properties: { $groups: { GroupA: 'id-1', GroupB: 'id-2' } } } as any,
                 }),
                 // Should get its group enriched (via reference)
                 createHogExecutionGlobals({
+                    groups: undefined,
                     event: { properties: { $groups: { GroupA: 'id-1' } } } as any,
                 }),
                 // Should get the right group for its team
                 createHogExecutionGlobals({
+                    groups: undefined,
                     project: { id: 2 } as any,
                     event: { properties: { $groups: { GroupA: 'id-1' } } } as any,
                 }),
@@ -191,10 +196,12 @@ describe('Groups Manager', () => {
     it('cached group type queries', async () => {
         const globals = [
             createHogExecutionGlobals({
+                groups: undefined,
                 project: { id: 1 } as any,
                 event: { properties: { $groups: { GroupA: 'id-1', GroupB: 'id-2' } } } as any,
             }),
             createHogExecutionGlobals({
+                groups: undefined,
                 project: { id: 2 } as any,
                 event: { properties: { $groups: { GroupA: 'id-1', GroupB: 'id-2' } } } as any,
             }),
@@ -209,6 +216,7 @@ describe('Groups Manager', () => {
 
         globals.push(
             createHogExecutionGlobals({
+                groups: undefined,
                 project: { id: 3 } as any,
                 event: { properties: { $groups: { GroupA: 'id-1', GroupB: 'id-2' } } } as any,
             })

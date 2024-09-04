@@ -45,7 +45,7 @@ export function WebAnalyticsRecordingsTile({ tile }: { tile: ReplayTile }): JSX.
               buttonText: 'Learn more',
               buttonTo: 'https://posthog.com/docs/user-guides/recordings',
           }
-    const to = items.length > 0 ? urls.replay(ReplayTabs.Recent, replayFilters) : urls.replay()
+    const to = items.length > 0 ? urls.replay(ReplayTabs.Home, replayFilters) : urls.replay()
     return (
         <>
             <SessionPlayerModal />
