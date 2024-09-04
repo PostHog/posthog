@@ -115,15 +115,15 @@ jobs:
                   cache-dependency-path: '**/requirements*.txt'
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
+            # uv is a fast pip alternative: https://github.com/astral-sh/uv/
+            - run: pip install uv
+
             - name: Install rust
               uses: dtolnay/rust-toolchain@1.77
 
             - name: Install sqlx-cli
               working-directory: rust
               run: cargo install sqlx-cli --no-default-features --features native-tls,postgres
-
-            # uv is a fast pip alternative: https://github.com/astral-sh/uv/
-            - run: pip install uv
 
             - name: Install SAML (python3-saml) dependencies
               run: |

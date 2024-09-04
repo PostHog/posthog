@@ -4,5 +4,7 @@ SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 export DATABASE_NAME=${DATABASE_NAME:-cyclotron}
 export DATABASE_URL=${DATABASE_URL:-postgres://posthog:posthog@localhost:5432/$DATABASE_NAME}
 
+echo "Script dir: $SCRIPT_DIR"
+
 sqlx database create -D "$DATABASE_URL"
 sqlx migrate run -D "$DATABASE_URL" --source $SCRIPT_DIR/../cyclotron-core/migrations
