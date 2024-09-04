@@ -51,6 +51,12 @@
     align-items: center;
     margin-top: calc(0.25rem * (1 - var(--breadcrumbs-compaction-rate)));
     overflow: visible;
+
+    .TopBar3000:not(.TopBar3000--compact) & {
+        // 1rem of trail height ensures nice tight spacing in the full or transitioning state,
+        // but we don't want it in the compact state, as it causes title edit buttons to be cut off at top&bottom
+        height: 1rem;
+    }
 }
 
 .TopBar3000__here {
@@ -64,7 +70,12 @@
     font-size: 1rem;
     font-weight: 700;
     line-height: 1.2;
-    visibility: var(--breadcrumbs-title-large-visibility);
+
+    .TopBar3000--compact & {
+        // It wouldn't be necessary to set visibility, but for some reason without this positioning
+        // of breadcrumbs becomes borked when entering title editing mode
+        visibility: hidden;
+    }
 
     > * {
         position: absolute;
@@ -89,7 +100,12 @@
     &.TopBar3000__breadcrumb--here {
         flex-shrink: 1;
         cursor: default;
-        visibility: var(--breadcrumbs-title-small-visibility);
+
+        .TopBar3000--full & {
+            // It wouldn't be necessary to set visibility, but for some reason without this positioning
+            // of breadcrumbs becomes borked when entering title editing mode
+            visibility: hidden;
+        }
 
         > * {
             opacity: 1;
