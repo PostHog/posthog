@@ -134,7 +134,7 @@ export function convertToHogFunctionFilterGlobal(globals: HogFunctionInvocationG
         }
     }
 
-    const elementsChain = globals.event.properties['$elements_chain']
+    const elementsChain = globals.event.elements_chain || globals.event.properties['$elements_chain']
     const response = {
         event: globals.event.name,
         elements_chain: elementsChain,
