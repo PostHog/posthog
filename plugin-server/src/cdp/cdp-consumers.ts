@@ -762,6 +762,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
                         vmState: serializeHogFunctionInvocation(item.invocation),
                         queueName: item.invocation.queue,
                         parameters: item.invocation.queueParameters ?? null,
+                        blob: item.invocation.queueBlob ?? null,
                     })
                 }
                 await this.cyclotronWorker?.flushJob(id)
@@ -801,6 +802,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
                 priority: job.priority,
                 queue: (job.queueName as any) ?? 'hog',
                 queueParameters: job.parameters as HogFunctionInvocationQueueParameters | undefined,
+                queueBlob: job.blob ?? undefined,
                 vmState: parsedState.vmState,
                 timings: parsedState.timings,
             })

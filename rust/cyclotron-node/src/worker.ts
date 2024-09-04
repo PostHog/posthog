@@ -113,5 +113,8 @@ export class CyclotronWorker {
         if (updates?.vmState) {
             cyclotron.setVmState(id, serializeObject('vmState', updates.vmState))
         }
+        if (updates?.blob) {
+            cyclotron.setBlob(id, updates.blob)
+        }
     }
 }

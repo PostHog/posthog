@@ -12,7 +12,7 @@ import {
     HogFunctionQueueParametersFetchRequest,
     HogFunctionQueueParametersFetchResponse,
 } from './types'
-import { gzipObject } from './utils'
+import { gzipObject, serializeHogFunctionInvocation } from './utils'
 
 export const BUCKETS_KB_WRITTEN = [0, 128, 512, 1024, 2024, 4096, 10240, Infinity]
 
@@ -44,15 +44,18 @@ export class FetchExecutor {
         }
 
         const params = invocation.queueParameters as HogFunctionQueueParametersFetchRequest
-        if (params.body) {
-            histogramFetchPayloadSize.observe(params.body.length / 1024)
+        const blob = invocation.queueBlob
+
+        const body = blob ? blob.toString() : undefined
+        if (body) {
+            histogramFetchPayloadSize.observe(body.length / 1024)
         }
 
         try {
             if (this.hogHookEnabledForTeams(invocation.teamId)) {
                 // This is very temporary until we are commited to Cyclotron
                 const payload: HogFunctionInvocationAsyncRequest = {
-                    state: await gzipObject(invocation),
+                    state: await gzipObject(serializeHogFunctionInvocation(invocation)),
                     teamId: invocation.teamId,
                     hogFunctionId: invocation.hogFunction.id,
                     asyncFunctionRequest: {
@@ -61,6 +64,7 @@ export class FetchExecutor {
                             params.url,
                             {
                                 ...params,
+                                body,
                             },
                         ],
                     },
@@ -88,6 +92,7 @@ export class FetchExecutor {
         }
 
         const params = invocation.queueParameters as HogFunctionQueueParametersFetchRequest
+        const body = invocation.queueBlob ? invocation.queueBlob.toString() : undefined
 
         const resParams: HogFunctionQueueParametersFetchResponse = {
             response: {
@@ -102,7 +107,7 @@ export class FetchExecutor {
             const start = performance.now()
             const fetchResponse = await trackedFetch(params.url, {
                 method: params.method,
-                body: params.body,
+                body,
                 headers: params.headers,
                 timeout: this.serverConfig.EXTERNAL_REQUEST_TIMEOUT_MS,
             })

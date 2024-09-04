@@ -231,6 +231,9 @@ export function serializeHogFunctionInvocation(invocation: HogFunctionInvocation
     const serializedInvocation: HogFunctionInvocationSerialized = {
         ...invocation,
         hogFunctionId: invocation.hogFunction.id,
+        // We clear the params as they are never used in the serialized form
+        queueParameters: undefined,
+        queueBlob: undefined,
     }
 
     delete (serializedInvocation as any).hogFunction

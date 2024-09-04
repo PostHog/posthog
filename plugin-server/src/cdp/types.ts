@@ -156,7 +156,7 @@ export interface HogFunctionTiming {
 export type HogFunctionQueueParametersFetchRequest = {
     url: string
     method: string
-    body: string
+    // body: string
     return_queue: string
     max_tries?: number
     headers?: Record<string, string>
@@ -167,8 +167,8 @@ export type HogFunctionQueueParametersFetchResponse = {
     error?: any
     /** The data to be passed to the Hog function from the response */
     response?: {
-        status: number | 'failure'
-        body: any
+        status: number
+        body?: any
     } | null
     timings?: HogFunctionTiming[]
     logs?: LogEntry[]
@@ -186,6 +186,7 @@ export type HogFunctionInvocation = {
     priority: number
     queue: 'hog' | 'fetch'
     queueParameters?: HogFunctionInvocationQueueParameters
+    queueBlob?: Uint8Array
     // The current vmstate (set if the invocation is paused)
     vmState?: VMState
     timings: HogFunctionTiming[]

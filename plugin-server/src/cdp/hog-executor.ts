@@ -159,10 +159,15 @@ export class HogExecutor {
                     error,
                     timings = [],
                 } = invocation.queueParameters as HogFunctionQueueParametersFetchResponse
+                if (response) {
+                    // Convert from buffer to string
+                    response.body = invocation.queueBlob ? Buffer.from(invocation.queueBlob).toString() : undefined
+                }
 
                 // Reset the queue parameters to be sure
                 invocation.queue = 'hog'
                 invocation.queueParameters = undefined
+                invocation.queueBlob = undefined
 
                 const status = typeof response?.status === 'number' ? response.status : 503
 
@@ -337,10 +342,11 @@ export class HogExecutor {
                                 url,
                                 method,
                                 headers,
-                                body,
+                                // body,
                                 return_queue: 'hog',
                             }
-
+                            // The payload is always blob encoded
+                            result.invocation.queueBlob = body ? Buffer.from(body) : undefined
                             break
                         default:
                             throw new Error(`Unknown async function '${execRes.asyncFunctionName}'`)
