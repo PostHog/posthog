@@ -1,3 +1,5 @@
+import { captureException } from '@sentry/react'
+
 import { LifecycleToggle } from '~/types'
 
 import { LemonTagType } from './lemon-ui/LemonTag'
@@ -39,7 +41,8 @@ export const tagColors: LemonTagType[] = [
 export function getColorVar(variable: string): string {
     const colorValue = getComputedStyle(document.body).getPropertyValue('--' + variable)
     if (!colorValue) {
-        throw new Error(`Couldn't find color variable --${variable}`)
+        captureException(new Error(`Couldn't find color variable --${variable}`))
+        return document.body.getAttribute('theme') === 'light' ? '#000' : '#fff'
     }
     return colorValue.trim()
 }
