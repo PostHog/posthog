@@ -259,6 +259,12 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         projectBased: true,
         name: 'Homepage',
     },
+    [Scene.Max]: {
+        projectBased: true,
+        name: 'Max',
+        layout: 'app-raw',
+        hideProjectNotice: true, // FIXME: Currently doesn't render well...
+    },
     [Scene.IntegrationsRedirect]: {
         name: 'Integrations redirect',
     },
@@ -349,7 +355,7 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     },
     [Scene.Notebook]: {
         projectBased: true,
-        hideProjectNotice: true, // Currently doesn't render well...
+        hideProjectNotice: true, // FIXME: Currently doesn't render well...
         name: 'Notebook',
         layout: 'app-raw',
         activityScope: ActivityScope.NOTEBOOK,
@@ -524,6 +530,7 @@ export const routes: Record<string, Scene> = {
     [urls.annotations()]: Scene.DataManagement,
     [urls.annotation(':id')]: Scene.DataManagement,
     [urls.projectHomepage()]: Scene.ProjectHomepage,
+    [urls.max()]: Scene.Max,
     [urls.projectCreateFirst()]: Scene.ProjectCreateFirst,
     [urls.organizationBilling()]: Scene.Billing,
     [urls.organizationCreateFirst()]: Scene.OrganizationCreateFirst,
