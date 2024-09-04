@@ -178,25 +178,6 @@ async def iter_records_from_model_view(
 ) -> AsyncRecordsGenerator:
     if model_name == "persons":
         view = SELECT_FROM_PERSONS_VIEW
-    elif str(team_id) not in settings.ASYNC_ARROW_STREAMING_TEAM_IDS:
-        # TODO: Let this model be exported by `astream_query_as_arrow`.
-        # Just to reduce risk, I don't want to change the function that runs 100% of the exports
-        # without battle testing it first.
-        # There are already changes going out to the queries themselves that will impact events in a
-        # positive way. So, we can come back later and drop this block.
-        # UPDATE: Will start moving teams over to `astream_query_as_arrow` by setting their ids
-        # in `ASYNC_ARROW_STREAMING_TEAM_IDS`. If testing goes well, we'll remove this block.
-        for record_batch in iter_records(
-            client,
-            team_id=team_id,
-            is_backfill=is_backfill,
-            interval_start=interval_start,
-            interval_end=interval_end,
-            fields=fields,
-            **parameters,
-        ):
-            yield record_batch
-        return
     else:
         if parameters["exclude_events"]:
             parameters["exclude_events"] = list(parameters["exclude_events"])
