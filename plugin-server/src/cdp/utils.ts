@@ -10,9 +10,11 @@ import { castTimestampOrNow, clickHouseTimestampToISO, UUIDT } from '../utils/ut
 import {
     HogFunctionCapturedEvent,
     HogFunctionFilterGlobals,
+    HogFunctionInvocation,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationResult,
     HogFunctionLogEntrySerialized,
+    HogFunctionType,
 } from './types'
 
 export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
@@ -235,7 +237,7 @@ export const prepareLogEntriesForClickhouse = (
             ...logEntry,
             team_id: result.invocation.teamId,
             log_source: 'hog_function',
-            log_source_id: result.invocation.hogFunctionId,
+            log_source_id: result.invocation.hogFunction.id,
             instance_id: result.invocation.id,
             timestamp: castTimestampOrNow(logEntry.timestamp, TimestampFormat.ClickHouse),
         }
@@ -243,4 +245,27 @@ export const prepareLogEntriesForClickhouse = (
     })
 
     return preparedLogs
+}
+
+export function createInvocation(
+    globals: HogFunctionInvocationGlobals,
+    hogFunction: HogFunctionType
+): HogFunctionInvocation {
+    // Add the source of the trigger to the globals
+    const modifiedGlobals: HogFunctionInvocationGlobals = {
+        ...globals,
+        source: {
+            name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
+            url: `${globals.project.url}/pipeline/destinations/hog-${hogFunction.id}/configuration/`,
+        },
+    }
+
+    return {
+        id: new UUIDT().toString(),
+        globals: modifiedGlobals,
+        teamId: hogFunction.team_id,
+        hogFunction,
+        queue: 'hog',
+        timings: [],
+    }
 }

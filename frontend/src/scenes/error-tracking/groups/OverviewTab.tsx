@@ -1,26 +1,25 @@
 import { PersonDisplay, TZLabel } from '@posthog/apps-common'
-import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
-import { NotFound } from 'lib/components/NotFound'
 import { Playlist } from 'lib/components/Playlist/Playlist'
 import { dayjs } from 'lib/dayjs'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { PropertyIcons } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 
-import { ErrorTrackingGroupEvent, errorTrackingGroupSceneLogic } from '../errorTrackingGroupSceneLogic'
+import { ErrorTrackingEvent, errorTrackingGroupSceneLogic } from '../errorTrackingGroupSceneLogic'
 
 export const OverviewTab = (): JSX.Element => {
-    const { group, events, groupLoading } = useValues(errorTrackingGroupSceneLogic)
+    const { events, groupLoading, eventsLoading, activeEventUUID } = useValues(errorTrackingGroupSceneLogic)
+    const { loadEvents, setActiveEventUUID } = useActions(errorTrackingGroupSceneLogic)
 
-    return groupLoading ? (
-        <Spinner className="self-align-center justify-self-center" />
-    ) : group ? (
+    return (
         <div className="ErrorTracking__group">
             <div className="h-full space-y-2">
                 <Playlist
+                    loading={groupLoading || eventsLoading}
                     title="Exceptions"
                     sections={[
                         {
@@ -30,6 +29,10 @@ export const OverviewTab = (): JSX.Element => {
                             render: ListItemException,
                         },
                     ]}
+                    onSelect={({ uuid }) => {
+                        setActiveEventUUID(uuid)
+                    }}
+                    activeItemId={activeEventUUID}
                     listEmptyState={<div className="flex justify-center p-4">No exceptions found</div>}
                     content={({ activeItem: event }) =>
                         event ? (
@@ -38,7 +41,7 @@ export const OverviewTab = (): JSX.Element => {
                                     <ViewSessionButton event={event} />
                                 </div>
                                 <div className="pl-2">
-                                    <ErrorDisplay eventProperties={JSON.parse(event.properties)} />
+                                    <ErrorDisplay eventProperties={event.properties} />
                                 </div>
                             </div>
                         ) : (
@@ -48,30 +51,30 @@ export const OverviewTab = (): JSX.Element => {
                             />
                         )
                     }
-                    selectInitialItem
+                    onScrollListEdge={(edge) => {
+                        if (edge === 'bottom' && !eventsLoading) {
+                            loadEvents()
+                        }
+                    }}
                 />
             </div>
         </div>
-    ) : (
-        <NotFound object="exception" />
     )
 }
 
-const ViewSessionButton = ({ event }: { event: ErrorTrackingGroupEvent }): JSX.Element | null => {
+const ViewSessionButton = ({ event }: { event: ErrorTrackingEvent }): JSX.Element | null => {
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
 
-    const properties = JSON.parse(event.properties)
+    const sessionId = event.properties.$session_id
 
     return (
         <LemonButton
             size="small"
             onClick={() => {
                 const fiveSecondsBeforeEvent = dayjs(event.timestamp).valueOf() - 5000
-                openSessionPlayer({ id: properties.$session_id }, Math.max(fiveSecondsBeforeEvent, 0))
+                openSessionPlayer({ id: sessionId }, Math.max(fiveSecondsBeforeEvent, 0))
             }}
-            disabledReason={
-                !properties.$session_id ? 'There was no $session_id associated with this exception' : undefined
-            }
+            disabledReason={!sessionId ? 'There was no Session ID associated with this exception' : undefined}
         >
             View recording
         </LemonButton>
@@ -79,14 +82,12 @@ const ViewSessionButton = ({ event }: { event: ErrorTrackingGroupEvent }): JSX.E
 }
 
 const ListItemException = ({
-    item: event,
+    item: { timestamp, properties, person },
     isActive,
 }: {
-    item: ErrorTrackingGroupEvent
+    item: ErrorTrackingEvent
     isActive: boolean
 }): JSX.Element => {
-    const properties = JSON.parse(event.properties)
-
     const recordingProperties = ['$browser', '$device_type', '$os']
         .flatMap((property) => {
             let value = properties[property]
@@ -100,17 +101,22 @@ const ListItemException = ({
         .filter((property) => !!property.value)
 
     return (
-        <div className={clsx('cursor-pointer p-2 space-y-1', isActive && 'border-l-4 border-primary-3000')}>
+        <div
+            className={clsx(
+                'cursor-pointer p-2 space-y-1 border-l-4',
+                isActive ? 'border-primary-3000' : 'border-transparent'
+            )}
+        >
             <div className="flex justify-between items-center space-x-3">
                 <div className="line-clamp-1">
-                    <PersonDisplay person={event.person} withIcon noPopover noLink />
+                    <PersonDisplay person={person} withIcon noPopover noLink />
                 </div>
                 <PropertyIcons recordingProperties={recordingProperties} iconClassNames="text-muted" />
             </div>
             {properties.$current_url && <div className="text-xs text-muted truncate">{properties.$current_url}</div>}
             <TZLabel
                 className="overflow-hidden text-ellipsis text-xs text-muted shrink-0"
-                time={event.timestamp}
+                time={timestamp}
                 placement="right"
                 showPopover={false}
             />

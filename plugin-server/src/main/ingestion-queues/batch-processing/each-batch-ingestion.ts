@@ -170,7 +170,11 @@ export async function eachBatchParallelIngestion(
                 for (const { message, pluginEvent } of currentBatch) {
                     try {
                         const result = (await retryIfRetriable(async () => {
-                            const runner = new EventPipelineRunner(queue.pluginsServer, pluginEvent)
+                            const runner = new EventPipelineRunner(
+                                queue.pluginsServer,
+                                pluginEvent,
+                                queue.eventsProcessor
+                            )
                             return await runner.runEventPipeline(pluginEvent)
                         })) as IngestResult
 
