@@ -10,6 +10,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     hog="""
 let host := inputs.host
 let token := inputs.token
+let identifier := inputs.identifier
 
 let rudderPayload := {
     'context': {
@@ -45,7 +46,7 @@ let rudderPayload := {
     'channel': 's2s',
     'messageId': event.uuid,
     'originalTimestamp': event.timestamp,
-    'userId': event.properties.$user_id ?? event.distinct_id,
+    'userId': identifier,
     'anonymousId': event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.properties.distinct_id,
     'type': 'track',
     'properties': {},
@@ -111,6 +112,14 @@ fetch(f'{host}/v1/batch', {
             "type": "string",
             "label": "Write API key",
             "description": "RudderStack Source Writekey",
+            "secret": False,
+            "required": True,
+        },
+        {
+            "key": "identifier",
+            "type": "string",
+            "label": "Identifier",
+            "default": "{person.uuid}",
             "secret": False,
             "required": True,
         },
