@@ -306,6 +306,29 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         with pytest.raises(ExposedHogQLError):
             print_ast(parse_select(sql), context, dialect="clickhouse")
 
+    def test_database_warehouse_joins_group_type_index(self):
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(team=self.team, group_type="project", group_type_index=1)
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="groups",
+            source_table_key="key",
+            joining_table_name="events",
+            joining_table_key="event",
+            group_type_index=0,
+            field_name="some_field",
+        )
+
+        db = create_hogql_database(team_id=self.team.pk)
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=db,
+        )
+
+        sql = "select some_field.event from groups"
+        self.assertIn("equals(groups.index, 0)", print_ast(parse_select(sql), context, dialect="clickhouse"))
+
     def test_database_warehouse_joins_other_team(self):
         other_organization = Organization.objects.create(name="some_other_org")
         other_team = Team.objects.create(organization=other_organization)

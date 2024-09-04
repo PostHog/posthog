@@ -1,8 +1,11 @@
+import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { router } from 'kea-router'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
@@ -10,16 +13,22 @@ import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable/types'
 import { Link } from 'lib/lemon-ui/Link'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { GroupsIntroduction } from 'scenes/groups/GroupsIntroduction'
+import { getDefaultEvent } from 'scenes/insights/utils/cleanFilters'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { urls } from 'scenes/urls'
 
+import { Query } from '~/queries/Query/Query'
+import { NodeKind } from '~/queries/schema'
 import { Group, PropertyDefinitionType } from '~/types'
 
+import { GroupsConfiguration, Snippet } from './GroupsConfiguration'
 import { groupsListLogic } from './groupsListLogic'
+import { groupsLogic } from './groupsLogic'
 
-export function Groups({ groupTypeIndex }: { groupTypeIndex: number }): JSX.Element {
+export function GroupsTable({ groupTypeIndex }: { groupTypeIndex: number }): JSX.Element {
     const {
         groupTypeName: { singular, plural },
         groups,
@@ -27,24 +36,6 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: number }): JSX.Elem
         search,
     } = useValues(groupsListLogic({ groupTypeIndex }))
     const { loadGroups, setSearch } = useActions(groupsListLogic({ groupTypeIndex }))
-    const { groupsAccessStatus } = useValues(groupsAccessLogic)
-
-    if (groupTypeIndex === undefined) {
-        throw new Error('groupTypeIndex is undefined')
-    }
-
-    if (
-        groupsAccessStatus == GroupsAccessStatus.HasAccess ||
-        groupsAccessStatus == GroupsAccessStatus.HasGroupTypes ||
-        groupsAccessStatus == GroupsAccessStatus.NoAccess
-    ) {
-        return (
-            <>
-                <GroupsIntroduction />
-            </>
-        )
-    }
-
     const columns: LemonTableColumns<Group> = [
         {
             title: capitalizeFirstLetter(plural),
@@ -66,7 +57,6 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: number }): JSX.Elem
             },
         },
     ]
-
     return (
         <>
             <LemonInput
@@ -113,16 +103,203 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: number }): JSX.Elem
                             <Link to="https://posthog.com/docs/user-guides/group-analytics" target="_blank">
                                 Read more here.
                             </Link>
+                            <br />
+                            <Snippet singular={singular} />
                         </LemonBanner>
-                        <CodeSnippet language={Language.JavaScript} wrap>
-                            {`posthog.group('${singular}', 'id:5', {\n` +
-                                `    name: 'Awesome ${singular}',\n` +
-                                '    value: 11\n' +
-                                '});'}
-                        </CodeSnippet>
                     </>
                 }
             />
         </>
     )
+}
+
+export function GroupsOverview({ groupTypeIndex }: { groupTypeIndex: number }): JSX.Element {
+    const {
+        groupTypeName: { plural },
+        search,
+    } = useValues(groupsListLogic({ groupTypeIndex }))
+    const { setSearch } = useActions(groupsListLogic({ groupTypeIndex }))
+    const onSearch = (): void => {
+        if (search && search !== '') {
+            router.actions.push(urls.groups(String(groupTypeIndex), 'list'))
+        }
+    }
+
+    const queries = [
+        {
+            title: (
+                <>
+                    Top {plural} by {getDefaultEvent().name}
+                </>
+            ),
+            query: {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    interval: 'week',
+                    filterTestAccounts: false,
+                    series: [
+                        {
+                            event: getDefaultEvent().id,
+                            kind: NodeKind.EventsNode,
+                            math: 'total',
+                            name: getDefaultEvent().name,
+                        },
+                    ],
+                    breakdownFilter: {
+                        breakdown_type: 'hogql',
+                        breakdown: `coalesce(group_${groupTypeIndex}.properties.name, $group_0)`,
+                    },
+                    dateRange: {
+                        date_from: '-30d',
+                    },
+                    trendsFilter: {
+                        display: 'ActionsTable',
+                    },
+                },
+                full: false,
+                showDateRange: true,
+            },
+        },
+        {
+            title: <>Top {plural} by users</>,
+            query: {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    interval: 'week',
+                    filterTestAccounts: false,
+                    series: [
+                        {
+                            event: getDefaultEvent().id,
+                            kind: NodeKind.EventsNode,
+                            math: 'dau',
+                            math_group_type_index: groupTypeIndex,
+                            name: getDefaultEvent().name,
+                        },
+                    ],
+                    breakdownFilter: {
+                        breakdown_type: 'hogql',
+                        breakdown: `coalesce(group_${groupTypeIndex}.properties.name, $group_0)`,
+                    },
+                    dateRange: {
+                        date_from: '-30d',
+                    },
+                    trendsFilter: {
+                        display: 'ActionsTable',
+                    },
+                },
+                full: false,
+                showDateRange: true,
+            },
+        },
+        {
+            title: (
+                <>
+                    Unique {plural} {getDefaultEvent().name}
+                </>
+            ),
+            query: {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    interval: 'week',
+                    filterTestAccounts: false,
+                    series: [
+                        {
+                            event: getDefaultEvent().id,
+                            kind: NodeKind.EventsNode,
+                            math: 'unique_group',
+                            math_group_type_index: groupTypeIndex,
+                            name: getDefaultEvent().name,
+                        },
+                    ],
+                    dateRange: {
+                        date_from: '-30d',
+                    },
+                },
+                full: false,
+                showDateRange: true,
+            },
+        },
+    ]
+
+    return (
+        <>
+            <LemonInput
+                type="search"
+                placeholder={`Search for ${plural}`}
+                onChange={setSearch}
+                onBlur={onSearch}
+                onPressEnter={onSearch}
+                value={search}
+                data-attr="group-search"
+                className="mb-4"
+            />
+            {queries.map(({ title, query }, index) => (
+                <>
+                    <h2>{title}</h2>
+                    <Query query={query} uniqueKey={`group-${groupTypeIndex}-query-${index}`} readOnly={true} />
+                    <div className="flex flex-row justify-end mt-3">
+                        <LemonButton
+                            to={urls.insightNew(undefined, undefined, query)}
+                            icon={<IconOpenInNew />}
+                            size="small"
+                            type="secondary"
+                        >
+                            Open as new Insight
+                        </LemonButton>
+                    </div>
+                </>
+            ))}
+        </>
+    )
+}
+
+export function Groups({ groupTypeIndex }: { groupTypeIndex: number }): JSX.Element {
+    const { groupsAccessStatus } = useValues(groupsAccessLogic)
+    const { groupTab } = useValues(groupsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    if (groupTypeIndex === undefined) {
+        throw new Error('groupTypeIndex is undefined')
+    }
+
+    if (
+        groupsAccessStatus == GroupsAccessStatus.HasAccess ||
+        groupsAccessStatus == GroupsAccessStatus.HasGroupTypes ||
+        groupsAccessStatus == GroupsAccessStatus.NoAccess
+    ) {
+        return (
+            <>
+                <GroupsIntroduction />
+            </>
+        )
+    }
+    if (featureFlags[FEATURE_FLAGS.CS_DASHBOARDS]) {
+        return (
+            <LemonTabs
+                activeKey={groupTab ?? 'overview'}
+                onChange={(tab) => router.actions.push(urls.groups(String(groupTypeIndex), tab))}
+                tabs={[
+                    {
+                        key: 'overview',
+                        label: <>Overview</>,
+                        content: <GroupsOverview groupTypeIndex={groupTypeIndex} />,
+                    },
+                    {
+                        key: 'list',
+                        label: <>List</>,
+                        content: <GroupsTable groupTypeIndex={groupTypeIndex} />,
+                    },
+                    {
+                        key: 'config',
+                        label: <>Configuration</>,
+                        content: <GroupsConfiguration groupTypeIndex={groupTypeIndex} />,
+                    },
+                ]}
+            />
+        )
+    }
+    return <GroupsTable groupTypeIndex={groupTypeIndex} />
 }

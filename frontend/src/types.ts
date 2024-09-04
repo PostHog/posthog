@@ -3845,6 +3845,7 @@ export interface DataWarehouseViewLink {
     field_name?: string
     created_by?: UserBasicType | null
     created_at?: string | null
+    group_type_index?: number | null
 }
 
 export enum DataWarehouseSettingsTab {

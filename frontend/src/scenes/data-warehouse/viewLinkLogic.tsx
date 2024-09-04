@@ -213,6 +213,16 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                     label: table.name,
                 })),
         ],
+        tableOptionsWarehouseOnly: [
+            (s) => [s.allTables],
+            (tables) =>
+                tables
+                    .filter((t) => t.type != 'posthog')
+                    .map((table) => ({
+                        value: table.name,
+                        label: table.name,
+                    })),
+        ],
         sourceTableKeys: [
             (s) => [s.selectedSourceTable],
             (selectedSourceTable): KeySelectOption[] => {

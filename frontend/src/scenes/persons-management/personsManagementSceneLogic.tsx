@@ -34,7 +34,7 @@ export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>(
         values: [groupsModel, ['aggregationLabel', 'groupTypes', 'groupsAccessStatus', 'aggregationLabel']],
     }),
     actions({
-        setTabKey: (tabKey: string) => ({ tabKey }),
+        setTabKey: (tabKey: string, changeUrl?: false | null) => ({ tabKey, changeUrl }),
     }),
     reducers({
         tabKey: [
@@ -136,20 +136,26 @@ export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>(
         ],
     }),
     actionToUrl(({ values }) => ({
-        setTabKey: ({ tabKey }) => {
-            return values.tabs.find((x) => x.key === tabKey)?.url || values.tabs[0].url
+        setTabKey: ({ tabKey, changeUrl }) => {
+            if (changeUrl === false) {
+                return
+            }
+            return values.tabs.find((x) => x.key === tabKey)?.url
         },
     })),
     urlToAction(({ actions }) => {
         return {
             [urls.persons()]: () => {
-                actions.setTabKey('persons')
+                actions.setTabKey('persons', false)
             },
             [urls.cohorts()]: () => {
-                actions.setTabKey('cohorts')
+                actions.setTabKey('cohorts', false)
             },
             [urls.groups(':key')]: ({ key }) => {
-                actions.setTabKey(`groups-${key}`)
+                actions.setTabKey(`groups-${key}`, false)
+            },
+            [urls.groups(':key', ':tab')]: ({ key }) => {
+                actions.setTabKey(`groups-${key}`, false)
             },
         }
     }),

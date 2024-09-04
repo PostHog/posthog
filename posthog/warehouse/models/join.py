@@ -40,6 +40,11 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
     joining_table_name = models.CharField(max_length=400)
     joining_table_key = models.CharField(max_length=400)
     field_name = models.CharField(max_length=400)
+    group_type_index = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Group type index means the join only happens for that group type, not all groups",
+    )
 
     def join_function(
         self, override_source_table_key: Optional[str] = None, override_joining_table_key: Optional[str] = None
@@ -67,6 +72,23 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
                 raise ResolutionError("Data Warehouse Join HogQL expression should be a Field node")
             right.chain = [join_to_add.to_table, *right.chain]
 
+            constraint = ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=left,
+                right=right,
+            )
+            if self.group_type_index is not None and join_to_add.from_table == "groups":
+                constraint = ast.And(
+                    exprs=[
+                        constraint,
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=ast.Field(chain=["groups", "index"]),
+                            right=ast.Constant(value=self.group_type_index),
+                        ),
+                    ]
+                )
+
             join_expr = ast.JoinExpr(
                 table=ast.SelectQuery(
                     select=[
@@ -78,11 +100,7 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
                 join_type="LEFT JOIN",
                 alias=join_to_add.to_table,
                 constraint=ast.JoinConstraint(
-                    expr=ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=left,
-                        right=right,
-                    ),
+                    expr=constraint,
                     constraint_type="ON",
                 ),
             )

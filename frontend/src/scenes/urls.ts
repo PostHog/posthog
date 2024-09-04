@@ -125,7 +125,8 @@ export const urls = {
         `/pipeline/${!stage.startsWith(':') && !stage?.endsWith('s') ? `${stage}s` : stage}/${id}${
             nodeTab ? `/${nodeTab}` : ''
         }`,
-    groups: (groupTypeIndex: string | number): string => `/groups/${groupTypeIndex}`,
+    groups: (groupTypeIndex: string | number, tab?: string | null): string =>
+        `/groups/${groupTypeIndex}${tab ? `/${tab}` : ''}`,
     // :TRICKY: Note that groupKey is provided by user. We need to override urlPatternOptions for kea-router.
     group: (groupTypeIndex: string | number, groupKey: string, encode: boolean = true, tab?: string | null): string =>
         `/groups/${groupTypeIndex}/${encode ? encodeURIComponent(groupKey) : groupKey}${tab ? `/${tab}` : ''}`,

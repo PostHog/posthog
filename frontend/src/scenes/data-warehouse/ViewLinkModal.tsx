@@ -211,7 +211,7 @@ export function ViewLinkForm(): JSX.Element {
     )
 }
 
-const HogQLDropdown = ({
+export const HogQLDropdown = ({
     hogQLValue,
     onHogQLValueChange,
     tableName,

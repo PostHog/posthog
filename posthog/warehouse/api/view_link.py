@@ -25,6 +25,7 @@ class ViewLinkSerializer(serializers.ModelSerializer):
             "joining_table_name",
             "joining_table_key",
             "field_name",
+            "group_type_index",
         ]
         read_only_fields = ["id", "created_by", "created_at"]
 
@@ -41,6 +42,9 @@ class ViewLinkSerializer(serializers.ModelSerializer):
         self._validate_join_key(source_table_key, source_table, self.context["team_id"])
         self._validate_join_key(joining_table_key, joining_table, self.context["team_id"])
         self._validate_key_uniqueness(field_name=field_name, table_name=source_table, team_id=self.context["team_id"])
+        self._validate_group_type_index(
+            group_type_index=validated_data.get("group_type_index"), source_table=source_table
+        )
 
         view_link = DataWarehouseJoin.objects.create(**validated_data)
 
@@ -74,6 +78,12 @@ class ViewLinkSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(f"Join key {join_key} must be a table field - no function calls allowed")
 
         return
+
+    def _validate_join_key(self, group_type_index: Optional[int], source_table: Optional[str]) -> None:
+        if group_type_index is None:
+            return
+        if source_table != "groups":
+            raise serializers.ValidationError(f"Can only specify a group_type_index when joining onto groups table")
 
 
 class ViewLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
