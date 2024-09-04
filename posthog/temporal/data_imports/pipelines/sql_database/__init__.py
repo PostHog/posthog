@@ -173,24 +173,26 @@ def sql_database(
         # and pass them in here to get empty table materialization
         binary_columns_to_drop = get_binary_columns(engine, schema or "", table.name)
 
-        yield dlt.resource(
-            table_rows,
-            name=table.name,
-            primary_key=get_primary_key(table),
-            merge_key=get_primary_key(table),
-            write_disposition={
-                "disposition": "merge",
-                "strategy": "upsert",
-            }
-            if incremental
-            else "replace",
-            spec=SqlDatabaseTableConfiguration,
-            table_format="delta",
-            columns=get_column_hints(engine, schema or "", table.name),
-        ).add_map(remove_columns(binary_columns_to_drop, team_id))(
-            engine=engine,
-            table=table,
-            incremental=incremental,
+        yield (
+            dlt.resource(
+                table_rows,
+                name=table.name,
+                primary_key=get_primary_key(table),
+                merge_key=get_primary_key(table),
+                write_disposition={
+                    "disposition": "merge",
+                    "strategy": "upsert",
+                }
+                if incremental
+                else "replace",
+                spec=SqlDatabaseTableConfiguration,
+                table_format="delta",
+                columns=get_column_hints(engine, schema or "", table.name),
+            ).add_map(remove_columns(binary_columns_to_drop, team_id))(
+                engine=engine,
+                table=table,
+                incremental=incremental,
+            )
         )
 
 

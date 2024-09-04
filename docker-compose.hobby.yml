@@ -121,6 +121,7 @@ services:
             OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
             OBJECT_STORAGE_ENABLED: true
             CDP_REDIS_HOST: redis7
+            CDP_REDIS_PORT: 6379
         depends_on:
             - db
             - redis
