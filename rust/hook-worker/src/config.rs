@@ -3,7 +3,7 @@ use std::time;
 
 use envconfig::Envconfig;
 
-use hook_common::config::KafkaConfig;
+use common_kafka::config::KafkaConfig;
 
 #[derive(Envconfig, Clone)]
 pub struct Config {
