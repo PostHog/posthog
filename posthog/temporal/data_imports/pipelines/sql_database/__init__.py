@@ -133,19 +133,6 @@ def remove_columns(columns_to_drop: list[str], team_id: Optional[int]):
     return internal_remove
 
 
-def replace_incremental_fields(incremental: Optional[dlt.sources.incremental]):
-    def internal_replace(doc: dict) -> dict:
-        if incremental is None:
-            return doc
-
-        if doc.get(incremental.cursor_path, None) is None:
-            doc[incremental.cursor_path] = incremental.initial_value
-
-        return doc
-
-    return internal_replace
-
-
 @dlt.source(max_table_nesting=0)
 def sql_database(
     credentials: Union[ConnectionStringCredentials, Engine, str] = dlt.secrets.value,
@@ -201,12 +188,7 @@ def sql_database(
                 spec=SqlDatabaseTableConfiguration,
                 table_format="delta",
                 columns=get_column_hints(engine, schema or "", table.name),
-            )
-            .add_map(
-                replace_incremental_fields(incremental),
-                insert_at=1,  # Adds this map func before incremental processing
-            )
-            .add_map(remove_columns(binary_columns_to_drop, team_id))(
+            ).add_map(remove_columns(binary_columns_to_drop, team_id))(
                 engine=engine,
                 table=table,
                 incremental=incremental,
