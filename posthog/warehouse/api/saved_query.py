@@ -186,7 +186,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         for ancestor in ancestors:
             try:
                 ancestor_uuid = uuid.UUID(ancestor)
-                ancestor_ids.add(ancestor_uuid)
+                ancestor_ids.add(str(ancestor_uuid))
             except ValueError:
                 ancestor_ids.add(ancestor)
                 continue
@@ -226,7 +226,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         for descendant in descendants:
             try:
                 descendant_uuid = uuid.UUID(descendant)
-                descendant_ids.add(descendant_uuid)
+                descendant_ids.add(str(descendant_uuid))
             except ValueError:
                 descendant_ids.add(descendant)
                 continue
