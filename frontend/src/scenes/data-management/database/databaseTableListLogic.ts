@@ -109,7 +109,9 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
                 }
 
                 return Object.values(database.tables)
-                    .filter((n): n is DatabaseSchemaDataWarehouseTable => n.type === 'data_warehouse')
+                    .filter(
+                        (n): n is DatabaseSchemaDataWarehouseTable => n.type === 'data_warehouse' || n.type == 'view'
+                    )
                     .reduce((acc, cur) => {
                         acc[cur.name] = database.tables[cur.name] as DatabaseSchemaDataWarehouseTable
                         return acc

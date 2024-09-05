@@ -31,6 +31,8 @@ use tokio::{
 use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
+common_alloc::used!();
+
 fn setup_tracing() {
     let log_layer: tracing_subscriber::filter::Filtered<
         tracing_subscriber::fmt::Layer<tracing_subscriber::Registry>,
