@@ -145,17 +145,18 @@ export class CdpApi {
                     if (mock_async_functions) {
                         // Add the state, simulating what executeAsyncResponse would do
 
-                        const fakeFetchResponse = {
-                            status: 200,
-                            body: '{}',
+                        // Re-parse the fetch args for the logging
+                        const fetchArgs = {
+                            ...invocation.queueParameters,
+                            body: invocation.queueBlob?.toString(),
                         }
 
                         response = {
                             invocation: {
                                 ...invocation,
                                 queue: 'hog',
-                                queueParameters: { response: { status: fakeFetchResponse.status } },
-                                queueBlob: Buffer.from(fakeFetchResponse.body),
+                                queueParameters: { response: { status: 200 } },
+                                queueBlob: Buffer.from('{}'),
                             },
                             finished: false,
                             logs: [
@@ -167,7 +168,7 @@ export class CdpApi {
                                 {
                                     level: 'info',
                                     timestamp: DateTime.now(),
-                                    message: `fetch(${JSON.stringify(fakeFetchResponse, null, 2)})`,
+                                    message: `fetch(${JSON.stringify(fetchArgs, null, 2)})`,
                                 },
                             ],
                         }
