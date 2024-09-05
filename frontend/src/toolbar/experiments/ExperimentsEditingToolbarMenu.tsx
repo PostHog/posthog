@@ -86,6 +86,14 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                             conditions: null,
                                             rollout_percentage: 0,
                                         }
+
+                                        const perVariantRollout = 100 / Object.keys(experimentForm.variants).length
+                                        for (const existingVariant in experimentForm.variants) {
+                                            if (experimentForm.variants[existingVariant]) {
+                                                experimentForm.variants[existingVariant].rollout_percentage =
+                                                    Number(perVariantRollout)
+                                            }
+                                        }
                                     }
                                     setExperimentFormValue('variants', experimentForm.variants)
                                 }}
