@@ -51,6 +51,7 @@ export const OBJECTS = {
         'IconGear',
         'IconGearFilled',
         'IconStack',
+        'IconSparkles',
     ],
     People: ['IconPeople', 'IconPeopleFilled', 'IconPerson', 'IconProfile', 'IconUser', 'IconGroups'],
     'Business & Finance': ['IconStore', 'IconCart', 'IconReceipt', 'IconPiggyBank', 'IconHandMoney'],

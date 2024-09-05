@@ -253,6 +253,12 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         projectBased: true,
         name: 'Homepage',
     },
+    [Scene.Max]: {
+        projectBased: true,
+        name: 'Max',
+        layout: 'app-raw',
+        hideProjectNotice: true, // FIXME: Currently doesn't render well...
+    },
     [Scene.IntegrationsRedirect]: {
         name: 'Integrations redirect',
     },
@@ -343,7 +349,7 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     },
     [Scene.Notebook]: {
         projectBased: true,
-        hideProjectNotice: true, // Currently doesn't render well...
+        hideProjectNotice: true, // FIXME: Currently doesn't render well...
         name: 'Notebook',
         layout: 'app-raw',
         activityScope: ActivityScope.NOTEBOOK,
@@ -379,7 +385,7 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     },
 }
 
-// NOTE: These redirects will fully replace the URL. If you want to keep support for query and hash params then you should use the above `preserveParams` function.
+// NOTE: These redirects will fully replace the URL. If you want to keep support for query and hash params then you should use a function (not string) redirect
 export const redirects: Record<
     string,
     string | ((params: Params, searchParams: Params, hashParams: Params) => string)
@@ -428,6 +434,9 @@ export const redirects: Record<
         return urls.replay()
     },
     '/replay': urls.replay(),
+    '/replay/recent': (_params, searchParams) => {
+        return urls.replay(undefined, searchParams.filters, searchParams.sessionRecordingId)
+    },
     '/settings': urls.settings(),
     '/project/settings': urls.settings('project'),
     '/organization/settings': urls.settings('organization'),
@@ -514,6 +523,7 @@ export const routes: Record<string, Scene> = {
     [urls.annotations()]: Scene.DataManagement,
     [urls.annotation(':id')]: Scene.DataManagement,
     [urls.projectHomepage()]: Scene.ProjectHomepage,
+    [urls.max()]: Scene.Max,
     [urls.projectCreateFirst()]: Scene.ProjectCreateFirst,
     [urls.organizationBilling()]: Scene.Billing,
     [urls.organizationCreateFirst()]: Scene.OrganizationCreateFirst,

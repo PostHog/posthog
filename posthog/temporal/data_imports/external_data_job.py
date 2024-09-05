@@ -1,14 +1,16 @@
 import dataclasses
 import datetime as dt
 import json
-import uuid
 
-from asgiref.sync import sync_to_async
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
 # TODO: remove dependency
 from posthog.temporal.batch_exports.base import PostHogWorkflow
+from posthog.temporal.data_imports.workflow_activities.check_billing_limits import (
+    CheckBillingLimitsActivityInputs,
+    check_billing_limits_activity,
+)
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 from posthog.temporal.data_imports.workflow_activities.create_job_model import (
     CreateExternalDataJobModelActivityInputs,
@@ -24,7 +26,7 @@ from posthog.warehouse.data_load.service import (
 from posthog.warehouse.data_load.source_templates import create_warehouse_templates_for_source
 
 from posthog.warehouse.external_data_source.jobs import (
-    update_external_job_status,
+    aupdate_external_job_status,
 )
 from posthog.warehouse.models import (
     ExternalDataJob,
@@ -67,8 +69,8 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
             logger.info("Schema has a non-retryable error - turning off syncing")
             await aupdate_should_sync(schema_id=inputs.schema_id, team_id=inputs.team_id, should_sync=False)
 
-    await sync_to_async(update_external_job_status)(
-        run_id=uuid.UUID(inputs.id),
+    await aupdate_external_job_status(
+        job_id=inputs.id,
         status=inputs.status,
         latest_error=inputs.latest_error,
         team_id=inputs.team_id,
@@ -151,7 +153,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
         )
 
         # TODO: split out the creation of the external data job model from schema getting to seperate out exception handling
-        run_id, incremental = await workflow.execute_activity(
+        job_id, incremental = await workflow.execute_activity(
             create_external_data_job_model_activity,
             create_external_data_job_inputs,
             start_to_close_timeout=dt.timedelta(minutes=1),
@@ -163,9 +165,24 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             ),
         )
 
+        # Check billing limits
+        hit_billing_limit = await workflow.execute_activity(
+            check_billing_limits_activity,
+            CheckBillingLimitsActivityInputs(job_id=job_id, team_id=inputs.team_id),
+            start_to_close_timeout=dt.timedelta(minutes=1),
+            retry_policy=RetryPolicy(
+                initial_interval=dt.timedelta(seconds=10),
+                maximum_interval=dt.timedelta(seconds=60),
+                maximum_attempts=3,
+            ),
+        )
+
+        if hit_billing_limit:
+            return
+
         update_inputs = UpdateExternalDataJobStatusInputs(
-            id=run_id,
-            run_id=run_id,
+            id=job_id,
+            run_id=job_id,
             status=ExternalDataJob.Status.COMPLETED,
             latest_error=None,
             internal_error=None,
@@ -176,7 +193,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
         try:
             job_inputs = ImportDataActivityInputs(
                 team_id=inputs.team_id,
-                run_id=run_id,
+                run_id=job_id,
                 schema_id=inputs.external_data_schema_id,
                 source_id=inputs.external_data_source_id,
             )
@@ -197,17 +214,13 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             # Create source templates
             await workflow.execute_activity(
                 create_source_templates,
-                CreateSourceTemplateInputs(team_id=inputs.team_id, run_id=run_id),
+                CreateSourceTemplateInputs(team_id=inputs.team_id, run_id=job_id),
                 start_to_close_timeout=dt.timedelta(minutes=10),
                 retry_policy=RetryPolicy(maximum_attempts=2),
             )
 
         except exceptions.ActivityError as e:
-            if isinstance(e.cause, exceptions.CancelledError):
-                update_inputs.status = ExternalDataJob.Status.CANCELLED
-            else:
-                update_inputs.status = ExternalDataJob.Status.FAILED
-
+            update_inputs.status = ExternalDataJob.Status.FAILED
             update_inputs.internal_error = str(e.cause)
             update_inputs.latest_error = str(e.cause)
             raise

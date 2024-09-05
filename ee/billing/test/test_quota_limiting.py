@@ -92,7 +92,7 @@ class TestQuotaLimiting(BaseTest):
 
         patch_capture.reset_mock()
         # Add this org to the redis cache.
-        team_tokens = get_team_attribute_by_quota_resource(self.organization, QuotaResource.EVENTS)
+        team_tokens = get_team_attribute_by_quota_resource(self.organization)
         add_limited_team_tokens(
             QuotaResource.EVENTS,
             {x: 1612137599 for x in team_tokens},
@@ -715,7 +715,7 @@ class TestQuotaLimiting(BaseTest):
             # rows_synced uses teams, not tokens
             assert sorted(
                 list_limited_team_attributes(QuotaResource.ROWS_SYNCED, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
-            ) == sorted(["1337", str(self.team.pk), str(other_team.pk)])
+            ) == sorted(["1337", str(self.team.api_token), str(other_team.api_token)])
 
             self.organization.usage["events"]["usage"] = 80
             self.organization.usage["rows_synced"]["usage"] = 36
@@ -748,7 +748,7 @@ class TestQuotaLimiting(BaseTest):
                 list_limited_team_attributes(
                     QuotaResource.ROWS_SYNCED, QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY
                 )
-            ) == sorted([str(self.team.pk), str(other_team.pk)])
+            ) == sorted([str(self.team.api_token), str(other_team.api_token)])
 
             self.organization.usage["events"]["usage"] = 80
             self.organization.usage["rows_synced"]["usage"] = 36

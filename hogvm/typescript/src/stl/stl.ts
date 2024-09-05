@@ -294,6 +294,28 @@ export const STL: Record<string, STLFunction> = {
         minArgs: 3,
         maxArgs: 3,
     },
+    position: {
+        fn: ([str, elem]) => {
+            if (typeof str === 'string') {
+                return str.indexOf(String(elem)) + 1
+            } else {
+                return 0
+            }
+        },
+        minArgs: 2,
+        maxArgs: 2,
+    },
+    positionCaseInsensitive: {
+        fn: ([str, elem]) => {
+            if (typeof str === 'string') {
+                return str.toLowerCase().indexOf(String(elem).toLowerCase()) + 1
+            } else {
+                return 0
+            }
+        },
+        minArgs: 2,
+        maxArgs: 2,
+    },
     trim: {
         fn: ([str, char]) => {
             if (char === null || char === undefined) {
@@ -417,6 +439,17 @@ export const STL: Record<string, STLFunction> = {
         },
         minArgs: 1,
         maxArgs: 1,
+    },
+    indexOf: {
+        fn: ([arrOrString, elem]) => {
+            if (Array.isArray(arrOrString)) {
+                return arrOrString.indexOf(elem) + 1
+            } else {
+                return 0
+            }
+        },
+        minArgs: 2,
+        maxArgs: 2,
     },
     arrayPushBack: {
         fn: ([arr, item]) => {

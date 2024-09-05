@@ -88,7 +88,7 @@ export const standardAnimations: { [key: string]: SpriteInfo } = {
     },
     wave: {
         img: 'wave',
-        frames: 27,
+        frames: 26,
         maxIteration: 1,
         randomChance: 2,
     },
