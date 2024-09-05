@@ -3,7 +3,7 @@ from .slack.template_slack import template as slack
 from .hubspot.template_hubspot import template as hubspot
 from .customerio.template_customerio import template as customerio, TemplateCustomerioMigrator
 from .intercom.template_intercom import template as intercom
-from .sendgrid.template_sendgrid import template as sendgrid
+from .sendgrid.template_sendgrid import template as sendgrid, TemplateSendGridMigrator
 from .clearbit.template_clearbit import template as clearbit
 from .posthog.template_posthog import template as posthog
 from .aws_kinesis.template_aws_kinesis import template as aws_kinesis
@@ -39,6 +39,7 @@ HOG_FUNCTION_TEMPLATES_BY_ID = {template.id: template for template in HOG_FUNCTI
 
 HOG_FUNCTION_MIGRATORS = {
     TemplateCustomerioMigrator.plugin_url: TemplateCustomerioMigrator,
+    TemplateSendGridMigrator.plugin_url: TemplateSendGridMigrator,
 }
 
 __all__ = ["HOG_FUNCTION_TEMPLATES", "HOG_FUNCTION_TEMPLATES_BY_ID"]

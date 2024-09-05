@@ -1,4 +1,7 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
+import dataclasses
+from copy import deepcopy
+
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, HogFunctionTemplateMigrator
 
 # Based off of https://www.twilio.com/docs/sendgrid/api-reference/contacts/add-or-update-a-contact
 
@@ -104,3 +107,55 @@ if (res.status > 300) {
         "filter_test_accounts": True,
     },
 )
+
+
+class TemplateSendGridMigrator(HogFunctionTemplateMigrator):
+    plugin_url = "https://github.com/PostHog/sendgrid-plugin"
+
+    @classmethod
+    def migrate(cls, obj):
+        hf = deepcopy(dataclasses.asdict(template))
+
+        sendgridApiKey = obj.config.get("sendgridApiKey", "")
+        customFields = obj.config.get("customFields", "")
+        sendgrid_fields = [
+            "address_line_1",
+            "address_line_2",
+            "alternate_emails",
+            "anonymous_id",
+            "city",
+            "country",
+            "email",
+            "external_id",
+            "facebook",
+            "first_name",
+            "last_name",
+            "phone_number_id",
+            "postal_code",
+            "state_province_region",
+            "unique_name",
+            "whatsapp",
+        ]
+
+        hf["filters"] = {}
+        hf["filters"]["events"] = [{"id": "$identify", "name": "$identify", "type": "events", "order": 0}]
+
+        hf["inputs"] = {
+            "api_key": {"value": sendgridApiKey},
+            "email": {"value": "{person.properties.email}"},
+            "properties": {"value": {}},
+            "custom_fields": {"value": {}},
+        }
+
+        for field in customFields.split(","):
+            if "=" in field:
+                posthog_prop, sendgrid_field = field.split("=")
+            else:
+                posthog_prop = sendgrid_field = field.strip()
+            posthog_prop = f"{{person.properties.{posthog_prop}}}"
+            if sendgrid_field in sendgrid_fields:
+                hf["inputs"]["properties"]["value"][sendgrid_field] = posthog_prop
+            else:
+                hf["inputs"]["custom_fields"]["value"][sendgrid_field] = posthog_prop
+
+        return hf
