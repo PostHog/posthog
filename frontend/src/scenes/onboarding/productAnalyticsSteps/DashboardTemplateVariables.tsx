@@ -59,7 +59,7 @@ function VariableSelector({
                     <LemonLabel>Custom event name</LemonLabel>
                     <p>
                         Set the name that you'll use for a custom event (eg. a backend event) instead of selecting an
-                        event from your site.
+                        event from your site. You can change this later if needed.
                     </p>
                     <div className="flex gap-x-2 w-full">
                         <LemonInput
