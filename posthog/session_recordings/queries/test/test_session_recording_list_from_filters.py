@@ -3777,7 +3777,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             first_timestamp=(self.an_hour_ago + relativedelta(minutes=10)),
         )
 
-        # ensures conversion to start_time
         (session_recordings, _, _) = self._filter_recordings_by({"order": "start_time"})
         assert [r["session_id"] for r in session_recordings] == [session_id_three, session_id_one, session_id_two]
 
