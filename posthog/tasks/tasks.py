@@ -890,16 +890,6 @@ def ee_persist_finished_recordings() -> None:
         persist_finished_recordings()
 
 
-@shared_task(ignore_result=True)
-def check_data_import_row_limits() -> None:
-    try:
-        from posthog.tasks.warehouse import check_synced_row_limits
-    except ImportError:
-        pass
-    else:
-        check_synced_row_limits()
-
-
 # this task runs a CH query and triggers other tasks
 # it can run on the default queue
 @shared_task(ignore_result=True)

@@ -31,6 +31,8 @@ use tokio::{
 use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
+common_alloc::used!();
+
 fn setup_tracing() {
     let log_layer: tracing_subscriber::filter::Filtered<
         tracing_subscriber::fmt::Layer<tracing_subscriber::Registry>,
@@ -108,6 +110,8 @@ async fn spawn_producer_loop(
                         Err(TrySendError::Full(update)) => {
                             warn!("Worker blocked");
                             metrics::counter!(WORKER_BLOCKED).increment(1);
+                            // Workers should just die if the channel is dropped, since that indicates
+                            // the main loop is dead.
                             channel.send(update).await.unwrap();
                         }
                         Err(e) => {
@@ -187,16 +191,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         batch_time.fin();
 
-        metrics::gauge!(CACHE_CONSUMED).set(cache.len() as f64);
-
         metrics::gauge!(TRANSACTION_LIMIT_SATURATION).set(
             (config.max_concurrent_transactions - transaction_limit.available_permits()) as f64,
         );
 
-        // We unconditionally wait to acquire a transaction permit - this is our backpressure mechanism. If we
+        let cache_utilization = cache.len() as f64 / config.cache_capacity as f64;
+        metrics::gauge!(CACHE_CONSUMED).set(cache_utilization);
+
+        // We unconditionally wait to wait for a transaction permit - this is our backpressure mechanism. If we
         // fail to acquire a permit for long enough, we will fail liveness checks (but that implies our ongoing
         // transactions are halted, at which point DB health is a concern).
         let permit_acquire_time = common_metrics::timing_guard(PERMIT_WAIT_TIME, &[]);
+        // This semaphore will never be closed.
         let permit = transaction_limit.clone().acquire_owned().await.unwrap();
         permit_acquire_time.fin();
 
@@ -204,7 +210,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tokio::spawn(async move {
             let _permit = permit;
             let issue_time = common_metrics::timing_guard(UPDATE_ISSUE_TIME, &[]);
-            context.issue(batch).await.unwrap();
+            if let Err(e) = context.issue(batch, cache_utilization).await {
+                warn!("Issue failed: {:?}", e);
+            }
             issue_time.fin();
         });
     }

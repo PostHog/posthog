@@ -1,9 +1,15 @@
-use chrono::{Duration, Utc};
-
+use chrono::{Duration, Timelike, Utc};
+use common_kafka::kafka_messages::app_metrics2::{
+    AppMetric2, Kind as AppMetric2Kind, Source as AppMetric2Source,
+};
 use cyclotron_core::{JobInit, JobState, QueueManager, Worker};
 use cyclotron_janitor::{config::JanitorSettings, janitor::Janitor};
+use rdkafka::consumer::{Consumer, StreamConsumer};
+use rdkafka::{ClientConfig, Message};
 use sqlx::PgPool;
 use uuid::Uuid;
+
+use common_kafka::{test::create_mock_kafka, APP_METRICS2_TOPIC};
 
 #[sqlx::test(migrations = "../cyclotron-core/migrations")]
 async fn janitor_test(db: PgPool) {
@@ -15,6 +21,19 @@ async fn janitor_test(db: PgPool) {
     let stall_timeout = Duration::milliseconds(10);
     let max_touches = 3;
 
+    let (mock_cluster, mock_producer) = create_mock_kafka().await;
+    mock_cluster
+        .create_topic(APP_METRICS2_TOPIC, 1, 1)
+        .expect("failed to create mock app_metrics2 topic");
+
+    let kafka_consumer: StreamConsumer = ClientConfig::new()
+        .set("bootstrap.servers", mock_cluster.bootstrap_servers())
+        .set("group.id", "mock")
+        .set("auto.offset.reset", "earliest")
+        .create()
+        .expect("failed to create mock consumer");
+    kafka_consumer.subscribe(&[APP_METRICS2_TOPIC]).unwrap();
+
     let settings = JanitorSettings {
         stall_timeout,
         max_touches,
@@ -23,6 +42,7 @@ async fn janitor_test(db: PgPool) {
     };
     let janitor = Janitor {
         inner: cyclotron_core::Janitor::from_pool(db.clone()),
+        kafka_producer: mock_producer,
         settings,
         metrics_labels: vec![],
     };
@@ -30,12 +50,13 @@ async fn janitor_test(db: PgPool) {
     let now = Utc::now() - Duration::seconds(10);
     let queue_name = "default".to_string();
 
+    let uuid = Uuid::now_v7();
     let job_init = JobInit {
         team_id: 1,
         queue_name: queue_name.clone(),
         priority: 0,
         scheduled: now,
-        function_id: Some(Uuid::now_v7()),
+        function_id: Some(uuid),
         vm_state: None,
         parameters: None,
         blob: None,
@@ -43,6 +64,7 @@ async fn janitor_test(db: PgPool) {
     };
 
     // First test - if we mark a job as completed, the janitor will clean it up
+    let mut job_now = Utc::now();
     manager.create_job(job_init.clone()).await.unwrap();
     let job = worker
         .dequeue_jobs(&queue_name, 1)
@@ -60,7 +82,34 @@ async fn janitor_test(db: PgPool) {
     assert_eq!(result.poisoned, 0);
     assert_eq!(result.stalled, 0);
 
+    {
+        let kafka_msg = kafka_consumer.recv().await.unwrap();
+        let payload_str = String::from_utf8(kafka_msg.payload().unwrap().to_vec()).unwrap();
+        let app_metric: AppMetric2 = serde_json::from_str(&payload_str).unwrap();
+
+        assert_eq!(
+            app_metric,
+            AppMetric2 {
+                team_id: 1,
+                timestamp: job_now
+                    .with_minute(0)
+                    .unwrap()
+                    .with_second(0)
+                    .unwrap()
+                    .with_nanosecond(0)
+                    .unwrap(),
+                app_source: AppMetric2Source::Cyclotron,
+                app_source_id: uuid.to_string(),
+                instance_id: None,
+                metric_kind: AppMetric2Kind::Success,
+                metric_name: "finished_state".to_owned(),
+                count: 1
+            }
+        );
+    }
+
     // Second test - if we mark a job as failed, the janitor will clean it up
+    job_now = Utc::now();
     manager.create_job(job_init.clone()).await.unwrap();
     let job = worker
         .dequeue_jobs(&queue_name, 1)
@@ -77,6 +126,32 @@ async fn janitor_test(db: PgPool) {
     assert_eq!(result.failed, 1);
     assert_eq!(result.poisoned, 0);
     assert_eq!(result.stalled, 0);
+
+    {
+        let kafka_msg = kafka_consumer.recv().await.unwrap();
+        let payload_str = String::from_utf8(kafka_msg.payload().unwrap().to_vec()).unwrap();
+        let app_metric: AppMetric2 = serde_json::from_str(&payload_str).unwrap();
+
+        assert_eq!(
+            app_metric,
+            AppMetric2 {
+                team_id: 1,
+                timestamp: job_now
+                    .with_minute(0)
+                    .unwrap()
+                    .with_second(0)
+                    .unwrap()
+                    .with_nanosecond(0)
+                    .unwrap(),
+                app_source: AppMetric2Source::Cyclotron,
+                app_source_id: uuid.to_string(),
+                instance_id: None,
+                metric_kind: AppMetric2Kind::Failure,
+                metric_name: "finished_state".to_owned(),
+                count: 1
+            }
+        );
+    }
 
     // Third test - if we pick up a job, and then hold it for longer than
     // the stall timeout, the janitor will reset it. After this, the worker

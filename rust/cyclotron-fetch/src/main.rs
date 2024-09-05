@@ -10,6 +10,8 @@ use health::HealthRegistry;
 use std::{future::ready, sync::Arc};
 use tracing::{error, info};
 
+common_alloc::used!();
+
 async fn listen(app: Router, bind: String) -> Result<(), std::io::Error> {
     let listener = tokio::net::TcpListener::bind(bind).await?;
 
@@ -54,7 +56,7 @@ async fn main() {
 
     let liveness = HealthRegistry::new("liveness");
 
-    let (app_config, pool_config) = config.to_components();
+    let (app_config, pool_config, kafka_config) = config.to_components();
     let bind = format!("{}:{}", app_config.host, app_config.port);
 
     info!(
@@ -69,11 +71,21 @@ async fn main() {
         )
         .await;
 
+    let kafka_liveness = liveness
+        .register("rdkafka".to_string(), time::Duration::seconds(30))
+        .await;
+
     let app = setup_metrics_routes(app(liveness, app_config.worker_id.clone()));
 
-    let context = AppContext::create(app_config, pool_config, worker_liveness)
-        .await
-        .expect("failed to create app context");
+    let context = AppContext::create(
+        app_config,
+        pool_config,
+        kafka_config,
+        worker_liveness,
+        kafka_liveness,
+    )
+    .await
+    .expect("failed to create app context");
 
     context.worker.run_migrations().await;
 
