@@ -185,7 +185,7 @@ impl KafkaSink {
             exceptions_topic: config.kafka_exceptions_topic,
             heatmaps_topic: config.kafka_heatmaps_topic,
             replay_overflow_topic: config.kafka_replay_overflow_topic,
-            replay_overflow_limiter: replay_overflow_limiter,
+            replay_overflow_limiter,
         })
     }
 
@@ -235,7 +235,7 @@ impl KafkaSink {
                     None => false,
                     Some(limiter) => {
                         limiter
-                            .is_limited(&session_id)
+                            .is_limited(session_id)
                             .await
                     }
                 };

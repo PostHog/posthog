@@ -77,10 +77,10 @@ impl RedisLimiter {
         let key_prefix = redis_key_prefix.unwrap_or_default();
 
         let limiter = RedisLimiter {
-            interval,
             limited,
             redis: redis.clone(),
             key: format!("{key_prefix}{limiter_cache_key}{}", resource.as_str()),
+            interval,
         };
 
         // Spawn a background task to periodically fetch data from Redis
