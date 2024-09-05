@@ -62,11 +62,9 @@ export function HedgehogBuddyStatic({
             onClick={waveOnAppearance ? () => setAnimationIteration((x) => x + 1) : undefined}
         >
             <div
-                className="object-cover absolute inset-0 image-pixelated"
+                className="object-cover absolute inset-0 image-pixelated size-[400%] bg-cover"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
-                    width: '400%',
-                    height: '400%',
                     filter: filter as any,
                     backgroundImage: `url(${baseSpritePath()}/wave.png)`,
                     backgroundPosition: `-${((animationFrameRef.current - 1) % X_FRAMES) * SPRITE_SIZE}px -${
