@@ -17,6 +17,8 @@ mod config;
 mod handlers;
 mod webhooks;
 
+common_alloc::used!();
+
 async fn listen(app: Router, bind: String) -> Result<()> {
     let listener = tokio::net::TcpListener::bind(bind).await?;
 
