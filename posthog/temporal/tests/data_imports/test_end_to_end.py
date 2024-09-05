@@ -131,10 +131,13 @@ async def _run(
 
     await _execute_run(workflow_id, inputs, mock_data_response)
 
-    run = await get_latest_run_if_exists(team_id=team.pk, pipeline_id=source.pk)
+    run: ExternalDataJob = await get_latest_run_if_exists(team_id=team.pk, pipeline_id=source.pk)
 
     assert run is not None
     assert run.status == ExternalDataJob.Status.COMPLETED
+
+    await sync_to_async(schema.refresh_from_db)()
+    assert schema.last_synced_at == run.created_at
 
     res = await sync_to_async(execute_hogql_query)(f"SELECT * FROM {table_name}", team)
     assert len(res.results) == 1
