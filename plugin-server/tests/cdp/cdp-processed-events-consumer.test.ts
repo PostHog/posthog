@@ -5,12 +5,7 @@ import { Hub, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { getFirstTeam, resetTestDatabase } from '../helpers/sql'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './examples'
-import {
-    createHogExecutionGlobals,
-    createIncomingEvent,
-    createMessage,
-    insertHogFunction as _insertHogFunction,
-} from './fixtures'
+import { createHogExecutionGlobals, insertHogFunction as _insertHogFunction } from './fixtures'
 
 const mockConsumer = {
     on: jest.fn(),
