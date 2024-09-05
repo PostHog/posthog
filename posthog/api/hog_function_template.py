@@ -33,7 +33,6 @@ class PublicHogFunctionTemplateViewSet(viewsets.GenericViewSet):
     serializer_class = HogFunctionTemplateSerializer
 
     def _get_templates(self):
-        # TODO: Filtering for status?
         data = HOG_FUNCTION_TEMPLATES
         return data
 
