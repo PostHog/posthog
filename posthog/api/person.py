@@ -410,7 +410,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             OpenApiParameter(
                 "ids",
                 OpenApiTypes.OBJECT,
-                description="A list of PostHog person ids. We'll automatically fetch all related persons and delete those. The maximum amount of ids you can pass in one call is 100.",
+                description="A list of PostHog person IDs, up to 100 of them. We'll delete all the persons listed.",
             ),
         ],
     )
@@ -419,14 +419,14 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """
         This endpoint allows you to bulk delete persons, either by the PostHog person IDs or by distinct IDs. You can pass in a maximum of 100 IDs per call.
         """
-        if request.data.get("distinct_ids"):
-            if len(request.data["distinct_ids"]) > 100:
+        if distinct_ids := request.data.get("distinct_ids"):
+            if len(distinct_ids) > 100:
                 raise ValidationError("You can only pass 100 distinct_ids in one call")
-            persons = self.get_queryset().filter(persondistinctid__distinct_id__in=request.data.get("distinct_ids"))
-        elif request.data.get("ids"):
-            if len(request.data["ids"]) > 100:
+            persons = self.get_queryset().filter(persondistinctid__distinct_id__in=distinct_ids)
+        elif ids := request.data.get("ids"):
+            if len(ids) > 100:
                 raise ValidationError("You can only pass 100 ids in one call")
-            persons = self.get_queryset().filter(uuid__in=request.data["ids"])
+            persons = self.get_queryset().filter(uuid__in=ids)
         else:
             raise ValidationError("You need to specify either distinct_ids or ids")
 
