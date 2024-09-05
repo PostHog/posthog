@@ -16,6 +16,7 @@ import freezegun
 
 # we have to import pendulum for the side effect of importing it
 # freezegun.FakeDateTime and pendulum don't play nicely otherwise
+from inline_snapshot import customize_repr
 import pendulum  # noqa F401
 import pytest
 import sqlparse
@@ -878,6 +879,14 @@ def _create_person(*args, **kwargs):
 
     persons_cache_tests.append(kwargs)
     return Person(**{key: value for key, value in kwargs.items() if key != "distinct_ids"})
+
+
+@customize_repr
+def _(value: str):
+    """Makes sure we can use inline_snapshot() for query SQL snapshots."""
+    if "team_id," in value:
+        return re.sub(r"team_id, \d+", "team_id, <team_id>", value.__repr__())
+    return value.__repr__()
 
 
 class ClickhouseTestMixin(QueryMatchingTest):

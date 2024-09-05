@@ -39,7 +39,7 @@ class PersonPropertiesMode(Enum):
     """
 
 
-def alias_poe_mode_for_legacy(persons_on_events_mode: PersonsOnEventsMode) -> PersonsOnEventsMode:
+def alias_poe_mode_for_legacy(persons_on_events_mode: PersonsOnEventsMode | None) -> PersonsOnEventsMode:
     if persons_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED:
         # PERSON_ID_OVERRIDE_PROPERTIES_JOINED is not implemented in legacy insights
         # It's functionally the same as DISABLED, just slower - hence aliasing to DISABLED
