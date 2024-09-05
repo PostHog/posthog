@@ -167,22 +167,88 @@ describe('CDP Processed Events Consumer', () => {
                 ])
 
                 expect(mockProducer.produce).toHaveBeenCalledTimes(11)
-
                 expect(decodeAllKafkaMessages()).toMatchObject([
                     {
-                        key: expect.any(String),
-                        topic: 'cdp_function_callbacks_test',
+                        topic: 'log_entries_test',
                         value: {
-                            state: expect.any(String),
+                            message: 'Executing function',
+                            log_source_id: fnFetchNoFilters.id,
                         },
-                        waitForAck: true,
                     },
                     {
-                        key: expect.any(String),
+                        topic: 'log_entries_test',
+                        value: {
+                            message: "Suspending function due to async function call 'fetch'. Payload: 1902 bytes",
+                            log_source_id: fnFetchNoFilters.id,
+                        },
+                    },
+                    {
+                        topic: 'clickhouse_app_metrics2_test',
+                        value: {
+                            app_source: 'hog_function',
+                            team_id: 2,
+                            app_source_id: fnPrinterPageviewFilters.id,
+                            metric_kind: 'success',
+                            metric_name: 'succeeded',
+                            count: 1,
+                        },
+                    },
+                    {
+                        topic: 'log_entries_test',
+                        value: {
+                            message: 'Executing function',
+                            log_source_id: fnPrinterPageviewFilters.id,
+                        },
+                    },
+                    {
+                        topic: 'log_entries_test',
+                        value: {
+                            message: 'test',
+                            log_source_id: fnPrinterPageviewFilters.id,
+                        },
+                    },
+                    {
+                        topic: 'log_entries_test',
+                        value: {
+                            message: '{"nested":{"foo":"***REDACTED***","bool":false,"null":null}}',
+                            log_source_id: fnPrinterPageviewFilters.id,
+                        },
+                    },
+                    {
+                        topic: 'log_entries_test',
+                        value: {
+                            message: '{"foo":"***REDACTED***","bool":false,"null":null}',
+                            log_source_id: fnPrinterPageviewFilters.id,
+                        },
+                    },
+                    {
+                        topic: 'log_entries_test',
+                        value: {
+                            message: 'substring: ***REDACTED***',
+                            log_source_id: fnPrinterPageviewFilters.id,
+                        },
+                    },
+                    {
+                        topic: 'log_entries_test',
+                        value: {
+                            message:
+                                '{"input_1":"test","secret_input_2":{"foo":"***REDACTED***","bool":false,"null":null},"secret_input_3":"***REDACTED***"}',
+                            log_source_id: fnPrinterPageviewFilters.id,
+                        },
+                    },
+                    {
+                        topic: 'log_entries_test',
+                        value: {
+                            message: expect.stringContaining('Function completed'),
+                            log_source_id: fnPrinterPageviewFilters.id,
+                        },
+                    },
+                    {
                         topic: 'cdp_function_callbacks_test',
                         value: {
                             state: expect.any(String),
                         },
+                        key: expect.stringContaining(fnFetchNoFilters.id.toString()),
                         waitForAck: true,
                     },
                 ])
@@ -195,7 +261,9 @@ describe('CDP Processed Events Consumer', () => {
 
                 expect(invocations).toHaveLength(1)
                 expect(invocations).toMatchObject([matchInvocation(fnFetchNoFilters, globals)])
-                expect(mockProducer.produce).toHaveBeenCalledTimes(2)
+                expect(mockProducer.produce).toHaveBeenCalledTimes(4)
+
+                console.log(decodeAllKafkaMessages())
 
                 expect(decodeAllKafkaMessages()).toMatchObject([
                     {
@@ -210,6 +278,12 @@ describe('CDP Processed Events Consumer', () => {
                             team_id: 2,
                             timestamp: expect.any(String),
                         },
+                    },
+                    {
+                        topic: 'log_entries_test',
+                    },
+                    {
+                        topic: 'log_entries_test',
                     },
                     {
                         topic: 'cdp_function_callbacks_test',
@@ -251,59 +325,6 @@ describe('CDP Processed Events Consumer', () => {
                             metric_name: metric_name,
                             team_id: 2,
                         },
-                    },
-                ])
-            })
-        })
-
-        describe('no delayed execution', () => {
-            it('should invoke the initial function before enqueuing', async () => {
-                await insertHogFunction({
-                    ...HOG_EXAMPLES.simple_fetch,
-                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                    ...HOG_FILTERS_EXAMPLES.no_filters,
-                })
-                // Create a message that should be processed by this function
-                // Run the function and check that it was executed
-                await processor._handleKafkaBatch([
-                    createMessage(
-                        createIncomingEvent(team.id, {
-                            uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0',
-                            event: '$pageview',
-                            properties: JSON.stringify({
-                                $lib_version: '1.0.0',
-                            }),
-                        })
-                    ),
-                ])
-
-                // General check that the message seemed to get processed
-                expect(decodeAllKafkaMessages()).toMatchObject([
-                    {
-                        key: expect.any(String),
-                        topic: 'log_entries_test',
-                        value: {
-                            message: 'Executing function',
-                        },
-                        waitForAck: true,
-                    },
-                    {
-                        key: expect.any(String),
-                        topic: 'log_entries_test',
-                        value: {
-                            message: expect.stringContaining(
-                                "Suspending function due to async function call 'fetch'. Payload"
-                            ),
-                        },
-                        waitForAck: true,
-                    },
-                    {
-                        key: expect.any(String),
-                        topic: 'cdp_function_callbacks_test',
-                        value: {
-                            state: expect.any(String),
-                        },
-                        waitForAck: true,
                     },
                 ])
             })
