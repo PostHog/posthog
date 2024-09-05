@@ -9,15 +9,13 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Update marketing contacts in Sendgrid",
     icon_url="/static/services/sendgrid.png",
     hog="""
-let email := inputs.email
-
-if (empty(email)) {
+if (empty(inputs.email)) {
     print('`email` input is empty. Not updating contacts.')
     return
 }
 
 let contact := {
-  'email': email,
+  'email': inputs.email,
 }
 
 for (let key, value in inputs.properties) {
@@ -26,15 +24,32 @@ for (let key, value in inputs.properties) {
     }
 }
 
+let headers :=  {
+    'Authorization': f'Bearer {inputs.api_key}',
+    'Content-Type': 'application/json'
+}
+
+if (not empty(inputs.custom_fields)) {
+    let response := fetch('https://api.sendgrid.com/v3/marketing/field_definitions', {
+        'method': 'GET',
+        'headers': headers
+    })
+    if (response.status != 200) {
+        throw Error(f'Could not fetch custom fields. Status: {response.status}')
+    }
+    contact['custom_fields'] := {}
+    for (let obj in response.body?.custom_fields ?? {}) {
+        let inputValue := inputs.custom_fields[obj.name]
+        if (not empty(inputValue)) {
+            contact['custom_fields'][obj.id] := inputValue
+        }
+    }
+}
+
 let res := fetch('https://api.sendgrid.com/v3/marketing/contacts', {
     'method': 'PUT',
-    'headers': {
-        'Authorization': f'Bearer {inputs.api_key}',
-        'Content-Type': 'application/json'
-    },
-    'body': {
-      'contacts': [contact]
-    }
+    'headers': headers,
+    'body': { 'contacts': [contact] }
 })
 
 if (res.status > 300) {
@@ -61,11 +76,11 @@ if (res.status > 300) {
         {
             "key": "properties",
             "type": "dictionary",
-            "label": "Property mapping",
-            "description": "Map of reserved properties (https://www.twilio.com/docs/sendgrid/api-reference/contacts/add-or-update-a-contact)",
+            "label": "Reserved fields",
+            "description": "The following field names are allowed: address_line_1, address_line_2, alternate_emails, anonymous_id, city, country, email, external_id, facebook, first_name, last_name, phone_number_id, postal_code, state_province_region, unique_name, whatsapp.",
             "default": {
-                "last_name": "{person.properties.last_name}",
                 "first_name": "{person.properties.first_name}",
+                "last_name": "{person.properties.last_name}",
                 "city": "{person.properties.city}",
                 "country": "{person.properties.country}",
                 "postal_code": "{person.properties.postal_code}",
@@ -73,7 +88,15 @@ if (res.status > 300) {
             "secret": False,
             "required": True,
         },
-        # TODO: Add dynamic code for loading custom fields
+        {
+            "key": "custom_fields",
+            "type": "dictionary",
+            "label": "Custom fields",
+            "description": "Configure custom fields in SendGrid before using them here: https://mc.sendgrid.com/custom-fields",
+            "default": {},
+            "secret": False,
+            "required": False,
+        },
     ],
     filters={
         "events": [{"id": "$identify", "name": "$identify", "type": "events", "order": 0}],
