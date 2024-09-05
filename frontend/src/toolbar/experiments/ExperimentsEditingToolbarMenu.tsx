@@ -4,7 +4,6 @@ import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import React from 'react'
 
 import { SelectorEditingModal } from '~/toolbar/actions/SelectorEditingModal'
@@ -12,7 +11,7 @@ import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
 import { WebExperimentTransformField } from '~/toolbar/experiments/WebExperimentTransformField'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
-import { WebExperimentTransform } from '~/toolbar/types'
+import { ExperimentForm, WebExperimentTransform } from '~/toolbar/types'
 
 export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
     const {
@@ -32,6 +31,16 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
         setElementSelector,
         editSelectorWithIndex,
     } = useActions(experimentsTabLogic)
+
+    const rebalanceRolloutPercentage = (experimentForm: ExperimentForm): void => {
+        const perVariantRollout = 100 / Object.keys(experimentForm.variants || {}).length
+        for (const existingVariant in experimentForm.variants) {
+            if (experimentForm.variants[existingVariant]) {
+                experimentForm.variants[existingVariant].rollout_percentage = Number(perVariantRollout)
+            }
+        }
+        setExperimentFormValue('variants', experimentForm.variants)
+    }
 
     return (
         <ToolbarMenu>
@@ -87,13 +96,7 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                             rollout_percentage: 0,
                                         }
 
-                                        const perVariantRollout = 100 / Object.keys(experimentForm.variants).length
-                                        for (const existingVariant in experimentForm.variants) {
-                                            if (experimentForm.variants[existingVariant]) {
-                                                experimentForm.variants[existingVariant].rollout_percentage =
-                                                    Number(perVariantRollout)
-                                            }
-                                        }
+                                        rebalanceRolloutPercentage(experimentForm)
                                     }
                                     setExperimentFormValue('variants', experimentForm.variants)
                                 }}
@@ -117,72 +120,56 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                                     value={variant}
                                                 />
                                             )}
-                                            {selectedExperimentId !== 'new' && <h3 className="mb-0">{variant}</h3>}(
-                                            rollout percentage :{' '}
-                                            {experimentForm.variants && experimentForm.variants[variant]
-                                                ? experimentForm.variants[variant].rollout_percentage
-                                                : 0}{' '}
-                                            )
-                                            <LemonSlider
-                                                className="flex-1"
-                                                min={0}
-                                                max={100}
-                                                step={1}
-                                                onChange={(value) => {
-                                                    if (experimentForm.variants) {
-                                                        const webVariant = experimentForm.variants[variant]
-                                                        const variantCount =
-                                                            Object.keys(experimentForm.variants).length - 1
-                                                        if (variantCount > 0) {
-                                                            // redistribute rollout_percentages based on this value.
-                                                            const leftOverPercentage = 100 - value
-                                                            // if this variant's rollout_percentage is now 50%
-                                                            // we re-distribute the difference to the other variants.
-                                                            // so, since there are (ex) 2 other variants, they can both
-                                                            // be 25%
-                                                            const perVariantRollout = leftOverPercentage / variantCount
-                                                            for (const existingVariant in experimentForm.variants) {
-                                                                if (experimentForm.variants[existingVariant]) {
-                                                                    experimentForm.variants[
-                                                                        existingVariant
-                                                                    ].rollout_percentage = Number(perVariantRollout)
+                                            {selectedExperimentId !== 'new' && <h3 className="mb-0">{variant}</h3>}
+                                            <div className="flex p-1 flex-col-4">
+                                                <span>
+                                                    (rollout percentage :{' '}
+                                                    {experimentForm.variants && experimentForm.variants[variant]
+                                                        ? experimentForm.variants[variant].rollout_percentage
+                                                        : 0}{' '}
+                                                    )
+                                                </span>
+
+                                                <LemonButton
+                                                    type="secondary"
+                                                    size="small"
+                                                    className="ml-2"
+                                                    sideIcon={<IconPlus />}
+                                                    onClick={() => {
+                                                        if (experimentForm.variants) {
+                                                            const webVariant = experimentForm.variants[variant]
+                                                            if (webVariant) {
+                                                                if (webVariant.transforms) {
+                                                                    webVariant.transforms.push({
+                                                                        text: '',
+                                                                        html: '',
+                                                                    } as unknown as WebExperimentTransform)
                                                                 }
                                                             }
-                                                        }
-
-                                                        if (webVariant) {
-                                                            webVariant.rollout_percentage = value
                                                             setExperimentFormValue('variants', experimentForm.variants)
                                                         }
-                                                    }
-                                                }}
-                                                value={
-                                                    experimentForm.variants && experimentForm.variants[variant]
-                                                        ? experimentForm.variants[variant].rollout_percentage
-                                                        : 0
-                                                }
-                                            />
-                                            <LemonButton
-                                                type="secondary"
-                                                size="small"
-                                                sideIcon={<IconPlus />}
-                                                onClick={() => {
-                                                    if (experimentForm.variants) {
-                                                        const webVariant = experimentForm.variants[variant]
-                                                        if (webVariant) {
-                                                            if (webVariant.transforms) {
-                                                                webVariant.transforms.push({
-                                                                    text: '',
-                                                                    html: '',
-                                                                } as unknown as WebExperimentTransform)
-                                                            }
+                                                    }}
+                                                >
+                                                    Add Element
+                                                </LemonButton>
+
+                                                <LemonButton
+                                                    type="secondary"
+                                                    size="small"
+                                                    className="ml-2"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation()
+                                                        if (experimentForm.variants) {
+                                                            delete experimentForm.variants[variant]
+                                                            rebalanceRolloutPercentage(experimentForm)
                                                         }
-                                                        setExperimentFormValue('variants', experimentForm.variants)
-                                                    }
-                                                }}
-                                            >
-                                                Elements
-                                            </LemonButton>
+                                                    }}
+                                                    sideIcon={<IconTrash />}
+                                                >
+                                                    Remove
+                                                </LemonButton>
+                                            </div>
+
                                             <LemonDivider />
                                             {experimentForm.variants![variant].transforms.map((transform, tIndex) => (
                                                 <div key={tIndex}>
@@ -219,6 +206,7 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                                                             experimentForm.variants
                                                                         )
                                                                     }
+                                                                    rebalanceRolloutPercentage(experimentForm)
                                                                 }
                                                             }}
                                                             sideIcon={<IconTrash />}
