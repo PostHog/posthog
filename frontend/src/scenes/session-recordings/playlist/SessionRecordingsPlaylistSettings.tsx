@@ -25,12 +25,11 @@ export function SessionRecordingsPlaylistSettings(): JSX.Element {
                 <LemonSelect
                     options={[
                         {
-                            value: 'latest',
+                            value: 'start_time',
                             label: 'Latest',
                         },
                         {
                             label: 'Longest',
-                            tooltip: 'Active seconds',
                             options: [
                                 {
                                     value: 'duration',
