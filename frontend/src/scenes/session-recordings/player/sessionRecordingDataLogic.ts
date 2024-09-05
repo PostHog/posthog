@@ -1,6 +1,6 @@
 import posthogEE from '@posthog/ee/exports'
 import { customEvent, EventType, eventWithTime } from '@rrweb/types'
-import { captureException } from '@sentry/react'
+import { captureException, captureMessage } from '@sentry/react'
 import {
     actions,
     afterMount,
@@ -494,7 +494,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     try {
                         const query: HogQLQuery = {
                             kind: NodeKind.HogQLQuery,
-                            query: hogql`SELECT properties, timestamp 
+                            query: hogql`SELECT properties, timestamp, uuid 
                                 FROM events
                                 WHERE timestamp > ${dayjs(event.timestamp).subtract(1000, 'ms')}
                                 AND timestamp < ${dayjs(event.timestamp).add(1000, 'ms')}
@@ -507,7 +507,19 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                             throw new Error(response.error)
                         }
 
-                        const result = response.results.find((x: any) => x[1] === event.timestamp)
+                        // historically we compared timestamps here when finding properties for a particular event
+                        // it's nicer to use the event id
+                        // but since we were using timestamps, we might not be guaranteed to have the id?
+                        // TODO - check if we can remove the timestamp comparison
+                        const result = response.results.find((x: any) => {
+                            if (event.id) {
+                                return x[2] === event.id
+                            }
+                            captureMessage('event id not available for matching', {
+                                tags: { feature: 'session-recording-load-full-event-data' },
+                            })
+                            return x[1] === event.timestamp
+                        })
 
                         if (result) {
                             loadedProperties = JSON.parse(result[0])
