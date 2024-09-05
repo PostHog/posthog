@@ -146,7 +146,7 @@ class TestTemplateMigration(BaseTest):
     def test_ignore_domains(self):
         obj = self.get_plugin_config(
             {
-                "ignoredEmailDomains": "test.com, other-com, ",
+                "ignoredEmailDomains": "test.com, other.com, ",
             }
         )
 
@@ -155,8 +155,7 @@ class TestTemplateMigration(BaseTest):
             {
                 "properties": [
                     {"key": "email", "value": "test.com", "operator": "not_icontains", "type": "person"},
-                    {"key": "email", "value": " other-com", "operator": "not_icontains", "type": "person"},
-                    {"key": "email", "value": " ", "operator": "not_icontains", "type": "person"},
+                    {"key": "email", "value": "other-com", "operator": "not_icontains", "type": "person"},
                 ],
                 "events": [{"id": "$identify", "name": "$identify", "type": "events", "order": 0}],
             }
