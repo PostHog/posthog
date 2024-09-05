@@ -4,6 +4,8 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { teamLogic } from 'scenes/teamLogic'
@@ -37,10 +39,12 @@ export type DestinationFilters = {
     search?: string
     onlyActive?: boolean
     kind?: PipelineBackend
+    filters?: Record<string, any>
 }
 
 export type PipelineDestinationsLogicProps = {
     defaultFilters?: DestinationFilters
+    forceFilters?: DestinationFilters
     syncFiltersWithUrl?: boolean
 }
 
@@ -55,7 +59,9 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             userLogic,
             ['user', 'hasAvailableFeature'],
             pipelineAccessLogic,
-            ['canEnableNewDestinations'],
+            ['canEnableDestination'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
     }),
     actions({
@@ -73,13 +79,16 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
     }),
     reducers(({ props }) => ({
         filters: [
-            props.defaultFilters as DestinationFilters,
+            { ...(props.defaultFilters || {}), ...(props.forceFilters || {}) } as DestinationFilters,
             {
                 setFilters: (state, { filters }) => ({
                     ...state,
                     ...filters,
+                    ...(props.forceFilters || {}),
                 }),
-                resetFilters: () => ({}),
+                resetFilters: () => ({
+                    ...(props.forceFilters || {}),
+                }),
             },
         ],
     })),
@@ -188,7 +197,11 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             {
                 loadHogFunctions: async () => {
                     // TODO: Support pagination?
-                    return (await api.hogFunctions.list()).results
+                    return (
+                        await api.hogFunctions.list({
+                            filters: values.filters?.filters,
+                        })
+                    ).results
                 },
 
                 deleteNodeHogFunction: async ({ destination }) => {
@@ -233,11 +246,14 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                 pluginsLoading || pluginConfigsLoading || batchExportConfigsLoading || hogFunctionsLoading,
         ],
         destinations: [
-            (s) => [s.pluginConfigs, s.plugins, s.batchExportConfigs, s.hogFunctions, s.user],
-            (pluginConfigs, plugins, batchExportConfigs, hogFunctions, user): Destination[] => {
+            (s) => [s.pluginConfigs, s.plugins, s.batchExportConfigs, s.hogFunctions, s.user, s.featureFlags],
+            (pluginConfigs, plugins, batchExportConfigs, hogFunctions, user, featureFlags): Destination[] => {
                 // Migrations are shown only in impersonation mode, for us to be able to trigger them.
-                const rawBatchExports = Object.values(batchExportConfigs).filter(
-                    (config) => config.destination.type !== 'HTTP' || user?.is_impersonated
+                const httpEnabled =
+                    featureFlags[FEATURE_FLAGS.BATCH_EXPORTS_POSTHOG_HTTP] || user?.is_impersonated || user?.is_staff
+
+                const rawBatchExports = Object.values(batchExportConfigs).filter((config) =>
+                    httpEnabled ? true : config.destination.type !== ('HTTP' as const)
                 )
 
                 const rawDestinations: (PluginConfigWithPluginInfoNew | BatchExportConfiguration | HogFunctionType)[] =
@@ -286,7 +302,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
     }),
     listeners(({ values, actions }) => ({
         toggleNode: ({ destination, enabled }) => {
-            if (enabled && !values.canEnableNewDestinations) {
+            if (enabled && !values.canEnableDestination(destination)) {
                 lemonToast.error('Data pipelines add-on is required for enabling new destinations.')
                 return
             }

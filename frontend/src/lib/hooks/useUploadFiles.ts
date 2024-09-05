@@ -38,7 +38,7 @@ export function useUploadFiles({
     onUpload,
     onError,
 }: {
-    onUpload?: (url: string, fileName: string) => void
+    onUpload?: (url: string, fileName: string, uploadedMediaId: string) => void
     onError: (detail: string) => void
 }): {
     setFilesToUpload: (files: File[]) => void
@@ -58,7 +58,7 @@ export function useUploadFiles({
                 setUploading(true)
                 const file: File = filesToUpload[0]
                 const media = await uploadFile(file)
-                onUpload?.(media.image_location, media.name)
+                onUpload?.(media.image_location, media.name, media.id)
             } catch (error) {
                 const errorDetail = (error as any).detail || 'unknown error'
                 onError(errorDetail)

@@ -8,8 +8,6 @@ import { ProfilePicture, ProfilePictureProps } from 'lib/lemon-ui/ProfilePicture
 import { useMemo, useState } from 'react'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 
-import { NotebookNodeType } from '~/types'
-
 import { asDisplay, asLink } from './person-utils'
 import { PersonPreview } from './PersonPreview'
 
@@ -66,6 +64,17 @@ export function PersonDisplay({
 
     const notebookNode = useNotebookNode()
 
+    const handleClick = (e: React.MouseEvent): void => {
+        if (visible && href && !noLink && person?.properties) {
+            router.actions.push(href)
+        } else if (visible && !person?.properties) {
+            e.preventDefault()
+        } else {
+            setVisible(true)
+        }
+        return
+    }
+
     let content = (
         <span className={clsx('flex items-center', isCentered && 'justify-center')}>
             {withIcon && <PersonIcon person={person} size={typeof withIcon === 'string' ? withIcon : 'md'} />}
@@ -74,40 +83,14 @@ export function PersonDisplay({
     )
 
     content = (
-        <span
-            className="PersonDisplay"
-            onClick={
-                !noPopover
-                    ? () => {
-                          if (visible && href && !noLink) {
-                              router.actions.push(href)
-                          } else {
-                              setVisible(true)
-
-                              if (notebookNode && person) {
-                                  notebookNode.actions.updateAttributes({
-                                      children: [
-                                          {
-                                              type: NotebookNodeType.Person,
-                                              attrs: {
-                                                  id: person.distinct_id || person.distinct_ids?.[0],
-                                              },
-                                          },
-                                      ],
-                                  })
-                              }
-                          }
-                      }
-                    : undefined
-            }
-        >
-            {noLink || !href ? (
+        <span className="PersonDisplay" onClick={!noPopover ? handleClick : undefined}>
+            {noLink || !href || (visible && !person?.properties) ? (
                 content
             ) : (
                 <Link
                     to={href}
-                    onClick={(e) => {
-                        if (!noPopover) {
+                    onClick={(e: React.MouseEvent): void => {
+                        if (!noPopover && !notebookNode) {
                             e.preventDefault()
                             return
                         }
@@ -134,8 +117,8 @@ export function PersonDisplay({
                 }
                 visible={visible}
                 onClickOutside={() => setVisible(false)}
-                placement="right"
-                fallbackPlacements={['bottom', 'top']}
+                placement="top"
+                fallbackPlacements={['bottom', 'right']}
                 showArrow
             >
                 {content}

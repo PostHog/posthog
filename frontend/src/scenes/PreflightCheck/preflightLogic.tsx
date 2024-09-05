@@ -273,6 +273,12 @@ export const preflightLogic = kea<preflightLogicType>([
                 return preflight?.is_debug
             },
         ],
+        disableNavigationHooks: [
+            (s) => [s.preflight],
+            (preflight): boolean | undefined => {
+                return preflight?.dev_disable_navigation_hooks
+            },
+        ],
     }),
     listeners(({ values, actions }) => ({
         handlePreflightFinished: () => {

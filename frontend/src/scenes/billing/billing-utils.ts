@@ -92,7 +92,7 @@ export const convertAmountToUsage = (
     if (!amount) {
         return 0
     }
-    if (!productAndAddonTiers) {
+    if (!productAndAddonTiers || productAndAddonTiers.length === 0) {
         return 0
     }
 

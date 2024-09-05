@@ -43,9 +43,12 @@ dependencies:
   '@posthog/clickhouse':
     specifier: ^1.7.0
     version: 1.7.0
+  '@posthog/cyclotron':
+    specifier: file:../rust/cyclotron-node
+    version: file:../rust/cyclotron-node
   '@posthog/hogvm':
-    specifier: ^1.0.28
-    version: 1.0.28(luxon@3.4.4)(re2@1.20.3)
+    specifier: ^1.0.46
+    version: 1.0.46(luxon@3.4.4)
   '@posthog/plugin-scaffold':
     specifier: 1.4.4
     version: 1.4.4
@@ -73,6 +76,9 @@ dependencies:
   aws-sdk:
     specifier: ^2.927.0
     version: 2.1366.0
+  detect-browser:
+    specifier: ^5.3.0
+    version: 5.3.0
   escape-string-regexp:
     specifier: ^4.0.0
     version: 4.0.0
@@ -3110,14 +3116,12 @@ packages:
     engines: {node: '>=12'}
     dev: false
 
-  /@posthog/hogvm@1.0.28(luxon@3.4.4)(re2@1.20.3):
-    resolution: {integrity: sha512-xkPcBj8kHCdeIA1dAoPDqFzk1pcuI+abbxSJyjfLqwglZtWSu1pASCLA+U0/CTKNe0yMcqVAC9kNc3yt9pujBQ==}
+  /@posthog/hogvm@1.0.46(luxon@3.4.4):
+    resolution: {integrity: sha512-oTXytxHImxcAUYvK+QVI5nRc3YnVSbn01rFlOrpeTYjW5oqYKMR8nYsjhHGLt5p0pnfeBhmQjBM5mJtVs5bA2Q==}
     peerDependencies:
       luxon: ^3.4.4
-      re2: ^1.21.3
     dependencies:
       luxon: 3.4.4
-      re2: 1.20.3
     dev: false
 
   /@posthog/plugin-scaffold@1.4.4:
@@ -5403,6 +5407,10 @@ packages:
   /destroy@1.2.0:
     resolution: {integrity: sha512-2sJGJTaXIIaR1w4iJSNoN0hnMY7Gpc/n8D4qSCJw8QqFWXf7cuAgnEHxBpweaVcPevC2l3KpjYCx3NypQQgaJg==}
     engines: {node: '>= 0.8', npm: 1.2.8000 || >= 1.4.16}
+    dev: false
+
+  /detect-browser@5.3.0:
+    resolution: {integrity: sha512-53rsFbGdwMwlF7qvCt0ypLM5V5/Mbl0szB7GPN8y9NCcbknYOeVVXdrXEq+90IwAfrrzt6Hd+u2E2ntakICU8w==}
     dev: false
 
   /detect-libc@1.0.3:
@@ -10724,3 +10732,9 @@ packages:
   /yocto-queue@0.1.0:
     resolution: {integrity: sha512-rVksvsnNCdJ/ohGc6xgPwyN8eheCxsiLM8mxuE/t/mOVqJewPuO1miLpTHQiRgTKCLexL4MeAFVagts7HmNZ2Q==}
     engines: {node: '>=10'}
+
+  file:../rust/cyclotron-node:
+    resolution: {directory: ../rust/cyclotron-node, type: directory}
+    name: '@posthog/cyclotron'
+    version: 0.1.0
+    dev: false

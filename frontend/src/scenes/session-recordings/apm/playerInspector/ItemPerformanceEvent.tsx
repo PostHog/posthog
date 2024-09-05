@@ -82,7 +82,7 @@ function renderTimeBenchmark(milliseconds: number): JSX.Element {
 }
 
 function emptyPayloadMessage(
-    payloadCaptureIsEnabled: undefined | boolean,
+    payloadCaptureIsEnabled: boolean | undefined | null,
     item: PerformanceEvent,
     label: 'Request' | 'Response'
 ): JSX.Element | string {
@@ -173,7 +173,13 @@ export function ItemPerformanceEvent({
 
     return (
         <div>
-            <LemonButton noPadding onClick={() => setExpanded(!expanded)} fullWidth data-attr="item-performance-event">
+            <LemonButton
+                noPadding
+                onClick={() => setExpanded(!expanded)}
+                fullWidth
+                data-attr="item-performance-event"
+                className="font-normal"
+            >
                 <div className="flex-1 overflow-hidden">
                     <div
                         className="absolute bg-primary rounded-sm opacity-75"

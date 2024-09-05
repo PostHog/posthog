@@ -4,8 +4,8 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { urls } from 'scenes/urls'
+import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
-import { WebQuery } from 'scenes/web-analytics/WebAnalyticsTile'
 import { WebPropertyFilters } from 'scenes/web-analytics/WebPropertyFilters'
 
 export const WebAnalyticsModal = (): JSX.Element | null => {
@@ -49,11 +49,7 @@ export const WebAnalyticsModal = (): JSX.Element | null => {
                 <div className="flex flex-row justify-end">
                     {modal.canOpenInsight ? (
                         <LemonButton
-                            to={urls.insightNew(
-                                { properties: webAnalyticsFilters, date_from: dateFrom, date_to: dateTo },
-                                null,
-                                modal.query
-                            )}
+                            to={urls.insightNew(undefined, undefined, modal.query)}
                             icon={<IconOpenInNew />}
                             size="small"
                             type="secondary"

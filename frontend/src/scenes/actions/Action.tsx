@@ -11,6 +11,7 @@ import { NodeKind } from '~/queries/schema'
 import { ActionType } from '~/types'
 
 import { ActionEdit } from './ActionEdit'
+import { ActionHogFunctions } from './ActionHogFunctions'
 
 export const scene: SceneExport = {
     logic: actionLogic,
@@ -44,6 +45,7 @@ export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
     return (
         <>
             <ActionEdit id={id} action={action} />
+            <ActionHogFunctions />
             {id && (
                 <>
                     {isComplete ? (

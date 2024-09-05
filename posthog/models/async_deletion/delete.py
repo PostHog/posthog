@@ -3,15 +3,20 @@ from collections import defaultdict
 
 import structlog
 from django.utils import timezone
+from prometheus_client import Counter
 
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
+
 
 logger = structlog.get_logger(__name__)
 
 
+deletions_counter = Counter("deletions_confirmed", "Total number of deletions marked confirmed", ["deletion_type"])
+
+
 class AsyncDeletionProcess(ABC):
     CLICKHOUSE_MUTATION_CHUNK_SIZE = 1_000_000
-    CLICKHOUSE_VERIFY_CHUNK_SIZE = 1_000
+    CLICKHOUSE_VERIFY_CHUNK_SIZE = 300
     DELETION_TYPES: list[DeletionType] = []
 
     def __init__(self) -> None:
@@ -35,7 +40,9 @@ class AsyncDeletionProcess(ABC):
             for i in range(0, len(async_deletions), self.CLICKHOUSE_VERIFY_CHUNK_SIZE):
                 chunk = async_deletions[i : i + self.CLICKHOUSE_VERIFY_CHUNK_SIZE]
                 to_verify = self._verify_by_group(deletion_type, chunk)
-                if len(to_verify) > 0:
+                count_to_verify = len(to_verify)
+                deletions_counter.labels(deletion_type=deletion_type).inc(count_to_verify)
+                if count_to_verify > 0:
                     AsyncDeletion.objects.filter(pk__in=[row.pk for row in to_verify]).update(
                         delete_verified_at=timezone.now()
                     )

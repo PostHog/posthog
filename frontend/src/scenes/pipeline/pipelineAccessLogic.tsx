@@ -1,10 +1,11 @@
 import { connect, kea, path, selectors } from 'kea'
-import { canConfigurePlugins, canGloballyManagePlugins } from 'scenes/plugins/access'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature } from '~/types'
 
+import { canConfigurePlugins, canGloballyManagePlugins } from './access'
 import type { pipelineAccessLogicType } from './pipelineAccessLogicType'
+import { Destination, NewDestinationItemType, PipelineBackend } from './types'
 
 export const pipelineAccessLogic = kea<pipelineAccessLogicType>([
     path(['scenes', 'pipeline', 'pipelineAccessLogic']),
@@ -21,6 +22,19 @@ export const pipelineAccessLogic = kea<pipelineAccessLogicType>([
             (user, hasAvailableFeature) =>
                 user?.is_impersonated ||
                 (canConfigurePlugins(user?.organization) && hasAvailableFeature(AvailableFeature.DATA_PIPELINES)),
+        ],
+
+        canEnableDestination: [
+            (s) => [s.canEnableNewDestinations],
+            (canEnableNewDestinations): ((destination: Destination | NewDestinationItemType) => boolean) => {
+                return (destination: Destination | NewDestinationItemType) => {
+                    return destination.backend === PipelineBackend.HogFunction
+                        ? ('hog_function' in destination
+                              ? destination.hog_function.template?.status === 'free'
+                              : destination.status === 'free') || canEnableNewDestinations
+                        : canEnableNewDestinations
+                }
+            },
         ],
     }),
 ])

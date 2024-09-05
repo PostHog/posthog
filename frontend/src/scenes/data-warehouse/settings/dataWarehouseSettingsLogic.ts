@@ -7,7 +7,7 @@ import posthog from 'posthog-js'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
 import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema'
-import { DataWarehouseSettingsTab, DataWarehouseTab, ExternalDataSourceSchema, ExternalDataStripeSource } from '~/types'
+import { DataWarehouseSettingsTab, ExternalDataSourceSchema, ExternalDataStripeSource } from '~/types'
 
 import type { dataWarehouseSettingsLogicType } from './dataWarehouseSettingsLogicType'
 
@@ -36,8 +36,8 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
         sourceLoadingFinished: (source: ExternalDataStripeSource) => ({ source }),
         schemaLoadingFinished: (schema: ExternalDataSourceSchema) => ({ schema }),
         abortAnyRunningQuery: true,
-        setCurrentTab: (tab: DataWarehouseTab = DataWarehouseTab.ManagedSources) => ({ tab }),
         deleteSelfManagedTable: (tableId: string) => ({ tableId }),
+        refreshSelfManagedTableSchema: (tableId: string) => ({ tableId }),
     }),
     loaders(({ cache, actions, values }) => ({
         dataWarehouseSources: [
@@ -147,6 +147,12 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
     listeners(({ actions, values, cache }) => ({
         deleteSelfManagedTable: async ({ tableId }) => {
             await api.dataWarehouseTables.delete(tableId)
+            actions.loadDatabase()
+        },
+        refreshSelfManagedTableSchema: async ({ tableId }) => {
+            lemonToast.info('Updating schema...')
+            await api.dataWarehouseTables.refreshSchema(tableId)
+            lemonToast.success('Schema updated')
             actions.loadDatabase()
         },
         deleteSource: async ({ source }) => {

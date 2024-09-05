@@ -1,6 +1,6 @@
 import { TZLabel } from '@posthog/apps-common'
-import { LemonTable, LemonTag, LemonTagType } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { LemonButton, LemonTable, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 
 import { ExternalDataJob } from '~/types'
 
@@ -11,11 +11,16 @@ const StatusTagSetting: Record<ExternalDataJob['status'], LemonTagType> = {
     Running: 'primary',
     Completed: 'success',
     Failed: 'danger',
-    Cancelled: 'default',
+    'Billing limits': 'danger',
 }
 
-export const Syncs = (): JSX.Element => {
-    const { jobs, jobsLoading } = useValues(dataWarehouseSourceSettingsLogic)
+interface SyncsProps {
+    id: string
+}
+
+export const Syncs = ({ id }: SyncsProps): JSX.Element => {
+    const { jobs, jobsLoading, canLoadMoreJobs } = useValues(dataWarehouseSourceSettingsLogic({ id }))
+    const { loadMoreJobs } = useActions(dataWarehouseSourceSettingsLogic({ id }))
 
     return (
         <LemonTable
@@ -60,6 +65,17 @@ export const Syncs = (): JSX.Element => {
                           noIndent: true,
                       }
                     : undefined
+            }
+            footer={
+                <LemonButton
+                    onClick={loadMoreJobs}
+                    type="secondary"
+                    fullWidth
+                    center
+                    disabledReason={!canLoadMoreJobs ? "There's nothing more to load" : undefined}
+                >
+                    {canLoadMoreJobs ? `Load older jobs` : 'No older jobs'}
+                </LemonButton>
             }
         />
     )

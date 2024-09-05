@@ -496,6 +496,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "capabilities": {},
                 "metrics": {},
                 "public_jobs": {},
+                "hog_function_migration_available": False,
             },
         )
         self.assertEqual(Plugin.objects.count(), 1)
@@ -540,6 +541,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "capabilities": {},
                 "metrics": {},
                 "public_jobs": {},
+                "hog_function_migration_available": False,
             },
         )
         self.assertEqual(Plugin.objects.count(), 1)
@@ -586,6 +588,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "capabilities": {},
                 "metrics": {},
                 "public_jobs": {},
+                "hog_function_migration_available": False,
             },
         )
         self.assertEqual(Plugin.objects.count(), 1)
@@ -753,6 +756,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
             "capabilities": {},
             "metrics": {},
             "public_jobs": {},
+            "hog_function_migration_available": False,
         }
 
         assert Plugin.objects.count() == 1
@@ -1026,7 +1030,6 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "name": "name in ui",
                 "description": "description in ui",
                 "deleted": False,
-                "filters": None,
             },
         )
         plugin_config = PluginConfig.objects.first()
@@ -1056,7 +1059,6 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "name": "name in ui",
                 "description": "description in ui",
                 "deleted": False,
-                "filters": None,
             },
         )
 
@@ -1095,7 +1097,6 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "name": "name in ui",
                 "description": "description in ui",
                 "deleted": False,
-                "filters": None,
             },
         )
 
@@ -1413,7 +1414,6 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "name": "Hello World",
                 "description": "Greet the World and Foo a Bar, JS edition!",
                 "deleted": False,
-                "filters": None,
             },
         )
 
@@ -1443,7 +1443,6 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "name": "Hello World",
                 "description": "Greet the World and Foo a Bar, JS edition!",
                 "deleted": False,
-                "filters": None,
             },
         )
 
@@ -1475,7 +1474,6 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "name": "Hello World",
                 "description": "Greet the World and Foo a Bar, JS edition!",
                 "deleted": False,
-                "filters": None,
             },
         )
         plugin_config = PluginConfig.objects.get(plugin=plugin_id)
@@ -1524,7 +1522,6 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                     "name": None,
                     "description": None,
                     "deleted": False,
-                    "filters": None,
                 },
                 {
                     "id": plugin_config2.pk,
@@ -1541,7 +1538,6 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                     "name": "ui name",
                     "description": "ui description",
                     "deleted": False,
-                    "filters": None,
                 },
             ],
         )
@@ -1665,49 +1661,6 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 },
             ]
         )
-
-    def test_update_plugin_filters(self, mock_get, mock_reload):
-        plugin = self._create_plugin()
-        response = self.client.post(
-            "/api/plugin_config/",
-            {
-                "plugin": plugin["id"],
-                "enabled": True,
-                "order": 0,
-                "filters": json.dumps(
-                    {
-                        "events": [
-                            {
-                                "name": "$pageview",
-                                "properties": [],
-                                "type": "events",
-                            }
-                        ]
-                    }
-                ),
-            },
-            format="multipart",
-        )
-
-        assert response.status_code == 201, response.json()
-
-        assert response.json()["filters"] == {"events": [{"name": "$pageview", "properties": [], "type": "events"}]}
-
-    def test_update_plugin_filters_fails_for_bad_formatting(self, mock_get, mock_reload):
-        plugin = self._create_plugin()
-        response = self.client.post(
-            "/api/plugin_config/",
-            {
-                "plugin": plugin["id"],
-                "enabled": True,
-                "order": 0,
-                "filters": json.dumps({"events": "wrong"}),
-            },
-            format="multipart",
-        )
-
-        assert response.status_code == 400, response.json()
-        assert response.json()["code"] == "not_a_list"
 
 
 class TestPluginsAccessLevelAPI(APIBaseTest):

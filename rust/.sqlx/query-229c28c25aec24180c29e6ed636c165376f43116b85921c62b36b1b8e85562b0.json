@@ -1,0 +1,123 @@
+{
+    "db_name": "PostgreSQL",
+    "query": "\nWITH available AS (\n    SELECT\n        id,\n        state\n    FROM cyclotron_jobs\n    WHERE\n        state = 'available'::JobState\n        AND queue_name = $1\n        AND scheduled <= NOW()\n    ORDER BY\n        priority ASC,\n        scheduled ASC\n    LIMIT $2\n    FOR UPDATE SKIP LOCKED\n)\nUPDATE cyclotron_jobs\nSET\n    state = 'running'::JobState,\n    lock_id = $3,\n    last_heartbeat = NOW(),\n    last_transition = NOW(),\n    transition_count = transition_count + 1\nFROM available\nWHERE\n    cyclotron_jobs.id = available.id\nRETURNING\n    cyclotron_jobs.id,\n    team_id,\n    available.state as \"state: JobState\",\n    queue_name,\n    priority,\n    function_id,\n    created,\n    last_transition,\n    scheduled,\n    transition_count,\n    NULL::bytea as vm_state,\n    metadata,\n    parameters,\n    blob,\n    lock_id,\n    last_heartbeat,\n    janitor_touch_count\n    ",
+    "describe": {
+        "columns": [
+            {
+                "ordinal": 0,
+                "name": "id",
+                "type_info": "Uuid"
+            },
+            {
+                "ordinal": 1,
+                "name": "team_id",
+                "type_info": "Int4"
+            },
+            {
+                "ordinal": 2,
+                "name": "state: JobState",
+                "type_info": {
+                    "Custom": {
+                        "name": "jobstate",
+                        "kind": {
+                            "Enum": ["available", "completed", "failed", "running", "paused"]
+                        }
+                    }
+                }
+            },
+            {
+                "ordinal": 3,
+                "name": "queue_name",
+                "type_info": "Text"
+            },
+            {
+                "ordinal": 4,
+                "name": "priority",
+                "type_info": "Int2"
+            },
+            {
+                "ordinal": 5,
+                "name": "function_id",
+                "type_info": "Uuid"
+            },
+            {
+                "ordinal": 6,
+                "name": "created",
+                "type_info": "Timestamptz"
+            },
+            {
+                "ordinal": 7,
+                "name": "last_transition",
+                "type_info": "Timestamptz"
+            },
+            {
+                "ordinal": 8,
+                "name": "scheduled",
+                "type_info": "Timestamptz"
+            },
+            {
+                "ordinal": 9,
+                "name": "transition_count",
+                "type_info": "Int2"
+            },
+            {
+                "ordinal": 10,
+                "name": "vm_state",
+                "type_info": "Bytea"
+            },
+            {
+                "ordinal": 11,
+                "name": "metadata",
+                "type_info": "Bytea"
+            },
+            {
+                "ordinal": 12,
+                "name": "parameters",
+                "type_info": "Bytea"
+            },
+            {
+                "ordinal": 13,
+                "name": "blob",
+                "type_info": "Bytea"
+            },
+            {
+                "ordinal": 14,
+                "name": "lock_id",
+                "type_info": "Uuid"
+            },
+            {
+                "ordinal": 15,
+                "name": "last_heartbeat",
+                "type_info": "Timestamptz"
+            },
+            {
+                "ordinal": 16,
+                "name": "janitor_touch_count",
+                "type_info": "Int2"
+            }
+        ],
+        "parameters": {
+            "Left": ["Text", "Int8", "Uuid"]
+        },
+        "nullable": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            false,
+            false,
+            false,
+            false,
+            null,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false
+        ]
+    },
+    "hash": "229c28c25aec24180c29e6ed636c165376f43116b85921c62b36b1b8e85562b0"
+}

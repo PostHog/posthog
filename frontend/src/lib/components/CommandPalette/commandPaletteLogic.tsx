@@ -431,7 +431,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         display: 'Create a new Trend insight',
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(urls.insightNew({ insight: InsightType.TRENDS }))
+                            push(urls.insightNew(InsightType.TRENDS))
                         },
                     },
                     {
@@ -439,7 +439,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         display: 'Create a new Funnel insight',
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(urls.insightNew({ insight: InsightType.FUNNELS }))
+                            push(urls.insightNew(InsightType.FUNNELS))
                         },
                     },
                     {
@@ -447,7 +447,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         display: 'Create a new Retention insight',
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(urls.insightNew({ insight: InsightType.RETENTION }))
+                            push(urls.insightNew(InsightType.RETENTION))
                         },
                     },
                     {
@@ -455,7 +455,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         display: 'Create a new Paths insight',
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(urls.insightNew({ insight: InsightType.PATHS }))
+                            push(urls.insightNew(InsightType.PATHS))
                         },
                     },
                     {
@@ -463,7 +463,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         display: 'Create a new Stickiness insight',
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(urls.insightNew({ insight: InsightType.STICKINESS }))
+                            push(urls.insightNew(InsightType.STICKINESS))
                         },
                     },
                     {
@@ -471,7 +471,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         display: 'Create a new Lifecycle insight',
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(urls.insightNew({ insight: InsightType.LIFECYCLE }))
+                            push(urls.insightNew(InsightType.LIFECYCLE))
                         },
                     },
                     {
@@ -589,7 +589,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                     },
                     {
                         icon: IconTestTube,
-                        display: 'Go to A/B testing',
+                        display: 'Go to Experiments',
                         executor: () => {
                             push(urls.experiments())
                         },
@@ -606,7 +606,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         display: 'Go to Data pipelines',
                         synonyms: ['integrations'],
                         executor: () => {
-                            push(urls.projectApps())
+                            push(urls.pipeline())
                         },
                     },
                     {

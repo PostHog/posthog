@@ -3,11 +3,13 @@ use config::Config;
 use envconfig::Envconfig;
 use eyre::Result;
 
-use hook_common::metrics::setup_metrics_routes;
+use common_metrics::setup_metrics_routes;
 use hook_common::pgqueue::PgQueue;
 
 mod config;
 mod handlers;
+
+common_alloc::used!();
 
 async fn listen(app: Router, bind: String) -> Result<()> {
     let listener = tokio::net::TcpListener::bind(bind).await?;
@@ -39,6 +41,7 @@ async fn main() {
         pg_queue,
         config.hog_mode,
         config.max_body_size,
+        config.concurrency_limit,
     );
     let app = setup_metrics_routes(app);
 

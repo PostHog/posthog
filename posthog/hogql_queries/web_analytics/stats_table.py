@@ -58,11 +58,11 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
                 """
 SELECT
     breakdown_value AS "context.columns.breakdown_value",
-    count(person_id) AS "context.columns.visitors",
+    uniq(filtered_person_id) AS "context.columns.visitors",
     sum(filtered_pageview_count) AS "context.columns.views"
 FROM (
     SELECT
-        any(person_id) AS person_id,
+        any(person_id) AS filtered_person_id,
         count() AS filtered_pageview_count,
         {breakdown_value} AS breakdown_value
     FROM events
@@ -97,11 +97,11 @@ ORDER BY "context.columns.visitors" DESC,
                 """
 SELECT
     breakdown_value AS "context.columns.breakdown_value",
-    count(person_id) AS "context.columns.visitors",
+    uniq(filtered_person_id) AS "context.columns.visitors",
     sum(filtered_pageview_count) AS "context.columns.views"
 FROM (
     SELECT
-        any(person_id) AS person_id,
+        any(person_id) AS filtered_person_id,
         count() AS filtered_pageview_count,
         {breakdown_value} AS breakdown_value,
         session.session_id AS session_id
@@ -139,12 +139,12 @@ ORDER BY "context.columns.visitors" DESC,
                 """
 SELECT
     breakdown_value AS "context.columns.breakdown_value",
-    count(person_id) AS "context.columns.visitors",
+    uniq(filtered_person_id) AS "context.columns.visitors",
     sum(filtered_pageview_count) AS "context.columns.views",
     avg(is_bounce) AS "context.columns.bounce_rate"
 FROM (
     SELECT
-        any(person_id) AS person_id,
+        any(person_id) AS filtered_person_id,
         count() AS filtered_pageview_count,
         {bounce_breakdown} AS breakdown_value,
         any(session.$is_bounce) AS is_bounce,
@@ -194,11 +194,11 @@ SELECT
 FROM (
     SELECT
         breakdown_value,
-        count(person_id) AS visitors,
+        uniq(filtered_person_id) AS visitors,
         sum(filtered_pageview_count) AS views
     FROM (
         SELECT
-            any(person_id) AS person_id,
+            any(person_id) AS filtered_person_id,
             count() AS filtered_pageview_count,
             {breakdown_value} AS breakdown_value,
             session.session_id AS session_id
@@ -301,11 +301,11 @@ SELECT
 FROM (
     SELECT
         breakdown_value,
-        count(person_id) AS visitors,
+        uniq(filtered_person_id) AS visitors,
         sum(filtered_pageview_count) AS views
     FROM (
         SELECT
-            any(person_id) AS person_id,
+            any(person_id) AS filtered_person_id,
             count() AS filtered_pageview_count,
             {breakdown_value} AS breakdown_value,
             session.session_id AS session_id
@@ -418,9 +418,10 @@ ORDER BY "context.columns.visitors" DESC,
         return self.query_date_range.date_from_as_hogql()
 
     def calculate(self):
+        query = self.to_query()
         response = self.paginator.execute_hogql_query(
             query_type="stats_table_query",
-            query=self.to_query(),
+            query=query,
             team=self.team,
             timings=self.timings,
             modifiers=self.modifiers,
@@ -454,7 +455,9 @@ ORDER BY "context.columns.visitors" DESC,
             case WebStatsBreakdown.INITIAL_PAGE:
                 return self._apply_path_cleaning(ast.Field(chain=["session", "$entry_pathname"]))
             case WebStatsBreakdown.EXIT_PAGE:
-                return self._apply_path_cleaning(ast.Field(chain=["session", "$exit_pathname"]))
+                return self._apply_path_cleaning(ast.Field(chain=["session", "$end_pathname"]))
+            case WebStatsBreakdown.EXIT_CLICK:
+                return ast.Field(chain=["session", "$last_external_click_url"])
             case WebStatsBreakdown.INITIAL_REFERRING_DOMAIN:
                 return ast.Field(chain=["session", "$entry_referring_domain"])
             case WebStatsBreakdown.INITIAL_UTM_SOURCE:
@@ -505,8 +508,6 @@ ORDER BY "context.columns.visitors" DESC,
                 return parse_expr("tupleElement(breakdown_value, 2) IS NOT NULL")
             case WebStatsBreakdown.CITY:
                 return parse_expr("tupleElement(breakdown_value, 2) IS NOT NULL")
-            case WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
-                return parse_expr("TRUE")  # actually show null values
             case WebStatsBreakdown.INITIAL_UTM_SOURCE:
                 return parse_expr("TRUE")  # actually show null values
             case WebStatsBreakdown.INITIAL_UTM_CAMPAIGN:
@@ -517,6 +518,10 @@ ORDER BY "context.columns.visitors" DESC,
                 return parse_expr("TRUE")  # actually show null values
             case WebStatsBreakdown.INITIAL_UTM_CONTENT:
                 return parse_expr("TRUE")  # actually show null values
+            case WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
+                return parse_expr(
+                    "breakdown_value IS NOT NULL AND breakdown_value != ''"
+                )  # we need to check for empty strings as well due to how the left join works
             case _:
                 return parse_expr("breakdown_value IS NOT NULL")
 

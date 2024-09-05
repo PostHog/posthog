@@ -8,12 +8,13 @@ from ee.clickhouse.queries.experiments.funnel_experiment_result import (
     ClickhouseFunnelExperimentResult,
     Variant,
     calculate_expected_loss,
+    calculate_credible_intervals as calculate_funnel_credible_intervals,
 )
+
 from ee.clickhouse.queries.experiments.trend_experiment_result import (
     ClickhouseTrendExperimentResult,
-)
-from ee.clickhouse.queries.experiments.trend_experiment_result import (
     Variant as CountVariant,
+    calculate_credible_intervals as calculate_trend_credible_intervals,
 )
 from ee.clickhouse.queries.experiments.trend_experiment_result import calculate_p_value
 from posthog.constants import ExperimentSignificanceCode
@@ -162,6 +163,13 @@ class TestFunnelExperimentCalculator(unittest.TestCase):
         self.assertAlmostEqual(loss, 0.0016, places=3)
         self.assertEqual(significant, ExperimentSignificanceCode.SIGNIFICANT)
 
+        credible_intervals = calculate_funnel_credible_intervals([variant_control, variant_test])
+        # Cross-checked with: https://www.causascientia.org/math_stat/ProportionCI.html
+        self.assertAlmostEqual(credible_intervals[variant_control.key][0], 0.7715, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_control.key][1], 0.9010, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test.key][0], 0.8405, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test.key][1], 0.9494, places=3)
+
     def test_simulation_result_is_close_to_closed_form_solution(self):
         variant_test = Variant("A", 100, 10)
         variant_control = Variant("B", 100, 18)
@@ -174,8 +182,8 @@ class TestFunnelExperimentCalculator(unittest.TestCase):
 
     def test_calculate_results_for_two_test_variants(self):
         variant_test_1 = Variant("A", 100, 10)
-        variant_test_2 = Variant("A", 100, 3)
-        variant_control = Variant("B", 100, 18)
+        variant_test_2 = Variant("B", 100, 3)
+        variant_control = Variant("C", 100, 18)
 
         probabilities = ClickhouseFunnelExperimentResult.calculate_results(
             variant_control, [variant_test_1, variant_test_2]
@@ -203,10 +211,19 @@ class TestFunnelExperimentCalculator(unittest.TestCase):
         self.assertAlmostEqual(loss, 0.00000, places=3)
         self.assertEqual(significant, ExperimentSignificanceCode.SIGNIFICANT)
 
+        credible_intervals = calculate_funnel_credible_intervals([variant_control, variant_test_1, variant_test_2])
+        # Cross-checked with: https://www.causascientia.org/math_stat/ProportionCI.html
+        self.assertAlmostEqual(credible_intervals[variant_control.key][0], 0.7715, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_control.key][1], 0.9010, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_1.key][0], 0.8405, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_1.key][1], 0.9494, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_2.key][0], 0.9180, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_2.key][1], 0.9894, places=3)
+
     def test_calculate_results_for_two_test_variants_almost_equal(self):
         variant_test_1 = Variant("A", 120, 60)
-        variant_test_2 = Variant("A", 110, 52)
-        variant_control = Variant("B", 130, 65)
+        variant_test_2 = Variant("B", 110, 52)
+        variant_control = Variant("C", 130, 65)
 
         probabilities = ClickhouseFunnelExperimentResult.calculate_results(
             variant_control, [variant_test_1, variant_test_2]
@@ -233,6 +250,15 @@ class TestFunnelExperimentCalculator(unittest.TestCase):
         self.assertAlmostEqual(loss, 1, places=3)
         self.assertEqual(significant, ExperimentSignificanceCode.LOW_WIN_PROBABILITY)
 
+        credible_intervals = calculate_funnel_credible_intervals([variant_control, variant_test_1, variant_test_2])
+        # Cross-checked with: https://www.causascientia.org/math_stat/ProportionCI.html
+        self.assertAlmostEqual(credible_intervals[variant_control.key][0], 0.5977, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_control.key][1], 0.7290, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_1.key][0], 0.5948, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_1.key][1], 0.7314, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_2.key][0], 0.6035, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_2.key][1], 0.7460, places=3)
+
     def test_absolute_loss_less_than_one_percent_but_not_significant(self):
         variant_test_1 = Variant("A", 286, 2014)
         variant_control = Variant("B", 267, 2031)
@@ -250,11 +276,18 @@ class TestFunnelExperimentCalculator(unittest.TestCase):
         self.assertAlmostEqual(loss, 1, places=3)
         self.assertEqual(significant, ExperimentSignificanceCode.LOW_WIN_PROBABILITY)
 
+        credible_intervals = calculate_funnel_credible_intervals([variant_control, variant_test_1])
+        # Cross-checked with: https://www.causascientia.org/math_stat/ProportionCI.html
+        self.assertAlmostEqual(credible_intervals[variant_control.key][0], 0.1037, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_control.key][1], 0.1299, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_1.key][0], 0.1114, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_1.key][1], 0.1384, places=3)
+
     def test_calculate_results_for_three_test_variants(self):
         variant_test_1 = Variant("A", 100, 10)
-        variant_test_2 = Variant("A", 100, 3)
-        variant_test_3 = Variant("A", 100, 30)
-        variant_control = Variant("B", 100, 18)
+        variant_test_2 = Variant("B", 100, 3)
+        variant_test_3 = Variant("C", 100, 30)
+        variant_control = Variant("D", 100, 18)
 
         probabilities = ClickhouseFunnelExperimentResult.calculate_results(
             variant_control, [variant_test_1, variant_test_2, variant_test_3]
@@ -285,11 +318,24 @@ class TestFunnelExperimentCalculator(unittest.TestCase):
         self.assertAlmostEqual(loss, 0.0004, places=2)
         self.assertEqual(significant, ExperimentSignificanceCode.SIGNIFICANT)
 
+        credible_intervals = calculate_funnel_credible_intervals(
+            [variant_control, variant_test_1, variant_test_2, variant_test_3]
+        )
+        # Cross-checked with: https://www.causascientia.org/math_stat/ProportionCI.html
+        self.assertAlmostEqual(credible_intervals[variant_control.key][0], 0.7715, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_control.key][1], 0.9010, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_1.key][0], 0.8405, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_1.key][1], 0.9494, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_2.key][0], 0.9180, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_2.key][1], 0.9894, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_3.key][0], 0.6894, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_3.key][1], 0.8332, places=3)
+
     def test_calculate_results_for_three_test_variants_almost_equal(self):
-        variant_control = Variant("B", 130, 65)
         variant_test_1 = Variant("A", 120, 60)
-        variant_test_2 = Variant("A", 110, 52)
-        variant_test_3 = Variant("A", 100, 46)
+        variant_test_2 = Variant("B", 110, 52)
+        variant_test_3 = Variant("C", 100, 46)
+        variant_control = Variant("D", 130, 65)
 
         probabilities = ClickhouseFunnelExperimentResult.calculate_results(
             variant_control, [variant_test_1, variant_test_2, variant_test_3]
@@ -318,11 +364,24 @@ class TestFunnelExperimentCalculator(unittest.TestCase):
         self.assertAlmostEqual(loss, 0.012, places=2)
         self.assertEqual(significant, ExperimentSignificanceCode.HIGH_LOSS)
 
+        credible_intervals = calculate_funnel_credible_intervals(
+            [variant_control, variant_test_1, variant_test_2, variant_test_3]
+        )
+        # Cross-checked with: https://www.causascientia.org/math_stat/ProportionCI.html
+        self.assertAlmostEqual(credible_intervals[variant_control.key][0], 0.5977, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_control.key][1], 0.7290, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_1.key][0], 0.5948, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_1.key][1], 0.7314, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_2.key][0], 0.6035, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_2.key][1], 0.7460, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_3.key][0], 0.6054, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_3.key][1], 0.7547, places=3)
+
     def test_calculate_results_for_three_test_variants_much_better_than_control(self):
-        variant_control = Variant("B", 80, 65)
         variant_test_1 = Variant("A", 130, 60)
-        variant_test_2 = Variant("A", 135, 62)
-        variant_test_3 = Variant("A", 132, 60)
+        variant_test_2 = Variant("B", 135, 62)
+        variant_test_3 = Variant("C", 132, 60)
+        variant_control = Variant("D", 80, 65)
 
         probabilities = ClickhouseFunnelExperimentResult.calculate_results(
             variant_control, [variant_test_1, variant_test_2, variant_test_3]
@@ -342,15 +401,28 @@ class TestFunnelExperimentCalculator(unittest.TestCase):
         self.assertAlmostEqual(loss, 0, places=2)
         self.assertEqual(significant, ExperimentSignificanceCode.SIGNIFICANT)
 
+        credible_intervals = calculate_funnel_credible_intervals(
+            [variant_control, variant_test_1, variant_test_2, variant_test_3]
+        )
+        # Cross-checked with: https://www.causascientia.org/math_stat/ProportionCI.html
+        self.assertAlmostEqual(credible_intervals[variant_control.key][0], 0.4703, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_control.key][1], 0.6303, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_1.key][0], 0.6148, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_1.key][1], 0.7460, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_2.key][0], 0.6172, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_2.key][1], 0.7460, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_3.key][0], 0.6186, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_3.key][1], 0.7488, places=3)
+
     def test_calculate_results_for_seven_test_variants(self):
         variant_test_1 = Variant("A", 100, 17)
-        variant_test_2 = Variant("A", 100, 16)
-        variant_test_3 = Variant("A", 100, 30)
-        variant_test_4 = Variant("A", 100, 31)
-        variant_test_5 = Variant("A", 100, 29)
-        variant_test_6 = Variant("A", 100, 32)
-        variant_test_7 = Variant("A", 100, 33)
-        variant_control = Variant("B", 100, 18)
+        variant_test_2 = Variant("B", 100, 16)
+        variant_test_3 = Variant("C", 100, 30)
+        variant_test_4 = Variant("D", 100, 31)
+        variant_test_5 = Variant("E", 100, 29)
+        variant_test_6 = Variant("F", 100, 32)
+        variant_test_7 = Variant("G", 100, 33)
+        variant_control = Variant("H", 100, 18)
 
         probabilities = ClickhouseFunnelExperimentResult.calculate_results(
             variant_control,
@@ -407,6 +479,36 @@ class TestFunnelExperimentCalculator(unittest.TestCase):
         self.assertAlmostEqual(loss, 1, places=2)
         self.assertEqual(significant, ExperimentSignificanceCode.LOW_WIN_PROBABILITY)
 
+        credible_intervals = calculate_funnel_credible_intervals(
+            [
+                variant_control,
+                variant_test_1,
+                variant_test_2,
+                variant_test_3,
+                variant_test_4,
+                variant_test_5,
+                variant_test_6,
+                variant_test_7,
+            ]
+        )
+        # Cross-checked with: https://www.causascientia.org/math_stat/ProportionCI.html
+        self.assertAlmostEqual(credible_intervals[variant_control.key][0], 0.7715, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_control.key][1], 0.9010, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_1.key][0], 0.7793, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_1.key][1], 0.9070, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_2.key][0], 0.7874, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_2.key][1], 0.9130, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_3.key][0], 0.6894, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_3.key][1], 0.8332, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_4.key][0], 0.6835, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_4.key][1], 0.8278, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_5.key][0], 0.6955, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_5.key][1], 0.8385, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_6.key][0], 0.6776, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_6.key][1], 0.8226, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_7.key][0], 0.6718, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_7.key][1], 0.8174, places=3)
+
     def test_calculate_results_control_is_significant(self):
         variant_test = Variant("test", 100, 18)
         variant_control = Variant("control", 100, 10)
@@ -421,6 +523,13 @@ class TestFunnelExperimentCalculator(unittest.TestCase):
 
         self.assertAlmostEqual(loss, 0.0016, places=3)
         self.assertEqual(significant, ExperimentSignificanceCode.SIGNIFICANT)
+
+        credible_intervals = calculate_funnel_credible_intervals([variant_control, variant_test])
+        # Cross-checked with: https://www.causascientia.org/math_stat/ProportionCI.html
+        self.assertAlmostEqual(credible_intervals[variant_control.key][0], 0.8405, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_control.key][1], 0.9494, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test.key][0], 0.7715, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test.key][1], 0.9010, places=3)
 
     def test_calculate_results_many_variants_control_is_significant(self):
         variant_test_1 = Variant("test_1", 100, 20)
@@ -450,6 +559,33 @@ class TestFunnelExperimentCalculator(unittest.TestCase):
 
         self.assertAlmostEqual(loss, 0.0008, places=3)
         self.assertEqual(significant, ExperimentSignificanceCode.SIGNIFICANT)
+
+        credible_intervals = calculate_funnel_credible_intervals(
+            [
+                variant_control,
+                variant_test_1,
+                variant_test_2,
+                variant_test_3,
+                variant_test_4,
+                variant_test_5,
+                variant_test_6,
+            ]
+        )
+        # Cross-checked with: https://www.causascientia.org/math_stat/ProportionCI.html
+        self.assertAlmostEqual(credible_intervals[variant_control.key][0], 0.8405, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_control.key][1], 0.9494, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_1.key][0], 0.7563, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_1.key][1], 0.8892, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_2.key][0], 0.7489, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_2.key][1], 0.8834, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_3.key][0], 0.7418, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_3.key][1], 0.8776, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_4.key][0], 0.7347, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_4.key][1], 0.8718, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_5.key][0], 0.7279, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_5.key][1], 0.8661, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_6.key][0], 0.7211, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_6.key][1], 0.8605, places=3)
 
 
 # calculation: https://www.evanmiller.org/bayesian-ab-testing.html#count_ab
@@ -526,31 +662,43 @@ def probability_C_beats_A_and_B_count_data(
 @flaky(max_runs=10, min_passes=1)
 class TestTrendExperimentCalculator(unittest.TestCase):
     def test_calculate_results(self):
-        variant_a = CountVariant("A", 20, 1, 200)
-        variant_b = CountVariant("B", 30, 1, 200)
+        variant_control = CountVariant("A", 20, 1, 200)
+        variant_test = CountVariant("B", 30, 1, 200)
 
-        probabilities = ClickhouseTrendExperimentResult.calculate_results(variant_a, [variant_b])  # a is control
+        probabilities = ClickhouseTrendExperimentResult.calculate_results(variant_control, [variant_test])
         self.assertAlmostEqual(probabilities[1], 0.92, places=1)
 
-        computed_probability = calculate_probability_of_winning_for_target_count_data(variant_b, [variant_a])
+        computed_probability = calculate_probability_of_winning_for_target_count_data(variant_test, [variant_control])
         self.assertAlmostEqual(probabilities[1], computed_probability, places=1)
 
         # p value testing matches https://www.evanmiller.org/ab-testing/poisson-means.html
-        p_value = calculate_p_value(variant_a, [variant_b])
+        p_value = calculate_p_value(variant_control, [variant_test])
         self.assertAlmostEqual(p_value, 0.20, places=2)
 
-    def test_calculate_results_small_numbers(self):
-        variant_a = CountVariant("A", 2, 1, 200)
-        variant_b = CountVariant("B", 1, 1, 200)
+        credible_intervals = calculate_trend_credible_intervals([variant_control, variant_test])
+        self.assertAlmostEqual(credible_intervals[variant_control.key][0], 0.0650, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_control.key][1], 0.1544, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test.key][0], 0.1053, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test.key][1], 0.2141, places=3)
 
-        probabilities = ClickhouseTrendExperimentResult.calculate_results(variant_a, [variant_b])  # a is control
+    def test_calculate_results_small_numbers(self):
+        variant_control = CountVariant("A", 2, 1, 200)
+        variant_test = CountVariant("B", 1, 1, 200)
+
+        probabilities = ClickhouseTrendExperimentResult.calculate_results(variant_control, [variant_test])
         self.assertAlmostEqual(probabilities[1], 0.31, places=1)
 
-        computed_probability = calculate_probability_of_winning_for_target_count_data(variant_b, [variant_a])
+        computed_probability = calculate_probability_of_winning_for_target_count_data(variant_test, [variant_control])
         self.assertAlmostEqual(probabilities[1], computed_probability, places=1)
 
-        p_value = calculate_p_value(variant_a, [variant_b])
+        p_value = calculate_p_value(variant_control, [variant_test])
         self.assertAlmostEqual(p_value, 1, places=2)
+
+        credible_intervals = calculate_trend_credible_intervals([variant_control, variant_test])
+        self.assertAlmostEqual(credible_intervals[variant_control.key][0], 0.0031, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_control.key][1], 0.0361, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test.key][0], 0.0012, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test.key][1], 0.0279, places=3)
 
     def test_calculate_count_data_probability(self):
         probability = probability_B_beats_A_count_data(15, 1, 30, 1)
@@ -562,70 +710,102 @@ class TestTrendExperimentCalculator(unittest.TestCase):
         self.assertAlmostEqual(probability, probability2)
 
     def test_calculate_results_with_three_variants(self):
-        variant_a = CountVariant("A", 20, 1, 200)  # control
-        variant_b = CountVariant("B", 26, 1, 200)
-        variant_c = CountVariant("C", 19, 1, 200)
+        variant_control = CountVariant("A", 20, 1, 200)
+        variant_test_1 = CountVariant("B", 26, 1, 200)
+        variant_test_2 = CountVariant("C", 19, 1, 200)
 
-        probabilities = ClickhouseTrendExperimentResult.calculate_results(variant_a, [variant_b, variant_c])
+        probabilities = ClickhouseTrendExperimentResult.calculate_results(
+            variant_control, [variant_test_1, variant_test_2]
+        )
         self.assertAlmostEqual(probabilities[0], 0.16, places=1)
         self.assertAlmostEqual(probabilities[1], 0.72, places=1)
         self.assertAlmostEqual(probabilities[2], 0.12, places=1)
 
-        computed_probability = calculate_probability_of_winning_for_target_count_data(variant_a, [variant_b, variant_c])
+        computed_probability = calculate_probability_of_winning_for_target_count_data(
+            variant_control, [variant_test_1, variant_test_2]
+        )
         self.assertAlmostEqual(probabilities[0], computed_probability, places=1)
 
-        p_value = calculate_p_value(variant_a, [variant_b, variant_c])
+        p_value = calculate_p_value(variant_control, [variant_test_1, variant_test_2])
         self.assertAlmostEqual(p_value, 0.46, places=2)
 
+        credible_intervals = calculate_trend_credible_intervals([variant_control, variant_test_1, variant_test_2])
+        self.assertAlmostEqual(credible_intervals[variant_control.key][0], 0.0650, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_control.key][1], 0.1544, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_1.key][0], 0.0890, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_1.key][1], 0.1905, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_2.key][0], 0.0611, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_2.key][1], 0.1484, places=3)
+
     def test_calculate_significance_when_target_variants_underperform(self):
-        variant_a = CountVariant("A", 250, 1, 200)  # control
-        variant_b = CountVariant("B", 180, 1, 200)
-        variant_c = CountVariant("C", 50, 1, 200)
+        variant_control = CountVariant("A", 250, 1, 200)
+        variant_test_1 = CountVariant("B", 180, 1, 200)
+        variant_test_2 = CountVariant("C", 50, 1, 200)
 
         # in this case, should choose B as best test variant
-        p_value = calculate_p_value(variant_a, [variant_b, variant_c])
+        p_value = calculate_p_value(variant_control, [variant_test_1, variant_test_2])
         self.assertAlmostEqual(p_value, 0.001, places=3)
 
         # manually assign probabilities to control test case
         significant, p_value = ClickhouseTrendExperimentResult.are_results_significant(
-            variant_a, [variant_b, variant_c], [0.5, 0.4, 0.1]
+            variant_control, [variant_test_1, variant_test_2], [0.5, 0.4, 0.1]
         )
         self.assertAlmostEqual(p_value, 1, places=3)
         self.assertEqual(significant, ExperimentSignificanceCode.LOW_WIN_PROBABILITY)
 
         # new B variant is worse, such that control probability ought to be high enough
-        variant_b = CountVariant("B", 100, 1, 200)
+        variant_test_1 = CountVariant("B", 100, 1, 200)
 
         significant, p_value = ClickhouseTrendExperimentResult.are_results_significant(
-            variant_a, [variant_b, variant_c], [0.95, 0.03, 0.02]
+            variant_control, [variant_test_1, variant_test_2], [0.95, 0.03, 0.02]
         )
         self.assertAlmostEqual(p_value, 0, places=3)
         self.assertEqual(significant, ExperimentSignificanceCode.SIGNIFICANT)
 
+        credible_intervals = calculate_trend_credible_intervals([variant_control, variant_test_1, variant_test_2])
+        self.assertAlmostEqual(credible_intervals[variant_control.key][0], 1.1045, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_control.key][1], 1.4149, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_1.key][0], 0.4113, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_1.key][1], 0.6081, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_2.key][0], 0.1898, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_2.key][1], 0.3295, places=3)
+
     def test_results_with_different_exposures(self):
-        variant_a = CountVariant("A", 50, 1.3, 260)  # 38
-        variant_b = CountVariant("B", 30, 1.8, 360)  # 16
-        variant_c = CountVariant("C", 20, 0.7, 140)  # 29
+        variant_control = CountVariant("A", 50, 1.3, 260)
+        variant_test_1 = CountVariant("B", 30, 1.8, 360)
+        variant_test_2 = CountVariant("C", 20, 0.7, 140)
 
         probabilities = ClickhouseTrendExperimentResult.calculate_results(
-            variant_a, [variant_b, variant_c]
+            variant_control, [variant_test_1, variant_test_2]
         )  # a is control
         self.assertAlmostEqual(probabilities[0], 0.86, places=1)
         self.assertAlmostEqual(probabilities[1], 0, places=1)
         self.assertAlmostEqual(probabilities[2], 0.13, places=1)
 
-        computed_probability = calculate_probability_of_winning_for_target_count_data(variant_b, [variant_a, variant_c])
+        computed_probability = calculate_probability_of_winning_for_target_count_data(
+            variant_test_1, [variant_control, variant_test_2]
+        )
         self.assertAlmostEqual(probabilities[1], computed_probability, places=1)
 
-        computed_probability = calculate_probability_of_winning_for_target_count_data(variant_a, [variant_b, variant_c])
+        computed_probability = calculate_probability_of_winning_for_target_count_data(
+            variant_control, [variant_test_1, variant_test_2]
+        )
         self.assertAlmostEqual(probabilities[0], computed_probability, places=1)
 
-        p_value = calculate_p_value(variant_a, [variant_b, variant_c])
+        p_value = calculate_p_value(variant_control, [variant_test_1, variant_test_2])
         self.assertAlmostEqual(p_value, 0, places=3)
 
         significant, p_value = ClickhouseTrendExperimentResult.are_results_significant(
-            variant_a, [variant_b, variant_c], probabilities
+            variant_control, [variant_test_1, variant_test_2], probabilities
         )
         self.assertAlmostEqual(p_value, 1, places=3)
         # False because max probability is less than 0.9
         self.assertEqual(significant, ExperimentSignificanceCode.LOW_WIN_PROBABILITY)
+
+        credible_intervals = calculate_trend_credible_intervals([variant_control, variant_test_1, variant_test_2])
+        self.assertAlmostEqual(credible_intervals[variant_control.key][0], 0.1460, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_control.key][1], 0.2535, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_1.key][0], 0.0585, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_1.key][1], 0.1190, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_2.key][0], 0.0929, places=3)
+        self.assertAlmostEqual(credible_intervals[variant_test_2.key][1], 0.2206, places=3)

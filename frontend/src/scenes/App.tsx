@@ -6,7 +6,6 @@ import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Slide, ToastContainer } from 'react-toastify'
-import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
 import { appScenes } from 'scenes/appScenes'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -29,7 +28,7 @@ window.process = MOCK_NODE_PROCESS
 
 export const appLogic = kea<appLogicType>([
     path(['scenes', 'App']),
-    connect([teamLogic, organizationLogic, frontendAppsLogic, actionsModel, cohortsModel]),
+    connect([teamLogic, organizationLogic, actionsModel, cohortsModel]),
     actions({
         enableDelayedSpinner: true,
         ignoreFeatureFlags: true,
@@ -136,7 +135,7 @@ function AppScene(): JSX.Element | null {
     }
 
     const wrappedSceneElement = (
-        <ErrorBoundary key={activeScene}>
+        <ErrorBoundary key={activeScene} tags={{ feature: activeScene }}>
             {activeLoadedScene?.logic ? (
                 <BindLogic logic={activeLoadedScene.logic} props={activeLoadedScene.paramsToProps?.(sceneParams) || {}}>
                     {sceneElement}

@@ -9,6 +9,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
 import { DashboardTemplateType, DashboardTemplateVariableType, DashboardTile, DashboardType, JsonType } from '~/types'
 
 import type { newDashboardLogicType } from './newDashboardLogicType'
@@ -75,11 +76,19 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
         addDashboard: (form: Partial<NewDashboardForm>) => ({ form }),
         setActiveDashboardTemplate: (template: DashboardTemplateType) => ({ template }),
         clearActiveDashboardTemplate: true,
-        createDashboardFromTemplate: (template: DashboardTemplateType, variables: DashboardTemplateVariableType[]) => ({
+        createDashboardFromTemplate: (
+            template: DashboardTemplateType,
+            variables: DashboardTemplateVariableType[],
+            redirectAfterCreation?: boolean
+        ) => ({
             template,
             variables,
+            redirectAfterCreation,
         }),
-        submitNewDashboardSuccessWithResult: (result: DashboardType) => ({ result }),
+        submitNewDashboardSuccessWithResult: (result: DashboardType, variables?: DashboardTemplateVariableType[]) => ({
+            result,
+            variables,
+        }),
     }),
     reducers({
         isLoading: [
@@ -136,7 +145,8 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                     )
                     actions.hideNewDashboardModal()
                     actions.resetNewDashboard()
-                    dashboardsModel.actions.addDashboardSuccess(result)
+                    const queryBasedDashboard = getQueryBasedDashboard(result)
+                    queryBasedDashboard && dashboardsModel.actions.addDashboardSuccess(queryBasedDashboard)
                     actions.submitNewDashboardSuccessWithResult(result)
                     if (show) {
                         breakpoint()
@@ -168,7 +178,8 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
             actions.clearActiveDashboardTemplate()
             actions.resetNewDashboard()
         },
-        createDashboardFromTemplate: async ({ template, variables }) => {
+        createDashboardFromTemplate: async ({ template, variables, redirectAfterCreation = true }) => {
+            actions.setIsLoading(true)
             const tiles = makeTilesUsingVariables(template.tiles, variables)
             const dashboardJSON = {
                 ...template,
@@ -182,9 +193,12 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                 )
                 actions.hideNewDashboardModal()
                 actions.resetNewDashboard()
-                dashboardsModel.actions.addDashboardSuccess(result)
-                actions.submitNewDashboardSuccessWithResult(result)
-                router.actions.push(urls.dashboard(result.id))
+                const queryBasedDashboard = getQueryBasedDashboard(result)
+                queryBasedDashboard && dashboardsModel.actions.addDashboardSuccess(queryBasedDashboard)
+                actions.submitNewDashboardSuccessWithResult(result, variables)
+                if (redirectAfterCreation) {
+                    router.actions.push(urls.dashboard(result.id))
+                }
             } catch (e: any) {
                 if (!isBreakpoint(e)) {
                     const message = e.code && e.detail ? `${e.code}: ${e.detail}` : e

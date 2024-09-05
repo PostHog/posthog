@@ -123,7 +123,7 @@ function SettingsRenderer(props: SettingsLogicProps): JSX.Element {
                             }}
                         />
                         <h2 className="flex gap-2 items-center">
-                            {x.title}{' '}
+                            {x.title}
                             <LemonButton icon={<IconLink />} size="small" onClick={() => selectSetting?.(x.id)} />
                         </h2>
                         {x.description && <p>{x.description}</p>}

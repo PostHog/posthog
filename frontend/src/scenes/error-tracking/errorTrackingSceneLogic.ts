@@ -11,12 +11,15 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
     path(['scenes', 'error-tracking', 'errorTrackingSceneLogic']),
 
     connect({
-        values: [errorTrackingLogic, ['dateRange', 'filterTestAccounts', 'filterGroup', 'sparklineSelectedPeriod']],
+        values: [
+            errorTrackingLogic,
+            ['dateRange', 'assignee', 'filterTestAccounts', 'filterGroup', 'sparklineSelectedPeriod'],
+        ],
     }),
 
     actions({
         setOrder: (order: ErrorTrackingQuery['order']) => ({ order }),
-        setSelectedRows: (selectedRows: string[]) => ({ selectedRows }),
+        setSelectedRowIndexes: (ids: number[]) => ({ ids }),
     }),
     reducers({
         order: [
@@ -26,21 +29,22 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 setOrder: (_, { order }) => order,
             },
         ],
-        selectedRows: [
-            [] as string[],
+        selectedRowIndexes: [
+            [] as number[],
             {
-                setSelectedRows: (_, { selectedRows }) => selectedRows,
+                setSelectedRowIndexes: (_, { ids }) => ids,
             },
         ],
     }),
 
     selectors({
         query: [
-            (s) => [s.order, s.dateRange, s.filterTestAccounts, s.filterGroup, s.sparklineSelectedPeriod],
-            (order, dateRange, filterTestAccounts, filterGroup, sparklineSelectedPeriod): DataTableNode =>
+            (s) => [s.order, s.dateRange, s.assignee, s.filterTestAccounts, s.filterGroup, s.sparklineSelectedPeriod],
+            (order, dateRange, assignee, filterTestAccounts, filterGroup, sparklineSelectedPeriod): DataTableNode =>
                 errorTrackingQuery({
                     order,
                     dateRange,
+                    assignee,
                     filterTestAccounts,
                     filterGroup,
                     sparklineSelectedPeriod,
@@ -49,6 +53,6 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
     }),
 
     subscriptions(({ actions }) => ({
-        query: () => actions.setSelectedRows([]),
+        query: () => actions.setSelectedRowIndexes([]),
     })),
 ])

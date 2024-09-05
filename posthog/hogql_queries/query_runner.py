@@ -6,7 +6,7 @@ from typing import Any, Generic, Optional, TypeVar, Union, cast, TypeGuard
 import structlog
 from prometheus_client import Counter
 from pydantic import BaseModel, ConfigDict
-from sentry_sdk import capture_exception, push_scope
+from sentry_sdk import capture_exception, push_scope, set_tag, get_traceparent
 
 from posthog.caching.utils import is_stale, ThresholdMode, cache_target_age, last_refresh_from_cached_result
 from posthog.clickhouse.client.execute_async import enqueue_process_query_task, get_query_status, QueryNotFoundError
@@ -52,6 +52,7 @@ from posthog.schema import (
     GenericCachedQueryResponse,
     QueryStatus,
     SessionAttributionExplorerQuery,
+    WebGoalsQuery,
 )
 from posthog.schema_helpers import to_dict, to_json
 from posthog.utils import generate_cache_key, get_from_dict_or_attr
@@ -136,6 +137,7 @@ RunnableQueryNode = Union[
     WebOverviewQuery,
     WebStatsTableQuery,
     WebTopClicksQuery,
+    WebGoalsQuery,
     SessionAttributionExplorerQuery,
 ]
 
@@ -317,6 +319,17 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
+    if kind == "WebGoalsQuery":
+        from .web_analytics.web_goals import WebGoalsQueryRunner
+
+        return WebGoalsQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
     if kind == "SessionAttributionExplorerQuery":
         from .web_analytics.session_attribution_explorer_query_runner import SessionAttributionExplorerQueryRunner
 
@@ -454,6 +467,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         except QueryNotFoundError:
             return None
 
+    def count_query_cache_hit(self, hit: str, trigger: str = "") -> None:
+        if (get_query_tag_value("trigger") or "").startswith("warming"):
+            # We don't want to count for cache hits caused by warming itself
+            return
+        QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit=hit, trigger=trigger).inc()
+
     def handle_cache_and_async_logic(
         self, execution_mode: ExecutionMode, cache_manager: QueryCacheManager, user: Optional[User] = None
     ) -> Optional[CR | CacheMissResponse]:
@@ -479,18 +498,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             assert isinstance(cached_response, CachedResponse)
 
             if not self._is_stale(last_refresh=last_refresh_from_cached_result(cached_response)):
-                QUERY_CACHE_HIT_COUNTER.labels(
-                    team_id=self.team.pk,
-                    cache_hit="hit",
-                    trigger=cached_response.calculation_trigger or "",
-                ).inc()
+                self.count_query_cache_hit(hit="hit", trigger=cached_response.calculation_trigger or "")
                 # We have a valid result that's fresh enough, let's return it
                 cached_response.query_status = self.get_async_query_status(cache_key=cache_manager.cache_key)
                 return cached_response
 
-            QUERY_CACHE_HIT_COUNTER.labels(
-                team_id=self.team.pk, cache_hit="stale", trigger=cached_response.calculation_trigger or ""
-            ).inc()
+            self.count_query_cache_hit(hit="stale", trigger=cached_response.calculation_trigger or "")
             # We have a stale result. If we aren't allowed to calculate, let's still return it
             # – otherwise let's proceed to calculation
             if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
@@ -512,7 +525,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 cached_response.query_status = self.get_async_query_status(cache_key=cache_manager.cache_key)
                 return cached_response
         else:
-            QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="miss", trigger="").inc()
+            self.count_query_cache_hit(hit="miss", trigger="")
             # We have no cached result. If we aren't allowed to calculate, let's return the cache miss
             # – otherwise let's proceed to calculation
             if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
@@ -538,7 +551,18 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         dashboard_id: Optional[int] = None,
     ) -> CR | CacheMissResponse | QueryStatusResponse:
         cache_key = self.get_cache_key()
+
         tag_queries(cache_key=cache_key)
+        tag_queries(sentry_trace=get_traceparent())
+        set_tag("cache_key", cache_key)
+        set_tag("query_type", getattr(self.query, "kind", "Other"))
+        if insight_id:
+            tag_queries(insight_id=insight_id)
+            set_tag("insight_id", str(insight_id))
+        if dashboard_id:
+            tag_queries(dashboard_id=dashboard_id)
+            set_tag("dashboard_id", str(dashboard_id))
+
         self.query_id = query_id or self.query_id
         CachedResponse: type[CR] = self.cached_response_type
         cache_manager = QueryCacheManager(
@@ -586,10 +610,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 # This would be a possible place to decide to not ever keep this cache warm
                 # Example: Not for super quickly calculated insights
                 # Set target_age to None in that case
-                target_age=self.cache_target_age(
-                    last_refresh=last_refresh,
-                    lazy=True,  # Attention: Currently using extended/lazy cache age as warming target
-                ),
+                target_age=target_age,
             )
             QUERY_CACHE_WRITE_COUNTER.labels(team_id=self.team.pk).inc()
 

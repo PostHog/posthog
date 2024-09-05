@@ -469,12 +469,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     } catch (...) {
       throw;
     }
-    PyObject* ret = build_ast_node("ThrowStatement", "{s:N}", "expr", expr);
-    if (!ret) {
-      Py_DECREF(expr);
-      throw PyInternalError();
-    }
-    return ret;
+    RETURN_NEW_AST_NODE("ThrowStatement", "{s:N}", "expr", expr);
   }
 
   VISIT(CatchBlock) {
@@ -484,8 +479,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       catch_var = visitAsString(ctx->catchVar);
       catch_var_py = PyUnicode_FromStringAndSize(catch_var.data(), catch_var.size());
     } else {
-      catch_var_py = Py_None;
-      Py_INCREF(catch_var_py);
+      catch_var_py = Py_NewRef(Py_None);
     }
 
     PyObject* catch_type_py;
@@ -2157,13 +2151,13 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   VISIT(ColumnExprNot) { RETURN_NEW_AST_NODE("Not", "{s:N}", "expr", visitAsPyObject(ctx->columnExpr())); }
 
   VISIT(ColumnExprWinFunctionTarget) {
-    auto column_expr_list_ctx = ctx->columnExprList();
+    auto column_expr_list_ctx = ctx->columnExprs;
     string name = visitAsString(ctx->identifier(0));
     string over_identifier = visitAsString(ctx->identifier(1));
     PyObject* exprs = visitAsPyObjectOrEmptyList(column_expr_list_ctx);
     PyObject* args;
     try {
-      args = visitAsPyObjectOrEmptyList(ctx->columnArgList());
+      args = visitAsPyObjectOrEmptyList(ctx->columnArgList);
     } catch (...) {
       Py_DECREF(exprs);
       throw;
@@ -2176,11 +2170,11 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
   VISIT(ColumnExprWinFunction) {
     string identifier = visitAsString(ctx->identifier());
-    auto column_expr_list_ctx = ctx->columnExprList();
+    auto column_expr_list_ctx = ctx->columnExprs;
     PyObject* exprs = visitAsPyObjectOrEmptyList(column_expr_list_ctx);
     PyObject* args;
     try {
-      args = visitAsPyObjectOrEmptyList(ctx->columnArgList());
+      args = visitAsPyObjectOrEmptyList(ctx->columnArgList);
     } catch (...) {
       Py_DECREF(exprs);
       throw;
@@ -2203,10 +2197,18 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
   VISIT(ColumnExprFunction) {
     string name = visitAsString(ctx->identifier());
-    PyObject* params = visitAsPyObjectOrNone(ctx->columnExprList());
+
+    // if two LPARENs ()(), make sure the first one is at least an empty list
+    PyObject* params;
+    if (ctx->LPAREN(1)) {
+      params = visitAsPyObjectOrEmptyList(ctx->columnExprs);
+    } else {
+      params = visitAsPyObjectOrNone(ctx->columnExprs);
+    }
+
     PyObject* args;
     try {
-      args = visitAsPyObjectOrEmptyList(ctx->columnArgList());
+      args = visitAsPyObjectOrEmptyList(ctx->columnArgList);
     } catch (...) {
       Py_DECREF(params);
       throw;
@@ -2229,10 +2231,18 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
   VISIT(ColumnExprTagElement) { return visit(ctx->hogqlxTagElement()); }
 
-  VISIT(ColumnArgList) { return visitPyListOfObjects(ctx->columnArgExpr()); }
-
   VISIT(ColumnLambdaExpr) {
-    PyObject* expr = visitAsPyObject(ctx->columnExpr());
+    PyObject* expr;
+    auto column_expr_ctx = ctx->columnExpr();
+    auto block_ctx = ctx->block();
+    if (!column_expr_ctx && !block_ctx) {
+      throw ParsingError("ColumnLambdaExpr must have either a columnExpr or a block");
+    }
+    if (column_expr_ctx) {
+      expr = visitAsPyObject(column_expr_ctx);
+    } else {
+      expr = visitAsPyObject(block_ctx);
+    }
     PyObject* args;
     try {
       args = X_PyList_FromStrings(visitAsVectorOfStrings(ctx->identifier()));
@@ -2490,8 +2500,9 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     }
 
     auto tag_element_ctx = ctx->hogqlxTagElement();
+    auto column_expr_ctx = ctx->columnExpr();
     auto tag_attribute_ctx = ctx->hogqlxTagAttribute();
-    PyObject* attributes = PyList_New(tag_attribute_ctx.size() + (tag_element_ctx ? 1 : 0));
+    PyObject* attributes = PyList_New(tag_attribute_ctx.size() + (tag_element_ctx || column_expr_ctx ? 1 : 0));
     if (!attributes) throw PyInternalError();
     bool found_source = false;
     for (size_t i = 0; i < tag_attribute_ctx.size(); i++) {
@@ -2540,14 +2551,30 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
         throw PyInternalError();
       }
       PyList_SET_ITEM(attributes, tag_attribute_ctx.size(), source_attribute);
+    } else if (column_expr_ctx) {
+      if (found_source) {
+        Py_DECREF(attributes);
+        throw SyntaxError("Nested HogQLX tags cannot have a source attribute");
+      }
+      PyObject* source_attribute = build_ast_node(
+          "HogQLXAttribute", "{s:s#,s:N}", "name", "source", 6, "value", visitAsPyObject(ctx->columnExpr())
+      );
+      if (!source_attribute) {
+        Py_DECREF(attributes);
+        throw PyInternalError();
+      }
+      PyList_SET_ITEM(attributes, tag_attribute_ctx.size(), source_attribute);
     }
 
     RETURN_NEW_AST_NODE("HogQLXTag", "{s:s#,s:N}", "kind", opening.data(), opening.size(), "attributes", attributes);
   }
 
   VISIT(Placeholder) {
-    string name = visitAsString(ctx->identifier());
-    RETURN_NEW_AST_NODE("Placeholder", "{s:s#}", "field", name.data(), name.size());
+    auto nested_identifier_ctx = ctx->nestedIdentifier();
+    vector<string> nested =
+        nested_identifier_ctx ? any_cast<vector<string>>(visit(nested_identifier_ctx)) : vector<string>();
+
+    RETURN_NEW_AST_NODE("Placeholder", "{s:N}", "chain", X_PyList_FromStrings(nested));
   }
 
   VISIT_UNSUPPORTED(EnumValue)
@@ -2562,6 +2589,18 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       throw;
     }
     RETURN_NEW_AST_NODE("Call", "{s:s, s:[NN]}", "name", "ifNull", "args", value, fallback);
+  }
+
+  VISIT(ColumnExprCall) {
+    PyObject* expr = visitAsPyObject(ctx->columnExpr());
+    PyObject* args;
+    try {
+      args = visitAsPyObjectOrEmptyList(ctx->columnExprList());
+    } catch (...) {
+      Py_DECREF(expr);
+      throw;
+    }
+    RETURN_NEW_AST_NODE("ExprCall", "{s:N, s:N}", "expr", expr, "args", args);
   }
 
   VISIT(ColumnExprTemplateString) { return visit(ctx->templateString()); }

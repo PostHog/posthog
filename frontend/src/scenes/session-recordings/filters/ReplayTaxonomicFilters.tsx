@@ -5,6 +5,7 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
+import { getFilterLabel } from 'lib/taxonomy'
 import { useState } from 'react'
 
 import { PropertyFilterType } from '~/types'
@@ -24,22 +25,26 @@ export function ReplayTaxonomicFilters({ onChange }: ReplayTaxonomicFiltersProps
         return !!filters.find((f) => f.type === PropertyFilterType.Recording && f.key === key)
     }
 
-    const recordingProperties = [
+    const properties = [
         {
-            label: 'Visited page',
             key: 'visited_page',
+            propertyFilterType: PropertyFilterType.Recording,
+            taxonomicFilterGroup: TaxonomicFilterGroupType.Replay,
         },
         {
-            label: 'Platform',
             key: 'snapshot_source',
+            propertyFilterType: PropertyFilterType.Recording,
+            taxonomicFilterGroup: TaxonomicFilterGroupType.Replay,
         },
         {
-            label: 'Console log level',
-            key: 'console_log_level',
+            key: 'level',
+            propertyFilterType: PropertyFilterType.LogEntry,
+            taxonomicFilterGroup: TaxonomicFilterGroupType.LogEntries,
         },
         {
-            label: 'Console log text',
-            key: 'console_log_query',
+            key: 'message',
+            propertyFilterType: PropertyFilterType.LogEntry,
+            taxonomicFilterGroup: TaxonomicFilterGroupType.LogEntries,
         },
     ]
 
@@ -48,17 +53,20 @@ export function ReplayTaxonomicFilters({ onChange }: ReplayTaxonomicFiltersProps
             <section>
                 <h5 className="mt-1 mb-0">Replay properties</h5>
                 <ul className="space-y-px">
-                    {recordingProperties.map(({ key, label }) => (
-                        <LemonButton
-                            key={key}
-                            size="small"
-                            fullWidth
-                            onClick={() => onChange(key, {})}
-                            disabledReason={hasFilter(key) ? `${label} filter already added` : undefined}
-                        >
-                            {label}
-                        </LemonButton>
-                    ))}
+                    {properties.map(({ key, taxonomicFilterGroup, propertyFilterType }) => {
+                        const label = getFilterLabel(key, taxonomicFilterGroup)
+                        return (
+                            <LemonButton
+                                key={key}
+                                size="small"
+                                fullWidth
+                                onClick={() => onChange(key, { propertyFilterType: propertyFilterType })}
+                                disabledReason={hasFilter(key) ? `${label} filter already added` : undefined}
+                            >
+                                {label}
+                            </LemonButton>
+                        )
+                    })}
                 </ul>
             </section>
 

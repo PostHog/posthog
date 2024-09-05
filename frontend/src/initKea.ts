@@ -113,12 +113,33 @@ export function initKea({ routerHistory, routerLocation, beforePlugins }: InitKe
         waitForPlugin,
     ]
 
-    // To enable logging, run localStorage.setItem("debug", true) in the console
-    if (window.JS_KEA_VERBOSE_LOGGING || ('localStorage' in window && window.localStorage.getItem('debug'))) {
+    // To enable logging, run localStorage.setItem("ph-kea-debug", true) in the console
+    if (window.JS_KEA_VERBOSE_LOGGING || ('localStorage' in window && window.localStorage.getItem('ph-kea-debug'))) {
         plugins.push(loggerPlugin)
+    }
+
+    if ((window as any).__REDUX_DEVTOOLS_EXTENSION__) {
+        // eslint-disable-next-line no-console
+        console.log('NB Redux Dev Tools are disabled on PostHog. See: https://github.com/PostHog/posthog/issues/17482')
     }
 
     resetContext({
         plugins: plugins,
+        createStore: {
+            // Disable redux dev-tools's compose by passing `compose` from redux directly
+            compose: ((...funcs: any[]) => {
+                if (funcs.length === 0) {
+                    return <T>(arg: T) => arg
+                }
+                if (funcs.length === 1) {
+                    return funcs[0]
+                }
+                return funcs.reduce(
+                    (a, b) =>
+                        (...args: any) =>
+                            a(b(...args))
+                )
+            }) as any,
+        },
     })
 }

@@ -2,59 +2,14 @@ import '../Experiment.scss'
 
 import { useValues } from 'kea'
 
-import { InsightType } from '~/types'
-
 import { experimentLogic } from '../experimentLogic'
 import { VariantTag } from './components'
 
 export function Overview(): JSX.Element {
-    const {
-        experimentResults,
-        getIndexForVariant,
-        experimentInsightType,
-        sortedWinProbabilities,
-        getHighestProbabilityVariant,
-        areResultsSignificant,
-    } = useValues(experimentLogic)
+    const { experimentId, experimentResults, getIndexForVariant, getHighestProbabilityVariant, areResultsSignificant } =
+        useValues(experimentLogic)
 
     function WinningVariantText(): JSX.Element {
-        if (experimentInsightType === InsightType.FUNNELS) {
-            const winningVariant = sortedWinProbabilities[0]
-
-            let comparisonVariant
-            if (winningVariant.key === 'control') {
-                comparisonVariant = sortedWinProbabilities[1]
-            } else {
-                comparisonVariant = sortedWinProbabilities.find(({ key }) => key === 'control')
-            }
-
-            if (!comparisonVariant) {
-                return <></>
-            }
-
-            const difference = winningVariant.conversionRate - comparisonVariant.conversionRate
-            if (winningVariant.conversionRate === comparisonVariant.conversionRate) {
-                return (
-                    <span>
-                        <b>No variant is winning</b> at this moment.&nbsp;
-                    </span>
-                )
-            }
-
-            return (
-                <div className="items-center inline-flex flex-wrap">
-                    <VariantTag variantKey={winningVariant.key} />
-                    <span>&nbsp;is winning with a conversion rate&nbsp;</span>
-                    <span className="font-semibold text-success items-center">
-                        increase of {`${difference.toFixed(2)}%`}
-                    </span>
-                    <span>&nbsp;percentage points (vs&nbsp;</span>
-                    <VariantTag variantKey={comparisonVariant.key} />
-                    <span>).&nbsp;</span>
-                </div>
-            )
-        }
-
         const highestProbabilityVariant = getHighestProbabilityVariant(experimentResults)
         const index = getIndexForVariant(experimentResults, highestProbabilityVariant || '')
         if (highestProbabilityVariant && index !== null && experimentResults) {
@@ -62,7 +17,7 @@ export function Overview(): JSX.Element {
 
             return (
                 <div className="items-center inline-flex flex-wrap">
-                    <VariantTag variantKey={highestProbabilityVariant} />
+                    <VariantTag experimentId={experimentId} variantKey={highestProbabilityVariant} />
                     <span>&nbsp;is winning with a&nbsp;</span>
                     <span className="font-semibold text-success items-center">
                         {`${(probability[highestProbabilityVariant] * 100).toFixed(2)}% probability`}&nbsp;

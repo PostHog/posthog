@@ -18,20 +18,18 @@ for (let key, value in propertyOverrides) {
     properties[key] := value
 }
 
-let payload := {
-    'token': token,
-    'event': event.name,
-    'timestamp': event.timestamp,
-    'distinct_id': event.distinct_id,
-    'properties': properties
-}
-
 fetch(f'{host}/e', {
     'method': 'POST',
     'headers': {
         'Content-Type': 'application/json'
     },
-    'body': payload
+    'body': {
+        'token': token,
+        'event': event.name,
+        'timestamp': event.timestamp,
+        'distinct_id': event.distinct_id,
+        'properties': properties
+    }
 })
 """.strip(),
     inputs_schema=[

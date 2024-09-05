@@ -29,7 +29,7 @@
 - Analyze data with ready-made visualizations, or do it yourself with SQL
 - Only capture properties on the people you want to track, save money when you don't
 - Gather insights by capturing session replays, console logs, and network monitoring
-- Improve your product with A/B testing that automatically analyzes performance
+- Improve your product with Experiments that automatically analyze performance
 - Safely roll out features to select users or cohorts with feature flags
 - Send out fully customizable surveys to specific cohorts of users
 - Connect to external services and manage data flows with PostHog CDP
@@ -81,7 +81,7 @@ PostHog brings all the tools and data you need to build better products.
 - **Session replays:** [Watch videos](https://posthog.com/docs/features/session-recording) of your users' behavior, with fine-grained filters and privacy controls, as well as network monitoring and captured console logs
 - **Heatmaps:** See where users click and get a visual representation of their behaviour with the [PostHog Toolbar](https://posthog.com/docs/features/toolbar)
 - **Feature flags:** Test and manage the rollout of [new features](https://posthog.com/docs/feature-flags/installation) to specific users and groups, or deploy flags as kill-switches
-- **A/B and multivariate experimentation:** run simple or complex changes as [experiments](https://posthog.com/manual/experimentation) and get automatic significance calculations
+- **Experiments:** run simple or complex changes as [experiments](https://posthog.com/manual/experimentation) and get automatic significance calculations
 - **Correlation analysis:** Discover what events and properties [correlate](https://posthog.com/manual/correlation) with success and failure
 - **Surveys:** Collect qualitative feedback from your users using fully customizable [surveys](https://posthog.com/docs/surveys/installation)
 
@@ -105,7 +105,7 @@ We <3 contributions big and small. In priority order (although everything is app
 
 Our mission is to increase the number of successful products in the world. To do that, we build product and data tools that help you understand user behavior without losing control of your data.
 
-In our view, third-party analytics tools do not work in a world of cookie deprecation, GDPR, HIPAA, CCPA, and many other four-letter acronyms. PostHog is the alternative to sending all of your customers' personal information and usage data to third-parties.
+In our view, third-party analytics tools do not work in a world of cookie deprecation, GDPR, HIPAA, CCPA, and many other four-letter acronyms. PostHog is the alternative to sending all of your customers' personal information and usage data to third parties.
 
 PostHog gives you every tool you need to understand user behavior, develop and test improvements, and release changes to make your product more successful.
 
@@ -113,7 +113,7 @@ PostHog operates in public as much as possible. We detail how we work and our le
 
 ## Open-source vs. paid
 
-This repo is available under the [MIT expat license](https://github.com/PostHog/posthog/blob/master/LICENSE), except for the `ee` directory (which has it's [license here](https://github.com/PostHog/posthog/blob/master/ee/LICENSE)) if applicable. 
+This repo is available under the [MIT expat license](https://github.com/PostHog/posthog/blob/master/LICENSE), except for the `ee` directory (which has its [license here](https://github.com/PostHog/posthog/blob/master/ee/LICENSE)) if applicable. 
 
 Need *absolutely 💯% FOSS*? Check out our [posthog-foss](https://github.com/PostHog/posthog-foss) repository, which is purged of all proprietary code and features.
 

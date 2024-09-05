@@ -3,8 +3,9 @@ import { useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import EarlyAccessFeatureImage from 'public/early-access-feature-demo.png'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { urls } from 'scenes/urls'
 
-import { FeatureFlagType } from '~/types'
+import { FeatureFlagType, PipelineStage, Region } from '~/types'
 
 interface InstructionsModalProps {
     flag: FeatureFlagType['key']
@@ -25,7 +26,15 @@ export function InstructionsModal({ onClose, visible, flag }: InstructionsModalP
                     header: 'Option 1: Widget Site App',
                     content: (
                         <div>
-                            Give your users a <Link to="https://app.posthog.com/project/apps/574">prebuilt widget</Link>{' '}
+                            Give your users a{' '}
+                            <Link
+                                to={urls.pipelineNodeNew(
+                                    PipelineStage.SiteApp,
+                                    preflight?.region === Region.EU ? 332 : 574
+                                )}
+                            >
+                                prebuilt widget
+                            </Link>{' '}
                             to opt-in to features
                             <img className="max-h-full max-w-full mt-2.5" src={EarlyAccessFeatureImage} />
                         </div>

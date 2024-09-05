@@ -112,8 +112,7 @@ export function Sparkline({
                                 },
                             },
                             grid: {
-                                borderDash: [2],
-                                drawBorder: false,
+                                tickBorderDash: [2],
                                 display: true,
                                 tickLength: 0,
                             },
@@ -173,7 +172,6 @@ export function Sparkline({
     const dataPointCount = adjustedData[0].values.length
     const finalClassName = clsx(
         dataPointCount > 16 ? 'w-64' : dataPointCount > 8 ? 'w-48' : dataPointCount > 4 ? 'w-32' : 'w-24',
-        'h-8',
         className
     )
 

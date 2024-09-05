@@ -5,20 +5,24 @@ import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { objectClean, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
+import { stringifiedFingerprint } from 'scenes/error-tracking/utils'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import {
+    AlertType,
+    AlertTypeWrite,
     DatabaseSerializedFieldType,
     ErrorTrackingGroup,
     QuerySchema,
     QueryStatusResponse,
+    RecordingsQuery,
+    RecordingsQueryResponse,
     RefreshType,
 } from '~/queries/schema'
 import {
     ActionType,
     ActivityScope,
-    AlertType,
     AppMetricsTotalsV2Response,
     AppMetricsV2RequestParams,
     AppMetricsV2Response,
@@ -79,6 +83,7 @@ import {
     PluginLogEntry,
     PropertyDefinition,
     PropertyDefinitionType,
+    QueryBasedInsightModel,
     RawAnnotationType,
     RawBatchExportRun,
     RoleMemberType,
@@ -91,7 +96,6 @@ import {
     SessionRecordingPlaylistType,
     SessionRecordingSnapshotParams,
     SessionRecordingSnapshotResponse,
-    SessionRecordingsResponse,
     SessionRecordingType,
     SharingConfigurationType,
     SlackChannelType,
@@ -305,7 +309,7 @@ class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('insights')
     }
 
-    public insight(id: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
+    public insight(id: QueryBasedInsightModel['id'], teamId?: TeamType['id']): ApiRequest {
         return this.insights(teamId).addPathComponent(id)
     }
 
@@ -313,7 +317,7 @@ class ApiRequest {
         return this.insights(teamId).addPathComponent('activity')
     }
 
-    public insightSharing(id: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
+    public insightSharing(id: QueryBasedInsightModel['id'], teamId?: TeamType['id']): ApiRequest {
         return this.insight(id, teamId).addPathComponent('sharing')
     }
 
@@ -670,7 +674,7 @@ class ApiRequest {
     }
 
     public errorTrackingGroup(fingerprint: ErrorTrackingGroup['fingerprint'], teamId?: TeamType['id']): ApiRequest {
-        return this.errorTracking(teamId).addPathComponent(fingerprint)
+        return this.errorTracking(teamId).addPathComponent(stringifiedFingerprint(fingerprint))
     }
 
     public errorTrackingMerge(fingerprint: ErrorTrackingGroup['fingerprint']): ApiRequest {
@@ -728,12 +732,12 @@ class ApiRequest {
     }
 
     // # Alerts
-    public alerts(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('alerts')
+    public alerts(id: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.insight(id, teamId).addPathComponent('alerts')
     }
 
-    public alert(id: AlertType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.alerts(teamId).addPathComponent(id)
+    public alert(id: AlertType['id'], insightId: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.alerts(insightId, teamId).addPathComponent(id)
     }
 
     // Resource Access Permissions
@@ -760,6 +764,11 @@ class ApiRequest {
             return apiRequest.withQueryString('show_progress=true')
         }
         return apiRequest
+    }
+
+    // Chat
+    public chat(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('query').addPathComponent('chat')
     }
 
     // Notebooks
@@ -899,17 +908,22 @@ const api = {
     insights: {
         loadInsight(
             shortId: InsightModel['short_id'],
-            basic?: boolean
+            basic?: boolean,
+            refresh?: RefreshType
         ): Promise<PaginatedResponse<Partial<InsightModel>>> {
             return new ApiRequest()
                 .insights()
                 .withQueryString(
                     toParams({
                         short_id: encodeURIComponent(shortId),
-                        basic: basic,
+                        basic,
+                        refresh,
                     })
                 )
                 .get()
+        },
+        async get(id: number): Promise<InsightModel | null> {
+            return await new ApiRequest().insight(id).get()
         },
         async create(data: any): Promise<InsightModel> {
             return await new ApiRequest().insights().create({ data })
@@ -1025,10 +1039,14 @@ const api = {
                     return new ApiRequest().insightsActivity(teamId)
                 },
                 [ActivityScope.PLUGIN]: () => {
-                    return new ApiRequest().pluginsActivity()
+                    return activityLogProps.id
+                        ? new ApiRequest().pluginConfig(activityLogProps.id as number, teamId).withAction('activity')
+                        : new ApiRequest().plugins().withAction('activity')
                 },
                 [ActivityScope.PLUGIN_CONFIG]: () => {
-                    return new ApiRequest().pluginsActivity()
+                    return activityLogProps.id
+                        ? new ApiRequest().pluginConfig(activityLogProps.id as number, teamId).withAction('activity')
+                        : new ApiRequest().plugins().withAction('activity')
                 },
                 [ActivityScope.DATA_MANAGEMENT]: () => {
                     return new ApiRequest().dataManagementActivity()
@@ -1551,7 +1569,7 @@ const api = {
             recordingId,
         }: {
             dashboardId?: DashboardType['id']
-            insightId?: InsightModel['id']
+            insightId?: QueryBasedInsightModel['id']
             recordingId?: SessionRecordingType['id']
         }): Promise<SharingConfigurationType | null> {
             return dashboardId
@@ -1570,7 +1588,7 @@ const api = {
                 recordingId,
             }: {
                 dashboardId?: DashboardType['id']
-                insightId?: InsightModel['id']
+                insightId?: QueryBasedInsightModel['id']
                 recordingId?: SessionRecordingType['id']
             },
             data: Partial<SharingConfigurationType>
@@ -1597,6 +1615,9 @@ const api = {
         },
         async list(): Promise<PaginatedResponse<PluginConfigTypeNew>> {
             return await new ApiRequest().pluginConfigs().get()
+        },
+        async migrate(id: PluginConfigTypeNew['id']): Promise<HogFunctionType> {
+            return await new ApiRequest().pluginConfig(id).withAction('migrate').create()
         },
         async logs(pluginConfigId: number, params: LogEntryRequestParams): Promise<LogEntry[]> {
             const levels = (params.level?.split(',') ?? []).filter((x) => x !== 'WARNING')
@@ -1630,8 +1651,8 @@ const api = {
     },
 
     hogFunctions: {
-        async list(): Promise<PaginatedResponse<HogFunctionType>> {
-            return await new ApiRequest().hogFunctions().get()
+        async list(params?: { filters?: any }): Promise<PaginatedResponse<HogFunctionType>> {
+            return await new ApiRequest().hogFunctions().withQueryString(params).get()
         },
         async get(id: HogFunctionType['id']): Promise<HogFunctionType> {
             return await new ApiRequest().hogFunction(id).get()
@@ -1736,7 +1757,7 @@ const api = {
     },
 
     recordings: {
-        async list(params: Record<string, any>): Promise<SessionRecordingsResponse> {
+        async list(params: RecordingsQuery): Promise<RecordingsQueryResponse> {
             return await new ApiRequest().recordings().withQueryString(toParams(params)).get()
         },
         async getMatchingEvents(params: string): Promise<{ results: string[] }> {
@@ -1824,7 +1845,7 @@ const api = {
         async listPlaylistRecordings(
             playlistId: SessionRecordingPlaylistType['short_id'],
             params: Record<string, any> = {}
-        ): Promise<SessionRecordingsResponse> {
+        ): Promise<RecordingsQueryResponse> {
             return await new ApiRequest()
                 .recordingPlaylist(playlistId)
                 .withAction('recordings')
@@ -1945,6 +1966,13 @@ const api = {
         ): Promise<BatchExportRun> {
             return await new ApiRequest().batchExport(id).withAction('backfill').create({ data })
         },
+        async retryRun(
+            id: BatchExportConfiguration['id'],
+            runId: BatchExportRun['id'],
+            teamId?: TeamType['id']
+        ): Promise<BatchExportRun> {
+            return await new ApiRequest().batchExportRun(id, runId, teamId).withAction('retry').create()
+        },
         async logs(
             id: BatchExportConfiguration['id'],
             params: LogEntryRequestParams = {}
@@ -2020,6 +2048,9 @@ const api = {
         ): Promise<void> {
             await new ApiRequest().dataWarehouseTable(tableId).withAction('update_schema').create({ data: { updates } })
         },
+        async refreshSchema(tableId: DataWarehouseTable['id']): Promise<void> {
+            await new ApiRequest().dataWarehouseTable(tableId).withAction('refresh_schema').create()
+        },
     },
 
     dataWarehouseSavedQueries: {
@@ -2082,8 +2113,16 @@ const api = {
                 .withAction('source_prefix')
                 .create({ data: { source_type, prefix } })
         },
-        async jobs(sourceId: ExternalDataStripeSource['id']): Promise<ExternalDataJob[]> {
-            return await new ApiRequest().externalDataSource(sourceId).withAction('jobs').get()
+        async jobs(
+            sourceId: ExternalDataStripeSource['id'],
+            before: string | null,
+            after: string | null
+        ): Promise<ExternalDataJob[]> {
+            return await new ApiRequest()
+                .externalDataSource(sourceId)
+                .withAction('jobs')
+                .withQueryString({ before, after })
+                .get()
         },
     },
 
@@ -2235,20 +2274,20 @@ const api = {
     },
 
     alerts: {
-        async get(alertId: AlertType['id']): Promise<AlertType> {
-            return await new ApiRequest().alert(alertId).get()
+        async get(insightId: number, alertId: AlertType['id']): Promise<AlertType> {
+            return await new ApiRequest().alert(alertId, insightId).get()
         },
-        async create(data: Partial<AlertType>): Promise<AlertType> {
-            return await new ApiRequest().alerts().create({ data })
+        async create(insightId: number, data: Partial<AlertTypeWrite>): Promise<AlertType> {
+            return await new ApiRequest().alerts(insightId).create({ data })
         },
-        async update(alertId: AlertType['id'], data: Partial<AlertType>): Promise<AlertType> {
-            return await new ApiRequest().alert(alertId).update({ data })
+        async update(insightId: number, alertId: AlertType['id'], data: Partial<AlertTypeWrite>): Promise<AlertType> {
+            return await new ApiRequest().alert(alertId, insightId).update({ data })
         },
         async list(insightId: number): Promise<PaginatedResponse<AlertType>> {
-            return await new ApiRequest().alerts().withQueryString(`insight=${insightId}`).get()
+            return await new ApiRequest().alerts(insightId).get()
         },
-        async delete(alertId: AlertType['id']): Promise<void> {
-            return await new ApiRequest().alert(alertId).delete()
+        async delete(insightId: number, alertId: AlertType['id']): Promise<void> {
+            return await new ApiRequest().alert(alertId, insightId).delete()
         },
     },
 
@@ -2273,6 +2312,14 @@ const api = {
         return await new ApiRequest()
             .query()
             .create({ ...options, data: { query, client_query_id: queryId, refresh: refreshParam } })
+    },
+
+    chatURL: (): string => {
+        return new ApiRequest().chat().assembleFullUrl()
+    },
+
+    async chat(data: any): Promise<Response> {
+        return await api.createResponse(this.chatURL(), data)
     },
 
     /** Fetch data from specified URL. The result already is JSON-parsed. */

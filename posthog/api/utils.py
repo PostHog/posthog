@@ -1,4 +1,7 @@
 import json
+from rest_framework.decorators import action as drf_action
+from functools import wraps
+from posthog.api.documentation import extend_schema
 import re
 import socket
 import urllib.parse
@@ -22,7 +25,11 @@ from rest_framework.exceptions import ValidationError
 from statshog.defaults.django import statsd
 
 from posthog.constants import EventDefinitionType
-from posthog.exceptions import RequestParsingError, generate_exception_response
+from posthog.exceptions import (
+    RequestParsingError,
+    UnspecifiedCompressionFallbackParsingError,
+    generate_exception_response,
+)
 from posthog.models import Entity, EventDefinition
 from posthog.models.entity import MathType
 from posthog.models.filters.filter import Filter
@@ -182,7 +189,7 @@ def get_data(request):
     data = None
     try:
         data = load_data_from_request(request)
-    except RequestParsingError as error:
+    except (RequestParsingError, UnspecifiedCompressionFallbackParsingError) as error:
         statsd.incr("capture_endpoint_invalid_payload")
         logger.exception(f"Invalid payload", error=error)
         return (
@@ -418,3 +425,46 @@ def hostname_in_allowed_url_list(allowed_url_list: Optional[list[str]], hostname
 
 def parse_domain(url: Any) -> Optional[str]:
     return urlparse(url).hostname
+
+
+# By default, DRF spectacular uses the serializer of the view as the response format for actions. However, most actions don't return a version of the model, but something custom. This function removes the response from all actions in the documentation.
+def action(methods=None, detail=None, url_path=None, url_name=None, responses=None, **kwargs):
+    """
+    Mark a ViewSet method as a routable action.
+
+    `@action`-decorated functions will be endowed with a `mapping` property,
+    a `MethodMapper` that can be used to add additional method-based behaviors
+    on the routed action.
+
+    :param methods: A list of HTTP method names this action responds to.
+                    Defaults to GET only.
+    :param detail: Required. Determines whether this action applies to
+                   instance/detail requests or collection/list requests.
+    :param url_path: Define the URL segment for this action. Defaults to the
+                     name of the method decorated.
+    :param url_name: Define the internal (`reverse`) URL name for this action.
+                     Defaults to the name of the method decorated with underscores
+                     replaced with dashes.
+    :param responses: Serializer or pydantic model of the response for documentation
+    :param kwargs: Additional properties to set on the view.  This can be used
+                   to override viewset-level *_classes settings, equivalent to
+                   how the `@renderer_classes` etc. decorators work for function-
+                   based API views.
+    """
+
+    def decorator(func):
+        @extend_schema(responses=responses)
+        @drf_action(
+            methods=methods,
+            detail=detail,
+            url_path=url_path,
+            url_name=url_name,
+            **kwargs,
+        )
+        @wraps(func)
+        def wrapped_function(*args, **kwargs):
+            return func(*args, **kwargs)
+
+        return wrapped_function
+
+    return decorator

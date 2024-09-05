@@ -26,7 +26,7 @@
         }
 
         .text-link {
-            color: var(--text-3000);
+            color: var(--text-3000) !important;
         }
     }
 
@@ -51,7 +51,7 @@
 
 .SessionRecordingPlaylistHeightWrapper {
     // NOTE: Somewhat random way to offset the various headers and tabs above the playlist
-    height: calc(100vh - 14rem);
+    height: calc(100vh - 15rem);
     min-height: 25rem;
 }
 

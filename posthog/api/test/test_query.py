@@ -840,6 +840,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 {
                     "query_status": {
                         "complete": False,
+                        "pickup_time": None,
                         "end_time": None,
                         "error": False,
                         "error_message": None,

@@ -24,8 +24,8 @@ export function PathCleaningFiltersConfig(): JSX.Element | null {
     return (
         <>
             <p>
-                Make your <Link to={urls.insightNew({ insight: InsightType.PATHS })}>Paths</Link> clearer by aliasing
-                one or multiple URLs.{' '}
+                Make your <Link to={urls.insightNew(InsightType.PATHS)}>Paths</Link> clearer by aliasing one or multiple
+                URLs.{' '}
                 <i>
                     Example: <code>http://tenant-one.mydomain.com/accounts</code> and{' '}
                     <code>http://tenant-two.mydomain.com/accounts</code> can become a single <code>/accounts</code>{' '}

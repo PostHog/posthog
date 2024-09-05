@@ -1,15 +1,13 @@
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
-
 from string import ascii_lowercase
 from typing import Any, Literal, Optional, Union, cast
-from collections.abc import Callable
 
 from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models.action.action import Action
-
 from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.models.group.util import create_group
@@ -17,7 +15,7 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.person.person import Person
 from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID
-from posthog.schema import FunnelsQuery
+from posthog.schema import BaseMathType, FunnelsQuery
 from posthog.test.base import (
     APIBaseTest,
     also_test_with_materialized_columns,
@@ -2662,6 +2660,77 @@ def funnel_breakdown_test_factory(
             self.assertEqual(len(results), 2)
 
             self.assertCountEqual([res[0]["breakdown"] for res in results], [["Mac"], ["Safari"]])
+
+        def test_funnel_step_breakdown_with_first_time_for_user_math(self):
+            filters = {
+                "insight": INSIGHT_FUNNELS,
+                "funnel_order_type": funnel_order_type,
+                "events": [
+                    {"id": "sign up", "order": 0, "math": BaseMathType.FIRST_TIME_FOR_USER},
+                    {"id": "play movie", "order": 1},
+                ],
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-08",
+                "funnel_window_days": 7,
+                "breakdown_type": "event",
+                "breakdown": ["$browser"],
+                "breakdown_attribution_type": "all_events",
+            }
+
+            people = journeys_for(
+                {
+                    "person1": [
+                        {
+                            "event": "sign up",
+                            "timestamp": datetime(2020, 1, 1, 12),
+                            "properties": {"$browser": "Safari"},
+                        },
+                        {
+                            "event": "play movie",
+                            "timestamp": datetime(2020, 1, 2, 12, 30),
+                            "properties": {"$browser": "Safari"},
+                        },
+                        {
+                            "event": "sign up",
+                            "timestamp": datetime(2020, 1, 2, 13),
+                            "properties": {"$browser": "Chrome"},
+                        },
+                        {
+                            "event": "play movie",
+                            "timestamp": datetime(2020, 1, 2, 14),
+                            "properties": {"$browser": "Safari"},
+                        },
+                    ]
+                },
+                self.team,
+            )
+
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+            self.assertEqual(len(results), 1)
+            self._assert_funnel_breakdown_result_is_correct(
+                results[0],
+                [
+                    FunnelStepResult(name="sign up", count=1, breakdown=["Safari"]),
+                    FunnelStepResult(
+                        name="play movie",
+                        count=1,
+                        breakdown=["Safari"],
+                        average_conversion_time=88200,
+                        median_conversion_time=88200,
+                    ),
+                ],
+            )
+
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filters, 1, "Safari"),
+                [people["person1"].uuid],
+            )
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filters, 2, "Safari"),
+                [people["person1"].uuid],
+            )
 
     return TestFunnelBreakdown
 

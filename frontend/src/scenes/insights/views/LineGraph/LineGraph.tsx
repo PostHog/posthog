@@ -1,7 +1,7 @@
 import 'chartjs-adapter-dayjs-3'
 
 import { LegendOptions } from 'chart.js'
-import { _DeepPartialObject } from 'chart.js/types/utils'
+import { DeepPartial } from 'chart.js/dist/types/utils'
 import ChartDataLabels from 'chartjs-plugin-datalabels'
 import ChartjsPluginStacked100, { ExtendedChartData } from 'chartjs-plugin-stacked100'
 import clsx from 'clsx'
@@ -236,13 +236,13 @@ export interface LineGraphProps {
     hideAnnotations?: boolean
     hideXAxis?: boolean
     hideYAxis?: boolean
-    legend?: _DeepPartialObject<LegendOptions<ChartType>>
+    legend?: DeepPartial<LegendOptions<ChartType>>
     yAxisScaleType?: string | null
 }
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
     return (
-        <ErrorBoundary>
+        <ErrorBoundary tags={{ feature: 'LineGraph' }}>
             {props.type === GraphType.Pie ? <PieChart {...props} /> : <LineGraph_ {...props} />}
         </ErrorBoundary>
     )
@@ -283,7 +283,7 @@ export function LineGraph_({
     const { aggregationLabel } = useValues(groupsModel)
     const { isDarkModeOn } = useValues(themeLogic)
 
-    const { insightProps, queryBasedInsight } = useValues(insightLogic)
+    const { insightProps, insight } = useValues(insightLogic)
     const { timezone, isTrends, breakdownFilter } = useValues(insightVizDataLogic(insightProps))
 
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -313,13 +313,16 @@ export function LineGraph_({
         }
     }, [])
 
-    function processDataset(dataset: ChartDataset<any>, totalDatasets: number): ChartDataset<any> {
+    function processDataset(dataset: ChartDataset<any>): ChartDataset<any> {
         const isPrevious = !!dataset.compare && dataset.compare_label === 'previous'
-        const adjustedIndex = isPrevious ? dataset.seriesIndex - totalDatasets / 2 : dataset.seriesIndex
 
         const mainColor = dataset?.status
             ? getBarColorFromStatus(dataset.status)
-            : getTrendLikeSeriesColor(adjustedIndex, isPrevious && !isArea)
+            : getTrendLikeSeriesColor(
+                  // colorIndex is set for trends, seriesIndex is used for stickiness, index is used for retention
+                  dataset?.colorIndex ?? dataset.seriesIndex ?? dataset.index,
+                  isPrevious && !isArea
+              )
         const hoverColor = dataset?.status ? getBarColorFromStatus(dataset.status, true) : mainColor
         const areaBackgroundColor = hexToRGBA(mainColor, 0.5)
         const areaIncompletePattern = createPinstripePattern(areaBackgroundColor, isDarkModeOn)
@@ -391,7 +394,7 @@ export function LineGraph_({
             }
         }
 
-        datasets = datasets.map((dataset) => processDataset(dataset, datasets.length))
+        datasets = datasets.map(processDataset)
 
         const seriesNonZeroMax = Math.max(...datasets.flatMap((d) => d.data).filter((n) => !!n && n !== LOG_ZERO))
         const seriesNonZeroMin = Math.min(...datasets.flatMap((d) => d.data).filter((n) => !!n && n !== LOG_ZERO))
@@ -401,14 +404,13 @@ export function LineGraph_({
             font: {
                 family: '-apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"',
                 size: 12,
-                weight: '500',
+                weight: 'normal',
             },
         }
         const gridOptions: Partial<GridLineOptions> = {
             color: colors.axisLine as Color,
-            borderColor: colors.axisLine as Color,
             tickColor: colors.axisLine as Color,
-            borderDash: [4, 2],
+            tickBorderDash: [4, 2],
         }
 
         const tooltipOptions: Partial<TooltipOptions> = {
@@ -483,6 +485,7 @@ export function LineGraph_({
                         if (tooltip.body) {
                             const referenceDataPoint = tooltip.dataPoints[0] // Use this point as reference to get the date
                             const dataset = datasets[referenceDataPoint.datasetIndex]
+                            const date = dataset?.days?.[referenceDataPoint.dataIndex]
                             const seriesData = createTooltipData(tooltip.dataPoints, (dp) => {
                                 const hasDotted =
                                     datasets.some((d) => d.dotted) &&
@@ -496,7 +499,12 @@ export function LineGraph_({
 
                             tooltipRoot.render(
                                 <InsightTooltip
-                                    date={dataset?.days?.[tooltip.dataPoints?.[0]?.dataIndex]}
+                                    date={date}
+                                    altTitle={() =>
+                                        typeof date === 'number'
+                                            ? dataset?.labels?.[referenceDataPoint.dataIndex]
+                                            : null
+                                    }
                                     timezone={timezone}
                                     seriesData={seriesData}
                                     breakdownFilter={breakdownFilter}
@@ -625,7 +633,7 @@ export function LineGraph_({
                                   padding: 10,
                                   font: {
                                       size: 14,
-                                      weight: '600',
+                                      weight: 'bold',
                                   },
                               }
                             : {}),
@@ -741,7 +749,7 @@ export function LineGraph_({
                                     d.compareLabels?.[i],
                                 ]
                             } else if (d.breakdownLabels?.[i]) {
-                                labelDescriptors = [d.breakdownLabels[i], d.compareLabels?.[i]]
+                                labelDescriptors = [d.actions?.[i]?.name, d.breakdownLabels[i], d.compareLabels?.[i]]
                             } else if (d.labels?.[i]) {
                                 labelDescriptors = [d.labels[i], d.compareLabels?.[i]]
                             } else {
@@ -778,7 +786,7 @@ export function LineGraph_({
                     dates={datasets[0]?.days || []}
                     chartWidth={chartWidth}
                     chartHeight={chartHeight}
-                    insightNumericId={queryBasedInsight.id || 'new'}
+                    insightNumericId={insight.id || 'new'}
                 />
             ) : null}
         </div>

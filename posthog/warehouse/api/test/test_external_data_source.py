@@ -1,3 +1,4 @@
+from freezegun import freeze_time
 from posthog.models.project import Project
 from posthog.temporal.data_imports.pipelines.stripe.settings import ENDPOINTS
 from posthog.test.base import APIBaseTest
@@ -427,10 +428,10 @@ class TestExternalDataSource(APIBaseTest):
 
         response = self.client.delete(f"/api/projects/{self.team.pk}/external_data_sources/{source.pk}")
 
-        self.assertEqual(response.status_code, 204)
+        assert response.status_code == 204
 
-        self.assertFalse(ExternalDataSource.objects.filter(pk=source.pk).exists())
-        self.assertFalse(ExternalDataSchema.objects.filter(pk=schema.pk).exists())
+        assert ExternalDataSource.objects.filter(pk=source.pk, deleted=True).exists()
+        assert ExternalDataSchema.objects.filter(pk=schema.pk, deleted=True).exists()
 
     # TODO: update this test
     @patch("posthog.warehouse.api.external_data_source.trigger_external_data_source_workflow")
@@ -706,3 +707,68 @@ class TestExternalDataSource(APIBaseTest):
         assert data[0]["rows_synced"] == 100
         assert data[0]["schema"]["id"] == str(schema.pk)
         assert data[0]["workflow_run_id"] is not None
+
+    def test_source_jobs_pagination(self):
+        source = self._create_external_data_source()
+        schema = self._create_external_data_schema(source.pk)
+        with freeze_time("2024-07-01T12:00:00.000Z"):
+            job1 = ExternalDataJob.objects.create(
+                team=self.team,
+                pipeline=source,
+                schema=schema,
+                status=ExternalDataJob.Status.COMPLETED,
+                rows_synced=100,
+                workflow_run_id="test_run_id",
+            )
+
+            response = self.client.get(
+                f"/api/projects/{self.team.pk}/external_data_sources/{source.pk}/jobs",
+            )
+
+            data = response.json()
+
+            assert response.status_code, status.HTTP_200_OK
+            assert len(data) == 1
+            assert data[0]["id"] == str(job1.pk)
+
+        # Query newer jobs
+        with freeze_time("2024-07-01T18:00:00.000Z"):
+            job2 = ExternalDataJob.objects.create(
+                team=self.team,
+                pipeline=source,
+                schema=schema,
+                status=ExternalDataJob.Status.COMPLETED,
+                rows_synced=100,
+                workflow_run_id="test_run_id",
+            )
+
+            response = self.client.get(
+                f"/api/projects/{self.team.pk}/external_data_sources/{source.pk}/jobs?after=2024-07-01T12:00:00.000Z",
+            )
+
+            data = response.json()
+
+            assert response.status_code, status.HTTP_200_OK
+            assert len(data) == 1
+            assert data[0]["id"] == str(job2.pk)
+
+        # Query older jobs
+        with freeze_time("2024-07-01T09:00:00.000Z"):
+            job3 = ExternalDataJob.objects.create(
+                team=self.team,
+                pipeline=source,
+                schema=schema,
+                status=ExternalDataJob.Status.COMPLETED,
+                rows_synced=100,
+                workflow_run_id="test_run_id",
+            )
+
+            response = self.client.get(
+                f"/api/projects/{self.team.pk}/external_data_sources/{source.pk}/jobs?before=2024-07-01T12:00:00.000Z",
+            )
+
+            data = response.json()
+
+            assert response.status_code, status.HTTP_200_OK
+            assert len(data) == 1
+            assert data[0]["id"] == str(job3.pk)

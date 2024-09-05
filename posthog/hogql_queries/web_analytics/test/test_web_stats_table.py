@@ -4,6 +4,7 @@ from freezegun import freeze_time
 from parameterized import parameterized
 
 from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
+from posthog.models import Cohort
 from posthog.models.utils import uuid7
 from posthog.schema import (
     DateRange,
@@ -19,6 +20,7 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     _create_person,
+    flush_persons_and_events,
 )
 
 
@@ -893,3 +895,162 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [[None, 1.0, 1.0]],
             results,
         )
+
+    def test_same_user_multiple_sessions(self):
+        d1 = "d1"
+        s1 = str(uuid7("2024-07-30"))
+        s2 = str(uuid7("2024-07-30"))
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[d1],
+            properties={
+                "name": d1,
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d1,
+            timestamp="2024-07-30",
+            properties={"$session_id": s1, "utm_source": "google", "$pathname": "/path"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d1,
+            timestamp="2024-07-30",
+            properties={"$session_id": s2, "utm_source": "google", "$pathname": "/path"},
+        )
+
+        # Try this with a query that uses session properties
+        results_session = self._run_web_stats_table_query(
+            "all",
+            "2024-07-31",
+            breakdown_by=WebStatsBreakdown.INITIAL_UTM_SOURCE,
+        ).results
+        assert [["google", 1, 2]] == results_session
+
+        # Try this with a query that uses event properties
+        results_event = self._run_web_stats_table_query(
+            "all",
+            "2024-07-31",
+            breakdown_by=WebStatsBreakdown.PAGE,
+        ).results
+        assert [["/path", 1, 2]] == results_event
+
+        # Try this with a query using the bounce rate
+        results_event = self._run_web_stats_table_query(
+            "all", "2024-07-31", breakdown_by=WebStatsBreakdown.PAGE, include_bounce_rate=True
+        ).results
+        assert [["/path", 1, 2, None]] == results_event
+
+        # Try this with a query using the scroll depth
+        results_event = self._run_web_stats_table_query(
+            "all",
+            "2024-07-31",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            include_bounce_rate=True,
+            include_scroll_depth=True,
+        ).results
+        assert [["/path", 1, 2, None, None, None]] == results_event
+
+    def test_no_session_id(self):
+        d1 = "d1"
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[d1],
+            properties={
+                "name": d1,
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d1,
+            timestamp="2024-07-30",
+            properties={"utm_source": "google", "$pathname": "/path"},
+        )
+
+        # Don't show session property breakdowns type of sessions with no session id
+        results = self._run_web_stats_table_query(
+            "all",
+            "2024-07-31",
+            breakdown_by=WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
+        ).results
+        assert [] == results
+        results = self._run_web_stats_table_query(
+            "all",
+            "2024-07-31",
+            breakdown_by=WebStatsBreakdown.INITIAL_PAGE,
+        ).results
+        assert [] == results
+
+        # Do show event property breakdowns of events of events with no session id
+        results = self._run_web_stats_table_query(
+            "all",
+            "2024-07-31",
+            breakdown_by=WebStatsBreakdown.PAGE,
+        ).results
+        assert [["/path", 1, 1]] == results
+
+    def test_cohort_test_filters(self):
+        d1 = "d1"
+        s1 = str(uuid7("2024-07-30"))
+        d2 = "d2"
+        s2 = str(uuid7("2024-07-30"))
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[d1],
+            properties={"name": d1, "email": "test@example.com"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d1,
+            timestamp="2024-07-30",
+            properties={"$session_id": s1, "$pathname": "/path1"},
+        )
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[d2],
+            properties={"name": d2, "email": "d2@hedgebox.net"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d2,
+            timestamp="2024-07-30",
+            properties={"$session_id": s2, "$pathname": "/path2"},
+        )
+
+        real_users_cohort = Cohort.objects.create(
+            team=self.team,
+            name="Real persons",
+            description="People who don't belong to the Hedgebox team.",
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": "@hedgebox.net$",
+                            "operator": "not_regex",
+                        }
+                    ]
+                }
+            ],
+        )
+        self.team.test_account_filters = [{"key": "id", "type": "cohort", "value": real_users_cohort.pk}]
+
+        flush_persons_and_events()
+        real_users_cohort.calculate_people_ch(pending_version=0)
+
+        # Test that the cohort filter works
+        results = self._run_web_stats_table_query(
+            "all",
+            None,
+            filter_test_accounts=True,
+            breakdown_by=WebStatsBreakdown.PAGE,
+        ).results
+
+        assert results == [["/path1", 1, 1]]

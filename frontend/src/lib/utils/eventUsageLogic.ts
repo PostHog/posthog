@@ -3,13 +3,14 @@ import { BarStatus, ResultType } from 'lib/components/CommandBar/types'
 import {
     convertPropertyGroupToProperties,
     isGroupPropertyFilter,
-    isRecordingPropertyFilter,
+    isLogEntryPropertyFilter,
     isValidPropertyFilter,
 } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { isActionFilter, isEventFilter } from 'lib/components/UniversalFilters/utils'
 import type { Dayjs } from 'lib/dayjs'
 import { now } from 'lib/dayjs'
+import { TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { isCoreFilter, PROPERTY_KEYS } from 'lib/taxonomy'
 import { objectClean } from 'lib/utils'
 import posthog from 'posthog-js'
@@ -34,6 +35,7 @@ import {
     isFunnelsQuery,
     isInsightQueryNode,
     isInsightVizNode,
+    isNodeWithSource,
 } from '~/queries/utils'
 import {
     AccessLevel,
@@ -45,17 +47,15 @@ import {
     EntityType,
     Experiment,
     FilterLogicalOperator,
-    FilterType,
     FunnelCorrelation,
     HelpType,
-    InsightModel,
     InsightShortId,
-    InsightType,
     MultipleSurveyQuestion,
     PersonType,
     PropertyFilterType,
     PropertyFilterValue,
     PropertyGroupFilter,
+    QueryBasedInsightModel,
     RecordingDurationFilter,
     RecordingReportLoadTimes,
     RecordingUniversalFilters,
@@ -72,7 +72,9 @@ import type { eventUsageLogicType } from './eventUsageLogicType'
 export enum DashboardEventSource {
     LongPress = 'long_press',
     MoreDropdown = 'more_dropdown',
-    DashboardHeader = 'dashboard_header',
+    DashboardHeaderSaveDashboard = 'dashboard_header_save_dashboard',
+    DashboardHeaderDiscardChanges = 'dashboard_header_discard_changes',
+    DashboardHeaderExitFullscreen = 'dashboard_header_exit_fullscreen',
     Hotkey = 'hotkey',
     InputEnter = 'input_enter',
     Toast = 'toast',
@@ -236,6 +238,7 @@ function sanitizeFilterParams(filters: AnyPartialFilterType): Record<string, any
 function sanitizeQuery(query: Node | null): Record<string, string | number | boolean | undefined> {
     const payload: Record<string, string | number | boolean | undefined> = {
         query_kind: query?.kind,
+        query_source_kind: isNodeWithSource(query) ? query.source.kind : undefined,
     }
 
     if (isInsightVizNode(query) || isInsightQueryNode(query)) {
@@ -290,11 +293,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportPersonsModalViewed: (params: any) => ({
             params,
         }),
+        // timing
+        reportTimeToSeeData: (payload: TimeToSeeDataPayload) => ({ payload }),
         // insights
-        reportInsightCreated: (insightType: InsightType | null) => ({ insightType }),
-        reportInsightSaved: (filters: Partial<FilterType>, isNewInsight: boolean) => ({ filters, isNewInsight }),
+        reportInsightCreated: (query: Node | null) => ({ query }),
+        reportInsightSaved: (query: Node | null, isNewInsight: boolean) => ({ query, isNewInsight }),
         reportInsightViewed: (
-            insightModel: Partial<InsightModel>,
+            insightModel: Partial<QueryBasedInsightModel>,
             query: Node | null,
             isFirstLoad: boolean,
             delay?: number
@@ -367,7 +372,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             oldPropertyType?: string,
             newPropertyType?: string
         ) => ({ action, totalProperties, oldPropertyType, newPropertyType }),
-        reportDashboardViewed: (dashboard: DashboardType, lastRefreshed: Dayjs | null, delay?: number) => ({
+        reportDashboardViewed: (
+            dashboard: DashboardType<QueryBasedInsightModel>,
+            lastRefreshed: Dayjs | null,
+            delay?: number
+        ) => ({
             dashboard,
             delay,
             lastRefreshed,
@@ -475,6 +484,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             newCohort,
         }),
         reportExperimentInsightLoadFailed: true,
+        reportExperimentVariantShipped: (experiment: Experiment) => ({ experiment }),
         // Definition Popover
         reportDataManagementDefinitionHovered: (type: TaxonomicFilterGroupType) => ({ type }),
         reportDataManagementDefinitionClickView: (type: TaxonomicFilterGroupType) => ({ type }),
@@ -631,15 +641,22 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             }
             posthog.capture('person viewed', properties)
         },
-        reportInsightCreated: async ({ insightType }, breakpoint) => {
+        reportTimeToSeeData: async ({ payload }) => {
+            posthog.capture('time to see data', payload)
+        },
+        reportInsightCreated: async ({ query }, breakpoint) => {
             // "insight created" essentially means that the user clicked "New insight"
             await breakpoint(500) // Debounce to avoid multiple quick "New insight" clicks being reported
-            posthog.capture('insight created', { insight: insightType })
+
+            posthog.capture('insight created', {
+                query_kind: query?.kind,
+                query_source_kind: isNodeWithSource(query) ? query.source.kind : undefined,
+            })
         },
-        reportInsightSaved: async ({ filters, isNewInsight }) => {
+        reportInsightSaved: async ({ query, isNewInsight }) => {
             // "insight saved" is a proxy for the new insight's results being valuable to the user
             posthog.capture('insight saved', {
-                ...filters,
+                ...sanitizeQuery(query),
                 is_new_insight: isNewInsight,
             })
         },
@@ -683,7 +700,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
 
             for (const item of dashboard.tiles || []) {
                 if (item.insight) {
-                    const key = `${item.insight.filters?.insight?.toLowerCase() || InsightType.TRENDS}_count`
+                    const query = isNodeWithSource(item.insight.query) ? item.insight.query.source : item.insight.query
+                    const key = `${query?.kind || !!item.text ? 'text' : 'empty'}_count`
                     if (!properties[key]) {
                         properties[key] = 1
                     } else {
@@ -920,9 +938,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             const eventFilters = filterValues.filter(isEventFilter)
             const actionFilters = filterValues.filter(isActionFilter)
             const propertyFilters = filterValues.filter(isValidPropertyFilter)
-            const consoleLogFilters = propertyFilters
-                .filter(isRecordingPropertyFilter)
-                .filter((f) => ['console_log_level', 'console_log_query'].includes(f.key))
+            const consoleLogFilters = propertyFilters.filter(isLogEntryPropertyFilter)
 
             const filterBreakdown =
                 filters && defaultDurationFilter
@@ -1061,6 +1077,15 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportExperimentInsightLoadFailed: () => {
             posthog.capture('experiment load insight failed')
+        },
+        reportExperimentVariantShipped: ({ experiment }) => {
+            posthog.capture('experiment variant shipped', {
+                name: experiment.name,
+                id: experiment.id,
+                filters: sanitizeFilterParams(experiment.filters),
+                parameters: experiment.parameters,
+                secondary_metrics_count: experiment.secondary_metrics.length,
+            })
         },
         reportPropertyGroupFilterAdded: () => {
             posthog.capture('property group filter added')

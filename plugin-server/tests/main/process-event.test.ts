@@ -21,7 +21,7 @@ import {
     PropertyDefinitionTypeEnum,
     Team,
 } from '../../src/types'
-import { createHub } from '../../src/utils/db/hub'
+import { closeHub, createHub } from '../../src/utils/db/hub'
 import { PostgresUse } from '../../src/utils/db/postgres'
 import { personInitialAndUTMProperties } from '../../src/utils/db/utils'
 import { posthog } from '../../src/utils/posthog'
@@ -53,8 +53,6 @@ export async function createPerson(
         distinctIds.map((distinctId) => ({ distinctId }))
     )
 }
-
-export type ReturnWithHub = { hub?: Hub; closeHub?: () => Promise<void> }
 
 type EventsByPerson = [string[], string[]]
 
@@ -90,21 +88,9 @@ let processEventCounter = 0
 let mockClientEventCounter = 0
 let team: Team
 let hub: Hub
-let closeHub: () => Promise<void>
 let redis: IORedis.Redis
 let eventsProcessor: EventsProcessor
 let now = DateTime.utc()
-
-async function createTestHub(additionalProps?: Record<string, any>): Promise<[Hub, () => Promise<void>]> {
-    const [hub, closeHub] = await createHub({
-        ...TEST_CONFIG,
-        ...(additionalProps ?? {}),
-    })
-
-    redis = await hub.redisPool.acquire()
-
-    return [hub, closeHub]
-}
 
 async function processEvent(
     distinctId: string,
@@ -126,7 +112,7 @@ async function processEvent(
         ...data,
     } as any as PluginEvent
 
-    const runner = new EventPipelineRunner(hub, pluginEvent)
+    const runner = new EventPipelineRunner(hub, pluginEvent, new EventsProcessor(hub))
     await runner.runEventPipeline(pluginEvent)
 
     await delayUntilEventIngested(() => hub.db.fetchEvents(), ++processEventCounter)
@@ -151,7 +137,10 @@ beforeEach(async () => {
         `
     await resetTestDatabase(testCode, TEST_CONFIG)
     await resetTestDatabaseClickhouse(TEST_CONFIG)
-    ;[hub, closeHub] = await createTestHub()
+
+    hub = await createHub({ ...TEST_CONFIG })
+    redis = await hub.redisPool.acquire()
+
     eventsProcessor = new EventsProcessor(hub)
     processEventCounter = 0
     mockClientEventCounter = 0
@@ -168,7 +157,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
     await hub.redisPool.release(redis)
-    await closeHub?.()
+    await closeHub(hub)
 })
 
 const capture = async (hub: Hub, eventName: string, properties: any = {}) => {
@@ -183,7 +172,7 @@ const capture = async (hub: Hub, eventName: string, properties: any = {}) => {
         team_id: team.id,
         uuid: new UUIDT().toString(),
     }
-    const runner = new EventPipelineRunner(hub, event)
+    const runner = new EventPipelineRunner(hub, event, new EventsProcessor(hub))
     await runner.runEventPipeline(event)
     await delayUntilEventIngested(() => hub.db.fetchEvents(), ++mockClientEventCounter)
 }
@@ -1224,6 +1213,19 @@ test('capture first team event', async () => {
         new UUIDT().toString()
     )
 
+    expect(posthog.capture).toHaveBeenCalledWith({
+        distinctId: 'plugin_test_user_distinct_id_1001',
+        event: 'first team event ingested',
+        properties: {
+            team: team.uuid,
+        },
+        groups: {
+            project: team.uuid,
+            organization: team.organization_id,
+            instance: 'unknown',
+        },
+    })
+
     team = await getFirstTeam(hub)
     expect(team.ingested_event).toEqual(true)
 
@@ -2061,7 +2063,7 @@ describe('validates eventUuid', () => {
             properties: { price: 299.99, name: 'AirPods Pro' },
         }
 
-        const runner = new EventPipelineRunner(hub, pluginEvent)
+        const runner = new EventPipelineRunner(hub, pluginEvent, new EventsProcessor(hub))
         const result = await runner.runEventPipeline(pluginEvent)
 
         expect(result.error).toBeDefined()
@@ -2080,7 +2082,7 @@ describe('validates eventUuid', () => {
             properties: { price: 299.99, name: 'AirPods Pro' },
         }
 
-        const runner = new EventPipelineRunner(hub, pluginEvent)
+        const runner = new EventPipelineRunner(hub, pluginEvent, new EventsProcessor(hub))
         const result = await runner.runEventPipeline(pluginEvent)
 
         expect(result.error).toBeDefined()

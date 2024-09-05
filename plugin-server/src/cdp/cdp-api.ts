@@ -1,20 +1,20 @@
-import { convertJSToHog } from '@posthog/hogvm'
 import express from 'express'
+import { DateTime } from 'luxon'
 
 import { Hub } from '../types'
 import { status } from '../utils/status'
 import { delay } from '../utils/utils'
-import { AsyncFunctionExecutor } from './async-function-executor'
-import { addLog, HogExecutor } from './hog-executor'
+import { FetchExecutor } from './fetch-executor'
+import { HogExecutor } from './hog-executor'
 import { HogFunctionManager } from './hog-function-manager'
-import { HogWatcher } from './hog-watcher/hog-watcher'
-import { HogWatcherState } from './hog-watcher/types'
-import { HogFunctionInvocation, HogFunctionType } from './types'
+import { HogWatcher, HogWatcherState } from './hog-watcher'
+import { HogFunctionInvocationResult, HogFunctionType, LogEntry } from './types'
+import { createInvocation } from './utils'
 
 export class CdpApi {
     private hogExecutor: HogExecutor
     private hogFunctionManager: HogFunctionManager
-    private asyncFunctionExecutor: AsyncFunctionExecutor
+    private fetchExecutor: FetchExecutor
     private hogWatcher: HogWatcher
 
     constructor(
@@ -22,13 +22,13 @@ export class CdpApi {
         dependencies: {
             hogExecutor: HogExecutor
             hogFunctionManager: HogFunctionManager
-            asyncFunctionExecutor: AsyncFunctionExecutor
+            fetchExecutor: FetchExecutor
             hogWatcher: HogWatcher
         }
     ) {
         this.hogExecutor = dependencies.hogExecutor
         this.hogFunctionManager = dependencies.hogFunctionManager
-        this.asyncFunctionExecutor = dependencies.asyncFunctionExecutor
+        this.fetchExecutor = dependencies.fetchExecutor
         this.hogWatcher = dependencies.hogWatcher
     }
 
@@ -51,7 +51,7 @@ export class CdpApi {
         () =>
         async (req: express.Request, res: express.Response): Promise<void> => {
             const { id } = req.params
-            const summary = await this.hogWatcher.fetchWatcher(id)
+            const summary = await this.hogWatcher.getState(id)
 
             res.json(summary)
         }
@@ -68,7 +68,7 @@ export class CdpApi {
                 return
             }
 
-            const summary = await this.hogWatcher.fetchWatcher(id)
+            const summary = await this.hogWatcher.getState(id)
 
             // Only allow patching the status if it is different from the current status
 
@@ -79,7 +79,7 @@ export class CdpApi {
             // Hacky - wait for a little to give a chance for the state to change
             await delay(100)
 
-            res.json(await this.hogWatcher.fetchWatcher(id))
+            res.json(await this.hogWatcher.getState(id))
         }
 
     private postFunctionInvocation = async (req: express.Request, res: express.Response): Promise<void> => {
@@ -105,15 +105,6 @@ export class CdpApi {
                 return
             }
 
-            const invocation: HogFunctionInvocation = {
-                id,
-                globals: globals,
-                teamId: team.id,
-                hogFunctionId: id,
-                logs: [],
-                timings: [],
-            }
-
             // We use the provided config if given, otherwise the function's config
             // We use the provided config if given, otherwise the function's config
             const compoundConfiguration: HogFunctionType = {
@@ -121,50 +112,73 @@ export class CdpApi {
                 ...(configuration ?? {}),
             }
 
-            // TODO: Type the configuration better so we don't make mistakes here
             await this.hogFunctionManager.enrichWithIntegrations([compoundConfiguration])
 
-            let response = this.hogExecutor.execute(compoundConfiguration, invocation)
+            let lastResponse: HogFunctionInvocationResult | null = null
+            const logs: LogEntry[] = []
 
-            while (response.asyncFunctionRequest) {
-                const asyncFunctionRequest = response.asyncFunctionRequest
+            let count = 0
 
-                if (mock_async_functions || asyncFunctionRequest.name !== 'fetch') {
-                    addLog(response, 'info', `Async function '${asyncFunctionRequest.name}' was mocked with arguments:`)
-                    addLog(
-                        response,
-                        'info',
-                        `${asyncFunctionRequest.name}(${asyncFunctionRequest.args
-                            .map((x) => JSON.stringify(x, null, 2))
-                            .join(', ')})`
+            while (!lastResponse || !lastResponse.finished) {
+                if (count > 5) {
+                    throw new Error('Too many iterations')
+                }
+                count += 1
+
+                let response: HogFunctionInvocationResult
+
+                const invocation =
+                    lastResponse?.invocation ||
+                    createInvocation(
+                        {
+                            ...globals,
+                            project: {
+                                id: team.id,
+                                name: team.name,
+                                url: `${this.hub.SITE_URL ?? 'http://localhost:8000'}/project/${team.id}`,
+                            },
+                        },
+                        compoundConfiguration
                     )
 
-                    // Add the state, simulating what executeAsyncResponse would do
-                    asyncFunctionRequest.vmState.stack.push(convertJSToHog({ status: 200, body: {} }))
-                } else {
-                    const asyncRes = await this.asyncFunctionExecutor!.execute(response, {
-                        sync: true,
-                    })
-
-                    if (!asyncRes || asyncRes.asyncFunctionResponse.error) {
-                        addLog(response, 'error', 'Failed to execute async function')
+                if (invocation.queue === 'fetch') {
+                    if (mock_async_functions) {
+                        // Add the state, simulating what executeAsyncResponse would do
+                        response = {
+                            invocation: {
+                                ...invocation,
+                                queue: 'hog',
+                                queueParameters: { response: { status: 200, body: {} } },
+                            },
+                            finished: false,
+                            logs: [
+                                {
+                                    level: 'info',
+                                    timestamp: DateTime.now(),
+                                    message: `Async function 'fetch' was mocked with arguments:`,
+                                },
+                                {
+                                    level: 'info',
+                                    timestamp: DateTime.now(),
+                                    message: `fetch(${JSON.stringify(invocation.queueParameters, null, 2)})`,
+                                },
+                            ],
+                        }
+                    } else {
+                        response = await this.fetchExecutor!.executeLocally(invocation)
                     }
-                    asyncFunctionRequest.vmState.stack.push(
-                        convertJSToHog(asyncRes?.asyncFunctionResponse.response ?? null)
-                    )
-                    response.timings.push(...(asyncRes?.asyncFunctionResponse.timings ?? []))
+                } else {
+                    response = this.hogExecutor.execute(invocation)
                 }
 
-                // Clear it so we can't ever end up in a loop
-                delete response.asyncFunctionRequest
-
-                response = this.hogExecutor.execute(compoundConfiguration, response, asyncFunctionRequest.vmState)
+                logs.push(...response.logs)
+                lastResponse = response
             }
 
             res.json({
-                status: response.finished ? 'success' : 'error',
-                error: String(response.error),
-                logs: response.logs,
+                status: lastResponse.finished ? 'success' : 'error',
+                error: String(lastResponse.error),
+                logs: logs,
             })
         } catch (e) {
             console.error(e)

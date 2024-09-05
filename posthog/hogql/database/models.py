@@ -8,7 +8,7 @@ from posthog.hogql.errors import ResolutionError, NotImplementedError
 
 if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
-    from posthog.hogql.ast import SelectQuery
+    from posthog.hogql.ast import SelectQuery, LazyJoinType
     from posthog.hogql.base import ConstantType
 
 
@@ -128,7 +128,11 @@ class Table(FieldOrTable):
         return []
 
     def get_asterisk(self):
-        fields_to_avoid = [*self.avoid_asterisk_fields(), "team_id"]
+        if isinstance(self, FunctionCallTable):
+            fields_to_avoid = self.avoid_asterisk_fields()
+        else:
+            fields_to_avoid = [*self.avoid_asterisk_fields(), "team_id"]
+
         asterisk: dict[str, FieldOrTable] = {}
         for key, field_ in self.fields.items():
             if key in fields_to_avoid:
@@ -188,6 +192,7 @@ class LazyJoinToAdd:
     from_table: str
     to_table: str
     lazy_join: LazyJoin
+    lazy_join_type: "LazyJoinType"
     fields_accessed: dict[str, list[str | int]] = field(default_factory=dict)
 
 

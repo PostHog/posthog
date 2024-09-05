@@ -1,4 +1,6 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
+from copy import deepcopy
+import dataclasses
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, HogFunctionTemplateMigrator
 
 
 template: HogFunctionTemplate = HogFunctionTemplate(
@@ -8,32 +10,24 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Send events and contact information to Intercom",
     icon_url="/static/services/intercom.png",
     hog="""
-let accessToken := inputs.access_token
-let host := inputs.host
-let email := inputs.email
-
-if (empty(email)) {
+if (empty(inputs.email)) {
     print('`email` input is empty. Skipping.')
     return
 }
 
-let body := {
+let res := fetch(f'https://{inputs.host}/events', {
+  'method': 'POST',
+  'headers': {
+    'Authorization': f'Bearer {inputs.access_token}',
+    'Content-Type': 'application/json',
+    'Accept': 'application/json'
+  },
+  'body': {
     'event_name': event.name,
     'created_at': toInt(toUnixTimestamp(toDateTime(event.timestamp))),
     'email': inputs.email,
     'id': event.distinct_id,
-}
-
-let headers := {
-    'Authorization': f'Bearer {accessToken}',
-    'Content-Type': 'application/json',
-    'Accept': 'application/json'
-}
-
-let res := fetch(f'https://{host}/events', {
-  'method': 'POST',
-  'headers': headers,
-  'body': body
+  }
 })
 
 if (res.status >= 200 and res.status < 300) {
@@ -93,3 +87,47 @@ print('Error sending event:', res.status, res.body)
         "filter_test_accounts": True,
     },
 )
+
+
+class TemplateIntercomMigrator(HogFunctionTemplateMigrator):
+    plugin_url = "https://github.com/PostHog/posthog-intercom-plugin"
+
+    @classmethod
+    def migrate(cls, obj):
+        hf = deepcopy(dataclasses.asdict(template))
+
+        useEuropeanDataStorage = obj.config.get("useEuropeanDataStorage", "No")
+        intercomApiKey = obj.config.get("intercomApiKey", "")
+        triggeringEvents = obj.config.get("triggeringEvents", "$identify")
+        ignoredEmailDomains = obj.config.get("ignoredEmailDomains", "")
+
+        hf["filters"] = {}
+
+        events_to_filter = [event.strip() for event in triggeringEvents.split(",") if event.strip()]
+        domains_to_filter = [domain.strip() for domain in ignoredEmailDomains.split(",") if domain.strip()]
+
+        if domains_to_filter:
+            hf["filters"]["properties"] = [
+                {
+                    "key": "email",
+                    "value": domain,
+                    "operator": "not_icontains",
+                    "type": "person",
+                }
+                for domain in domains_to_filter
+            ]
+
+        if events_to_filter:
+            hf["filters"]["events"] = [
+                {"id": event, "name": event, "type": "events", "order": 0} for event in events_to_filter
+            ]
+
+        hf["inputs"] = {
+            "access_token": {"value": intercomApiKey},
+            "host": {"value": "api.eu.intercom.com"}
+            if useEuropeanDataStorage == "Yes"
+            else {"value": "api.intercom.io"},
+            "email": {"value": "{person.properties.email}"},
+        }
+
+        return hf

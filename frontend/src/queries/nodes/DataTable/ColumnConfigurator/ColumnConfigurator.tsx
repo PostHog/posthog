@@ -8,7 +8,7 @@ import { IconPencil, IconX } from '@posthog/icons'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { RestrictedArea, RestrictedComponentProps, RestrictionScope } from 'lib/components/RestrictedArea'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TeamMembershipLevel } from 'lib/constants'
@@ -86,6 +86,10 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
 }
 
 function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Element {
+    const restrictionReason = useRestrictedArea({
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+        scope: RestrictionScope.Project,
+    })
     const { modalVisible, columns, saveAsDefault } = useValues(columnConfiguratorLogic)
     const { hideModal, moveColumn, setColumns, selectColumn, unselectColumn, save, toggleSaveAsDefault } =
         useActions(columnConfiguratorLogic)
@@ -184,24 +188,14 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                     </div>
                 </div>
                 {isEventsQuery(query.source) && query.showPersistentColumnConfigurator ? (
-                    <RestrictedArea
-                        Component={function SaveColumnsAsDefault({
-                            isRestricted,
-                        }: RestrictedComponentProps): JSX.Element {
-                            return (
-                                <LemonCheckbox
-                                    label="Save as default for all project members"
-                                    className="mt-2"
-                                    data-attr="events-table-save-columns-as-default-toggle"
-                                    bordered
-                                    checked={saveAsDefault}
-                                    onChange={toggleSaveAsDefault}
-                                    disabled={isRestricted}
-                                />
-                            )
-                        }}
-                        minimumAccessLevel={TeamMembershipLevel.Admin}
-                        scope={RestrictionScope.Project}
+                    <LemonCheckbox
+                        label="Save as default for all project members"
+                        className="mt-2"
+                        data-attr="events-table-save-columns-as-default-toggle"
+                        bordered
+                        checked={saveAsDefault}
+                        onChange={toggleSaveAsDefault}
+                        disabledReason={restrictionReason}
                     />
                 ) : null}
             </div>

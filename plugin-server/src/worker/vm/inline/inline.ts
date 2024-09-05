@@ -6,6 +6,7 @@ import { status } from '../../../utils/status'
 import { PluginInstance } from '../lazy'
 import { NoopInlinePlugin } from './noop'
 import { SEMVER_FLATTENER_CONFIG_SCHEMA, SemverFlattener } from './semver-flattener'
+import { USER_AGENT_CONFIG_SCHEMA, UserAgentPlugin } from './user-agent'
 
 export function constructInlinePluginInstance(hub: Hub, pluginConfig: PluginConfig): PluginInstance {
     const url = pluginConfig.plugin?.url
@@ -23,7 +24,7 @@ export interface RegisteredInlinePlugin {
     description: Readonly<InlinePluginDescription>
 }
 
-export const INLINE_PLUGIN_URLS = ['inline://noop', 'inline://semver-flattener'] as const
+export const INLINE_PLUGIN_URLS = ['inline://noop', 'inline://semver-flattener', 'inline://user-agent'] as const
 type InlinePluginId = (typeof INLINE_PLUGIN_URLS)[number]
 
 // TODO - add all inline plugins here
@@ -50,7 +51,7 @@ export const INLINE_PLUGIN_MAP: Record<InlinePluginId, RegisteredInlinePlugin> =
             name: 'posthog-semver-flattener',
             description:
                 'Processes specified properties to flatten sematic versions. Assumes any property contains a string which matches [the SemVer specification](https://semver.org/#backusnaur-form-grammar-for-valid-semver-versions)',
-            is_global: false,
+            is_global: true,
             is_preinstalled: false,
             url: 'inline://semver-flattener',
             config_schema: SEMVER_FLATTENER_CONFIG_SCHEMA,
@@ -61,6 +62,26 @@ export const INLINE_PLUGIN_MAP: Record<InlinePluginId, RegisteredInlinePlugin> =
                 methods: ['processEvent'],
             },
             is_stateless: false, // TODO - this plugin /could/ be stateless, but right now we cache config parsing, which is stateful
+            log_level: PluginLogLevel.Info,
+        },
+    },
+
+    'inline://user-agent': {
+        constructor: (hub: Hub, config: PluginConfig) => new UserAgentPlugin(hub, config),
+        description: {
+            name: 'User Agent Populator',
+            description: 'Enhances events with user agent details',
+            is_global: true,
+            is_preinstalled: false,
+            url: 'inline://user-agent',
+            config_schema: USER_AGENT_CONFIG_SCHEMA,
+            tag: 'user-agent',
+            capabilities: {
+                jobs: [],
+                scheduled_tasks: [],
+                methods: ['processEvent'],
+            },
+            is_stateless: false,
             log_level: PluginLogLevel.Info,
         },
     },

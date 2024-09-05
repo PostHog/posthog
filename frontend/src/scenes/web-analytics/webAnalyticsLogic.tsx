@@ -3,11 +3,12 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, urlToAction } from 'kea-router'
 import { windowValues } from 'kea-window-values'
 import api from 'lib/api'
-import { RETENTION_FIRST_TIME, STALE_EVENT_SECONDS } from 'lib/constants'
+import { FEATURE_FLAGS, RETENTION_FIRST_TIME, STALE_EVENT_SECONDS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getDefaultInterval, isNotNil, updateDatesWithInterval } from 'lib/utils'
+import { errorTrackingQuery } from 'scenes/error-tracking/queries'
 import { urls } from 'scenes/urls'
 
 import {
@@ -23,6 +24,7 @@ import {
     ChartDisplayType,
     EventDefinition,
     EventDefinitionType,
+    FilterLogicalOperator,
     InsightLogicProps,
     InsightType,
     IntervalType,
@@ -31,6 +33,7 @@ import {
     PropertyDefinition,
     PropertyFilterType,
     PropertyOperator,
+    RecordingUniversalFilters,
     RetentionPeriod,
 } from '~/types'
 
@@ -54,6 +57,9 @@ export enum TileId {
     DEVICES = 'DEVICES',
     GEOGRAPHY = 'GEOGRAPHY',
     RETENTION = 'RETENTION',
+    REPLAY = 'REPLAY',
+    ERROR_TRACKING = 'ERROR_TRACKING',
+    GOALS = 'GOALS',
 }
 
 const loadPriorityMap: Record<TileId, number> = {
@@ -64,6 +70,9 @@ const loadPriorityMap: Record<TileId, number> = {
     [TileId.DEVICES]: 5,
     [TileId.GEOGRAPHY]: 6,
     [TileId.RETENTION]: 7,
+    [TileId.REPLAY]: 8,
+    [TileId.ERROR_TRACKING]: 9,
+    [TileId.GOALS]: 10,
 }
 
 interface BaseTile {
@@ -77,6 +86,7 @@ export interface Docs {
     description: string | JSX.Element
 }
 export interface QueryTile extends BaseTile {
+    kind: 'query'
     title?: string
     query: QuerySchema
     showIntervalSelect?: boolean
@@ -101,12 +111,22 @@ export interface TabsTileTab {
 }
 
 export interface TabsTile extends BaseTile {
+    kind: 'tabs'
     activeTabId: string
     setTabId: (id: string) => void
     tabs: TabsTileTab[]
 }
 
-export type WebDashboardTile = QueryTile | TabsTile
+export interface ReplayTile extends BaseTile {
+    kind: 'replay'
+}
+
+export interface ErrorTrackingTile extends BaseTile {
+    kind: 'error_tracking'
+    query: QuerySchema
+}
+
+export type WebDashboardTile = QueryTile | TabsTile | ReplayTile | ErrorTrackingTile
 
 export interface WebDashboardModalQuery {
     tileId: TileId
@@ -145,7 +165,8 @@ export enum DeviceTab {
 export enum PathTab {
     PATH = 'PATH',
     INITIAL_PATH = 'INITIAL_PATH',
-    EXIT_PATH = 'EXIT_PATH',
+    END_PATH = 'END_PATH',
+    EXIT_CLICK = 'EXIT_CLICK',
 }
 
 export enum GeographyTab {
@@ -245,6 +266,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     reducers({
         webAnalyticsFilters: [
             initialWebAnalyticsFilter,
+            { persist: true },
             {
                 setWebAnalyticsFilters: (_, { webAnalyticsFilters }) => webAnalyticsFilters,
                 togglePropertyFilter: (oldPropertyFilters, { key, value, type }): WebAnalyticsPropertyFilters => {
@@ -317,6 +339,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
         _graphsTab: [
             null as string | null,
+            { persist: true },
             {
                 setGraphsTab: (_, { tab }) => tab,
                 setStateFromUrl: (_, { state }) => state.graphsTab,
@@ -325,6 +348,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
         _sourceTab: [
             null as string | null,
+            { persist: true },
             {
                 setSourceTab: (_, { tab }) => tab,
                 setStateFromUrl: (_, { state }) => state.sourceTab,
@@ -333,6 +357,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
         _deviceTab: [
             null as string | null,
+            { persist: true },
             {
                 setDeviceTab: (_, { tab }) => tab,
                 setStateFromUrl: (_, { state }) => state.deviceTab,
@@ -341,6 +366,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
         _pathTab: [
             null as string | null,
+            { persist: true },
             {
                 setPathTab: (_, { tab }) => tab,
                 setStateFromUrl: (_, { state }) => state.pathTab,
@@ -349,6 +375,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
         _geographyTab: [
             null as string | null,
+            { persist: true },
             {
                 setGeographyTab: (_, { tab }) => tab,
                 setStateFromUrl: (_, { state }) => state.geographyTab,
@@ -356,7 +383,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
         ],
         isPathCleaningEnabled: [
-            false as boolean,
+            null as boolean | null,
+            { persist: true },
             {
                 setIsPathCleaningEnabled: (_, { isPathCleaningEnabled }) => isPathCleaningEnabled,
                 setStateFromUrl: (_, { state }) => state.isPathCleaningEnabled || false,
@@ -378,6 +406,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 dateTo: initialDateTo,
                 interval: initialInterval,
             },
+            { persist: true },
             {
                 setDates: (_, { dateTo, dateFrom }) => ({
                     dateTo,
@@ -407,6 +436,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
         shouldFilterTestAccounts: [
             false as boolean,
+            { persist: true },
             {
                 setShouldFilterTestAccounts: (_, { shouldFilterTestAccounts }) => shouldFilterTestAccounts,
             },
@@ -431,6 +461,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         tiles: [
             (s) => [
                 s.webAnalyticsFilters,
+                s.replayFilters,
                 s.tabs,
                 s.dateFilter,
                 s.isPathCleaningEnabled,
@@ -438,16 +469,19 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 () => values.statusCheck,
                 () => values.isGreaterThanMd,
                 () => values.shouldShowGeographyTile,
+                () => values.featureFlags,
             ],
             (
                 webAnalyticsFilters,
+                replayFilters,
                 { graphsTab, sourceTab, deviceTab, pathTab, geographyTab },
                 { dateFrom, dateTo, interval },
                 isPathCleaningEnabled,
                 filterTestAccounts,
                 _statusCheck,
                 isGreaterThanMd,
-                shouldShowGeographyTile
+                shouldShowGeographyTile,
+                featureFlags
             ): WebDashboardTile[] => {
                 const dateRange = {
                     date_from: dateFrom,
@@ -469,6 +503,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
                 const allTiles: (WebDashboardTile | null)[] = [
                     {
+                        kind: 'query',
                         tileId: TileId.OVERVIEW,
                         layout: {
                             colSpanClassName: 'md:col-span-full',
@@ -486,6 +521,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         canOpenModal: false,
                     },
                     {
+                        kind: 'tabs',
                         tileId: TileId.GRAPHS,
                         layout: {
                             colSpanClassName: `md:col-span-2`,
@@ -509,7 +545,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                 event: '$pageview',
                                                 kind: NodeKind.EventsNode,
                                                 math: BaseMathType.UniqueUsers,
-                                                name: '$pageview',
+                                                name: 'Pageview',
                                                 custom_name: 'Unique visitors',
                                             },
                                         ],
@@ -603,6 +639,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         ],
                     },
                     {
+                        kind: 'tabs',
                         tileId: TileId.PATHS,
                         layout: {
                             colSpanClassName: `md:col-span-2`,
@@ -614,7 +651,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             [
                                 {
                                     id: PathTab.PATH,
-                                    title: 'Top paths',
+                                    title: 'Paths',
                                     linkText: 'Path',
                                     query: {
                                         full: true,
@@ -639,7 +676,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 },
                                 {
                                     id: PathTab.INITIAL_PATH,
-                                    title: 'Top entry paths',
+                                    title: 'Entry paths',
                                     linkText: 'Entry path',
                                     query: {
                                         full: true,
@@ -662,9 +699,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     showPathCleaningControls: true,
                                 },
                                 {
-                                    id: PathTab.EXIT_PATH,
-                                    title: 'Top exit paths',
-                                    linkText: 'Exit path',
+                                    id: PathTab.END_PATH,
+                                    title: 'End paths',
+                                    linkText: 'End path',
                                     query: {
                                         full: true,
                                         kind: NodeKind.DataTableNode,
@@ -681,14 +718,39 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         },
                                         embedded: false,
                                     },
-                                    insightProps: createInsightProps(TileId.PATHS, PathTab.EXIT_PATH),
+                                    insightProps: createInsightProps(TileId.PATHS, PathTab.END_PATH),
                                     canOpenModal: true,
                                     showPathCleaningControls: true,
                                 },
+                                featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LAST_CLICK]
+                                    ? {
+                                          id: PathTab.EXIT_CLICK,
+                                          title: 'Exit clicks',
+                                          linkText: 'Exit clicks',
+                                          query: {
+                                              full: true,
+                                              kind: NodeKind.DataTableNode,
+                                              source: {
+                                                  kind: NodeKind.WebStatsTableQuery,
+                                                  properties: webAnalyticsFilters,
+                                                  breakdownBy: WebStatsBreakdown.ExitClick,
+                                                  dateRange,
+                                                  includeScrollDepth: false,
+                                                  sampling,
+                                                  limit: 10,
+                                                  filterTestAccounts,
+                                              },
+                                              embedded: false,
+                                          },
+                                          insightProps: createInsightProps(TileId.PATHS, PathTab.END_PATH),
+                                          canOpenModal: true,
+                                      }
+                                    : null,
                             ] as (TabsTileTab | undefined)[]
                         ).filter(isNotNil),
                     },
                     {
+                        kind: 'tabs',
                         tileId: TileId.SOURCES,
                         layout: {
                             colSpanClassName: `md:col-span-1`,
@@ -699,7 +761,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         tabs: [
                             {
                                 id: SourceTab.CHANNEL,
-                                title: 'Top channels',
+                                title: 'Channels',
                                 linkText: 'Channel',
                                 query: {
                                     full: true,
@@ -737,7 +799,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             },
                             {
                                 id: SourceTab.REFERRING_DOMAIN,
-                                title: 'Top referrers',
+                                title: 'Referrers',
                                 linkText: 'Referring domain',
                                 query: {
                                     full: true,
@@ -758,7 +820,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
                             {
                                 id: SourceTab.UTM_SOURCE,
-                                title: 'Top sources',
+                                title: 'UTM sources',
                                 linkText: 'UTM source',
                                 query: {
                                     full: true,
@@ -778,7 +840,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             },
                             {
                                 id: SourceTab.UTM_MEDIUM,
-                                title: 'Top UTM medium',
+                                title: 'UTM medium',
                                 linkText: 'UTM medium',
                                 query: {
                                     full: true,
@@ -798,7 +860,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             },
                             {
                                 id: SourceTab.UTM_CAMPAIGN,
-                                title: 'Top UTM campaigns',
+                                title: 'UTM campaigns',
                                 linkText: 'UTM campaign',
                                 query: {
                                     full: true,
@@ -818,7 +880,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             },
                             {
                                 id: SourceTab.UTM_CONTENT,
-                                title: 'Top UTM content',
+                                title: 'UTM content',
                                 linkText: 'UTM content',
                                 query: {
                                     full: true,
@@ -838,7 +900,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             },
                             {
                                 id: SourceTab.UTM_TERM,
-                                title: 'Top UTM terms',
+                                title: 'UTM terms',
                                 linkText: 'UTM term',
                                 query: {
                                     full: true,
@@ -879,6 +941,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         ],
                     },
                     {
+                        kind: 'tabs',
                         tileId: TileId.DEVICES,
                         layout: {
                             colSpanClassName: `md:col-span-1`,
@@ -889,43 +952,27 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         tabs: [
                             {
                                 id: DeviceTab.DEVICE_TYPE,
-                                title: 'Device types',
+                                title: 'Device type',
                                 linkText: 'Device type',
                                 query: {
-                                    kind: NodeKind.InsightVizNode,
+                                    full: true,
+                                    kind: NodeKind.DataTableNode,
                                     source: {
-                                        kind: NodeKind.TrendsQuery,
-                                        breakdownFilter: { breakdown: '$device_type', breakdown_type: 'event' },
-                                        dateRange,
-                                        series: [
-                                            {
-                                                event: '$pageview',
-                                                kind: NodeKind.EventsNode,
-                                                math: BaseMathType.UniqueUsers,
-                                            },
-                                        ],
-                                        trendsFilter: {
-                                            display: ChartDisplayType.ActionsPie,
-                                            showLabelsOnSeries: true,
-                                        },
-                                        filterTestAccounts,
+                                        kind: NodeKind.WebStatsTableQuery,
                                         properties: webAnalyticsFilters,
+                                        breakdownBy: WebStatsBreakdown.DeviceType,
+                                        dateRange,
+                                        sampling,
+                                        limit: 10,
+                                        filterTestAccounts,
                                     },
-                                    hidePersonsModal: true,
-                                    vizSpecificOptions: {
-                                        [ChartDisplayType.ActionsPie]: {
-                                            disableHoverOffset: true,
-                                            hideAggregation: true,
-                                        },
-                                    },
-                                    embedded: true,
                                 },
                                 insightProps: createInsightProps(TileId.DEVICES, DeviceTab.DEVICE_TYPE),
-                                canOpenInsight: true,
+                                canOpenModal: true,
                             },
                             {
                                 id: DeviceTab.BROWSER,
-                                title: 'Top browsers',
+                                title: 'Browsers',
                                 linkText: 'Browser',
                                 query: {
                                     full: true,
@@ -945,7 +992,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             },
                             {
                                 id: DeviceTab.OS,
-                                title: 'Top OSs',
+                                title: 'OS',
                                 linkText: 'OS',
                                 query: {
                                     full: true,
@@ -966,9 +1013,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             },
                         ],
                     },
-
                     shouldShowGeographyTile
                         ? {
+                              kind: 'tabs',
                               tileId: TileId.GEOGRAPHY,
                               layout: {
                                   colSpanClassName: 'md:col-span-full',
@@ -985,13 +1032,15 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                           source: {
                                               kind: NodeKind.TrendsQuery,
                                               breakdownFilter: {
+                                                  // use the event level country code rather than person, to work better with personless users
                                                   breakdown: '$geoip_country_code',
-                                                  breakdown_type: 'person',
+                                                  breakdown_type: 'event',
                                               },
                                               dateRange,
                                               series: [
                                                   {
                                                       event: '$pageview',
+                                                      name: 'Pageview',
                                                       kind: NodeKind.EventsNode,
                                                       math: BaseMathType.UniqueUsers,
                                                   },
@@ -1010,7 +1059,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                   },
                                   {
                                       id: GeographyTab.COUNTRIES,
-                                      title: 'Top countries',
+                                      title: 'Countries',
                                       linkText: 'Countries',
                                       query: {
                                           full: true,
@@ -1030,7 +1079,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                   },
                                   {
                                       id: GeographyTab.REGIONS,
-                                      title: 'Top regions',
+                                      title: 'Regions',
                                       linkText: 'Regions',
                                       query: {
                                           full: true,
@@ -1050,7 +1099,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                   },
                                   {
                                       id: GeographyTab.CITIES,
-                                      title: 'Top cities',
+                                      title: 'Cities',
                                       linkText: 'Cities',
                                       query: {
                                           full: true,
@@ -1072,11 +1121,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                           }
                         : null,
                     {
+                        kind: 'query',
                         tileId: TileId.RETENTION,
                         title: 'Retention',
                         layout: {
                             colSpanClassName: 'md:col-span-2',
                         },
+
                         query: {
                             kind: NodeKind.InsightVizNode,
                             source: {
@@ -1101,9 +1152,62 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             embedded: true,
                         },
                         insightProps: createInsightProps(TileId.RETENTION),
-                        canOpenInsight: true,
-                        canOpenModal: false,
+                        canOpenInsight: false,
+                        canOpenModal: true,
                     },
+                    featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOALS]
+                        ? {
+                              kind: 'query',
+                              tileId: TileId.GOALS,
+                              title: 'Goals',
+                              layout: {
+                                  colSpanClassName: 'md:col-span-2',
+                              },
+                              query: {
+                                  full: true,
+                                  kind: NodeKind.DataTableNode,
+                                  source: {
+                                      kind: NodeKind.WebGoalsQuery,
+                                      properties: webAnalyticsFilters,
+                                      dateRange,
+                                      sampling,
+                                      limit: 10,
+                                      filterTestAccounts,
+                                  },
+                                  embedded: true,
+                              },
+                              insightProps: createInsightProps(TileId.GOALS),
+                              canOpenInsight: false,
+                              canOpenModal: false,
+                          }
+                        : null,
+                    featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_REPLAY]
+                        ? {
+                              kind: 'replay',
+                              tileId: TileId.REPLAY,
+                              layout: {
+                                  colSpanClassName: 'md:col-span-1',
+                              },
+                          }
+                        : null,
+                    featureFlags[FEATURE_FLAGS.ERROR_TRACKING]
+                        ? {
+                              kind: 'error_tracking',
+                              tileId: TileId.ERROR_TRACKING,
+                              layout: {
+                                  colSpanClassName: 'md:col-span-1',
+                              },
+                              query: errorTrackingQuery({
+                                  order: 'users',
+                                  dateRange: dateRange,
+                                  filterTestAccounts: filterTestAccounts,
+                                  filterGroup: replayFilters.filter_group,
+                                  sparklineSelectedPeriod: null,
+                                  columns: ['error', 'users', 'occurrences'],
+                                  limit: 4,
+                              }),
+                          }
+                        : null,
                 ]
                 return allTiles.filter(isNotNil)
             },
@@ -1117,7 +1221,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 const { tileId, tabId } = modalTileAndTab
                 const tile = tiles.find((tile) => tile.tileId === tileId)
                 if (!tile) {
-                    throw new Error('Developer Error, tile not found')
+                    return null
                 }
 
                 const extendQuery = (query: QuerySchema): QuerySchema => {
@@ -1133,13 +1237,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     return query
                 }
 
-                if (tabId) {
-                    if (!('tabs' in tile)) {
-                        throw new Error('Developer Error, tabId provided for non-tab tile')
-                    }
+                if (tile.kind === 'tabs') {
                     const tab = tile.tabs.find((tab) => tab.id === tabId)
                     if (!tab) {
-                        throw new Error('Developer Error, tab not found')
+                        return null
                     }
                     return {
                         tileId,
@@ -1156,22 +1257,21 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         query: extendQuery(tab.query),
                         canOpenInsight: tab.canOpenInsight,
                     }
+                } else if (tile.kind === 'query') {
+                    return {
+                        tileId,
+                        title: tile.title,
+                        showIntervalSelect: tile.showIntervalSelect,
+                        showPathCleaningControls: tile.showPathCleaningControls,
+                        insightProps: {
+                            dashboardItemId: getDashboardItemId(tileId, undefined, true),
+                            loadPriority: 0,
+                            dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
+                        },
+                        query: extendQuery(tile.query),
+                    }
                 }
-                if ('tabs' in tile) {
-                    throw new Error('Developer Error, tabId not provided for tab tile')
-                }
-                return {
-                    tileId,
-                    title: tile.title,
-                    showIntervalSelect: tile.showIntervalSelect,
-                    showPathCleaningControls: tile.showPathCleaningControls,
-                    insightProps: {
-                        dashboardItemId: getDashboardItemId(tileId, undefined, true),
-                        loadPriority: 0,
-                        dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
-                    },
-                    query: extendQuery(tile.query),
-                }
+                return null
             },
         ],
         hasCountryFilter: [
@@ -1198,10 +1298,42 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 return webAnalyticsFilters.some((filter) => filter.key === '$os')
             },
         ],
+        replayFilters: [
+            (s) => [s.webAnalyticsFilters, s.dateFilter, s.shouldFilterTestAccounts],
+            (
+                webAnalyticsFilters: WebAnalyticsPropertyFilters,
+                dateFilter,
+                shouldFilterTestAccounts
+            ): RecordingUniversalFilters => {
+                return {
+                    filter_test_accounts: shouldFilterTestAccounts,
+
+                    date_from: dateFilter.dateFrom,
+                    date_to: dateFilter.dateTo,
+                    filter_group: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: webAnalyticsFilters || [],
+                            },
+                        ],
+                    },
+                    duration: [
+                        {
+                            type: PropertyFilterType.Recording,
+                            key: 'active_seconds',
+                            operator: PropertyOperator.GreaterThan,
+                            value: 1,
+                        },
+                    ],
+                }
+            },
+        ],
         getNewInsightUrl: [
-            (s) => [s.webAnalyticsFilters, s.dateFilter, s.tiles],
-            (webAnalyticsFilters: WebAnalyticsPropertyFilters, { dateTo, dateFrom }, tiles) => {
-                return function getNewInsightUrl(tileId: TileId, tabId?: string): string {
+            (s) => [s.tiles],
+            (tiles) => {
+                return function getNewInsightUrl(tileId: TileId, tabId?: string): string | undefined {
                     const formatQueryForNewInsight = (query: QuerySchema): QuerySchema => {
                         if (query.kind === NodeKind.InsightVizNode) {
                             return {
@@ -1215,30 +1347,19 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
                     const tile = tiles.find((tile) => tile.tileId === tileId)
                     if (!tile) {
-                        throw new Error('Developer Error, tile not found')
+                        return undefined
                     }
-                    if (tabId) {
-                        if (!('tabs' in tile)) {
-                            throw new Error('Developer Error, tabId provided for non-tab tile')
-                        }
+                    if (tile.kind === 'tabs') {
                         const tab = tile.tabs.find((tab) => tab.id === tabId)
                         if (!tab) {
-                            throw new Error('Developer Error, tab not found')
+                            return undefined
                         }
-                        return urls.insightNew(
-                            { properties: webAnalyticsFilters, date_from: dateFrom, date_to: dateTo },
-                            null,
-                            formatQueryForNewInsight(tab.query)
-                        )
+                        return urls.insightNew(undefined, undefined, formatQueryForNewInsight(tab.query))
+                    } else if (tile.kind === 'query') {
+                        return urls.insightNew(undefined, undefined, formatQueryForNewInsight(tile.query))
+                    } else if (tile.kind === 'replay') {
+                        return urls.replay()
                     }
-                    if ('tabs' in tile) {
-                        throw new Error('Developer Error, tabId not provided for tab tile')
-                    }
-                    return urls.insightNew(
-                        { properties: webAnalyticsFilters, date_from: dateFrom, date_to: dateTo },
-                        null,
-                        formatQueryForNewInsight(tile.query)
-                    )
                 }
             },
         ],
@@ -1343,12 +1464,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             const {
                 webAnalyticsFilters,
                 dateFilter: { dateTo, dateFrom, interval },
-                sourceTab,
-                deviceTab,
-                pathTab,
-                geographyTab,
-                graphsTab,
+                _sourceTab,
+                _deviceTab,
+                _pathTab,
+                _geographyTab,
+                _graphsTab,
                 isPathCleaningEnabled,
+                shouldFilterTestAccounts,
             } = values
 
             const urlParams = new URLSearchParams()
@@ -1360,23 +1482,26 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 urlParams.set('date_to', dateTo ?? '')
                 urlParams.set('interval', interval ?? '')
             }
-            if (deviceTab) {
-                urlParams.set('device_tab', deviceTab)
+            if (_deviceTab) {
+                urlParams.set('device_tab', _deviceTab)
             }
-            if (sourceTab) {
-                urlParams.set('source_tab', sourceTab)
+            if (_sourceTab) {
+                urlParams.set('source_tab', _sourceTab)
             }
-            if (graphsTab) {
-                urlParams.set('graphs_tab', graphsTab)
+            if (_graphsTab) {
+                urlParams.set('graphs_tab', _graphsTab)
             }
-            if (pathTab) {
-                urlParams.set('path_tab', pathTab)
+            if (_pathTab) {
+                urlParams.set('path_tab', _pathTab)
             }
-            if (geographyTab) {
-                urlParams.set('geography_tab', geographyTab)
+            if (_geographyTab) {
+                urlParams.set('geography_tab', _geographyTab)
             }
-            if (isPathCleaningEnabled) {
+            if (isPathCleaningEnabled != null) {
                 urlParams.set('path_cleaning', isPathCleaningEnabled.toString())
+            }
+            if (shouldFilterTestAccounts != null) {
+                urlParams.set('filter_test_accounts', shouldFilterTestAccounts.toString())
             }
             return `/web?${urlParams.toString()}`
         }
@@ -1408,22 +1533,41 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 path_tab,
                 geography_tab,
                 path_cleaning,
+                filter_test_accounts,
             }
         ) => {
-            const parsedFilters = isWebAnalyticsPropertyFilters(filters) ? filters : initialWebAnalyticsFilter
+            const parsedFilters = isWebAnalyticsPropertyFilters(filters) ? filters : undefined
 
-            actions.setStateFromUrl({
-                filters: parsedFilters,
-                dateFrom: date_from || null,
-                dateTo: date_to || null,
-                interval: interval || null,
-                deviceTab: device_tab || null,
-                sourceTab: source_tab || null,
-                graphsTab: graphs_tab || null,
-                pathTab: path_tab || null,
-                geographyTab: geography_tab || null,
-                isPathCleaningEnabled: [true, 'true', 1, '1'].includes(path_cleaning),
-            })
+            if (parsedFilters) {
+                actions.setWebAnalyticsFilters(parsedFilters)
+            }
+            if (date_from || date_to) {
+                actions.setDates(date_from, date_to)
+            }
+            if (interval) {
+                actions.setInterval(interval)
+            }
+            if (device_tab) {
+                actions.setDeviceTab(device_tab)
+            }
+            if (source_tab) {
+                actions.setSourceTab(source_tab)
+            }
+            if (graphs_tab) {
+                actions.setGraphsTab(graphs_tab)
+            }
+            if (path_tab) {
+                actions.setPathTab(path_tab)
+            }
+            if (geography_tab) {
+                actions.setGeographyTab(geography_tab)
+            }
+            if (path_cleaning) {
+                actions.setIsPathCleaningEnabled([true, 'true', 1, '1'].includes(path_cleaning))
+            }
+            if (filter_test_accounts) {
+                actions.setShouldFilterTestAccounts([true, 'true', 1, '1'].includes(filter_test_accounts))
+            }
         },
     })),
 ])

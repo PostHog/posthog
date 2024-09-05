@@ -40,7 +40,7 @@ export function InsightSaveButton({
                                 </LemonButton>
                             )}
                             {saveAsAvailable && (
-                                <LemonButton onClick={saveAs} data-attr="insight-save-as-new-insight" fullWidth>
+                                <LemonButton onClick={() => saveAs()} data-attr="insight-save-as-new-insight" fullWidth>
                                     Save as…
                                 </LemonButton>
                             )}

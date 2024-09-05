@@ -1,39 +1,80 @@
 import { actions, afterMount, kea, listeners, path, reducers, sharedListeners } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { isNotNil } from 'lib/utils'
+import {
+    diffVersions,
+    highestVersion,
+    isEqualVersion,
+    parseVersion,
+    SemanticVersion,
+    tryParseVersion,
+    versionToString,
+} from 'lib/utils/semver'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema'
 import { hogql } from '~/queries/utils'
 
 import type { versionCheckerLogicType } from './versionCheckerLogicType'
 
+// If you would like to deprecate all posthog-js versions older than a specific version
+// (i.e. after fixing an important bug) please edit
+// https://github.com/PostHog/posthog-js/blob/main/deprecation.json
+
 const CHECK_INTERVAL_MS = 1000 * 60 * 60 * 6 // 6 hour
 
 export type SDKVersion = {
-    version: string
+    version: SemanticVersion
     timestamp?: string
 }
 
 export type SDKVersionWarning = {
-    currentVersion: string
-    latestVersion: string
-    diff: number
+    latestUsedVersion: string
+    latestAvailableVersion: string
+    numVersionsBehind?: number
     level: 'warning' | 'info' | 'error'
+}
+
+export interface PosthogJSDeprecation {
+    deprecateBeforeVersion?: string
+    deprecateOlderThanDays?: number
+}
+
+export interface AvailableVersions {
+    sdkVersions?: SemanticVersion[]
+    deprecation?: PosthogJSDeprecation
 }
 
 export const versionCheckerLogic = kea<versionCheckerLogicType>([
     path(['components', 'VersionChecker', 'versionCheckerLogic']),
     actions({
         setVersionWarning: (versionWarning: SDKVersionWarning | null) => ({ versionWarning }),
+        setSdkVersions: (sdkVersions: SDKVersion[]) => ({ sdkVersions }),
     }),
-    loaders({
+    loaders(({ values }) => ({
         availableVersions: [
-            null as SDKVersion[] | null,
+            {} as AvailableVersions,
             {
-                loadAvailableVersions: async () => {
-                    return await fetch('https://api.github.com/repos/posthog/posthog-js/tags')
+                loadAvailableVersions: async (): Promise<AvailableVersions> => {
+                    // Make both requests simultaneously and don't return until both have finished, to avoid a flash
+                    // of partial results in the UI.
+                    const availableVersionsPromise: Promise<SemanticVersion[]> = fetch(
+                        'https://api.github.com/repos/posthog/posthog-js/tags'
+                    )
                         .then((r) => r.json())
-                        .then((r) => r.map((x: any) => ({ version: x.name.replace('v', '') })))
+                        .then((r) => r.map((x: any) => tryParseVersion(x.name)).filter(isNotNil))
+                    const deprecationPromise: Promise<PosthogJSDeprecation> = fetch(
+                        'https://raw.githubusercontent.com/PostHog/posthog-js/main/deprecation.json'
+                    ).then((r) => r.json())
+                    const settled = await Promise.allSettled([availableVersionsPromise, deprecationPromise])
+                    const availableVersions = settled[0].status === 'fulfilled' ? settled[0].value : []
+                    const deprecation = settled[1].status === 'fulfilled' ? settled[1].value : {}
+                    // if one or more of the requests failed, merge in the previous value if we have one
+                    return {
+                        ...values.availableVersions,
+                        sdkVersions: availableVersions,
+                        deprecation: deprecation,
+                    }
                 },
             },
         ],
@@ -53,18 +94,26 @@ export const versionCheckerLogic = kea<versionCheckerLogicType>([
                                 limit 10`,
                     }
 
-                    const res = await api.query(query)
+                    const res = await api.query(query, undefined, undefined, true)
 
                     return (
-                        res.results?.map((x) => ({
-                            version: x[0],
-                            timestamp: x[1],
-                        })) ?? null
+                        res.results
+                            ?.map((x) => {
+                                const version = tryParseVersion(x[0])
+                                if (!version) {
+                                    return null
+                                }
+                                return {
+                                    version,
+                                    timestamp: x[1],
+                                }
+                            })
+                            .filter(isNotNil) ?? null
                     )
                 },
             },
         ],
-    }),
+    })),
 
     reducers({
         lastCheckTimestamp: [
@@ -86,32 +135,77 @@ export const versionCheckerLogic = kea<versionCheckerLogicType>([
 
     sharedListeners(({ values, actions }) => ({
         checkForVersionWarning: () => {
-            if (!values.availableVersions?.length || !values.usedVersions?.length) {
+            if (!values.usedVersions?.length) {
                 return
             }
+            const { deprecation, sdkVersions } = values.availableVersions
 
-            const latestVersion = values.availableVersions[0].version
-
-            // reverse sort, hence reversed arguments to localeCompare.
             // We want the highest semantic version to be the latest used one, rather than
             // the one with the latest timestamp, because secondary installations can spew old versions
-            const latestUsedVersion = [...values.usedVersions].sort((a, b) =>
-                b.version.localeCompare(a.version, undefined, { numeric: true })
-            )[0].version
+            const latestUsedVersion = highestVersion(values.usedVersions.map((v) => v.version))
 
-            if (latestVersion === latestUsedVersion) {
-                actions.setVersionWarning(null)
-                return
+            // the latest version published on github
+            const latestAvailableVersion = sdkVersions?.[0]
+
+            // the version where, anything before this deprecated (i.e. this version is allowed, before it is not)
+            const deprecateBeforeVersion = deprecation?.deprecateBeforeVersion
+                ? parseVersion(deprecation.deprecateBeforeVersion)
+                : null
+
+            let warning: SDKVersionWarning | null = null
+
+            if (deprecateBeforeVersion) {
+                const diff = diffVersions(deprecateBeforeVersion, latestUsedVersion)
+                // if they are behind the deprecatedBeforeVersion by any amount, show an error
+                if (diff && diff.diff > 0) {
+                    warning = {
+                        latestUsedVersion: versionToString(latestUsedVersion),
+                        latestAvailableVersion: versionToString(latestAvailableVersion || deprecateBeforeVersion),
+                        level: 'error',
+                    }
+                }
             }
 
-            let diff = values.availableVersions.findIndex((v) => v.version === latestUsedVersion)
-            diff = diff === -1 ? values.availableVersions.length : diff
+            if (!warning && sdkVersions && latestAvailableVersion) {
+                const diff = diffVersions(latestAvailableVersion, latestUsedVersion)
+                if (diff && diff.diff > 0) {
+                    // there's a difference between the latest used version and the latest available version
 
-            const warning: SDKVersionWarning = {
-                currentVersion: latestUsedVersion,
-                latestVersion,
-                diff,
-                level: diff > 20 ? 'error' : diff > 10 ? 'warning' : 'info',
+                    let numVersionsBehind = sdkVersions.findIndex((v) => isEqualVersion(v, latestUsedVersion))
+                    if (numVersionsBehind === -1) {
+                        // if we couldn't find the versions, use the length of the list as a fallback
+                        numVersionsBehind = sdkVersions.length - 1
+                    }
+                    if (numVersionsBehind < diff.diff) {
+                        // we might have deleted versions, but if the actual diff is X then we must be at least X versions behind
+                        numVersionsBehind = diff.diff
+                    }
+
+                    let level: 'warning' | 'info' | 'error' | undefined
+                    if (diff.kind === 'major' || numVersionsBehind >= 20) {
+                        level = 'error'
+                    } else if (diff.kind === 'minor' && diff.diff >= 15) {
+                        level = 'warning'
+                    } else if ((diff.kind === 'minor' && diff.diff >= 10) || numVersionsBehind >= 10) {
+                        level = 'info'
+                    } else if (latestUsedVersion.extra) {
+                        // if we have an extra (alpha/beta/rc/etc.) version, we should always show a warning if they aren't on the latest
+                        level = 'warning'
+                    } else {
+                        // don't warn for a small number of patch versions behind
+                        level = undefined
+                    }
+
+                    // we check if there is a "latest user version string" to avoid returning odd data in unexpected cases
+                    if (level && !!versionToString(latestUsedVersion).trim().length) {
+                        warning = {
+                            latestUsedVersion: versionToString(latestUsedVersion),
+                            latestAvailableVersion: versionToString(latestAvailableVersion),
+                            level,
+                            numVersionsBehind,
+                        }
+                    }
+                }
             }
 
             actions.setVersionWarning(warning)

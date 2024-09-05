@@ -25,7 +25,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 preflightSchedules: true,
                 cdpProcessedEvents: true,
                 cdpFunctionCallbacks: true,
-                cdpFunctionOverflow: true,
+                cdpCyclotronWorker: true,
                 syncInlinePlugins: true,
                 ...sharedCapabilities,
             }
@@ -103,9 +103,9 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 cdpFunctionCallbacks: true,
                 ...sharedCapabilities,
             }
-        case PluginServerMode.cdp_function_overflow:
+        case PluginServerMode.cdp_cyclotron_worker:
             return {
-                cdpFunctionOverflow: true,
+                cdpCyclotronWorker: true,
                 ...sharedCapabilities,
             }
         // This is only for functional tests, which time out if all capabilities are used

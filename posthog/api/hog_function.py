@@ -1,11 +1,12 @@
+import json
 from typing import Optional, cast
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import QuerySet
 
-from rest_framework import serializers, viewsets
+from rest_framework import serializers, viewsets, exceptions
 from rest_framework.serializers import BaseSerializer
-from rest_framework.decorators import action
+from posthog.api.utils import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -16,12 +17,12 @@ from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 
+from posthog.cdp.filters import compile_filters_bytecode
 from posthog.cdp.services.icons import CDPIconsService
 from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES_BY_ID
-from posthog.cdp.validation import compile_hog, validate_inputs, validate_inputs_schema
+from posthog.cdp.validation import compile_hog, generate_template_bytecode, validate_inputs, validate_inputs_schema
 from posthog.constants import AvailableFeature
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionState
-from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.plugins.plugin_server_api import create_hog_invocation_test
 
 
@@ -30,8 +31,8 @@ logger = structlog.get_logger(__name__)
 
 class HogFunctionStatusSerializer(serializers.Serializer):
     state = serializers.ChoiceField(choices=[state.value for state in HogFunctionState])
-    states: serializers.ListField = serializers.ListField(child=serializers.DictField())
-    ratings: serializers.ListField = serializers.ListField(child=serializers.DictField())
+    rating: serializers.FloatField = serializers.FloatField()
+    tokens: serializers.IntegerField = serializers.IntegerField()
 
 
 class HogFunctionMinimalSerializer(serializers.ModelSerializer):
@@ -50,13 +51,29 @@ class HogFunctionMinimalSerializer(serializers.ModelSerializer):
             "hog",
             "filters",
             "icon_url",
+            "template",
         ]
         read_only_fields = fields
 
 
+class HogFunctionMaskingSerializer(serializers.Serializer):
+    ttl = serializers.IntegerField(
+        required=True, min_value=60, max_value=60 * 60 * 24
+    )  # NOTE: 24 hours max for now - we might increase this later
+    threshold = serializers.IntegerField(required=False, allow_null=True)
+    hash = serializers.CharField(required=True)
+    bytecode = serializers.JSONField(required=False, allow_null=True)
+
+    def validate(self, attrs):
+        attrs["bytecode"] = generate_template_bytecode(attrs["hash"])
+
+        return super().validate(attrs)
+
+
 class HogFunctionSerializer(HogFunctionMinimalSerializer):
     template = HogFunctionTemplateSerializer(read_only=True)
-    status = HogFunctionStatusSerializer(read_only=True)
+    status = HogFunctionStatusSerializer(read_only=True, required=False, allow_null=True)
+    masking = HogFunctionMaskingSerializer(required=False, allow_null=True)
 
     class Meta:
         model = HogFunction
@@ -74,6 +91,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "inputs_schema",
             "inputs",
             "filters",
+            "masking",
             "icon_url",
             "template",
             "template_id",
@@ -100,9 +118,10 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         attrs["team"] = team
 
         has_addon = team.organization.is_feature_available(AvailableFeature.DATA_PIPELINES)
+        instance = cast(Optional[HogFunction], self.context.get("instance", self.instance))
 
         if not has_addon:
-            template_id = attrs.get("template_id")
+            template_id = attrs.get("template_id", instance.template_id if instance else None)
             template = HOG_FUNCTION_TEMPLATES_BY_ID.get(template_id, None)
 
             # In this case they are only allowed to create or update the function with free templates
@@ -130,16 +149,17 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             attrs["inputs_schema"] = template.inputs_schema
             attrs["hog"] = template.hog
 
-        instance = cast(Optional[HogFunction], self.context.get("instance", self.instance))
-
-        if "inputs_schema" in attrs:
-            attrs["inputs_schema"] = validate_inputs_schema(attrs["inputs_schema"])
-
-        if self.context["view"].action == "create":
+        if self.context.get("view") and self.context["view"].action == "create":
             # Ensure we have sensible defaults when created
             attrs["filters"] = attrs.get("filters", {})
             attrs["inputs_schema"] = attrs.get("inputs_schema", [])
             attrs["inputs"] = attrs.get("inputs", {})
+
+        if "inputs_schema" in attrs:
+            attrs["inputs_schema"] = validate_inputs_schema(attrs["inputs_schema"])
+
+        if "filters" in attrs:
+            attrs["filters"] = compile_filters_bytecode(attrs["filters"], team)
 
         if "inputs" in attrs:
             # If we are updating, we check all input values with secret: true and instead
@@ -155,7 +175,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         if "hog" in attrs:
             attrs["bytecode"] = compile_hog(attrs["hog"])
 
-        return attrs
+        return super().validate(attrs)
 
     def to_representation(self, data):
         data = super().to_representation(data)
@@ -180,7 +200,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         res: HogFunction = super().update(instance, validated_data)
 
         if res.enabled and res.status.get("state", 0) >= HogFunctionState.DISABLED_TEMPORARILY.value:
-            res.set_function_status(HogFunctionState.OVERFLOWED.value)
+            res.set_function_status(HogFunctionState.DEGRADED.value)
 
         return res
 
@@ -201,8 +221,6 @@ class HogFunctionViewSet(
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["id", "team", "created_by", "enabled"]
 
-    permission_classes = [PostHogFeatureFlagPermission]
-    posthog_feature_flag = {"hog-functions": ["create", "partial_update", "update"]}
     log_source = "hog_function"
     app_source = "hog_function"
 
@@ -212,6 +230,13 @@ class HogFunctionViewSet(
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
+
+        if self.request.GET.get("filters"):
+            try:
+                filters = json.loads(self.request.GET["filters"])
+                queryset = queryset.filter(filters__contains=filters)
+            except Exception:
+                raise exceptions.ValidationError({"filter": f"Invalid filter"})
 
         return queryset
 

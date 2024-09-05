@@ -23,6 +23,18 @@
   GROUP BY survey_id
   '''
 # ---
+# name: TestResponsesCount.test_responses_count_only_after_first_survey_started
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT JSONExtractString(properties, '$survey_id') as survey_id,
+         count()
+  FROM events
+  WHERE event = 'survey sent'
+    AND team_id = 2
+    AND timestamp >= '2024-04-25 14:40:09'
+  GROUP BY survey_id
+  '''
+# ---
 # name: TestSurveysAPIList.test_list_surveys
   '''
   SELECT COUNT(*) AS "__count"
@@ -296,6 +308,7 @@
          "posthog_action"."bytecode",
          "posthog_action"."bytecode_error",
          "posthog_action"."steps_json",
+         "posthog_action"."pinned_at",
          "posthog_action"."is_calculating",
          "posthog_action"."last_calculated_at"
   FROM "posthog_action"

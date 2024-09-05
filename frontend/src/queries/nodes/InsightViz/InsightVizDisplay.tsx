@@ -28,7 +28,7 @@ import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { TrendInsight } from 'scenes/trends/Trends'
 
 import { QueryContext } from '~/queries/types'
-import { ChartDisplayType, ExporterFormat, FunnelVizType, InsightType, ItemMode } from '~/types'
+import { ExporterFormat, FunnelVizType, InsightType, ItemMode } from '~/types'
 
 import { InsightDisplayConfig } from './InsightDisplayConfig'
 import { InsightResultMetadata } from './InsightResultMetadata'
@@ -61,10 +61,9 @@ export function InsightVizDisplay({
     const { hasFunnelResults } = useValues(funnelDataLogic(insightProps))
     const { isFunnelWithEnoughSteps, validationError } = useValues(insightVizDataLogic(insightProps))
     const {
-        isTrends,
         isFunnels,
         isPaths,
-        display,
+        hasDetailedResultsTable,
         showLegend,
         trendsFilter,
         funnelsFilter,
@@ -82,7 +81,7 @@ export function InsightVizDisplay({
     const BlockingEmptyState = (() => {
         if (insightDataLoading) {
             return (
-                <div className="flex flex-col flex-1 justify-center items-center">
+                <div className="flex flex-col flex-1 justify-center items-center p-2">
                     <InsightLoadingState queryId={queryId} key={queryId} insightProps={insightProps} />
                 </div>
             )
@@ -95,7 +94,7 @@ export function InsightVizDisplay({
         // Insight specific empty states - note order is important here
         if (activeView === InsightType.FUNNELS) {
             if (!isFunnelWithEnoughSteps) {
-                return <FunnelSingleStepState actionable={insightMode === ItemMode.Edit || disableTable} />
+                return <FunnelSingleStepState actionable={!embedded && insightMode === ItemMode.Edit} />
             }
             if (!hasFunnelResults && !erroredQueryId && !insightDataLoading) {
                 return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
@@ -156,15 +155,7 @@ export function InsightVizDisplay({
             )
         }
 
-        // InsightsTable is loaded for all trend views (except below), plus the sessions view.
-        // Exclusions:
-        // 1. Table view. Because table is already loaded anyways in `Trends.tsx` as the main component.
-        // 2. Bar value chart. Because this view displays data in completely different dimensions.
-        if (
-            isTrends &&
-            (!display || (display !== ChartDisplayType.ActionsTable && display !== ChartDisplayType.ActionsBarValue)) &&
-            !disableTable
-        ) {
+        if (hasDetailedResultsTable && !disableTable) {
             return (
                 <>
                     {exportContext && (

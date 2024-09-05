@@ -1,11 +1,11 @@
 from collections import defaultdict
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Optional
 from django.db import models
 from django_deprecate_fields import deprecate_field
 import snowflake.connector
 from posthog.models.team import Team
-from posthog.models.utils import CreatedMetaFields, UUIDModel, UpdatedMetaFields, sane_repr
+from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDModel, UpdatedMetaFields, sane_repr
 import uuid
 import psycopg2
 import pymysql
@@ -21,7 +21,7 @@ from posthog.warehouse.models.ssh_tunnel import SSHTunnel
 from posthog.warehouse.util import database_sync_to_async
 
 
-class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, DeletedMetaFields):
     class Status(models.TextChoices):
         RUNNING = "Running", "Running"
         PAUSED = "Paused", "Paused"
@@ -38,22 +38,16 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
         WEEKLY = "week", "Weekly"
         MONTHLY = "month", "Monthly"
 
-    name: models.CharField = models.CharField(max_length=400)
-    team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
-    source: models.ForeignKey = models.ForeignKey(
-        "posthog.ExternalDataSource", related_name="schemas", on_delete=models.CASCADE
-    )
-    table: models.ForeignKey = models.ForeignKey(
-        "posthog.DataWarehouseTable", on_delete=models.SET_NULL, null=True, blank=True
-    )
-    should_sync: models.BooleanField = models.BooleanField(default=True)
-    latest_error: models.TextField = models.TextField(
-        null=True, help_text="The latest error that occurred when syncing this schema."
-    )
-    status: models.CharField = models.CharField(max_length=400, null=True, blank=True)
-    last_synced_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
-    sync_type: models.CharField = models.CharField(max_length=128, choices=SyncType.choices, null=True, blank=True)
-    sync_type_config: models.JSONField = models.JSONField(
+    name = models.CharField(max_length=400)
+    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    source = models.ForeignKey("posthog.ExternalDataSource", related_name="schemas", on_delete=models.CASCADE)
+    table = models.ForeignKey("posthog.DataWarehouseTable", on_delete=models.SET_NULL, null=True, blank=True)
+    should_sync = models.BooleanField(default=True)
+    latest_error = models.TextField(null=True, help_text="The latest error that occurred when syncing this schema.")
+    status = models.CharField(max_length=400, null=True, blank=True)
+    last_synced_at = models.DateTimeField(null=True, blank=True)
+    sync_type = models.CharField(max_length=128, choices=SyncType.choices, null=True, blank=True)
+    sync_type_config = models.JSONField(
         default=dict,
         blank=True,
     )
@@ -61,15 +55,18 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     sync_frequency = deprecate_field(
         models.CharField(max_length=128, choices=SyncFrequency.choices, default=SyncFrequency.DAILY, blank=True)
     )
-    sync_frequency_interval: models.DurationField = models.DurationField(
-        default=timedelta(hours=6), null=True, blank=True
-    )
+    sync_frequency_interval = models.DurationField(default=timedelta(hours=6), null=True, blank=True)
 
     __repr__ = sane_repr("name")
 
     @property
     def is_incremental(self):
         return self.sync_type == self.SyncType.INCREMENTAL
+
+    def soft_delete(self):
+        self.deleted = True
+        self.deleted_at = datetime.now()
+        self.save()
 
 
 @database_sync_to_async
@@ -78,7 +75,11 @@ def asave_external_data_schema(schema: ExternalDataSchema) -> None:
 
 
 def get_schema_if_exists(schema_name: str, team_id: int, source_id: uuid.UUID) -> ExternalDataSchema | None:
-    schema = ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id, name=schema_name).first()
+    schema = (
+        ExternalDataSchema.objects.exclude(deleted=True)
+        .filter(team_id=team_id, source_id=source_id, name=schema_name)
+        .first()
+    )
     return schema
 
 
@@ -114,11 +115,15 @@ def aupdate_should_sync(schema_id: str, team_id: int, should_sync: bool) -> Exte
 
 @database_sync_to_async
 def get_active_schemas_for_source_id(source_id: uuid.UUID, team_id: int):
-    return list(ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id, should_sync=True).all())
+    return list(
+        ExternalDataSchema.objects.exclude(deleted=True)
+        .filter(team_id=team_id, source_id=source_id, should_sync=True)
+        .all()
+    )
 
 
 def get_all_schemas_for_source_id(source_id: uuid.UUID, team_id: int):
-    return list(ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id).all())
+    return list(ExternalDataSchema.objects.exclude(deleted=True).filter(team_id=team_id, source_id=source_id).all())
 
 
 def sync_old_schemas_with_new_schemas(new_schemas: list, source_id: uuid.UUID, team_id: int):
@@ -334,6 +339,62 @@ def get_mysql_schemas(
     return get_schemas(host, int(port))
 
 
+def filter_mssql_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:
+    results: list[tuple[str, IncrementalFieldType]] = []
+    for column_name, type in columns:
+        type = type.lower()
+        if type == "date":
+            results.append((column_name, IncrementalFieldType.Date))
+        elif type == "datetime" or type == "datetime2" or type == "smalldatetime":
+            results.append((column_name, IncrementalFieldType.DateTime))
+        elif type == "tinyint" or type == "smallint" or type == "int" or type == "bigint":
+            results.append((column_name, IncrementalFieldType.Integer))
+
+    return results
+
+
+def get_mssql_schemas(
+    host: str, port: str, database: str, user: str, password: str, schema: str, ssh_tunnel: SSHTunnel
+) -> dict[str, list[tuple[str, str]]]:
+    def get_schemas(postgres_host: str, postgres_port: int):
+        # Importing pymssql requires mssql drivers to be installed locally - see posthog/warehouse/README.md
+        import pymssql
+
+        connection = pymssql.connect(
+            server=postgres_host,
+            port=str(postgres_port),
+            database=database,
+            user=user,
+            password=password,
+            login_timeout=5,
+        )
+
+        with connection.cursor(as_dict=False) as cursor:
+            cursor.execute(
+                "SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_schema = %(schema)s ORDER BY table_name ASC",
+                {"schema": schema},
+            )
+
+            schema_list = defaultdict(list)
+
+            for row in cursor:
+                if row:
+                    schema_list[row[0]].append((row[1], row[2]))
+
+        connection.close()
+
+        return schema_list
+
+    if ssh_tunnel.enabled:
+        with ssh_tunnel.get_tunnel(host, int(port)) as tunnel:
+            if tunnel is None:
+                raise Exception("Can't open tunnel to SSH server")
+
+            return get_schemas(tunnel.local_bind_host, tunnel.local_bind_port)
+
+    return get_schemas(host, int(port))
+
+
 def get_sql_schemas_for_source_type(
     source_type: ExternalDataSource.Type,
     host: str,
@@ -348,6 +409,8 @@ def get_sql_schemas_for_source_type(
         schemas = get_postgres_schemas(host, port, database, user, password, schema, ssh_tunnel)
     elif source_type == ExternalDataSource.Type.MYSQL:
         schemas = get_mysql_schemas(host, port, database, user, password, schema, ssh_tunnel)
+    elif source_type == ExternalDataSource.Type.MSSQL:
+        schemas = get_mssql_schemas(host, port, database, user, password, schema, ssh_tunnel)
     else:
         raise Exception("Unsupported source_type")
 

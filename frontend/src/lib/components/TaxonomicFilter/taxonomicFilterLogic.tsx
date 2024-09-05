@@ -16,7 +16,7 @@ import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
 import { capitalizeFirstLetter, pluralize, toParams } from 'lib/utils'
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
 import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
-import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/external/dataWarehouseSceneLogic'
+import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
@@ -39,11 +39,11 @@ import {
     Experiment,
     FeatureFlagType,
     Group,
-    InsightModel,
     NotebookType,
     PersonProperty,
     PersonType,
     PropertyDefinition,
+    QueryBasedInsightModel,
 } from '~/types'
 
 import { InlineHogQLEditor } from './InlineHogQLEditor'
@@ -199,7 +199,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         searchPlaceholder: 'actions',
                         type: TaxonomicFilterGroupType.Actions,
                         logic: actionsModel,
-                        value: 'actions',
+                        value: 'actionsSorted',
                         getName: (action: ActionType) => action.name || '',
                         getValue: (action: ActionType) => action.id,
                         getPopoverHeader: () => 'Action',
@@ -429,8 +429,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         endpoint: combineUrl(`api/projects/${teamId}/insights/`, {
                             saved: true,
                         }).url,
-                        getName: (insight: InsightModel) => insight.name,
-                        getValue: (insight: InsightModel) => insight.short_id,
+                        getName: (insight: QueryBasedInsightModel) => insight.name,
+                        getValue: (insight: QueryBasedInsightModel) => insight.short_id,
                         getPopoverHeader: () => `Insights`,
                     },
                     {

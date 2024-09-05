@@ -18,7 +18,7 @@ def create_default_products_response(**kwargs) -> dict[str, list[Product]]:
             Product(
                 name="Product analytics",
                 headline="Product analytics with autocapture",
-                description="A comprehensive product analytics platform built to natively work with session replay, feature flags, A/B testing, and surveys.",
+                description="A comprehensive product analytics platform built to natively work with session replay, feature flags, experiments, and surveys.",
                 usage_key="events",
                 image_url="https://posthog.com/images/products/product-analytics/product-analytics.png",
                 docs_url="https://posthog.com/docs/product-analytics",
@@ -58,37 +58,14 @@ class TestBillingManager(BaseTest):
         "ee.billing.billing_manager.requests.patch",
         return_value=MagicMock(status_code=200, json=MagicMock(return_value={"text": "ok"})),
     )
-    def test_update_billing_distinct_ids(self, billing_patch_request_mock: MagicMock):
+    def test_update_billing_organization_users(self, billing_patch_request_mock: MagicMock):
         organization = self.organization
         license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
             key="key123::key123",
             plan="enterprise",
             valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
         )
-        User.objects.create_and_join(
-            organization=organization,
-            email="y@x.com",
-            password=None,
-            level=OrganizationMembership.Level.ADMIN,
-        )
-        organization.refresh_from_db()
-        assert len(organization.members.values_list("distinct_id", flat=True)) == 2  # one exists in the test base
-        BillingManager(license).update_billing_distinct_ids(organization)
-        assert billing_patch_request_mock.call_count == 1
-        assert len(billing_patch_request_mock.call_args[1]["json"]["distinct_ids"]) == 2
-
-    @patch(
-        "ee.billing.billing_manager.requests.patch",
-        return_value=MagicMock(status_code=200, json=MagicMock(return_value={"text": "ok"})),
-    )
-    def test_update_billing_customer_email(self, billing_patch_request_mock: MagicMock):
-        organization = self.organization
-        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            key="key123::key123",
-            plan="enterprise",
-            valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
-        )
-        User.objects.create_and_join(
+        y = User.objects.create_and_join(
             organization=organization,
             email="y@x.com",
             password=None,
@@ -96,15 +73,20 @@ class TestBillingManager(BaseTest):
         )
         organization.refresh_from_db()
         assert len(organization.members.values_list("distinct_id", flat=True)) == 2  # one exists in the test base
-        BillingManager(license).update_billing_customer_email(organization)
+        BillingManager(license).update_billing_organization_users(organization)
         assert billing_patch_request_mock.call_count == 1
+        assert len(billing_patch_request_mock.call_args[1]["json"]["distinct_ids"]) == 2
         assert billing_patch_request_mock.call_args[1]["json"]["org_customer_email"] == "y@x.com"
+        assert billing_patch_request_mock.call_args[1]["json"]["org_admin_emails"] == ["y@x.com"]
+        assert billing_patch_request_mock.call_args[1]["json"]["org_users"] == [
+            {"email": "y@x.com", "distinct_id": y.distinct_id, "role": 15},
+        ]
 
     @patch(
         "ee.billing.billing_manager.requests.patch",
         return_value=MagicMock(status_code=200, json=MagicMock(return_value={"text": "ok"})),
     )
-    def test_update_billing_admin_emails(self, billing_patch_request_mock: MagicMock):
+    def test_update_billing_organization_users_with_multiple_members(self, billing_patch_request_mock: MagicMock):
         organization = self.organization
         license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
             key="key123::key123",
@@ -114,22 +96,32 @@ class TestBillingManager(BaseTest):
         User.objects.create_and_join(
             organization=organization,
             email="y1@x.com",
+            first_name="y1",
+            last_name="y1",
             password=None,
             level=OrganizationMembership.Level.MEMBER,
         )
-        User.objects.create_and_join(
+        y2 = User.objects.create_and_join(
             organization=organization,
             email="y2@x.com",
+            first_name="y2",
+            last_name="y2",
             password=None,
             level=OrganizationMembership.Level.ADMIN,
         )
-        User.objects.create_and_join(
+        y3 = User.objects.create_and_join(
             organization=organization,
             email="y3@x.com",
             password=None,
             level=OrganizationMembership.Level.OWNER,
         )
         organization.refresh_from_db()
-        BillingManager(license).update_billing_admin_emails(organization)
+        BillingManager(license).update_billing_organization_users(organization)
         assert billing_patch_request_mock.call_count == 1
+        assert len(billing_patch_request_mock.call_args[1]["json"]["distinct_ids"]) == 4
+        assert billing_patch_request_mock.call_args[1]["json"]["org_customer_email"] == "y3@x.com"
         assert sorted(billing_patch_request_mock.call_args[1]["json"]["org_admin_emails"]) == ["y2@x.com", "y3@x.com"]
+        assert billing_patch_request_mock.call_args[1]["json"]["org_users"] == [
+            {"email": "y2@x.com", "distinct_id": y2.distinct_id, "role": 8},
+            {"email": "y3@x.com", "distinct_id": y3.distinct_id, "role": 15},
+        ]

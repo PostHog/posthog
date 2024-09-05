@@ -11,18 +11,18 @@
 
 -c requirements.txt
 
-ruff~=0.4.10
-mypy~=1.10.0
+ruff~=0.6.1
+mypy~=1.11.1
 mypy-baseline~=0.7.0
 mypy-extensions==1.0.0
 datamodel-code-generator==0.25.6
 djangorestframework-stubs~=3.14.5
-django-stubs==4.2.7
+django-stubs==5.0.4
 Faker==17.5.0
 fakeredis[lua]==2.23.3
 freezegun==1.2.2
 inline-snapshot==0.10.2
-packaging==23.1
+packaging==24.1
 black~=23.9.1
 boto3-stubs[s3]
 types-markdown==3.3.9

@@ -1,4 +1,4 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
+from posthog.cdp.templates.hog_function_template import SUB_TEMPLATE_COMMON, HogFunctionSubTemplate, HogFunctionTemplate
 
 
 template: HogFunctionTemplate = HogFunctionTemplate(
@@ -6,7 +6,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     id="template-webhook",
     name="HTTP Webhook",
     description="Sends a webhook templated by the incoming event data",
-    icon_url="/static/posthog-icon.svg?temp=true",
+    icon_url="/static/posthog-icon.svg",
     hog="""
 let res := fetch(inputs.url, {
   'headers': inputs.headers,
@@ -81,5 +81,17 @@ if (inputs.debug) {
             "required": False,
             "default": False,
         },
+    ],
+    sub_templates=[
+        HogFunctionSubTemplate(
+            id="early_access_feature_enrollment",
+            name="HTTP Webhook on feature enrollment",
+            filters=SUB_TEMPLATE_COMMON["early_access_feature_enrollment"].filters,
+        ),
+        HogFunctionSubTemplate(
+            id="survey_response",
+            name="HTTP Webhook on survey response",
+            filters=SUB_TEMPLATE_COMMON["survey_response"].filters,
+        ),
     ],
 )

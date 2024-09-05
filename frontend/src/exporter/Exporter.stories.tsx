@@ -15,6 +15,7 @@ const meta: Meta<typeof Exporter> = {
         whitelabel: false,
         noHeader: false,
         legend: false,
+        detailed: false,
     },
     parameters: {
         testOptions: {
@@ -41,6 +42,19 @@ const Template: StoryFn<typeof Exporter> = (props) => {
 
 export const TrendsLineInsight: Story = Template.bind({})
 TrendsLineInsight.args = { insight: require('../mocks/fixtures/api/projects/team_id/insights/trendsLine.json') }
+TrendsLineInsight.tags = ['test-skip'] // doesn't produce a helpful reference image, as canvas can't be captured
+
+export const TrendsLineInsightLegend: Story = Template.bind({})
+TrendsLineInsightLegend.args = {
+    insight: require('../mocks/fixtures/api/projects/team_id/insights/trendsLine.json'),
+    legend: true,
+}
+
+export const TrendsLineInsightDetailed: Story = Template.bind({})
+TrendsLineInsightDetailed.args = {
+    insight: require('../mocks/fixtures/api/projects/team_id/insights/trendsLine.json'),
+    detailed: true,
+}
 
 /** This should not happen in the exporter, but if it does, it shouldn't error out - we want a clear message. */
 export const TrendsLineInsightNoResults: Story = Template.bind({})
@@ -54,38 +68,47 @@ TrendsLineMultiInsight.args = {
 TrendsLineMultiInsight.parameters = {
     mockDate: '2023-07-10',
 }
+TrendsLineMultiInsight.tags = ['test-skip'] // doesn't produce a helpful reference image, as canvas can't be captured
 
 export const TrendsLineBreakdownInsight: Story = Template.bind({})
 TrendsLineBreakdownInsight.args = {
     insight: require('../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json'),
 }
+TrendsLineBreakdownInsight.tags = ['test-skip'] // doesn't produce a helpful reference image, as canvas can't be captured
 
 export const TrendsBarInsight: Story = Template.bind({})
 TrendsBarInsight.args = { insight: require('../mocks/fixtures/api/projects/team_id/insights/trendsBar.json') }
+TrendsBarInsight.tags = ['test-skip'] // doesn't produce a helpful reference image, as canvas can't be captured
 
 export const TrendsBarBreakdownInsight: Story = Template.bind({})
 TrendsBarBreakdownInsight.args = {
     insight: require('../mocks/fixtures/api/projects/team_id/insights/trendsBarBreakdown.json'),
 }
+TrendsBarBreakdownInsight.tags = ['test-skip'] // doesn't produce a helpful reference image, as canvas can't be captured
 
 export const TrendsValueInsight: Story = Template.bind({})
 TrendsValueInsight.args = { insight: require('../mocks/fixtures/api/projects/team_id/insights/trendsValue.json') }
+TrendsValueInsight.tags = ['test-skip'] // doesn't produce a helpful reference image, as canvas can't be captured
 
 export const TrendsValueBreakdownInsight: Story = Template.bind({})
 TrendsValueBreakdownInsight.args = {
     insight: require('../mocks/fixtures/api/projects/team_id/insights/trendsValueBreakdown.json'),
 }
+TrendsValueBreakdownInsight.tags = ['test-skip'] // doesn't produce a helpful reference image, as canvas can't be captured
 
 export const TrendsAreaInsight: Story = Template.bind({})
 TrendsAreaInsight.args = { insight: require('../mocks/fixtures/api/projects/team_id/insights/trendsArea.json') }
+TrendsAreaInsight.tags = ['test-skip'] // doesn't produce a helpful reference image, as canvas can't be captured
 
 export const TrendsAreaBreakdownInsight: Story = Template.bind({})
 TrendsAreaBreakdownInsight.args = {
     insight: require('../mocks/fixtures/api/projects/team_id/insights/trendsAreaBreakdown.json'),
 }
+TrendsAreaBreakdownInsight.tags = ['test-skip'] // doesn't produce a helpful reference image, as canvas can't be captured
 
 export const TrendsNumberInsight: Story = Template.bind({})
 TrendsNumberInsight.args = { insight: require('../mocks/fixtures/api/projects/team_id/insights/trendsNumber.json') }
+TrendsNumberInsight.tags = ['test-skip'] // doesn't produce a helpful reference image, as canvas can't be captured
 
 export const TrendsTableInsight: Story = Template.bind({})
 TrendsTableInsight.args = { insight: require('../mocks/fixtures/api/projects/team_id/insights/trendsTable.json') }
@@ -97,6 +120,18 @@ TrendsTableBreakdownInsight.args = {
 
 export const TrendsPieInsight: Story = Template.bind({})
 TrendsPieInsight.args = { insight: require('../mocks/fixtures/api/projects/team_id/insights/trendsPie.json') }
+
+export const TrendsPieInsightLegend: Story = Template.bind({})
+TrendsPieInsightLegend.args = {
+    insight: require('../mocks/fixtures/api/projects/team_id/insights/trendsPie.json'),
+    legend: true,
+}
+
+export const TrendsPieInsightDetailed: Story = Template.bind({})
+TrendsPieInsightDetailed.args = {
+    insight: require('../mocks/fixtures/api/projects/team_id/insights/trendsPie.json'),
+    detailed: true,
+}
 
 export const TrendsPieBreakdownInsight: Story = Template.bind({})
 TrendsPieBreakdownInsight.args = {
@@ -158,12 +193,15 @@ RetentionBreakdownInsight.args = {
 
 export const LifecycleInsight: Story = Template.bind({})
 LifecycleInsight.args = { insight: require('../mocks/fixtures/api/projects/team_id/insights/lifecycle.json') }
+LifecycleInsight.tags = ['test-skip'] // doesn't produce a helpful reference image, as canvas can't be captured
 
 export const StickinessInsight: Story = Template.bind({})
 StickinessInsight.args = { insight: require('../mocks/fixtures/api/projects/team_id/insights/stickiness.json') }
+StickinessInsight.tags = ['test-skip'] // doesn't produce a helpful reference image, as canvas can't be captured
 
 export const UserPathsInsight: Story = Template.bind({})
 UserPathsInsight.args = { insight: require('../mocks/fixtures/api/projects/team_id/insights/userPaths.json') }
+UserPathsInsight.tags = ['test-skip'] // FIXME: flaky tests, most likely due to resize observer changes
 
 export const Dashboard: Story = Template.bind({})
 Dashboard.args = { dashboard }

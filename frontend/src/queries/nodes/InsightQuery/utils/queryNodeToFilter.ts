@@ -10,7 +10,6 @@ import {
     InsightNodeKind,
     InsightQueryNode,
     LifecycleFilterLegacy,
-    Node,
     NodeKind,
     PathsFilterLegacy,
     RetentionFilterLegacy,
@@ -22,14 +21,13 @@ import {
     isDataWarehouseNode,
     isEventsNode,
     isFunnelsQuery,
-    isInsightVizNode,
     isLifecycleQuery,
     isPathsQuery,
     isRetentionQuery,
     isStickinessQuery,
     isTrendsQuery,
 } from '~/queries/utils'
-import { ActionFilter, EntityTypes, FilterType, InsightType, QueryBasedInsightModel } from '~/types'
+import { ActionFilter, EntityTypes, FilterType, InsightType } from '~/types'
 
 type FilterTypeActionsAndEvents = {
     events?: ActionFilter[]
@@ -105,7 +103,7 @@ export const hiddenLegendItemsToKeys = (
     // @ts-expect-error
     hidden_items?.reduce((k: Record<string, boolean | undefined>, b: string | number) => ({ ...k, [b]: true }), {})
 
-export const insightMap: Record<InsightNodeKind, InsightType> = {
+export const nodeKindToInsightType: Record<InsightNodeKind, InsightType> = {
     [NodeKind.TrendsQuery]: InsightType.TRENDS,
     [NodeKind.FunnelsQuery]: InsightType.FUNNELS,
     [NodeKind.RetentionQuery]: InsightType.RETENTION,
@@ -114,7 +112,7 @@ export const insightMap: Record<InsightNodeKind, InsightType> = {
     [NodeKind.LifecycleQuery]: InsightType.LIFECYCLE,
 }
 
-const filterMap: Record<InsightNodeKind, string> = {
+const nodeKindToFilterKey: Record<InsightNodeKind, string> = {
     [NodeKind.TrendsQuery]: 'trendsFilter',
     [NodeKind.FunnelsQuery]: 'funnelsFilter',
     [NodeKind.RetentionQuery]: 'retentionFilter',
@@ -123,31 +121,9 @@ const filterMap: Record<InsightNodeKind, string> = {
     [NodeKind.LifecycleQuery]: 'lifecycleFilter',
 }
 
-/** Returns a `query` or converted `filters` for a query based insight,
- * depending on the feature flag. This is necessary as we want to
- * transition to query based insights on the frontend, while the backend
- * still has filter based insights (and or conversion function is frontend side).
- *
- * The feature flag can be enabled once we want to persist query based insights
- * backend side. Once the flag is rolled out 100% this function becomes obsolete.
- */
-export const getInsightFilterOrQueryForPersistance = (
-    insight: QueryBasedInsightModel,
-    queryBasedInsightSavingFlag: boolean
-): { filters: Partial<FilterType> | undefined; query: Node<Record<string, any>> | null | undefined } => {
-    let filters
-    let query
-    if (!queryBasedInsightSavingFlag && isInsightVizNode(insight.query)) {
-        filters = queryNodeToFilter(insight.query.source)
-    } else {
-        query = insight.query
-    }
-    return { filters, query }
-}
-
 export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> => {
     const filters: Partial<FilterType> = objectClean({
-        insight: insightMap[query.kind],
+        insight: nodeKindToInsightType[query.kind],
         properties: query.properties,
         filter_test_accounts: query.filterTestAccounts,
         date_to: query.dateRange?.date_to,
@@ -272,12 +248,14 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         camelCasedRetentionProps.target_entity = queryCopy.retentionFilter?.targetEntity
         camelCasedRetentionProps.total_intervals = queryCopy.retentionFilter?.totalIntervals
         camelCasedRetentionProps.show_mean = queryCopy.retentionFilter?.showMean
+        camelCasedRetentionProps.cumulative = queryCopy.retentionFilter?.cumulative
         delete queryCopy.retentionFilter?.retentionReference
         delete queryCopy.retentionFilter?.retentionType
         delete queryCopy.retentionFilter?.returningEntity
         delete queryCopy.retentionFilter?.targetEntity
         delete queryCopy.retentionFilter?.totalIntervals
         delete queryCopy.retentionFilter?.showMean
+        delete queryCopy.retentionFilter?.cumulative
     } else if (isPathsQuery(queryCopy)) {
         camelCasedPathsProps.edge_limit = queryCopy.pathsFilter?.edgeLimit
         camelCasedPathsProps.paths_hogql_expression = queryCopy.pathsFilter?.pathsHogQLExpression
@@ -337,7 +315,7 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
     Object.assign(filters, camelCasedLifecycleProps)
 
     // add the remaining node specific filter properties
-    Object.assign(filters, queryCopy[filterMap[query.kind]])
+    Object.assign(filters, queryCopy[nodeKindToFilterKey[query.kind]])
 
     return filters
 }

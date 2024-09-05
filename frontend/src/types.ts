@@ -153,7 +153,7 @@ export enum AvailableFeature {
     TWOFA_ENFORCEMENT = '2fa_enforcement',
     AUDIT_LOGS = 'audit_logs',
     HIPAA_BAA = 'hipaa_baa',
-    CUSTOMM_MSA = 'custom_msa',
+    CUSTOM_MSA = 'custom_msa',
     TWOFA = '2fa',
     PRIORITY_SUPPORT = 'priority_support',
     SUPPORT_RESPONSE_TIME = 'support_response_time',
@@ -333,6 +333,7 @@ export interface OrganizationBasicType {
     id: string
     name: string
     slug: string
+    logo_media_id: string | null
     membership_level: OrganizationMembershipLevel | null
 }
 
@@ -474,8 +475,9 @@ export interface TeamType extends TeamBasicType {
     slack_incoming_webhook: string
     autocapture_opt_out: boolean
     session_recording_opt_in: boolean
-    capture_console_log_opt_in: boolean
-    capture_performance_opt_in: boolean
+    // These fields in the database accept null values and were previously set to NULL by default
+    capture_console_log_opt_in: boolean | null
+    capture_performance_opt_in: boolean | null
     // a string representation of the decimal value between 0 and 1
     session_recording_sample_rate: string
     session_recording_minimum_duration_milliseconds: number | null
@@ -541,6 +543,7 @@ export interface ActionType {
     action_id?: number // alias of id to make it compatible with event definitions uuid
     bytecode?: any[]
     bytecode_error?: string
+    pinned_at: string | null
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -636,7 +639,7 @@ export enum SavedInsightsTabs {
 }
 
 export enum ReplayTabs {
-    Recent = 'recent',
+    Home = 'home',
     Playlists = 'playlists',
     Errors = 'errors',
 }
@@ -657,17 +660,18 @@ export enum PipelineTab {
     Transformations = 'transformations',
     Destinations = 'destinations',
     SiteApps = 'site-apps',
-    DataImport = 'data-import',
+    Sources = 'sources',
     ImportApps = 'legacy-sources',
     AppsManagement = 'apps-management',
+    History = 'history',
 }
 
 export enum PipelineStage {
     Transformation = 'transformation',
     Destination = 'destination',
+    Source = 'source',
     SiteApp = 'site-app',
     ImportApp = 'legacy-source',
-    DataImport = 'data source',
 }
 
 export enum PipelineNodeTab {
@@ -676,6 +680,8 @@ export enum PipelineNodeTab {
     Logs = 'logs',
     Metrics = 'metrics',
     History = 'history',
+    Schemas = 'schemas',
+    Syncs = 'syncs',
 }
 
 export enum ProgressStatus {
@@ -697,6 +703,7 @@ export enum PropertyFilterType {
     Session = 'session',
     Cohort = 'cohort',
     Recording = 'recording',
+    LogEntry = 'log_entry',
     Group = 'group',
     HogQL = 'hogql',
     DataWarehouse = 'data_warehouse',
@@ -784,6 +791,7 @@ export type AnyPropertyFilter =
     | SessionPropertyFilter
     | CohortPropertyFilter
     | RecordingPropertyFilter
+    | LogEntryPropertyFilter
     | GroupPropertyFilter
     | FeaturePropertyFilter
     | HogQLPropertyFilter
@@ -954,7 +962,7 @@ export type ActionStepProperties =
 
 export interface RecordingPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Recording
-    key: DurationType | 'console_log_level' | 'console_log_query' | 'snapshot_source' | 'visited_page'
+    key: DurationType | 'snapshot_source' | 'visited_page'
     operator: PropertyOperator
 }
 
@@ -963,11 +971,29 @@ export interface RecordingDurationFilter extends RecordingPropertyFilter {
     value: number
 }
 
-export type DurationType = 'duration' | 'active_seconds' | 'inactive_seconds'
+export interface LogEntryPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.LogEntry
+    operator: PropertyOperator
+}
 
+export interface LogEntryPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.LogEntry
+    operator: PropertyOperator
+}
+
+export interface LogEntryLevelFilter extends LogEntryPropertyFilter {
+    key: 'level'
+    value: FilterableLogLevel[]
+}
+export interface LogEntryMessageFilter extends LogEntryPropertyFilter {
+    key: 'message'
+    value: string
+}
+
+export type DurationType = 'duration' | 'active_seconds' | 'inactive_seconds'
 export type FilterableLogLevel = 'info' | 'warn' | 'error'
 
-export interface RecordingFilters {
+export interface LegacyRecordingFilters {
     date_from?: string | null
     date_to?: string | null
     events?: FilterType['events']
@@ -975,9 +1001,9 @@ export interface RecordingFilters {
     properties?: AnyPropertyFilter[]
     session_recording_duration?: RecordingDurationFilter
     duration_type_filter?: DurationType
-    console_search_query?: string
+    console_search_query?: LogEntryMessageFilter['value']
+    console_logs?: LogEntryLevelFilter['value']
     snapshot_source?: AnyPropertyFilter | null
-    console_logs?: FilterableLogLevel[]
     filter_test_accounts?: boolean
     operand?: FilterLogicalOperator
 }
@@ -988,11 +1014,6 @@ export interface RecordingUniversalFilters {
     duration: RecordingDurationFilter[]
     filter_test_accounts?: boolean
     filter_group: UniversalFiltersGroup
-}
-
-export interface SessionRecordingsResponse {
-    results: SessionRecordingType[]
-    has_next: boolean
 }
 
 export type ErrorCluster = {
@@ -1304,7 +1325,7 @@ export interface SessionRecordingPlaylistType {
     created_by: UserBasicType | null
     last_modified_at: string
     last_modified_by: UserBasicType | null
-    filters?: RecordingFilters
+    filters?: LegacyRecordingFilters
 }
 
 export interface SessionRecordingSegmentType {
@@ -1584,7 +1605,7 @@ export interface BillingType {
     products: BillingProductV2Type[]
 
     custom_limits_usd?: {
-        [key: string]: string | null | undefined
+        [key: string]: number | null
     }
     billing_period?: {
         current_period_start: Dayjs
@@ -1658,9 +1679,9 @@ export interface Tileable {
     color: InsightColor | null
 }
 
-export interface DashboardTile extends Tileable, Cacheable {
+export interface DashboardTile<T = InsightModel> extends Tileable {
     id: number
-    insight?: InsightModel
+    insight?: T
     text?: TextModel
     deleted?: boolean
     is_cached?: boolean
@@ -1744,19 +1765,19 @@ export interface DashboardTemplateListParams {
 
 export type DashboardTemplateScope = 'team' | 'global' | 'feature_flag'
 
-export interface DashboardType extends DashboardBasicType {
-    tiles: DashboardTile[]
+export interface DashboardType<T = InsightModel> extends DashboardBasicType {
+    tiles: DashboardTile<T>[]
     filters: DashboardFilter
 }
 
-export interface DashboardTemplateType {
+export interface DashboardTemplateType<T = InsightModel> {
     id: string
     team_id?: number
     created_at?: string
     template_name: string
     dashboard_description?: string
     dashboard_filters?: DashboardFilter
-    tiles: DashboardTile[]
+    tiles: DashboardTile<T>[]
     variables?: DashboardTemplateVariableType[]
     tags?: string[]
     image_url?: string
@@ -1835,6 +1856,7 @@ export interface PluginType {
     metrics?: Record<string, StoredMetricMathOperations>
     capabilities?: Record<'jobs' | 'methods' | 'scheduled_tasks', string[] | undefined>
     public_jobs?: Record<string, JobSpec>
+    hog_function_migration_available?: boolean
 }
 
 export type AppType = PluginType
@@ -1904,29 +1926,6 @@ export interface PluginConfigTypeNew {
     updated_at: string
     delivery_rate_24h?: number | null
     config: Record<string, any>
-    filters?: PluginConfigFilters | null
-}
-
-// subset of EntityFilter
-export interface PluginConfigFilterBase {
-    id: string
-    name: string | null
-    order: number
-    properties: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter)[]
-}
-
-export interface PluginConfigFilterEvents extends PluginConfigFilterBase {
-    type: 'events'
-}
-
-export interface PluginConfigFilterActions extends PluginConfigFilterBase {
-    type: 'actions'
-}
-
-export interface PluginConfigFilters {
-    events?: PluginConfigFilterEvents[]
-    actions?: PluginConfigFilterActions[]
-    filter_test_accounts?: boolean
 }
 
 // TODO: Rename to PluginConfigWithPluginInfo once the are removed from the frontend
@@ -1992,9 +1991,9 @@ export interface RawAnnotationType {
     created_at: string
     updated_at: string
     dashboard_item?: number | null
-    insight_short_id?: InsightModel['short_id'] | null
-    insight_name?: InsightModel['name'] | null
-    insight_derived_name?: InsightModel['derived_name'] | null
+    insight_short_id?: QueryBasedInsightModel['short_id'] | null
+    insight_name?: QueryBasedInsightModel['name'] | null
+    insight_derived_name?: QueryBasedInsightModel['derived_name'] | null
     dashboard_id?: DashboardBasicType['id'] | null
     dashboard_name?: DashboardBasicType['name'] | null
     deleted?: boolean
@@ -2013,6 +2012,7 @@ export interface DatedAnnotationType extends Omit<AnnotationType, 'date_marker'>
 export enum ChartDisplayType {
     ActionsLineGraph = 'ActionsLineGraph',
     ActionsBar = 'ActionsBar',
+    ActionsStackedBar = 'ActionsStackedBar',
     ActionsAreaGraph = 'ActionsAreaGraph',
     ActionsLineGraphCumulative = 'ActionsLineGraphCumulative',
     BoldNumber = 'BoldNumber',
@@ -2264,6 +2264,7 @@ export interface RetentionFilterType extends FilterType {
 
     //frontend only
     show_mean?: boolean
+    cumulative?: boolean
 }
 export interface LifecycleFilterType extends FilterType {
     /** @deprecated */
@@ -2327,7 +2328,7 @@ export interface InsightEditorFilter {
     tooltip?: JSX.Element
     showOptional?: boolean
     position?: 'left' | 'right'
-    valueSelector?: (insight: Partial<InsightModel>) => any
+    valueSelector?: (insight: Partial<QueryBasedInsightModel>) => any
     /** Editor filter component. Cannot be an anonymous function or the key would not work! */
     component?: (props: EditorFilterProps) => JSX.Element | null
 }
@@ -2560,20 +2561,20 @@ export interface HistogramGraphDatum {
 }
 
 // Shared between insightLogic, dashboardItemLogic, trendsLogic, funnelLogic, pathsLogic, retentionLogic
-export interface InsightLogicProps {
+export interface InsightLogicProps<T = InsightVizNode> {
     /** currently persisted insight */
     dashboardItemId?: InsightShortId | 'new' | `new-${string}` | null
     /** id of the dashboard the insight is on (when the insight is being displayed on a dashboard) **/
     dashboardId?: DashboardType['id']
     /** cached insight */
-    cachedInsight?: Partial<InsightModel> | null
+    cachedInsight?: Partial<QueryBasedInsightModel> | null
     /** enable this to avoid API requests */
     doNotLoad?: boolean
     loadPriority?: number
     onData?: (data: Record<string, unknown> | null | undefined) => void
     /** query when used as ad-hoc insight */
-    query?: InsightVizNode
-    setQuery?: (node: InsightVizNode) => void
+    query?: T
+    setQuery?: (node: T) => void
 
     /** Used to group DataNodes into a collection for group operations like refreshAll **/
     dataNodeCollectionId?: string
@@ -2581,7 +2582,7 @@ export interface InsightLogicProps {
 
 export interface SetInsightOptions {
     /** this overrides the in-flight filters on the page, which may not equal the last returned API response */
-    overrideFilter?: boolean
+    overrideQuery?: boolean
     /** calling with this updates the "last saved" filters */
     fromPersistentApi?: boolean
 }
@@ -2654,6 +2655,7 @@ export interface SurveyAppearance {
     submitButtonColor?: string
     // TODO: remove submitButtonText in favor of buttonText once it's more deprecated
     submitButtonText?: string
+    submitButtonTextColor?: string
     ratingButtonColor?: string
     ratingButtonActiveColor?: string
     borderColor?: string
@@ -2760,7 +2762,7 @@ interface SpecificQuestionBranching {
 export interface FeatureFlagGroupType {
     properties?: AnyPropertyFilter[]
     rollout_percentage?: number | null
-    variant: string | null
+    variant?: string | null
     users_affected?: number
 }
 
@@ -2954,6 +2956,9 @@ export interface PreflightStatus {
         hubspot: {
             client_id?: string
         }
+        salesforce: {
+            client_id?: string
+        }
     }
     /** Whether PostHog is running in DEBUG mode. */
     is_debug?: boolean
@@ -2964,6 +2969,7 @@ export interface PreflightStatus {
     buffer_conversion_seconds?: number
     object_storage: boolean
     public_egress_ip_addresses?: string[]
+    dev_disable_navigation_hooks?: boolean
 }
 
 export enum ItemMode { // todo: consolidate this and dashboardmode
@@ -3061,6 +3067,7 @@ export enum PropertyDefinitionType {
     Person = 'person',
     Group = 'group',
     Session = 'session',
+    LogEntry = 'log_entry',
 }
 
 export interface PropertyDefinition {
@@ -3169,6 +3176,7 @@ export interface _TrendsExperimentResults extends BaseExperimentResults {
     filters: TrendsFilterType
     variants: TrendExperimentVariant[]
     last_refresh?: string | null
+    credible_intervals: { [key: string]: [number, number] }
 }
 
 export interface _FunnelExperimentResults extends BaseExperimentResults {
@@ -3176,6 +3184,7 @@ export interface _FunnelExperimentResults extends BaseExperimentResults {
     filters: FunnelsFilterType
     variants: FunnelExperimentVariant[]
     last_refresh?: string | null
+    credible_intervals: { [key: string]: [number, number] }
 }
 
 export interface TrendsExperimentResults {
@@ -3309,26 +3318,34 @@ export interface DateMappingOption {
 interface BreadcrumbBase {
     /** E.g. scene, tab, or scene with item ID. Particularly important for `onRename`. */
     key: string | number | [scene: Scene, key: string | number]
-    /** Name to display. */
-    name: string | null | undefined
-    /** Symbol, e.g. a lettermark or a profile picture. */
-    symbol?: React.ReactNode
     /** Whether to show a custom popover */
     popover?: Pick<PopoverProps, 'overlay' | 'matchWidth'>
 }
 interface LinkBreadcrumb extends BreadcrumbBase {
+    /** Name to display. */
+    name: string | null | undefined
+    symbol?: never
     /** Path to link to. */
     path?: string
     onRename?: never
 }
 interface RenamableBreadcrumb extends BreadcrumbBase {
+    /** Name to display. */
+    name: string | null | undefined
+    symbol?: never
     path?: never
     /** When this is set, an "Edit" button shows up next to the title */
     onRename?: (newName: string) => Promise<void>
     /** When this is true, the name is always in edit mode, and `onRename` runs on every input change. */
     forceEditMode?: boolean
 }
-export type Breadcrumb = LinkBreadcrumb | RenamableBreadcrumb
+interface SymbolBreadcrumb extends BreadcrumbBase {
+    name?: never
+    /** Symbol, e.g. a lettermark or a profile picture. */
+    symbol: React.ReactElement
+    path?: never
+}
+export type Breadcrumb = LinkBreadcrumb | RenamableBreadcrumb | SymbolBreadcrumb
 
 export enum GraphType {
     Bar = 'bar',
@@ -3418,6 +3435,7 @@ export enum BaseMathType {
     WeeklyActiveUsers = 'weekly_active',
     MonthlyActiveUsers = 'monthly_active',
     UniqueSessions = 'unique_session',
+    FirstTimeForUser = 'first_time_for_user',
 }
 
 export enum PropertyMathType {
@@ -3492,6 +3510,12 @@ export enum DateOperatorType {
     Before = 'before',
     IsSet = 'is_set',
     IsNotSet = 'is_not_set',
+}
+
+export enum SingleFieldDateType {
+    IsDateExact = 'is_date_exact',
+    IsDateBefore = 'is_date_before',
+    IsDateAfter = 'is_date_after',
 }
 
 export enum ValueOptionType {
@@ -3828,7 +3852,16 @@ export enum DataWarehouseSettingsTab {
     SelfManaged = 'self-managed',
 }
 
-export const externalDataSources = ['Stripe', 'Hubspot', 'Postgres', 'MySQL', 'Zendesk', 'Snowflake'] as const
+export const externalDataSources = [
+    'Stripe',
+    'Hubspot',
+    'Postgres',
+    'MySQL',
+    'MSSQL',
+    'Zendesk',
+    'Snowflake',
+    'Salesforce',
+] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
 
@@ -3846,7 +3879,7 @@ export interface ExternalDataStripeSource {
     source_id: string
     connection_id: string
     status: string
-    source_type: string
+    source_type: ExternalDataSourceType
     prefix: string
     last_run_at?: Dayjs
     schemas: ExternalDataSourceSchema[]
@@ -3891,7 +3924,7 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
 export interface ExternalDataJob {
     id: string
     created_at: string
-    status: 'Running' | 'Failed' | 'Completed' | 'Cancelled'
+    status: 'Running' | 'Failed' | 'Completed' | 'Billing limits'
     schema: SimpleExternalDataSourceSchema
     rows_synced: number
     latest_error: string
@@ -4001,7 +4034,14 @@ export type BatchExportServiceRedshift = {
 // src/scenes/pipeline/icons/
 // and update RenderBatchExportIcon
 // and update batchExportServiceNames in pipelineNodeNewLogic
-export const BATCH_EXPORT_SERVICE_NAMES = ['S3', 'Snowflake', 'Postgres', 'BigQuery', 'Redshift', 'HTTP']
+export const BATCH_EXPORT_SERVICE_NAMES: BatchExportService['type'][] = [
+    'S3',
+    'Snowflake',
+    'Postgres',
+    'BigQuery',
+    'Redshift',
+    'HTTP',
+]
 export type BatchExportService =
     | BatchExportServiceS3
     | BatchExportServiceSnowflake
@@ -4102,11 +4142,13 @@ export enum SDKKey {
     GATSBY = 'gatsby',
     GO = 'go',
     GOOGLE_TAG_MANAGER = 'google_tag_manager',
+    HELICONE = 'helicone',
     HTML_SNIPPET = 'html',
     IOS = 'ios',
     JAVA = 'java',
     JS_WEB = 'javascript_web',
     LARAVEL = 'laravel',
+    LANGFUSE = 'langfuse',
     NEXT_JS = 'nextjs',
     NODE_JS = 'nodejs',
     NUXT_JS = 'nuxtjs',
@@ -4123,6 +4165,7 @@ export enum SDKKey {
     SENTRY = 'sentry',
     SHOPIFY = 'shopify',
     SVELTE = 'svelte',
+    TRACELOOP = 'traceloop',
     VUE_JS = 'vuejs',
     WEBFLOW = 'webflow',
     WORDPRESS = 'wordpress',
@@ -4134,6 +4177,7 @@ export enum SDKTag {
     SERVER = 'Server',
     INTEGRATION = 'Integration',
     RECOMMENDED = 'Recommended',
+    LLM = 'LLM',
     OTHER = 'Other',
 }
 
@@ -4169,6 +4213,13 @@ export enum SidePanelTab {
     Exports = 'exports',
 }
 
+export interface SourceFieldOauthConfig {
+    type: 'oauth'
+    name: string
+    label: string
+    required: boolean
+}
+
 export interface SourceFieldInputConfig {
     type: LemonInputProps['type'] | 'textarea'
     name: string
@@ -4194,13 +4245,21 @@ export interface SourceFieldSwitchGroupConfig {
     fields: SourceFieldConfig[]
 }
 
-export type SourceFieldConfig = SourceFieldInputConfig | SourceFieldSwitchGroupConfig | SourceFieldSelectConfig
+export type SourceFieldConfig =
+    | SourceFieldInputConfig
+    | SourceFieldSwitchGroupConfig
+    | SourceFieldSelectConfig
+    | SourceFieldOauthConfig
 
 export interface SourceConfig {
     name: ExternalDataSourceType
+    label?: string
     caption: string | React.ReactNode
     fields: SourceFieldConfig[]
     disabledReason?: string | null
+    showPrefix?: (payload: Record<string, any>) => boolean
+    showSourceForm?: (payload: Record<string, any>) => boolean
+    oauthPayload?: string[]
 }
 
 export interface ProductPricingTierSubrows {
@@ -4247,7 +4306,7 @@ export type OnboardingProduct = {
 }
 
 export type HogFunctionInputSchemaType = {
-    type: 'string' | 'boolean' | 'dictionary' | 'choice' | 'json' | 'integration' | 'integration_field'
+    type: 'string' | 'boolean' | 'dictionary' | 'choice' | 'json' | 'integration' | 'integration_field' | 'email'
     key: string
     label: string
     choices?: { value: string; label: string }[]
@@ -4266,6 +4325,47 @@ export type HogFunctionInputType = {
     bytecode?: any
 }
 
+export type HogFunctionMasking = {
+    ttl: number | null
+    threshold?: number | null
+    hash: string
+    bytecode?: any
+}
+
+// subset of EntityFilter
+export interface HogFunctionFilterBase {
+    id: string
+    name?: string | null
+    order?: number
+    properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter)[]
+}
+
+export interface HogFunctionFilterEvents extends HogFunctionFilterBase {
+    type: 'events'
+}
+
+export interface HogFunctionFilterActions extends HogFunctionFilterBase {
+    type: 'actions'
+}
+
+export type HogFunctionFilterPropertyFilter = (
+    | EventPropertyFilter
+    | PersonPropertyFilter
+    | ElementPropertyFilter
+    | GroupPropertyFilter
+    | FeaturePropertyFilter
+    | HogQLPropertyFilter
+)[]
+
+export interface HogFunctionFiltersType {
+    events?: HogFunctionFilterEvents[]
+    actions?: HogFunctionFilterActions[]
+    properties?: HogFunctionFilterPropertyFilter[]
+    filter_test_accounts?: boolean
+    bytecode?: any[]
+    bytecode_error?: string
+}
+
 export type HogFunctionType = {
     id: string
     icon_url?: string
@@ -4278,24 +4378,36 @@ export type HogFunctionType = {
     hog: string
 
     inputs_schema?: HogFunctionInputSchemaType[]
-    inputs?: Record<string, HogFunctionInputType>
-    filters?: PluginConfigFilters | null
+    inputs?: Record<string, HogFunctionInputType> | null
+    masking?: HogFunctionMasking | null
+    filters?: HogFunctionFiltersType | null
     template?: HogFunctionTemplateType
     status?: HogFunctionStatus
 }
 
+export type HogFunctionTemplateStatus = 'alpha' | 'beta' | 'stable' | 'free' | 'deprecated'
+export type HogFunctionSubTemplateIdType = 'early_access_feature_enrollment' | 'survey_response'
+
 export type HogFunctionConfigurationType = Omit<
     HogFunctionType,
-    'created_at' | 'created_by' | 'updated_at' | 'status' | 'hog'
+    'id' | 'created_at' | 'created_by' | 'updated_at' | 'status' | 'hog'
 > & {
     hog?: HogFunctionType['hog'] // In the config it can be empty if using a template
+    sub_template_id?: HogFunctionSubTemplateIdType
+}
+
+export type HogFunctionSubTemplateType = Pick<HogFunctionType, 'filters' | 'inputs' | 'masking'> & {
+    id: HogFunctionSubTemplateIdType
+    name: string
+    description: string | null
 }
 
 export type HogFunctionTemplateType = Pick<
     HogFunctionType,
-    'id' | 'name' | 'description' | 'hog' | 'inputs_schema' | 'filters' | 'icon_url'
+    'id' | 'name' | 'description' | 'hog' | 'inputs_schema' | 'filters' | 'icon_url' | 'masking'
 > & {
-    status: 'alpha' | 'beta' | 'stable' | 'free'
+    status: HogFunctionTemplateStatus
+    sub_templates?: HogFunctionSubTemplateType[]
 }
 
 export type HogFunctionIconResponse = {
@@ -4313,14 +4425,8 @@ export enum HogWatcherState {
 
 export type HogFunctionStatus = {
     state: HogWatcherState
-    states: {
-        timestamp: number
-        state: HogWatcherState
-    }[]
-    ratings: {
-        timestamp: number
-        rating: number
-    }[]
+    rating: number
+    tokens: number
 }
 
 export type HogFunctionInvocationGlobals = {
@@ -4359,21 +4465,6 @@ export type HogFunctionInvocationGlobals = {
     >
 }
 
-export interface AnomalyCondition {
-    absoluteThreshold: {
-        lower?: number
-        upper?: number
-    }
-}
-
-export interface AlertType {
-    id: number
-    name: string
-    insight?: number
-    target_value: string
-    anomaly_condition: AnomalyCondition
-}
-
 export type AppMetricsV2Response = {
     labels: string[]
     series: {
@@ -4394,10 +4485,4 @@ export type AppMetricsV2RequestParams = {
     kind?: string
     interval?: 'hour' | 'day' | 'week'
     breakdown_by?: 'name' | 'kind'
-}
-
-export enum DataWarehouseTab {
-    Explore = 'explore',
-    ManagedSources = 'managed-sources',
-    SelfManagedSources = 'self-managed-sources',
 }

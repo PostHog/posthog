@@ -1,5 +1,6 @@
 import './LemonInput.scss'
 
+import { useMergeRefs } from '@floating-ui/react'
 import { IconEye, IconSearch, IconX } from '@posthog/icons'
 import clsx from 'clsx'
 import { IconEyeHidden } from 'lib/lemon-ui/icons'
@@ -25,7 +26,7 @@ interface LemonInputPropsBase
         | 'inputMode'
         | 'pattern'
     > {
-    ref?: React.Ref<HTMLInputElement>
+    inputRef?: React.Ref<HTMLInputElement>
     id?: string
     placeholder?: string
     /** Use the danger status for invalid input. */
@@ -43,7 +44,7 @@ interface LemonInputPropsBase
     /** Special case - show a transparent background rather than white */
     transparentBackground?: boolean
     /** Size of the element. Default: `'medium'`. */
-    size?: 'xsmall' | 'small' | 'medium'
+    size?: 'xsmall' | 'small' | 'medium' | 'large'
     onPressEnter?: (event: React.KeyboardEvent<HTMLInputElement>) => void
     'data-attr'?: string
     'aria-label'?: string
@@ -69,7 +70,7 @@ export interface LemonInputPropsNumber
 
 export type LemonInputProps = LemonInputPropsText | LemonInputPropsNumber
 
-export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(function _LemonInput(
+export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(function _LemonInput(
     {
         className,
         onChange,
@@ -86,19 +87,19 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
         transparentBackground = false,
         size = 'medium',
         stopPropagation = false,
+        inputRef,
         ...props
     },
     ref
 ): JSX.Element {
-    const _ref = useRef<HTMLInputElement | null>(null)
-    const inputRef = ref || _ref
+    const internalInputRef = useRef<HTMLInputElement>(null)
+    const mergedInputRef = useMergeRefs([inputRef, internalInputRef])
+
     const [focused, setFocused] = useState<boolean>(Boolean(props.autoFocus))
     const [passwordVisible, setPasswordVisible] = useState<boolean>(false)
 
     const focus = (): void => {
-        if (inputRef && 'current' in inputRef) {
-            inputRef.current?.focus()
-        }
+        internalInputRef.current?.focus()
         setFocused(true)
     }
 
@@ -156,11 +157,12 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
             )}
             aria-disabled={props.disabled}
             onClick={() => focus()}
+            ref={ref}
         >
             {prefix}
             <input
                 className="LemonInput__input"
-                ref={inputRef}
+                ref={mergedInputRef}
                 type={(type === 'password' && passwordVisible ? 'text' : type) || 'text'}
                 value={value}
                 onChange={(event) => {

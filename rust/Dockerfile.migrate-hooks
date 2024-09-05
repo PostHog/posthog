@@ -1,0 +1,16 @@
+FROM docker.io/library/rust:1.80.1-bullseye as builder
+
+RUN apt update && apt install build-essential cmake -y
+RUN cargo install sqlx-cli@0.7.3 --no-default-features --features native-tls,postgres --root /app/target/release/
+
+FROM debian:bullseye-20230320-slim AS runtime
+WORKDIR /sqlx
+
+COPY bin /sqlx/bin/
+COPY migrations /sqlx/migrations/
+
+COPY --from=builder /app/target/release/bin/sqlx /usr/local/bin
+
+RUN chmod +x ./bin/migrate
+
+CMD ["./bin/migrate"]

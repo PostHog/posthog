@@ -3,10 +3,10 @@ use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use futures::future::join_all;
 use hook_common::webhook::WebhookJobError;
 use rdkafka::error::KafkaError;
-use rdkafka::producer::{FutureProducer, FutureRecord};
+use rdkafka::producer::FutureProducer;
+use serde::Serialize;
 use serde_json::error::Error as SerdeError;
 use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions, Postgres};
 use sqlx::types::{chrono, Uuid};
@@ -16,9 +16,10 @@ use tracing::{debug, error, info};
 
 use crate::cleanup::Cleaner;
 
-use hook_common::kafka_messages::app_metrics::{AppMetric, AppMetricCategory};
-use hook_common::kafka_producer::KafkaContext;
-use hook_common::metrics::get_current_timestamp_seconds;
+use common_kafka::kafka_messages::app_metrics::{AppMetric, AppMetricCategory};
+use common_kafka::kafka_messages::app_metrics2::{self, AppMetric2};
+use common_kafka::kafka_producer::{send_iter_to_kafka, KafkaContext, KafkaProduceError};
+use common_metrics::get_current_timestamp_seconds;
 
 #[derive(Error, Debug)]
 pub enum WebhookCleanerError {
@@ -58,6 +59,7 @@ pub struct WebhookCleaner {
     pg_pool: PgPool,
     kafka_producer: FutureProducer<KafkaContext>,
     app_metrics_topic: String,
+    app_metrics2_topic: String,
     hog_mode: bool,
 }
 
@@ -113,14 +115,6 @@ struct FailedRow {
     failures: u32,
 }
 
-#[derive(sqlx::FromRow, Debug)]
-struct QueueDepth {
-    oldest_scheduled_at_untried: DateTime<Utc>,
-    count_untried: i64,
-    oldest_scheduled_at_retries: DateTime<Utc>,
-    count_retries: i64,
-}
-
 impl From<FailedRow> for AppMetric {
     fn from(row: FailedRow) -> Self {
         AppMetric {
@@ -135,6 +129,98 @@ impl From<FailedRow> for AppMetric {
             error_uuid: Some(Uuid::now_v7()),
             error_type: Some(row.last_error.r#type),
             error_details: Some(row.last_error.details),
+        }
+    }
+}
+
+#[derive(sqlx::FromRow, Debug)]
+struct HoghookCompletedRow {
+    // App Metrics truncates/aggregates rows on the hour, so we take advantage of that to GROUP BY
+    // and aggregate to select fewer rows.
+    hour: DateTime<Utc>,
+    // A note about the `try_from`s: Postgres returns all of those types as `bigint` (i64), but
+    // we know their true sizes, and so we can convert them to the correct types here. If this
+    // ever fails then something has gone wrong.
+    #[sqlx(try_from = "i64")]
+    team_id: u32,
+    app_source_id: String,
+    #[sqlx(try_from = "i64")]
+    count: u32,
+}
+
+impl From<HoghookCompletedRow> for AppMetric2 {
+    fn from(row: HoghookCompletedRow) -> Self {
+        AppMetric2 {
+            team_id: row.team_id,
+            timestamp: row.hour,
+            app_source: app_metrics2::Source::Hoghooks,
+            app_source_id: row.app_source_id,
+            instance_id: None,
+            metric_kind: app_metrics2::Kind::Success,
+            metric_name: "Fetch".to_owned(),
+            count: row.count,
+        }
+    }
+}
+
+#[derive(sqlx::FromRow, Debug)]
+struct HoghookFailedRow {
+    // App Metrics truncates/aggregates rows on the hour, so we take advantage of that to GROUP BY
+    // and aggregate to select fewer rows.
+    hour: DateTime<Utc>,
+    // A note about the `try_from`s: Postgres returns all of those types as `bigint` (i64), but
+    // we know their true sizes, and so we can convert them to the correct types here. If this
+    // ever fails then something has gone wrong.
+    #[sqlx(try_from = "i64")]
+    team_id: u32,
+    app_source_id: String,
+    #[sqlx(json)]
+    last_error: WebhookJobError,
+    #[sqlx(try_from = "i64")]
+    count: u32,
+}
+
+impl From<HoghookFailedRow> for AppMetric2 {
+    fn from(row: HoghookFailedRow) -> Self {
+        AppMetric2 {
+            team_id: row.team_id,
+            timestamp: row.hour,
+            app_source: app_metrics2::Source::Hoghooks,
+            app_source_id: row.app_source_id,
+            instance_id: None,
+            metric_kind: app_metrics2::Kind::Failure,
+            metric_name: String::from(row.last_error.r#type),
+            count: row.count,
+        }
+    }
+}
+
+#[derive(sqlx::FromRow, Debug)]
+struct QueueDepth {
+    oldest_scheduled_at_untried: DateTime<Utc>,
+    count_untried: i64,
+    oldest_scheduled_at_retries: DateTime<Utc>,
+    count_retries: i64,
+}
+
+async fn send_metrics_to_kafka<T>(
+    kafka_producer: &FutureProducer<KafkaContext>,
+    topic: &str,
+    metrics: impl IntoIterator<Item = T>,
+) -> Result<()>
+where
+    T: Serialize,
+{
+    match send_iter_to_kafka(kafka_producer, topic, metrics).await {
+        Ok(()) => Ok(()),
+        Err(KafkaProduceError::SerializationError { error }) => {
+            Err(WebhookCleanerError::SerializeRowsError { error })
+        }
+        Err(KafkaProduceError::KafkaProduceError { error }) => {
+            Err(WebhookCleanerError::KafkaProduceError { error })
+        }
+        Err(KafkaProduceError::KafkaProduceCanceled) => {
+            Err(WebhookCleanerError::KafkaProduceCanceled)
         }
     }
 }
@@ -156,6 +242,7 @@ impl WebhookCleaner {
         database_url: &str,
         kafka_producer: FutureProducer<KafkaContext>,
         app_metrics_topic: String,
+        app_metrics2_topic: String,
         hog_mode: bool,
     ) -> Result<Self> {
         let options = PgConnectOptions::from_str(database_url)
@@ -169,6 +256,7 @@ impl WebhookCleaner {
             pg_pool,
             kafka_producer,
             app_metrics_topic,
+            app_metrics2_topic,
             hog_mode,
         })
     }
@@ -178,12 +266,14 @@ impl WebhookCleaner {
         pg_pool: PgPool,
         kafka_producer: FutureProducer<KafkaContext>,
         app_metrics_topic: String,
+        app_metrics2_topic: String,
         hog_mode: bool,
     ) -> Result<Self> {
         Ok(Self {
             pg_pool,
             kafka_producer,
             app_metrics_topic,
+            app_metrics2_topic,
             hog_mode,
         })
     }
@@ -277,6 +367,29 @@ impl WebhookCleaner {
         Ok(rows)
     }
 
+    async fn get_completed_agg_rows_for_hoghooks(
+        &self,
+        tx: &mut SerializableTxn<'_>,
+    ) -> Result<Vec<HoghookCompletedRow>> {
+        let base_query = r#"
+            SELECT DATE_TRUNC('hour', last_attempt_finished_at) AS hour,
+                (metadata->>'teamId')::bigint AS team_id,
+                (metadata->>'hogFunctionId') AS app_source_id,
+                count(*) as count
+            FROM job_queue
+            WHERE status = 'completed'
+            GROUP BY hour, team_id, app_source_id
+            ORDER BY hour, team_id, app_source_id;
+        "#;
+
+        let rows = sqlx::query_as::<_, HoghookCompletedRow>(base_query)
+            .fetch_all(&mut *tx.0)
+            .await
+            .map_err(|e| WebhookCleanerError::GetCompletedRowsError { error: e })?;
+
+        Ok(rows)
+    }
+
     async fn get_failed_agg_rows(&self, tx: &mut SerializableTxn<'_>) -> Result<Vec<FailedRow>> {
         let base_query = r#"
             SELECT DATE_TRUNC('hour', last_attempt_finished_at) AS hour,
@@ -298,47 +411,28 @@ impl WebhookCleaner {
         Ok(rows)
     }
 
-    async fn send_metrics_to_kafka(&self, metrics: Vec<AppMetric>) -> Result<()> {
-        if metrics.is_empty() {
-            return Ok(());
-        }
+    async fn get_failed_agg_rows_for_hoghooks(
+        &self,
+        tx: &mut SerializableTxn<'_>,
+    ) -> Result<Vec<HoghookFailedRow>> {
+        let base_query = r#"
+            SELECT DATE_TRUNC('hour', last_attempt_finished_at) AS hour,
+                (metadata->>'teamId')::bigint AS team_id,
+                (metadata->>'hogFunctionId') AS app_source_id,
+                errors[array_upper(errors, 1)] AS last_error,
+                count(*) as count
+            FROM job_queue
+            WHERE status = 'failed'
+            GROUP BY hour, team_id, app_source_id, last_error
+            ORDER BY hour, team_id, app_source_id, last_error;
+        "#;
 
-        let payloads: Vec<String> = metrics
-            .into_iter()
-            .map(|metric| serde_json::to_string(&metric))
-            .collect::<Result<Vec<String>, SerdeError>>()
-            .map_err(|e| WebhookCleanerError::SerializeRowsError { error: e })?;
+        let rows = sqlx::query_as::<_, HoghookFailedRow>(base_query)
+            .fetch_all(&mut *tx.0)
+            .await
+            .map_err(|e| WebhookCleanerError::GetFailedRowsError { error: e })?;
 
-        let mut delivery_futures = Vec::new();
-
-        for payload in payloads {
-            match self.kafka_producer.send_result(FutureRecord {
-                topic: self.app_metrics_topic.as_str(),
-                payload: Some(&payload),
-                partition: None,
-                key: None::<&str>,
-                timestamp: None,
-                headers: None,
-            }) {
-                Ok(future) => delivery_futures.push(future),
-                Err((error, _)) => return Err(WebhookCleanerError::KafkaProduceError { error }),
-            }
-        }
-
-        for result in join_all(delivery_futures).await {
-            match result {
-                Ok(Ok(_)) => {}
-                Ok(Err((error, _))) => {
-                    return Err(WebhookCleanerError::KafkaProduceError { error })
-                }
-                Err(_) => {
-                    // Cancelled due to timeout while retrying
-                    return Err(WebhookCleanerError::KafkaProduceCanceled);
-                }
-            }
-        }
-
-        Ok(())
+        Ok(rows)
     }
 
     async fn delete_observed_rows(&self, tx: &mut SerializableTxn<'_>) -> Result<u64> {
@@ -397,36 +491,58 @@ impl WebhookCleaner {
 
         let mut tx = self.start_serializable_txn().await?;
 
-        let (completed_row_count, completed_agg_row_count) = {
-            let completed_row_count = self.get_row_count_for_status(&mut tx, "completed").await?;
-            let completed_agg_rows = if self.hog_mode {
-                // Hog mode doesn't need to send metrics to Kafka (and can't aggregate by
-                // plugin anyway), so we can skip this.
-                vec![]
-            } else {
-                self.get_completed_agg_rows(&mut tx).await?
-            };
-            let agg_row_count = completed_agg_rows.len() as u64;
+        let completed_row_count = self.get_row_count_for_status(&mut tx, "completed").await?;
+        let completed_agg_row_count = if self.hog_mode {
+            let completed_agg_rows = self.get_completed_agg_rows_for_hoghooks(&mut tx).await?;
+            let completed_agg_row_count = completed_agg_rows.len() as u64;
+            let completed_app_metrics: Vec<AppMetric2> =
+                completed_agg_rows.into_iter().map(Into::into).collect();
+            send_metrics_to_kafka(
+                &self.kafka_producer,
+                &self.app_metrics2_topic,
+                completed_app_metrics,
+            )
+            .await?;
+            completed_agg_row_count
+        } else {
+            let completed_agg_rows = self.get_completed_agg_rows(&mut tx).await?;
+            let completed_agg_row_count = completed_agg_rows.len() as u64;
             let completed_app_metrics: Vec<AppMetric> =
                 completed_agg_rows.into_iter().map(Into::into).collect();
-            self.send_metrics_to_kafka(completed_app_metrics).await?;
-            (completed_row_count, agg_row_count)
+            send_metrics_to_kafka(
+                &self.kafka_producer,
+                &self.app_metrics_topic,
+                completed_app_metrics,
+            )
+            .await?;
+            completed_agg_row_count
         };
 
-        let (failed_row_count, failed_agg_row_count) = {
-            let failed_row_count = self.get_row_count_for_status(&mut tx, "failed").await?;
-            let failed_agg_rows = if self.hog_mode {
-                // Hog mode doesn't need to send metrics to Kafka (and can't aggregate by
-                // plugin anyway), so we can skip this.
-                vec![]
-            } else {
-                self.get_failed_agg_rows(&mut tx).await?
-            };
-            let agg_row_count = failed_agg_rows.len() as u64;
+        let failed_row_count = self.get_row_count_for_status(&mut tx, "failed").await?;
+        let failed_agg_row_count = if self.hog_mode {
+            let failed_agg_rows = self.get_failed_agg_rows_for_hoghooks(&mut tx).await?;
+            let failed_agg_row_count = failed_agg_rows.len() as u64;
+            let failed_app_metrics: Vec<AppMetric2> =
+                failed_agg_rows.into_iter().map(Into::into).collect();
+            send_metrics_to_kafka(
+                &self.kafka_producer,
+                &self.app_metrics2_topic,
+                failed_app_metrics,
+            )
+            .await?;
+            failed_agg_row_count
+        } else {
+            let failed_agg_rows = self.get_failed_agg_rows(&mut tx).await?;
+            let failed_agg_row_count = failed_agg_rows.len() as u64;
             let failed_app_metrics: Vec<AppMetric> =
                 failed_agg_rows.into_iter().map(Into::into).collect();
-            self.send_metrics_to_kafka(failed_app_metrics).await?;
-            (failed_row_count, agg_row_count)
+            send_metrics_to_kafka(
+                &self.kafka_producer,
+                &self.app_metrics_topic,
+                failed_app_metrics,
+            )
+            .await?;
+            failed_agg_row_count
         };
 
         let mut rows_deleted = 0;
@@ -511,12 +627,12 @@ impl Cleaner for WebhookCleaner {
 mod tests {
     use super::*;
 
-    use hook_common::kafka_messages::app_metrics::{
+    use common_kafka::kafka_messages::app_metrics::{
         Error as WebhookError, ErrorDetails, ErrorType,
     };
+    use common_kafka::test::create_mock_kafka;
     use hook_common::pgqueue::PgQueueJob;
     use hook_common::pgqueue::{NewJob, PgQueue, PgTransactionBatch};
-    use hook_common::test::create_mock_kafka;
     use hook_common::webhook::{HttpMethod, WebhookJobMetadata, WebhookJobParameters};
     use rdkafka::consumer::{Consumer, StreamConsumer};
     use rdkafka::types::{RDKafkaApiKey, RDKafkaRespErr};
@@ -526,6 +642,7 @@ mod tests {
     use std::str::FromStr;
 
     const APP_METRICS_TOPIC: &str = "app_metrics";
+    const APP_METRICS2_TOPIC: &str = "app_metrics2";
 
     fn check_app_metric_vector_equality(v1: &[AppMetric], v2: &[AppMetric]) {
         // Ignores `error_uuid`s.
@@ -559,6 +676,7 @@ mod tests {
             db,
             mock_producer,
             APP_METRICS_TOPIC.to_owned(),
+            APP_METRICS2_TOPIC.to_owned(),
             hog_mode,
         )
         .expect("unable to create webhook cleaner");
@@ -732,6 +850,143 @@ mod tests {
         check_app_metric_vector_equality(&expected_app_metrics, &received_app_metrics);
     }
 
+    #[sqlx::test(migrations = "../migrations", fixtures("hoghook_cleanup"))]
+    async fn test_cleanup_impl_hoghooks(db: PgPool) {
+        let (mock_cluster, mock_producer) = create_mock_kafka().await;
+        mock_cluster
+            .create_topic(APP_METRICS2_TOPIC, 1, 1)
+            .expect("failed to create mock app_metrics2 topic");
+
+        let consumer: StreamConsumer = ClientConfig::new()
+            .set("bootstrap.servers", mock_cluster.bootstrap_servers())
+            .set("group.id", "mock")
+            .set("auto.offset.reset", "earliest")
+            .create()
+            .expect("failed to create mock consumer");
+        consumer.subscribe(&[APP_METRICS2_TOPIC]).unwrap();
+
+        let hog_mode = true;
+        let hoghook_cleaner = WebhookCleaner::new_from_pool(
+            db,
+            mock_producer,
+            APP_METRICS_TOPIC.to_owned(),
+            APP_METRICS2_TOPIC.to_owned(),
+            hog_mode,
+        )
+        .expect("unable to create hoghook cleaner");
+
+        let cleanup_stats = hoghook_cleaner
+            .cleanup_impl()
+            .await
+            .expect("webbook cleanup_impl failed");
+
+        // Rows that are not 'completed' or 'failed' should not be processed.
+        assert_eq!(cleanup_stats.rows_processed, 13);
+
+        let mut received_app_metrics = Vec::new();
+        for _ in 0..(cleanup_stats.completed_agg_row_count + cleanup_stats.failed_agg_row_count) {
+            let kafka_msg = consumer.recv().await.unwrap();
+            let payload_str = String::from_utf8(kafka_msg.payload().unwrap().to_vec()).unwrap();
+            let app_metric: AppMetric2 = serde_json::from_str(&payload_str).unwrap();
+            received_app_metrics.push(app_metric);
+        }
+
+        let expected_app_metrics = vec![
+            AppMetric2 {
+                timestamp: DateTime::<Utc>::from_str("2023-12-19T20:00:00Z").unwrap(),
+                team_id: 1,
+                app_source: app_metrics2::Source::Hoghooks,
+                app_source_id: "2".to_owned(),
+                instance_id: None,
+                metric_kind: app_metrics2::Kind::Success,
+                metric_name: "Fetch".to_owned(),
+                count: 3,
+            },
+            AppMetric2 {
+                timestamp: DateTime::<Utc>::from_str("2023-12-19T20:00:00Z").unwrap(),
+                team_id: 1,
+                app_source: app_metrics2::Source::Hoghooks,
+                app_source_id: "3".to_owned(),
+                instance_id: None,
+                metric_kind: app_metrics2::Kind::Success,
+                metric_name: "Fetch".to_owned(),
+                count: 1,
+            },
+            AppMetric2 {
+                timestamp: DateTime::<Utc>::from_str("2023-12-19T20:00:00Z").unwrap(),
+                team_id: 2,
+                app_source: app_metrics2::Source::Hoghooks,
+                app_source_id: "4".to_owned(),
+                instance_id: None,
+                metric_kind: app_metrics2::Kind::Success,
+                metric_name: "Fetch".to_owned(),
+                count: 1,
+            },
+            AppMetric2 {
+                timestamp: DateTime::<Utc>::from_str("2023-12-19T21:00:00Z").unwrap(),
+                team_id: 1,
+                app_source: app_metrics2::Source::Hoghooks,
+                app_source_id: "2".to_owned(),
+                instance_id: None,
+                metric_kind: app_metrics2::Kind::Success,
+                metric_name: "Fetch".to_owned(),
+                count: 1,
+            },
+            AppMetric2 {
+                timestamp: DateTime::<Utc>::from_str("2023-12-19T20:00:00Z").unwrap(),
+                team_id: 1,
+                app_source: app_metrics2::Source::Hoghooks,
+                app_source_id: "2".to_owned(),
+                instance_id: None,
+                metric_kind: app_metrics2::Kind::Failure,
+                metric_name: "Connection Error".to_owned(),
+                count: 1,
+            },
+            AppMetric2 {
+                timestamp: DateTime::<Utc>::from_str("2023-12-19T20:00:00Z").unwrap(),
+                team_id: 1,
+                app_source: app_metrics2::Source::Hoghooks,
+                app_source_id: "2".to_owned(),
+                instance_id: None,
+                metric_kind: app_metrics2::Kind::Failure,
+                metric_name: "Timeout Error".to_owned(),
+                count: 3,
+            },
+            AppMetric2 {
+                timestamp: DateTime::<Utc>::from_str("2023-12-19T20:00:00Z").unwrap(),
+                team_id: 1,
+                app_source: app_metrics2::Source::Hoghooks,
+                app_source_id: "3".to_owned(),
+                instance_id: None,
+                metric_kind: app_metrics2::Kind::Failure,
+                metric_name: "Timeout Error".to_owned(),
+                count: 1,
+            },
+            AppMetric2 {
+                timestamp: DateTime::<Utc>::from_str("2023-12-19T20:00:00Z").unwrap(),
+                team_id: 2,
+                app_source: app_metrics2::Source::Hoghooks,
+                app_source_id: "4".to_owned(),
+                instance_id: None,
+                metric_kind: app_metrics2::Kind::Failure,
+                metric_name: "Timeout Error".to_owned(),
+                count: 1,
+            },
+            AppMetric2 {
+                timestamp: DateTime::<Utc>::from_str("2023-12-19T21:00:00Z").unwrap(),
+                team_id: 1,
+                app_source: app_metrics2::Source::Hoghooks,
+                app_source_id: "2".to_owned(),
+                instance_id: None,
+                metric_kind: app_metrics2::Kind::Failure,
+                metric_name: "Timeout Error".to_owned(),
+                count: 1,
+            },
+        ];
+
+        assert_eq!(&expected_app_metrics, &received_app_metrics);
+    }
+
     #[sqlx::test(migrations = "../migrations")]
     async fn test_cleanup_impl_empty_queue(db: PgPool) {
         let (mock_cluster, mock_producer) = create_mock_kafka().await;
@@ -757,6 +1012,7 @@ mod tests {
             db,
             mock_producer,
             APP_METRICS_TOPIC.to_owned(),
+            APP_METRICS2_TOPIC.to_owned(),
             hog_mode,
         )
         .expect("unable to create webhook cleaner");
@@ -782,6 +1038,7 @@ mod tests {
             db.clone(),
             mock_producer,
             APP_METRICS_TOPIC.to_owned(),
+            APP_METRICS2_TOPIC.to_owned(),
             hog_mode,
         )
         .expect("unable to create webhook cleaner");
@@ -792,7 +1049,7 @@ mod tests {
             let mut conn = db.acquire().await.unwrap();
             let count: i64 =
                 sqlx::query("SELECT count(*) FROM job_queue WHERE status = $1::job_status")
-                    .bind(&status)
+                    .bind(status)
                     .fetch_one(&mut *conn)
                     .await
                     .unwrap()
@@ -817,7 +1074,7 @@ mod tests {
         {
             // The fixtures include an available job, so let's complete it while the txn is open.
             let mut batch: PgTransactionBatch<'_, WebhookJobParameters, WebhookJobMetadata> = queue
-                .dequeue_tx(&"worker_id", 1)
+                .dequeue_tx("worker_id", 1)
                 .await
                 .expect("failed to dequeue job")
                 .expect("didn't find a job to dequeue");
@@ -842,10 +1099,10 @@ mod tests {
                 plugin_id: 2,
                 plugin_config_id: 3,
             };
-            let new_job = NewJob::new(1, job_metadata, job_parameters, &"target");
+            let new_job = NewJob::new(1, job_metadata, job_parameters, "target");
             queue.enqueue(new_job).await.expect("failed to enqueue job");
             let mut batch: PgTransactionBatch<'_, WebhookJobParameters, WebhookJobMetadata> = queue
-                .dequeue_tx(&"worker_id", 1)
+                .dequeue_tx("worker_id", 1)
                 .await
                 .expect("failed to dequeue job")
                 .expect("didn't find a job to dequeue");
@@ -870,7 +1127,7 @@ mod tests {
                 plugin_id: 2,
                 plugin_config_id: 3,
             };
-            let new_job = NewJob::new(1, job_metadata, job_parameters, &"target");
+            let new_job = NewJob::new(1, job_metadata, job_parameters, "target");
             queue.enqueue(new_job).await.expect("failed to enqueue job");
         }
 

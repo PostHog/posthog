@@ -1,24 +1,20 @@
 import { Hub } from '../../../src/types'
-import { createHub } from '../../../src/utils/db/hub'
-import { posthog } from '../../../src/utils/posthog'
+import { closeHub, createHub } from '../../../src/utils/db/hub'
+import { captureTeamEvent } from '../../../src/utils/posthog'
 import { GroupTypeManager } from '../../../src/worker/ingestion/group-type-manager'
 import { resetTestDatabase } from '../../helpers/sql'
 
 jest.mock('../../../src/utils/status')
 jest.mock('../../../src/utils/posthog', () => ({
-    posthog: {
-        identify: jest.fn(),
-        capture: jest.fn(),
-    },
+    captureTeamEvent: jest.fn(),
 }))
 
 describe('GroupTypeManager()', () => {
     let hub: Hub
-    let closeHub: () => Promise<void>
     let groupTypeManager: GroupTypeManager
 
     beforeEach(async () => {
-        ;[hub, closeHub] = await createHub()
+        hub = await createHub()
         await resetTestDatabase()
         groupTypeManager = new GroupTypeManager(hub.postgres, hub.teamManager)
 
@@ -26,7 +22,7 @@ describe('GroupTypeManager()', () => {
         jest.spyOn(groupTypeManager, 'insertGroupType')
     })
     afterEach(async () => {
-        await closeHub()
+        await closeHub(hub)
     })
 
     describe('fetchGroupTypes()', () => {
@@ -102,7 +98,7 @@ describe('GroupTypeManager()', () => {
 
             expect(hub.db.postgres.query).toHaveBeenCalledTimes(1)
             expect(groupTypeManager.insertGroupType).toHaveBeenCalledTimes(0)
-            expect(posthog.capture).not.toHaveBeenCalled()
+            expect(captureTeamEvent).not.toHaveBeenCalled()
         })
 
         it('inserts value if it does not exist yet at next index, resets cache', async () => {
@@ -117,19 +113,9 @@ describe('GroupTypeManager()', () => {
             expect(hub.db.postgres.query).toHaveBeenCalledTimes(3) // FETCH + INSERT + Team lookup
 
             const team = await hub.db.fetchTeam(2)
-            expect(posthog.capture).toHaveBeenCalledWith({
-                distinctId: 'plugin-server',
-                event: 'group type ingested',
-                properties: {
-                    team: team!.uuid,
-                    groupType: 'second',
-                    groupTypeIndex: 1,
-                },
-                groups: {
-                    project: team!.uuid,
-                    organization: team!.organization_id,
-                    instance: 'unknown',
-                },
+            expect(captureTeamEvent).toHaveBeenCalledWith(team, 'group type ingested', {
+                groupType: 'second',
+                groupTypeIndex: 1,
             })
 
             expect(await groupTypeManager.fetchGroupTypeIndex(2, 'third')).toEqual(2)

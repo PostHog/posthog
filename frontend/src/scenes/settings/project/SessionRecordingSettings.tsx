@@ -47,10 +47,8 @@ function LogCaptureSettings(): JSX.Element {
                 }}
                 label="Capture console logs"
                 bordered
-                checked={currentTeam?.session_recording_opt_in ? !!currentTeam?.capture_console_log_opt_in : false}
-                disabledReason={
-                    !currentTeam?.session_recording_opt_in ? 'session recording must be enabled' : undefined
-                }
+                checked={!!currentTeam?.capture_console_log_opt_in}
+                disabledReason={!currentTeam?.session_recording_opt_in ? 'Session replay must be enabled' : undefined}
             />
         </div>
     )
@@ -89,9 +87,7 @@ function CanvasCaptureSettings(): JSX.Element | null {
                 checked={
                     currentTeam?.session_replay_config ? !!currentTeam?.session_replay_config?.record_canvas : false
                 }
-                disabledReason={
-                    !currentTeam?.session_recording_opt_in ? 'session recording must be enabled' : undefined
-                }
+                disabledReason={!currentTeam?.session_recording_opt_in ? 'Session replay must be enabled' : undefined}
             />
         </div>
     )
@@ -134,10 +130,8 @@ export function NetworkCaptureSettings(): JSX.Element {
                 }}
                 label="Capture network performance"
                 bordered
-                checked={currentTeam?.session_recording_opt_in ? !!currentTeam?.capture_performance_opt_in : false}
-                disabledReason={
-                    !currentTeam?.session_recording_opt_in ? 'session recording must be enabled' : undefined
-                }
+                checked={!!currentTeam?.capture_performance_opt_in}
+                disabledReason={!currentTeam?.session_recording_opt_in ? 'Session replay must be enabled' : undefined}
             />
             <div className="mt-4">
                 <p>
@@ -676,8 +670,6 @@ export function ReplayGeneral(): JSX.Element {
                             // when switching replay on or off,
                             // we set defaults for some of the other settings
                             session_recording_opt_in: checked,
-                            capture_console_log_opt_in: checked,
-                            capture_performance_opt_in: checked,
                         })
                     }}
                     label="Record user sessions"

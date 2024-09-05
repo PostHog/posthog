@@ -1,3 +1,4 @@
+import dataclasses
 import datetime
 import time
 from typing import Any, Optional, TYPE_CHECKING
@@ -22,18 +23,18 @@ from .date import (
     is_hog_date,
 )
 from .crypto import sha256Hex, md5Hex, sha256HmacChainHex
-from ..objects import is_hog_error, new_hog_error
+from ..objects import is_hog_error, new_hog_error, is_hog_callable, is_hog_closure
+from ..utils import like
 
 if TYPE_CHECKING:
     from posthog.models import Team
 
 
-def concat(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float):
-    return "".join([print_hog_string_output(arg) if arg is not None else "" for arg in args])
-
-
-def match(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float):
-    return bool(re.search(re.compile(args[1]), args[0]))
+@dataclasses.dataclass
+class STLFunction:
+    fn: Callable[[list[Any], Optional["Team"], list[str] | None, float], Any]
+    minArgs: Optional[int] = None
+    maxArgs: Optional[int] = None
 
 
 def toString(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float):
@@ -99,34 +100,6 @@ def ifNull(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]],
         return args[1]
 
 
-def length(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float):
-    return len(args[0])
-
-
-def empty(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float):
-    return not bool(args[0])
-
-
-def notEmpty(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float):
-    return bool(args[0])
-
-
-def _tuple(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float):
-    return tuple(args)
-
-
-def lower(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float):
-    return args[0].lower()
-
-
-def upper(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float):
-    return args[0].upper()
-
-
-def reverse(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float):
-    return args[0][::-1]
-
-
 def sleep(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float):
     time.sleep(args[0])
     return None
@@ -157,12 +130,16 @@ def jsonStringify(args: list[Any], team: Optional["Team"], stdout: Optional[list
 
     def json_safe(obj):
         if isinstance(obj, dict) or isinstance(obj, list) or isinstance(obj, tuple):
-            if id(obj) in marked:
+            if id(obj) in marked and not is_hog_callable(obj) and not is_hog_closure(obj):
                 return None
             else:
                 marked.add(id(obj))
                 try:
                     if isinstance(obj, dict):
+                        if is_hog_callable(obj):
+                            return f"fn<{obj['name']}({obj['argCount']})>"
+                        if is_hog_closure(obj):
+                            return f"fn<{obj['callable']['name']}({obj['callable']['argCount']})>"
                         return {json_safe(k): json_safe(v) for k, v in obj.items()}
                     elif isinstance(obj, list):
                         return [json_safe(v) for v in obj]
@@ -201,36 +178,40 @@ def decodeURLComponent(args: list[Any], team: Optional["Team"], stdout: Optional
     return urllib.parse.unquote(args[0])
 
 
-def replaceOne(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> str:
-    return args[0].replace(args[1], args[2], 1)
-
-
-def replaceAll(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> str:
-    return args[0].replace(args[1], args[2])
-
-
 def trim(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> str:
-    if len(args) > 1 and len(args[1]) > 1:
-        return ""
-    return args[0].strip(args[1] if len(args) > 1 else None)
+    char = str(args[1]) if len(args) > 1 and isinstance(args[1], str) else None
+    if len(args) > 1:
+        if char is None:
+            char = " "
+        if len(char) > 1:
+            return ""
+    return args[0].strip(char)
 
 
 def trimLeft(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> str:
-    if len(args) > 1 and len(args[1]) > 1:
-        return ""
-    return args[0].lstrip(args[1] if len(args) > 1 else None)
+    char = str(args[1]) if len(args) > 1 and isinstance(args[1], str) else None
+    if len(args) > 1:
+        if char is None:
+            char = " "
+        if len(char) > 1:
+            return ""
+    return args[0].lstrip(char)
 
 
 def trimRight(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> str:
-    if len(args) > 1 and len(args[1]) > 1:
-        return ""
-    return args[0].rstrip(args[1] if len(args) > 1 else None)
+    char = str(args[1]) if len(args) > 1 and isinstance(args[1], str) else None
+    if len(args) > 1:
+        if char is None:
+            char = " "
+        if len(char) > 1:
+            return ""
+    return args[0].rstrip(char)
 
 
 def splitByString(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> list:
     separator = args[0]
     string = args[1]
-    if len(args) > 2:
+    if len(args) > 2 and args[2] is not None:
         parts = string.split(separator, args[2])
         if len(parts) > args[2]:
             return parts[: args[2]]
@@ -242,18 +223,6 @@ def generateUUIDv4(args: list[Any], team: Optional["Team"], stdout: Optional[lis
     import uuid
 
     return str(uuid.uuid4())
-
-
-def _sha256Hex(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> str:
-    return sha256Hex(args[0])
-
-
-def _md5Hex(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> str:
-    return md5Hex(args[0])
-
-
-def _sha256HmacChainHex(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> str:
-    return sha256HmacChainHex(args[0])
 
 
 def keys(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> list:
@@ -333,38 +302,10 @@ def arrayStringConcat(args: list[Any], team: Optional["Team"], stdout: Optional[
     return sep.join([str(s) for s in arr])
 
 
-def _now(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
-    return now()
-
-
-def _toUnixTimestamp(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
-    return toUnixTimestamp(args[0], args[1] if len(args) > 1 else None)
-
-
-def _fromUnixTimestamp(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
-    return fromUnixTimestamp(args[0])
-
-
-def _toUnixTimestampMilli(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
-    return toUnixTimestampMilli(args[0])
-
-
-def _fromUnixTimestampMilli(
-    args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float
-) -> Any:
-    return fromUnixTimestampMilli(args[0])
-
-
-def _toTimeZone(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
-    return toTimeZone(args[0], args[1])
-
-
-def _toDate(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
-    return toDate(args[0])
-
-
-def _toDateTime(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
-    return toDateTime(args[0])
+def has(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> bool:
+    if len(args) < 2 or not isinstance(args[0], list):
+        return False
+    return args[1] in args[0]
 
 
 def _formatDateTime(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
@@ -373,84 +314,167 @@ def _formatDateTime(args: list[Any], team: Optional["Team"], stdout: Optional[li
     return formatDateTime(args[0], args[1], args[2] if len(args) > 2 else None)
 
 
-def _HogError(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
-    return new_hog_error(args[0], args[1], args[2] if len(args) > 2 else None)
+def _typeof(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> str:
+    if args[0] is None:
+        return "null"
+    elif is_hog_datetime(args[0]):
+        return "datetime"
+    elif is_hog_date(args[0]):
+        return "date"
+    elif is_hog_error(args[0]):
+        return "error"
+    elif is_hog_callable(args[0]) or is_hog_closure(args[0]):
+        return "function"
+    elif isinstance(args[0], list):
+        return "array"
+    elif isinstance(args[0], tuple):
+        return "tuple"
+    elif isinstance(args[0], dict):
+        return "object"
+    elif args[0] is True or args[0] is False:
+        return "boolean"
+    elif isinstance(args[0], int):
+        return "integer"
+    elif isinstance(args[0], float):
+        return "float"
+    elif isinstance(args[0], str):
+        return "string"
+    return "unknown"
 
 
-def _Error(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
-    return new_hog_error("Error", args[0], args[1] if len(args) > 1 else None)
-
-
-def _RetryError(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
-    return new_hog_error("RetryError", args[0], args[1] if len(args) > 1 else None)
-
-
-def _NotImplementedError(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
-    return new_hog_error("NotImplementedError", args[0], args[1] if len(args) > 1 else None)
-
-
-STL: dict[str, Callable[[list[Any], Optional["Team"], list[str] | None, float], Any]] = {
-    "concat": concat,
-    "match": match,
-    "toString": toString,
-    "toUUID": toString,
-    "toInt": toInt,
-    "toFloat": toFloat,
-    "ifNull": ifNull,
-    "length": length,
-    "empty": empty,
-    "notEmpty": notEmpty,
-    "tuple": _tuple,
-    "lower": lower,
-    "upper": upper,
-    "reverse": reverse,
-    "sleep": sleep,
-    "print": print,
-    "run": run,
-    "jsonParse": jsonParse,
-    "jsonStringify": jsonStringify,
-    "base64Encode": base64Encode,
-    "base64Decode": base64Decode,
-    "encodeURLComponent": encodeURLComponent,
-    "decodeURLComponent": decodeURLComponent,
-    "replaceOne": replaceOne,
-    "replaceAll": replaceAll,
-    "trim": trim,
-    "trimLeft": trimLeft,
-    "trimRight": trimRight,
-    "splitByString": splitByString,
-    "generateUUIDv4": generateUUIDv4,
-    "sha256Hex": _sha256Hex,
-    "md5Hex": _md5Hex,
-    "sha256HmacChainHex": _sha256HmacChainHex,
-    "keys": keys,
-    "values": values,
-    "arrayPushBack": arrayPushBack,
-    "arrayPushFront": arrayPushFront,
-    "arrayPopBack": arrayPopBack,
-    "arrayPopFront": arrayPopFront,
-    "arraySort": arraySort,
-    "arrayReverse": arrayReverse,
-    "arrayReverseSort": arrayReverseSort,
-    "arrayStringConcat": arrayStringConcat,
-    "now": _now,
-    "toUnixTimestamp": _toUnixTimestamp,
-    "fromUnixTimestamp": _fromUnixTimestamp,
-    "toUnixTimestampMilli": _toUnixTimestampMilli,
-    "fromUnixTimestampMilli": _fromUnixTimestampMilli,
-    "toTimeZone": _toTimeZone,
-    "toDate": _toDate,
-    "toDateTime": _toDateTime,
-    "formatDateTime": _formatDateTime,
-    "HogError": _HogError,
-    "Error": _Error,
-    "RetryError": _RetryError,
-    "NotImplementedError": _NotImplementedError,
-}
-
-MIN_ARGS_INCLUDING_OPTIONAL = {
-    "HogError": 3,
-    "Error": 2,
-    "RetryError": 2,
-    "NotImplementedError": 2,
+STL: dict[str, STLFunction] = {
+    "concat": STLFunction(
+        fn=lambda args, team, stdout, timeout: "".join(
+            [print_hog_string_output(arg) if arg is not None else "" for arg in args]
+        ),
+        minArgs=1,
+        maxArgs=None,
+    ),
+    "match": STLFunction(
+        fn=lambda args, team, stdout, timeout: bool(re.search(re.compile(args[1]), args[0])), minArgs=2, maxArgs=2
+    ),
+    "like": STLFunction(fn=lambda args, team, stdout, timeout: like(args[0], args[1]), minArgs=2, maxArgs=2),
+    "ilike": STLFunction(
+        fn=lambda args, team, stdout, timeout: like(args[0], args[1], re.IGNORECASE), minArgs=2, maxArgs=2
+    ),
+    "notLike": STLFunction(fn=lambda args, team, stdout, timeout: not like(args[0], args[1]), minArgs=2, maxArgs=2),
+    "notILike": STLFunction(
+        fn=lambda args, team, stdout, timeout: not like(args[0], args[1], re.IGNORECASE), minArgs=2, maxArgs=2
+    ),
+    "toString": STLFunction(fn=toString, minArgs=1, maxArgs=1),
+    "toUUID": STLFunction(fn=toString, minArgs=1, maxArgs=1),
+    "toInt": STLFunction(fn=toInt, minArgs=1, maxArgs=1),
+    "toFloat": STLFunction(fn=toFloat, minArgs=1, maxArgs=1),
+    "ifNull": STLFunction(fn=ifNull, minArgs=2, maxArgs=2),
+    "length": STLFunction(fn=lambda args, team, stdout, timeout: len(args[0]), minArgs=1, maxArgs=1),
+    "empty": STLFunction(fn=lambda args, team, stdout, timeout: not bool(args[0]), minArgs=1, maxArgs=1),
+    "notEmpty": STLFunction(fn=lambda args, team, stdout, timeout: bool(args[0]), minArgs=1, maxArgs=1),
+    "tuple": STLFunction(fn=lambda args, team, stdout, timeout: tuple(args), minArgs=0, maxArgs=None),
+    "lower": STLFunction(fn=lambda args, team, stdout, timeout: args[0].lower(), minArgs=1, maxArgs=1),
+    "upper": STLFunction(fn=lambda args, team, stdout, timeout: args[0].upper(), minArgs=1, maxArgs=1),
+    "reverse": STLFunction(fn=lambda args, team, stdout, timeout: args[0][::-1], minArgs=1, maxArgs=1),
+    "print": STLFunction(fn=print, minArgs=0, maxArgs=None),
+    "jsonParse": STLFunction(fn=jsonParse, minArgs=1, maxArgs=1),
+    "jsonStringify": STLFunction(fn=jsonStringify, minArgs=1, maxArgs=1),
+    "base64Encode": STLFunction(fn=base64Encode, minArgs=1, maxArgs=1),
+    "base64Decode": STLFunction(fn=base64Decode, minArgs=1, maxArgs=1),
+    "encodeURLComponent": STLFunction(fn=encodeURLComponent, minArgs=1, maxArgs=1),
+    "decodeURLComponent": STLFunction(fn=decodeURLComponent, minArgs=1, maxArgs=1),
+    "replaceOne": STLFunction(
+        fn=lambda args, team, stdout, timeout: args[0].replace(args[1], args[2], 1), minArgs=3, maxArgs=3
+    ),
+    "replaceAll": STLFunction(
+        fn=lambda args, team, stdout, timeout: args[0].replace(args[1], args[2]), minArgs=3, maxArgs=3
+    ),
+    "position": STLFunction(
+        fn=lambda args, team, stdout, timeout: (args[0].index(str(args[1])) + 1)
+        if isinstance(args[0], str) and str(args[1]) in args[0]
+        else 0,
+        minArgs=2,
+        maxArgs=2,
+    ),
+    "positionCaseInsensitive": STLFunction(
+        fn=lambda args, team, stdout, timeout: (args[0].lower().index(str(args[1]).lower()) + 1)
+        if isinstance(args[0], str) and str(args[1]).lower() in args[0].lower()
+        else 0,
+        minArgs=2,
+        maxArgs=2,
+    ),
+    "trim": STLFunction(fn=trim, minArgs=1, maxArgs=2),
+    "trimLeft": STLFunction(fn=trimLeft, minArgs=1, maxArgs=2),
+    "trimRight": STLFunction(fn=trimRight, minArgs=1, maxArgs=2),
+    "splitByString": STLFunction(fn=splitByString, minArgs=2, maxArgs=3),
+    "generateUUIDv4": STLFunction(fn=generateUUIDv4, minArgs=0, maxArgs=0),
+    "sha256Hex": STLFunction(fn=lambda args, team, stdout, timeout: sha256Hex(args[0]), minArgs=1, maxArgs=1),
+    "md5Hex": STLFunction(fn=lambda args, team, stdout, timeout: md5Hex(args[0]), minArgs=1, maxArgs=1),
+    "sha256HmacChainHex": STLFunction(
+        fn=lambda args, team, stdout, timeout: sha256HmacChainHex(args[0]), minArgs=1, maxArgs=1
+    ),
+    "keys": STLFunction(fn=keys, minArgs=1, maxArgs=1),
+    "values": STLFunction(fn=values, minArgs=1, maxArgs=1),
+    "indexOf": STLFunction(
+        fn=lambda args, team, stdout, timeout: (args[0].index(args[1]) + 1)
+        if isinstance(args[0], list) and args[1] in args[0]
+        else 0,
+        minArgs=2,
+        maxArgs=2,
+    ),
+    "arrayPushBack": STLFunction(fn=arrayPushBack, minArgs=2, maxArgs=2),
+    "arrayPushFront": STLFunction(fn=arrayPushFront, minArgs=2, maxArgs=2),
+    "arrayPopBack": STLFunction(fn=arrayPopBack, minArgs=1, maxArgs=1),
+    "arrayPopFront": STLFunction(fn=arrayPopFront, minArgs=1, maxArgs=1),
+    "arraySort": STLFunction(fn=arraySort, minArgs=1, maxArgs=1),
+    "arrayReverse": STLFunction(fn=arrayReverse, minArgs=1, maxArgs=1),
+    "arrayReverseSort": STLFunction(fn=arrayReverseSort, minArgs=1, maxArgs=1),
+    "arrayStringConcat": STLFunction(fn=arrayStringConcat, minArgs=1, maxArgs=2),
+    "has": STLFunction(fn=has, minArgs=2, maxArgs=2),
+    "now": STLFunction(fn=lambda args, team, stdout, timeout: now(), minArgs=0, maxArgs=0),
+    "toUnixTimestamp": STLFunction(
+        fn=lambda args, team, stdout, timeout: toUnixTimestamp(args[0], args[1] if len(args) > 1 else None),
+        minArgs=1,
+        maxArgs=2,
+    ),
+    "fromUnixTimestamp": STLFunction(
+        fn=lambda args, team, stdout, timeout: fromUnixTimestamp(args[0]), minArgs=1, maxArgs=1
+    ),
+    "toUnixTimestampMilli": STLFunction(
+        fn=lambda args, team, stdout, timeout: toUnixTimestampMilli(args[0]), minArgs=1, maxArgs=2
+    ),
+    "fromUnixTimestampMilli": STLFunction(
+        fn=lambda args, team, stdout, timeout: fromUnixTimestampMilli(args[0]), minArgs=1, maxArgs=1
+    ),
+    "toTimeZone": STLFunction(
+        fn=lambda args, team, stdout, timeout: toTimeZone(args[0], args[1]), minArgs=2, maxArgs=2
+    ),
+    "toDate": STLFunction(fn=lambda args, team, stdout, timeout: toDate(args[0]), minArgs=1, maxArgs=1),
+    "toDateTime": STLFunction(fn=lambda args, team, stdout, timeout: toDateTime(args[0]), minArgs=1, maxArgs=2),
+    "formatDateTime": STLFunction(fn=_formatDateTime, minArgs=2, maxArgs=3),
+    "HogError": STLFunction(
+        fn=lambda args, team, stdout, timeout: new_hog_error(args[0], args[1], args[2] if len(args) > 2 else None),
+        minArgs=1,
+        maxArgs=3,
+    ),
+    "Error": STLFunction(
+        fn=lambda args, team, stdout, timeout: new_hog_error(
+            "Error", args[0] if len(args) > 0 else None, args[1] if len(args) > 1 else None
+        ),
+        minArgs=0,
+        maxArgs=2,
+    ),
+    "RetryError": STLFunction(
+        fn=lambda args, team, stdout, timeout: new_hog_error("RetryError", args[0], args[1] if len(args) > 1 else None),
+        minArgs=0,
+        maxArgs=2,
+    ),
+    "NotImplementedError": STLFunction(
+        fn=lambda args, team, stdout, timeout: new_hog_error(
+            "NotImplementedError", args[0], args[1] if len(args) > 1 else None
+        ),
+        minArgs=0,
+        maxArgs=2,
+    ),
+    "typeof": STLFunction(fn=_typeof, minArgs=1, maxArgs=1),
+    # only in python, async function in nodejs
+    "sleep": STLFunction(fn=sleep, minArgs=1, maxArgs=1),
+    "run": STLFunction(fn=run, minArgs=1, maxArgs=1),
 }

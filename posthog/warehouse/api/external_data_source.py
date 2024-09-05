@@ -1,3 +1,4 @@
+from dateutil import parser
 import uuid
 from typing import Any
 
@@ -5,7 +6,7 @@ from psycopg2 import OperationalError
 from sentry_sdk import capture_exception
 import structlog
 from rest_framework import filters, serializers, status, viewsets
-from rest_framework.decorators import action
+from posthog.api.utils import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -15,7 +16,7 @@ from posthog.warehouse.data_load.service import (
     delete_external_data_schedule,
     cancel_external_data_workflow,
     delete_data_import_folder,
-    is_any_external_data_job_paused,
+    is_any_external_data_schema_paused,
     trigger_external_data_source_workflow,
 )
 from posthog.warehouse.models import ExternalDataSource, ExternalDataSchema, ExternalDataJob
@@ -29,9 +30,11 @@ from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
 )
 from posthog.temporal.data_imports.pipelines.hubspot.auth import (
-    get_access_token_from_code,
+    get_hubspot_access_token_from_code,
 )
 from posthog.warehouse.models.external_data_schema import (
+    filter_mssql_incremental_fields,
+    filter_mysql_incremental_fields,
     filter_postgres_incremental_fields,
     filter_snowflake_incremental_fields,
     get_sql_schemas_for_source_type,
@@ -54,6 +57,8 @@ logger = structlog.get_logger(__name__)
 def get_generic_sql_error(source_type: ExternalDataSource.Type):
     if source_type == ExternalDataSource.Type.MYSQL:
         name = "MySQL"
+    elif source_type == ExternalDataSource.Type.MSSQL:
+        name = "SQL database"
     else:
         name = "Postgres"
 
@@ -75,10 +80,16 @@ SnowflakeErrors = {
     "This session does not have a current database": "Database specified not found",
     "Verify the account name is correct": "Can't find an account with the specified account ID",
 }
+MSSQLErrors = {
+    "Login failed for user": "Login failed for database",
+    "Adaptive Server is unavailable or does not exist": "Could not connect to SQL server - check server host and port",
+    "connection timed out": "Could not connect to SQL server - check server firewall settings",
+}
 
 
 class ExternalDataJobSerializers(serializers.ModelSerializer):
     schema = serializers.SerializerMethodField(read_only=True)
+    status = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = ExternalDataJob
@@ -102,6 +113,12 @@ class ExternalDataJobSerializers(serializers.ModelSerializer):
             "latest_error",
             "workflow_run_id",
         ]
+
+    def get_status(self, instance: ExternalDataJob):
+        if instance.status == ExternalDataJob.Status.CANCELLED:
+            return "Billing limits"
+
+        return instance.status
 
     def get_schema(self, instance: ExternalDataJob):
         return SimpleExternalDataSchemaSerializer(
@@ -157,7 +174,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
         if any_failures:
             return ExternalDataSchema.Status.ERROR
         elif any_cancelled:
-            return ExternalDataSchema.Status.CANCELLED
+            return "Billing limits"
         elif any_paused:
             return ExternalDataSchema.Status.PAUSED
         elif any_running:
@@ -209,27 +226,31 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return context
 
     def safely_get_queryset(self, queryset):
-        return queryset.prefetch_related(
-            "created_by",
-            Prefetch(
-                "jobs",
-                queryset=ExternalDataJob.objects.filter(status="Completed").order_by("-created_at"),
-                to_attr="ordered_jobs",
-            ),
-            Prefetch(
-                "schemas",
-                queryset=ExternalDataSchema.objects.select_related(
-                    "table__credential", "table__external_data_source"
-                ).order_by("name"),
-            ),
-            Prefetch(
-                "schemas",
-                queryset=ExternalDataSchema.objects.filter(should_sync=True).select_related(
-                    "source", "table__credential", "table__external_data_source"
+        return (
+            queryset.exclude(deleted=True)
+            .prefetch_related(
+                "created_by",
+                Prefetch(
+                    "jobs",
+                    queryset=ExternalDataJob.objects.filter(status="Completed").order_by("-created_at"),
+                    to_attr="ordered_jobs",
                 ),
-                to_attr="active_schemas",
-            ),
-        ).order_by(self.ordering)
+                Prefetch(
+                    "schemas",
+                    queryset=ExternalDataSchema.objects.exclude(deleted=True)
+                    .select_related("table__credential", "table__external_data_source")
+                    .order_by("name"),
+                ),
+                Prefetch(
+                    "schemas",
+                    queryset=ExternalDataSchema.objects.exclude(deleted=True)
+                    .filter(should_sync=True)
+                    .select_related("source", "table__credential", "table__external_data_source"),
+                    to_attr="active_schemas",
+                ),
+            )
+            .order_by(self.ordering)
+        )
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         prefix = request.data.get("prefix", None)
@@ -244,10 +265,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             elif self.prefix_exists(source_type, prefix):
                 return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Prefix already exists"})
 
-        if is_any_external_data_job_paused(self.team_id):
+        if is_any_external_data_schema_paused(self.team_id):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Monthly sync limit reached. Please contact PostHog support to increase your limit."},
+                data={"message": "Monthly sync limit reached. Please increase your billing limit to resume syncing."},
             )
 
         # TODO: remove dummy vars
@@ -257,7 +278,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             new_source_model = self._handle_hubspot_source(request, *args, **kwargs)
         elif source_type == ExternalDataSource.Type.ZENDESK:
             new_source_model = self._handle_zendesk_source(request, *args, **kwargs)
-        elif source_type in [ExternalDataSource.Type.POSTGRES, ExternalDataSource.Type.MYSQL]:
+        elif source_type == ExternalDataSource.Type.SALESFORCE:
+            new_source_model = self._handle_salesforce_source(request, *args, **kwargs)
+        elif source_type in [
+            ExternalDataSource.Type.POSTGRES,
+            ExternalDataSource.Type.MYSQL,
+            ExternalDataSource.Type.MSSQL,
+        ]:
             try:
                 new_source_model, sql_schemas = self._handle_sql_source(request, *args, **kwargs)
             except InternalPostgresError:
@@ -273,7 +300,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         payload = request.data["payload"]
         schemas = payload.get("schemas", None)
-        if source_type in [ExternalDataSource.Type.POSTGRES, ExternalDataSource.Type.MYSQL]:
+        if source_type in [
+            ExternalDataSource.Type.POSTGRES,
+            ExternalDataSource.Type.MYSQL,
+            ExternalDataSource.Type.MSSQL,
+        ]:
             default_schemas = sql_schemas
         elif source_type == ExternalDataSource.Type.SNOWFLAKE:
             default_schemas = snowflake_schemas
@@ -391,6 +422,27 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return new_source_model
 
+    def _handle_salesforce_source(self, request: Request, *args: Any, **kwargs: Any) -> ExternalDataSource:
+        payload = request.data["payload"]
+        prefix = request.data.get("prefix", None)
+        source_type = request.data["source_type"]
+        integration_id = payload.get("integration_id")
+
+        new_source_model = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            team=self.team,
+            status="Running",
+            source_type=source_type,
+            job_inputs={
+                "salesforce_integration_id": integration_id,
+            },
+            prefix=prefix,
+        )
+
+        return new_source_model
+
     def _handle_hubspot_source(self, request: Request, *args: Any, **kwargs: Any) -> ExternalDataSource:
         payload = request.data["payload"]
         code = payload.get("code")
@@ -398,7 +450,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
 
-        access_token, refresh_token = get_access_token_from_code(code, redirect_uri=redirect_uri)
+        access_token, refresh_token = get_hubspot_access_token_from_code(code, redirect_uri=redirect_uri)
 
         # TODO: remove dummy vars
         new_source_model = ExternalDataSource.objects.create(
@@ -533,17 +585,23 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return new_source_model, schemas
 
     def prefix_required(self, source_type: str) -> bool:
-        source_type_exists = ExternalDataSource.objects.filter(team_id=self.team.pk, source_type=source_type).exists()
+        source_type_exists = (
+            ExternalDataSource.objects.exclude(deleted=True)
+            .filter(team_id=self.team.pk, source_type=source_type)
+            .exists()
+        )
         return source_type_exists
 
     def prefix_exists(self, source_type: str, prefix: str) -> bool:
-        prefix_exists = ExternalDataSource.objects.filter(
-            team_id=self.team.pk, source_type=source_type, prefix=prefix
-        ).exists()
+        prefix_exists = (
+            ExternalDataSource.objects.exclude(deleted=True)
+            .filter(team_id=self.team.pk, source_type=source_type, prefix=prefix)
+            .exists()
+        )
         return prefix_exists
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        instance = self.get_object()
+        instance: ExternalDataSource = self.get_object()
 
         latest_running_job = (
             ExternalDataJob.objects.filter(pipeline_id=instance.pk, team_id=instance.team_id)
@@ -563,22 +621,31 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 logger.exception(f"Could not clean up data import folder: {job.folder_path()}", exc_info=e)
                 pass
 
-        for schema in ExternalDataSchema.objects.filter(
-            team_id=self.team_id, source_id=instance.id, should_sync=True
-        ).all():
+        for schema in (
+            ExternalDataSchema.objects.exclude(deleted=True)
+            .filter(team_id=self.team_id, source_id=instance.id, should_sync=True)
+            .all()
+        ):
             delete_external_data_schedule(str(schema.id))
 
         delete_external_data_schedule(str(instance.id))
-        return super().destroy(request, *args, **kwargs)
+
+        for schema in instance.schemas.all():
+            if schema.table:
+                schema.table.soft_delete()
+            schema.soft_delete()
+        instance.soft_delete()
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(methods=["POST"], detail=True)
     def reload(self, request: Request, *args: Any, **kwargs: Any):
         instance: ExternalDataSource = self.get_object()
 
-        if is_any_external_data_job_paused(self.team_id):
+        if is_any_external_data_schema_paused(self.team_id):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Monthly sync limit reached. Please contact PostHog support to increase your limit."},
+                data={"message": "Monthly sync limit reached. Please increase your billing limit to resume syncing."},
             )
 
         try:
@@ -625,7 +692,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
 
         # Get schemas and validate SQL credentials
-        if source_type in [ExternalDataSource.Type.POSTGRES, ExternalDataSource.Type.MYSQL]:
+        if source_type in [
+            ExternalDataSource.Type.POSTGRES,
+            ExternalDataSource.Type.MYSQL,
+            ExternalDataSource.Type.MSSQL,
+        ]:
+            # Importing pymssql requires mssql drivers to be installed locally - see posthog/warehouse/README.md
+            from pymssql import OperationalError as MSSQLOperationalError
+
             host = request.data.get("host", None)
             port = request.data.get("port", None)
             database = request.data.get("dbname", None)
@@ -718,6 +792,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": exposed_error or get_generic_sql_error(source_type)},
                 )
+            except MSSQLOperationalError as e:
+                error_msg = " ".join(str(n) for n in e.args)
+                exposed_error = self._expose_mssql_error(error_msg)
+
+                if exposed_error is None:
+                    capture_exception(e)
+
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": exposed_error or get_generic_sql_error(source_type)},
+                )
             except BaseSSHTunnelForwarderError as e:
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
@@ -725,16 +810,25 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
             except Exception as e:
                 capture_exception(e)
-                logger.exception("Could not fetch Postgres schemas", exc_info=e)
+                logger.exception("Could not fetch schemas", exc_info=e)
 
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": get_generic_sql_error(source_type)},
                 )
 
-            filtered_results = [
-                (table_name, filter_postgres_incremental_fields(columns)) for table_name, columns in result.items()
-            ]
+            if source_type == ExternalDataSource.Type.POSTGRES:
+                filtered_results = [
+                    (table_name, filter_postgres_incremental_fields(columns)) for table_name, columns in result.items()
+                ]
+            elif source_type == ExternalDataSource.Type.MYSQL:
+                filtered_results = [
+                    (table_name, filter_mysql_incremental_fields(columns)) for table_name, columns in result.items()
+                ]
+            elif source_type == ExternalDataSource.Type.MSSQL:
+                filtered_results = [
+                    (table_name, filter_mssql_incremental_fields(columns)) for table_name, columns in result.items()
+                ]
 
             result_mapped_to_options = [
                 {
@@ -867,8 +961,19 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["GET"], detail=True)
     def jobs(self, request: Request, *arg: Any, **kwargs: Any):
         instance: ExternalDataSource = self.get_object()
+        after = request.query_params.get("after", None)
+        before = request.query_params.get("before", None)
 
-        jobs = instance.jobs.prefetch_related("schema").order_by("-created_at").all()
+        jobs = instance.jobs.prefetch_related("schema").order_by("-created_at")
+
+        if after:
+            after_date = parser.parse(after)
+            jobs = jobs.filter(created_at__gt=after_date)
+        if before:
+            before_date = parser.parse(before)
+            jobs = jobs.filter(created_at__lt=before_date)
+
+        jobs = jobs[:50]
 
         return Response(
             status=status.HTTP_200_OK,
@@ -882,6 +987,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         for key, value in PostgresErrors.items():
             if key in error_msg:
+                return value
+        return None
+
+    def _expose_mssql_error(self, error: str) -> str | None:
+        for key, value in MSSQLErrors.items():
+            if key in error:
                 return value
         return None
 

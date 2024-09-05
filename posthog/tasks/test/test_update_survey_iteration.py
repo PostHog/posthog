@@ -48,6 +48,16 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
         self.recurring_survey.refresh_from_db()
         self.assertEqual(self.recurring_survey.current_iteration, 3)
 
+    def test_can_guard_for_current_survey_iteration_overflow(self) -> None:
+        self.recurring_survey.start_date = now() - timedelta(self.iteration_frequency_days * 3)
+        self.recurring_survey.save()
+        self.assertEqual(self.recurring_survey.current_iteration, 1)
+        self.recurring_survey.iteration_frequency_days = 0
+        self.recurring_survey.save()
+        update_survey_iteration()
+        self.recurring_survey.refresh_from_db()
+        self.assertIsNone(self.recurring_survey.current_iteration)
+
     def test_can_update_internal_targeting_flag(self) -> None:
         # expected_targeting_filters =
         self.recurring_survey.start_date = now() - timedelta(self.iteration_frequency_days * 3)

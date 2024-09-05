@@ -4,10 +4,18 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 
 import { useMocks } from '~/mocks/jest'
+import { examples } from '~/queries/examples'
 import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
-import { InsightVizNode, Node, NodeKind, TrendsQuery } from '~/queries/schema'
+import { FunnelsQuery, InsightVizNode, Node, NodeKind, TrendsQuery } from '~/queries/schema'
 import { initKeaTests } from '~/test/init'
-import { FunnelVizType, InsightLogicProps, InsightShortId, InsightType, StepOrderValue } from '~/types'
+import {
+    FunnelVizType,
+    InsightLogicProps,
+    InsightShortId,
+    InsightType,
+    QueryBasedInsightModel,
+    StepOrderValue,
+} from '~/types'
 
 import { insightDataLogic } from '../insightDataLogic'
 
@@ -91,7 +99,7 @@ describe('insightNavLogic', () => {
             it('takes view from cached insight filters', async () => {
                 const props = {
                     dashboardItemId: 'insight' as InsightShortId,
-                    cachedInsight: { filters: { insight: InsightType.FUNNELS } },
+                    cachedInsight: { query: { kind: NodeKind.InsightVizNode, source: examples.InsightFunnelsQuery } },
                 }
                 const buildInsightLogicWithCachedInsight = insightLogic(props)
                 buildInsightLogicWithCachedInsight.mount()
@@ -102,12 +110,9 @@ describe('insightNavLogic', () => {
                 expect(builtInsightNavLogicForTheCachedInsight.values.activeView).toEqual(InsightType.FUNNELS)
             })
 
-            it('does set view from setInsight if filters are overriding', async () => {
+            it('does set view from setInsight when overriding the query', async () => {
                 await expectLogic(logic, () => {
-                    builtInsightLogic.actions.setInsight(
-                        { filters: { insight: InsightType.FUNNELS } },
-                        { overrideFilter: true }
-                    )
+                    builtInsightLogic.actions.setInsight({ query: examples.InsightFunnels }, { overrideQuery: true })
                 }).toMatchValues({
                     activeView: InsightType.FUNNELS,
                 })
@@ -115,7 +120,9 @@ describe('insightNavLogic', () => {
 
             it('sets view from loadInsightSuccess', async () => {
                 await expectLogic(logic, () => {
-                    builtInsightLogic.actions.loadInsightSuccess({ filters: { insight: InsightType.FUNNELS } })
+                    builtInsightLogic.actions.loadInsightSuccess({
+                        query: examples.InsightFunnels,
+                    } as QueryBasedInsightModel)
                 }).toMatchValues({
                     activeView: InsightType.FUNNELS,
                 })
@@ -282,6 +289,144 @@ describe('insightNavLogic', () => {
                             filterTestAccounts: true,
                             interval: 'hour',
                             lifecycleFilter: { showValuesOnSeries: true },
+                        },
+                    } as Node),
+                ])
+            })
+
+            it('gets rid of multiple breakdowns when switching from trends to funnels', async () => {
+                trendsQuery.source = {
+                    ...trendsQuery.source,
+                    breakdownFilter: {
+                        breakdowns: [
+                            { property: 'num', type: 'person', histogram_bin_count: 10 },
+                            { property: '$device_type', type: 'event' },
+                        ],
+                    },
+                } as TrendsQuery
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(trendsQuery)
+                })
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.FUNNELS)
+                }).toDispatchActions([
+                    builtInsightDataLogic.actionCreators.setQuery({
+                        kind: 'InsightVizNode',
+                        source: {
+                            kind: 'FunnelsQuery',
+                            series: [{ kind: 'EventsNode', name: '$pageview', event: '$pageview' }],
+                            funnelsFilter: { funnelVizType: 'steps' },
+                            filterTestAccounts: true,
+                            interval: 'hour',
+                            breakdownFilter: {
+                                breakdowns: undefined,
+                                breakdown: 'num',
+                                breakdown_type: 'person',
+                                breakdown_histogram_bin_count: 10,
+                                breakdown_group_type_index: undefined,
+                                breakdown_normalize_url: undefined,
+                            },
+                        },
+                    } as Node),
+                ])
+            })
+
+            it('keeps multiple breakdowns when switching from funnels to trends', async () => {
+                funnelsQuery.source = {
+                    ...funnelsQuery.source,
+                    breakdownFilter: {
+                        breakdowns: [
+                            { property: 'num', type: 'person' },
+                            { property: '$device_type', type: 'event' },
+                        ],
+                    },
+                } as FunnelsQuery
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(funnelsQuery)
+                })
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.TRENDS)
+                }).toDispatchActions([
+                    builtInsightDataLogic.actionCreators.setQuery({
+                        kind: 'InsightVizNode',
+                        source: {
+                            kind: 'TrendsQuery',
+                            series: [
+                                { kind: 'EventsNode', name: '$pageview', event: '$pageview', math: 'total' },
+                                { kind: 'EventsNode', name: '$pageleave', event: '$pageleave', math: 'total' },
+                            ],
+                            trendsFilter: {},
+                            filterTestAccounts: true,
+                            breakdownFilter: {
+                                breakdowns: [
+                                    { property: 'num', type: 'person' },
+                                    { property: '$device_type', type: 'event' },
+                                ],
+                            },
+                        },
+                    } as Node),
+                ])
+            })
+
+            it('keeps breakdowns when switching between trends and funnels', async () => {
+                trendsQuery.source = {
+                    ...trendsQuery.source,
+                    breakdownFilter: {
+                        breakdowns: [
+                            { property: '$pathname', type: 'group', normalize_url: true, group_type_index: 0 },
+                            { property: '$device_type', type: 'event' },
+                        ],
+                    },
+                } as TrendsQuery
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(trendsQuery)
+                })
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.FUNNELS)
+                }).toDispatchActions([
+                    builtInsightDataLogic.actionCreators.setQuery({
+                        kind: 'InsightVizNode',
+                        source: {
+                            kind: 'FunnelsQuery',
+                            series: [{ kind: 'EventsNode', name: '$pageview', event: '$pageview' }],
+                            funnelsFilter: { funnelVizType: 'steps' },
+                            filterTestAccounts: true,
+                            interval: 'hour',
+                            breakdownFilter: {
+                                breakdowns: undefined,
+                                breakdown: '$pathname',
+                                breakdown_type: 'group',
+                                breakdown_group_type_index: 0,
+                                breakdown_normalize_url: true,
+                            },
+                        },
+                    } as Node),
+                ])
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.TRENDS)
+                }).toDispatchActions([
+                    builtInsightDataLogic.actionCreators.setQuery({
+                        kind: 'InsightVizNode',
+                        source: {
+                            kind: 'TrendsQuery',
+                            series: [{ kind: 'EventsNode', name: '$pageview', event: '$pageview', math: 'total' }],
+                            trendsFilter: { showValuesOnSeries: true },
+                            filterTestAccounts: true,
+                            interval: 'hour',
+                            breakdownFilter: {
+                                breakdowns: undefined,
+                                breakdown: '$pathname',
+                                breakdown_type: 'group',
+                                breakdown_group_type_index: 0,
+                                breakdown_normalize_url: true,
+                            },
                         },
                     } as Node),
                 ])

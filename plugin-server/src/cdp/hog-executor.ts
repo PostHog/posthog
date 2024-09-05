@@ -1,17 +1,17 @@
-import { convertHogToJS, convertJSToHog, exec, ExecResult, VMState } from '@posthog/hogvm'
+import { calculateCost, convertHogToJS, exec, ExecOptions, ExecResult } from '@posthog/hogvm'
+import crypto from 'crypto'
 import { DateTime } from 'luxon'
 import { Histogram } from 'prom-client'
+import RE2 from 're2'
 
 import { status } from '../utils/status'
-import { UUIDT } from '../utils/utils'
 import { HogFunctionManager } from './hog-function-manager'
 import {
     HogFunctionInvocation,
-    HogFunctionInvocationAsyncResponse,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationGlobalsWithInputs,
     HogFunctionInvocationResult,
-    HogFunctionLogEntryLevel,
+    HogFunctionQueueParametersFetchResponse,
     HogFunctionType,
 } from './types'
 import { convertToHogFunctionFilterGlobal } from './utils'
@@ -19,7 +19,7 @@ import { convertToHogFunctionFilterGlobal } from './utils'
 const MAX_ASYNC_STEPS = 2
 const MAX_HOG_LOGS = 10
 const MAX_LOG_LENGTH = 10000
-const DEFAULT_TIMEOUT_MS = 100
+export const DEFAULT_TIMEOUT_MS = 100
 
 const hogExecutionDuration = new Histogram({
     name: 'cdp_hog_function_execution_duration_ms',
@@ -28,18 +28,26 @@ const hogExecutionDuration = new Histogram({
     buckets: [0, 10, 20, 50, 100, 200],
 })
 
+export function execHog(bytecode: any, options?: ExecOptions): ExecResult {
+    return exec(bytecode, {
+        timeout: DEFAULT_TIMEOUT_MS,
+        maxAsyncSteps: 0,
+        ...options,
+        external: {
+            regex: { match: (regex, str) => new RE2(regex).test(str) },
+            crypto,
+            ...(options?.external ?? {}),
+        },
+    })
+}
+
 export const formatInput = (bytecode: any, globals: HogFunctionInvocation['globals']): any => {
     // Similar to how we generate the bytecode by iterating over the values,
     // here we iterate over the object and replace the bytecode with the actual values
-    // bytecode is indicated as an array beginning with ["_h"]
+    // bytecode is indicated as an array beginning with ["_H"] (versions 1+) or ["_h"] (version 0)
 
-    if (Array.isArray(bytecode) && bytecode[0] === '_h') {
-        const res = exec(bytecode, {
-            globals,
-            timeout: DEFAULT_TIMEOUT_MS,
-            maxAsyncSteps: 0,
-        })
-
+    if (Array.isArray(bytecode) && (bytecode[0] === '_h' || bytecode[0] === '_H')) {
+        const res = execHog(bytecode, { globals })
         if (!res.finished) {
             // NOT ALLOWED
             throw new Error('Input fields must be simple sync values')
@@ -54,27 +62,6 @@ export const formatInput = (bytecode: any, globals: HogFunctionInvocation['globa
     } else {
         return bytecode
     }
-}
-
-export const addLog = (result: HogFunctionInvocationResult, level: HogFunctionLogEntryLevel, message: string) => {
-    const lastLog = result.logs[result.logs.length - 1]
-    // TRICKY: The log entries table is de-duped by timestamp, so we need to ensure that the timestamps are unique
-    // It is unclear how this affects parallel execution environments
-    let now = DateTime.now()
-    if (lastLog && now <= lastLog.timestamp) {
-        // Ensure that the timestamps are unique
-        now = lastLog.timestamp.plus(1)
-    }
-
-    result.logs.push({
-        team_id: result.teamId,
-        log_source: 'hog_function',
-        log_source_id: result.hogFunctionId,
-        instance_id: result.id,
-        timestamp: now,
-        level,
-        message,
-    })
 }
 
 const sanitizeLogMessage = (args: any[], sensitiveValues?: string[]): string => {
@@ -109,18 +96,14 @@ export class HogExecutor {
         allFunctionsForTeam.forEach((hogFunction) => {
             try {
                 if (hogFunction.filters?.bytecode) {
-                    const filterResult = exec(hogFunction.filters.bytecode, {
-                        globals: filtersGlobals,
-                        timeout: DEFAULT_TIMEOUT_MS,
-                        maxAsyncSteps: 0,
-                    })
-
+                    const filterResult = execHog(hogFunction.filters.bytecode, { globals: filtersGlobals })
                     if (typeof filterResult.result === 'boolean' && filterResult.result) {
                         matchingFunctions.push(hogFunction)
                         return
                     }
                 }
             } catch (error) {
+                // TODO: This should be reported as a log or metric
                 status.error('🦔', `[HogExecutor] Error filtering function`, {
                     hogFunctionId: hogFunction.id,
                     hogFunctionName: hogFunction.name,
@@ -144,132 +127,98 @@ export class HogExecutor {
         }
     }
 
-    /**
-     * Intended to be invoked as a starting point from an event
-     */
-    executeFunction(
-        event: HogFunctionInvocationGlobals,
-        functionOrId: HogFunctionType | HogFunctionType['id']
-    ): HogFunctionInvocationResult | undefined {
-        const hogFunction =
-            typeof functionOrId === 'string'
-                ? this.hogFunctionManager.getTeamHogFunction(event.project.id, functionOrId)
-                : functionOrId
-
-        if (!hogFunction) {
-            return
-        }
-
-        // Add the source of the trigger to the globals
-        const modifiedGlobals: HogFunctionInvocationGlobals = {
-            ...event,
-            source: {
-                name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
-                url: `${event.project.url}/pipeline/destinations/hog-${hogFunction.id}/configuration/`,
-            },
-        }
-
-        return this.execute(hogFunction, {
-            id: new UUIDT().toString(),
-            globals: modifiedGlobals,
-            teamId: hogFunction.team_id,
-            hogFunctionId: hogFunction.id,
-            logs: [],
-            timings: [],
-        })
-    }
-
-    /**
-     * Intended to be invoked as a continuation from an async function
-     */
-    executeAsyncResponse(invocation: HogFunctionInvocationAsyncResponse): HogFunctionInvocationResult {
-        if (!invocation.hogFunctionId) {
-            throw new Error('No hog function id provided')
-        }
-
-        const baseInvocation: HogFunctionInvocation = {
-            id: invocation.id,
-            globals: invocation.globals,
-            teamId: invocation.teamId,
-            hogFunctionId: invocation.hogFunctionId,
-            timings: invocation.asyncFunctionResponse.timings,
-            // Logs we always reset as we don't want to carry over logs between calls
-            logs: [],
-        }
-
-        const errorRes = (error = 'Something went wrong'): HogFunctionInvocationResult => ({
-            ...baseInvocation,
-            finished: false,
-            error,
-        })
-
-        const hogFunction = this.hogFunctionManager.getTeamHogFunction(
-            invocation.globals.project.id,
-            invocation.hogFunctionId
-        )
-
-        if (!hogFunction) {
-            return errorRes(`Hog Function with ID ${invocation.hogFunctionId} not found`)
-        }
-
-        const { vmState } = invocation.asyncFunctionRequest ?? {}
-        const { asyncFunctionResponse } = invocation
-
-        if (!vmState || !asyncFunctionResponse.response || asyncFunctionResponse.error) {
-            return errorRes(invocation.error ?? 'No VM state provided for async response')
-        }
-
-        // Add the response to the stack to continue execution
-        vmState.stack.push(convertJSToHog(asyncFunctionResponse.response ?? null))
-
-        return this.execute(hogFunction, baseInvocation, vmState)
-    }
-
-    execute(
-        hogFunction: HogFunctionType,
-        invocation: HogFunctionInvocation,
-        state?: VMState
-    ): HogFunctionInvocationResult {
+    execute(invocation: HogFunctionInvocation): HogFunctionInvocationResult {
         const loggingContext = {
-            hogFunctionId: hogFunction.id,
-            hogFunctionName: hogFunction.name,
+            invocationId: invocation.id,
+            hogFunctionId: invocation.hogFunction.id,
+            hogFunctionName: invocation.hogFunction.name,
             hogFunctionUrl: invocation.globals.source?.url,
         }
 
         status.debug('🦔', `[HogExecutor] Executing function`, loggingContext)
 
         const result: HogFunctionInvocationResult = {
-            ...invocation,
-            asyncFunctionRequest: undefined,
+            invocation,
             finished: false,
             capturedPostHogEvents: [],
+            logs: [],
         }
 
-        if (!state) {
-            addLog(result, 'debug', `Executing function`)
-        } else {
-            addLog(result, 'debug', `Resuming function`)
-        }
+        result.logs.push({
+            level: 'debug',
+            timestamp: DateTime.now(),
+            message: invocation.vmState ? 'Resuming function' : `Executing function`,
+        })
 
         try {
+            // If the queueParameter is set then we have an expected format that we want to parse and add to the stack
+            if (invocation.queueParameters) {
+                const {
+                    logs = [],
+                    response = null,
+                    error,
+                    timings = [],
+                } = invocation.queueParameters as HogFunctionQueueParametersFetchResponse
+
+                // Reset the queue parameters to be sure
+                invocation.queue = 'hog'
+                invocation.queueParameters = undefined
+
+                // Special handling for fetch
+                // TODO: Would be good to have a dedicated value in the fetch response for the status code
+                if (response?.status && response.status >= 400) {
+                    // Generic warn log for bad status codes
+                    logs.push({
+                        level: 'warn',
+                        timestamp: DateTime.now(),
+                        message: `Fetch returned bad status: ${response.status}`,
+                    })
+                }
+
+                if (!invocation.vmState) {
+                    throw new Error("VM state wasn't provided for queue parameters")
+                }
+
+                if (error) {
+                    throw new Error(error)
+                }
+
+                if (typeof response?.body === 'string') {
+                    try {
+                        response.body = JSON.parse(response.body)
+                    } catch (e) {
+                        // pass - if it isn't json we just pass it on
+                    }
+                }
+
+                // Add the response to the stack to continue execution
+                invocation.vmState!.stack.push(response)
+                invocation.timings.push(...timings)
+                result.logs = [...logs, ...result.logs]
+            }
+
             const start = performance.now()
             let globals: HogFunctionInvocationGlobalsWithInputs
             let execRes: ExecResult | undefined = undefined
 
             try {
-                globals = this.buildHogFunctionGlobals(hogFunction, invocation)
+                globals = this.buildHogFunctionGlobals(invocation)
             } catch (e) {
-                addLog(result, 'error', `Error building inputs: ${e}`)
+                result.logs.push({
+                    level: 'error',
+                    timestamp: DateTime.now(),
+                    message: `Error building inputs: ${e}`,
+                })
+
                 throw e
             }
 
-            const sensitiveValues = this.getSensitiveValues(hogFunction, globals.inputs)
+            const sensitiveValues = this.getSensitiveValues(invocation.hogFunction, globals.inputs)
 
             try {
                 let hogLogs = 0
-                execRes = exec(state ?? hogFunction.bytecode, {
+                execRes = execHog(invocation.vmState ?? invocation.hogFunction.bytecode, {
                     globals,
-                    timeout: DEFAULT_TIMEOUT_MS, // TODO: Swap this to milliseconds when the package is updated
                     maxAsyncSteps: MAX_ASYNC_STEPS, // NOTE: This will likely be configurable in the future
                     asyncFunctions: {
                         // We need to pass these in but they don't actually do anything as it is a sync exec
@@ -279,18 +228,22 @@ export class HogExecutor {
                         print: (...args) => {
                             hogLogs++
                             if (hogLogs == MAX_HOG_LOGS) {
-                                addLog(
-                                    result,
-                                    'warn',
-                                    `Function exceeded maximum log entries. No more logs will be collected.`
-                                )
+                                result.logs.push({
+                                    level: 'warn',
+                                    timestamp: DateTime.now(),
+                                    message: `Function exceeded maximum log entries. No more logs will be collected.`,
+                                })
                             }
 
                             if (hogLogs >= MAX_HOG_LOGS) {
                                 return
                             }
 
-                            addLog(result, 'info', sanitizeLogMessage(args, sensitiveValues))
+                            result.logs.push({
+                                level: 'info',
+                                timestamp: DateTime.now(),
+                                message: sanitizeLogMessage(args, sensitiveValues),
+                            })
                         },
                         postHogCapture: (event) => {
                             if (typeof event.event !== 'string') {
@@ -305,11 +258,11 @@ export class HogExecutor {
                             const executionCount = globals.event.properties?.$hog_function_execution_count ?? 0
 
                             if (executionCount > 0) {
-                                addLog(
-                                    result,
-                                    'warn',
-                                    `postHogCapture was called from an event that already executed this function. To prevent infinite loops, the event was not captured.`
-                                )
+                                result.logs.push({
+                                    level: 'warn',
+                                    timestamp: DateTime.now(),
+                                    message: `postHogCapture was called from an event that already executed this function. To prevent infinite loops, the event was not captured.`,
+                                })
                                 return
                             }
 
@@ -328,7 +281,11 @@ export class HogExecutor {
                     },
                 })
             } catch (e) {
-                addLog(result, 'error', `Error executing function: ${e}`)
+                result.logs.push({
+                    level: 'error',
+                    timestamp: DateTime.now(),
+                    message: `Error executing function: ${e}`,
+                })
                 throw e
             }
 
@@ -336,49 +293,93 @@ export class HogExecutor {
             hogExecutionDuration.observe(duration)
 
             result.finished = execRes.finished
-            result.timings.push({
+            result.invocation.vmState = execRes.state
+            invocation.timings.push({
                 kind: 'hog',
                 duration_ms: duration,
             })
 
             if (!execRes.finished) {
-                addLog(result, 'debug', `Suspending function due to async function call '${execRes.asyncFunctionName}'`)
-
                 const args = (execRes.asyncFunctionArgs ?? []).map((arg) => convertHogToJS(arg))
-
                 if (!execRes.state) {
                     // NOTE: This shouldn't be possible so is more of a type sanity check
                     throw new Error('State should be provided for async function')
                 }
+                result.logs.push({
+                    level: 'debug',
+                    timestamp: DateTime.now(),
+                    message: `Suspending function due to async function call '${execRes.asyncFunctionName}'. Payload: ${
+                        calculateCost(execRes.state) + calculateCost(args)
+                    } bytes`,
+                })
+
                 if (execRes.asyncFunctionName) {
-                    result.asyncFunctionRequest = {
-                        name: execRes.asyncFunctionName,
-                        args: args,
-                        vmState: execRes.state,
+                    switch (execRes.asyncFunctionName) {
+                        case 'fetch':
+                            // Sanitize the args
+                            const [url, fetchOptions] = args as [string | undefined, Record<string, any> | undefined]
+
+                            if (typeof url !== 'string') {
+                                throw new Error('fetch: Invalid URL')
+                            }
+
+                            const method = fetchOptions?.method || 'POST'
+                            const headers = fetchOptions?.headers || {
+                                'Content-Type': 'application/json',
+                            }
+                            let body = fetchOptions?.body
+                            // Modify the body to ensure it is a string (we allow Hog to send an object to keep things simple)
+                            body = body ? (typeof body === 'string' ? body : JSON.stringify(body)) : body
+
+                            result.invocation.queue = 'fetch'
+                            result.invocation.queueParameters = {
+                                url,
+                                method,
+                                headers,
+                                body,
+                            }
+
+                            break
+                        default:
+                            throw new Error(`Unknown async function '${execRes.asyncFunctionName}'`)
                     }
                 } else {
-                    addLog(result, 'warn', `Function was not finished but also had no async function to execute.`)
+                    result.logs.push({
+                        level: 'warn',
+                        timestamp: DateTime.now(),
+                        message: `Function was not finished but also had no async function to execute.`,
+                    })
                 }
             } else {
-                const totalDuration = result.timings.reduce((acc, timing) => acc + timing.duration_ms, 0)
-
-                addLog(result, 'debug', `Function completed. Processing time ${totalDuration}ms`)
+                const totalDuration = invocation.timings.reduce((acc, timing) => acc + timing.duration_ms, 0)
+                const messages = [`Function completed in ${totalDuration}ms.`]
+                if (execRes.state) {
+                    messages.push(`Sync: ${execRes.state.syncDuration}ms.`)
+                    messages.push(`Mem: ${execRes.state.maxMemUsed} bytes.`)
+                    messages.push(`Ops: ${execRes.state.ops}.`)
+                }
+                result.logs.push({
+                    level: 'debug',
+                    timestamp: DateTime.now(),
+                    message: messages.join(' '),
+                })
             }
         } catch (err) {
             result.error = err.message
-            status.error('🦔', `[HogExecutor] Error executing function ${hogFunction.id} - ${hogFunction.name}`, err)
+            status.error(
+                '🦔',
+                `[HogExecutor] Error executing function ${invocation.hogFunction.id} - ${invocation.hogFunction.name}`,
+                err
+            )
         }
 
         return result
     }
 
-    buildHogFunctionGlobals(
-        hogFunction: HogFunctionType,
-        invocation: HogFunctionInvocation
-    ): HogFunctionInvocationGlobalsWithInputs {
+    buildHogFunctionGlobals(invocation: HogFunctionInvocation): HogFunctionInvocationGlobalsWithInputs {
         const builtInputs: Record<string, any> = {}
 
-        Object.entries(hogFunction.inputs ?? {}).forEach(([key, item]) => {
+        Object.entries(invocation.hogFunction.inputs ?? {}).forEach(([key, item]) => {
             builtInputs[key] = item.value
 
             if (item.bytecode) {
@@ -407,7 +408,9 @@ export class HogExecutor {
                 ) {
                     // Assume the values are the sensitive parts
                     Object.values(value).forEach((val: any) => {
-                        values.push(val)
+                        if (typeof val === 'string') {
+                            values.push(val)
+                        }
                     })
                 }
             }

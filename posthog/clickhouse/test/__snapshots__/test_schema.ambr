@@ -595,6 +595,11 @@
       , $group_4 VARCHAR COMMENT 'column_materializer::$group_4'
       , $window_id VARCHAR COMMENT 'column_materializer::$window_id'
       , $session_id VARCHAR COMMENT 'column_materializer::$session_id'
+      , elements_chain_href String COMMENT 'column_materializer::elements_chain::href'
+      , elements_chain_texts Array(String) COMMENT 'column_materializer::elements_chain::texts'
+      , elements_chain_ids Array(String) COMMENT 'column_materializer::elements_chain::ids'
+      , elements_chain_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label')) COMMENT 'column_materializer::elements_chain::elements'
+      , properties_group_custom Map(String, String), properties_group_feature_flags Map(String, String)
   
       
   , _timestamp DateTime
@@ -1755,7 +1760,10 @@
       screen_uniq AggregateFunction(uniq, Nullable(UUID)),
   
       -- replay
-      maybe_has_session_replay SimpleAggregateFunction(max, Bool) -- will be written False to by the events table mv and True to by the replay table mv
+      maybe_has_session_replay SimpleAggregateFunction(max, Bool), -- will be written False to by the events table mv and True to by the replay table mv
+  
+      -- as a performance optimisation, also keep track of the uniq events for all of these combined, a bounce is a session with <2 of these
+      page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID))
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_raw_sessions', cityHash64(session_id_v7))
   
   '''
@@ -1828,7 +1836,10 @@
       uniqState(if(event='$screen', uuid, NULL)) as screen_uniq,
   
       -- replay
-      false as maybe_has_session_replay
+      false as maybe_has_session_replay,
+  
+      -- perf
+      uniqUpToState(1)(if(event='$pageview' OR event='$screen' OR event='$autocapture', uuid, NULL)) as page_screen_autocapture_uniq_up_to
   FROM posthog_test.sharded_events
   WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7)
   GROUP BY
@@ -2173,6 +2184,10 @@
       , $group_4 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_4'), '^"|"$', '') COMMENT 'column_materializer::$group_4'
       , $window_id VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$window_id'), '^"|"$', '') COMMENT 'column_materializer::$window_id'
       , $session_id VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^"|"$', '') COMMENT 'column_materializer::$session_id'
+      , elements_chain_href String MATERIALIZED extract(elements_chain, '(?::|")href="(.*?)"')
+      , elements_chain_texts Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|")text="(.*?)"'))
+      , elements_chain_ids Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|")attr_id="(.*?)"'))
+      , elements_chain_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label')) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?:^|;)(a|button|form|input|select|textarea|label)(?:\.|$|:)'))
       , INDEX `minmax_$group_0` `$group_0` TYPE minmax GRANULARITY 1
       , INDEX `minmax_$group_1` `$group_1` TYPE minmax GRANULARITY 1
       , INDEX `minmax_$group_2` `$group_2` TYPE minmax GRANULARITY 1
@@ -2180,10 +2195,19 @@
       , INDEX `minmax_$group_4` `$group_4` TYPE minmax GRANULARITY 1
       , INDEX `minmax_$window_id` `$window_id` TYPE minmax GRANULARITY 1
       , INDEX `minmax_$session_id` `$session_id` TYPE minmax GRANULARITY 1
-      , elements_chain_href String MATERIALIZED extract(elements_chain, '(?::|")href="(.*?)"')
-      , elements_chain_texts Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|")text="(.*?)"'))
-      , elements_chain_ids Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|")attr_id="(.*?)"'))
-      , elements_chain_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label')) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?:^|;)(a|button|form|input|select|textarea|label)(?:\.|$|:)'))
+      ,                 properties_group_custom Map(String, String)
+                  MATERIALIZED mapSort(
+                      mapFilter((key, _) -> key NOT LIKE '$%' AND key NOT IN ('token', 'distinct_id', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'gclid', 'gad_source', 'gclsrc', 'dclid', 'gbraid', 'wbraid', 'fbclid', 'msclkid', 'twclid', 'li_fat_id', 'mc_cid', 'igshid', 'ttclid', 'rdt_cid'),
+                      CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)'))
+                  )
+                  CODEC(ZSTD(1))
+              , INDEX properties_group_custom_keys_bf mapKeys(properties_group_custom) TYPE bloom_filter, INDEX properties_group_custom_values_bf mapValues(properties_group_custom) TYPE bloom_filter,                 properties_group_feature_flags Map(String, String)
+                  MATERIALIZED mapSort(
+                      mapFilter((key, _) -> key like '$feature/%',
+                      CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)'))
+                  )
+                  CODEC(ZSTD(1))
+              , INDEX properties_group_feature_flags_keys_bf mapKeys(properties_group_feature_flags) TYPE bloom_filter, INDEX properties_group_feature_flags_values_bf mapValues(properties_group_feature_flags) TYPE bloom_filter
   
       
   , _timestamp DateTime
@@ -2403,7 +2427,10 @@
       screen_uniq AggregateFunction(uniq, Nullable(UUID)),
   
       -- replay
-      maybe_has_session_replay SimpleAggregateFunction(max, Bool) -- will be written False to by the events table mv and True to by the replay table mv
+      maybe_has_session_replay SimpleAggregateFunction(max, Bool), -- will be written False to by the events table mv and True to by the replay table mv
+  
+      -- as a performance optimisation, also keep track of the uniq events for all of these combined, a bounce is a session with <2 of these
+      page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID))
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.raw_sessions', '{replica}')
   
   PARTITION BY toYYYYMM(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)))
@@ -2702,7 +2729,10 @@
       screen_uniq AggregateFunction(uniq, Nullable(UUID)),
   
       -- replay
-      maybe_has_session_replay SimpleAggregateFunction(max, Bool) -- will be written False to by the events table mv and True to by the replay table mv
+      maybe_has_session_replay SimpleAggregateFunction(max, Bool), -- will be written False to by the events table mv and True to by the replay table mv
+  
+      -- as a performance optimisation, also keep track of the uniq events for all of these combined, a bounce is a session with <2 of these
+      page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID))
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_raw_sessions', cityHash64(session_id_v7))
   
   '''
@@ -3267,6 +3297,10 @@
       , $group_4 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_4'), '^"|"$', '') COMMENT 'column_materializer::$group_4'
       , $window_id VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$window_id'), '^"|"$', '') COMMENT 'column_materializer::$window_id'
       , $session_id VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^"|"$', '') COMMENT 'column_materializer::$session_id'
+      , elements_chain_href String MATERIALIZED extract(elements_chain, '(?::|")href="(.*?)"')
+      , elements_chain_texts Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|")text="(.*?)"'))
+      , elements_chain_ids Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|")attr_id="(.*?)"'))
+      , elements_chain_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label')) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?:^|;)(a|button|form|input|select|textarea|label)(?:\.|$|:)'))
       , INDEX `minmax_$group_0` `$group_0` TYPE minmax GRANULARITY 1
       , INDEX `minmax_$group_1` `$group_1` TYPE minmax GRANULARITY 1
       , INDEX `minmax_$group_2` `$group_2` TYPE minmax GRANULARITY 1
@@ -3274,10 +3308,19 @@
       , INDEX `minmax_$group_4` `$group_4` TYPE minmax GRANULARITY 1
       , INDEX `minmax_$window_id` `$window_id` TYPE minmax GRANULARITY 1
       , INDEX `minmax_$session_id` `$session_id` TYPE minmax GRANULARITY 1
-      , elements_chain_href String MATERIALIZED extract(elements_chain, '(?::|")href="(.*?)"')
-      , elements_chain_texts Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|")text="(.*?)"'))
-      , elements_chain_ids Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|")attr_id="(.*?)"'))
-      , elements_chain_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label')) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?:^|;)(a|button|form|input|select|textarea|label)(?:\.|$|:)'))
+      ,                 properties_group_custom Map(String, String)
+                  MATERIALIZED mapSort(
+                      mapFilter((key, _) -> key NOT LIKE '$%' AND key NOT IN ('token', 'distinct_id', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'gclid', 'gad_source', 'gclsrc', 'dclid', 'gbraid', 'wbraid', 'fbclid', 'msclkid', 'twclid', 'li_fat_id', 'mc_cid', 'igshid', 'ttclid', 'rdt_cid'),
+                      CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)'))
+                  )
+                  CODEC(ZSTD(1))
+              , INDEX properties_group_custom_keys_bf mapKeys(properties_group_custom) TYPE bloom_filter, INDEX properties_group_custom_values_bf mapValues(properties_group_custom) TYPE bloom_filter,                 properties_group_feature_flags Map(String, String)
+                  MATERIALIZED mapSort(
+                      mapFilter((key, _) -> key like '$feature/%',
+                      CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)'))
+                  )
+                  CODEC(ZSTD(1))
+              , INDEX properties_group_feature_flags_keys_bf mapKeys(properties_group_feature_flags) TYPE bloom_filter, INDEX properties_group_feature_flags_values_bf mapValues(properties_group_feature_flags) TYPE bloom_filter
   
       
   , _timestamp DateTime
@@ -3497,7 +3540,10 @@
       screen_uniq AggregateFunction(uniq, Nullable(UUID)),
   
       -- replay
-      maybe_has_session_replay SimpleAggregateFunction(max, Bool) -- will be written False to by the events table mv and True to by the replay table mv
+      maybe_has_session_replay SimpleAggregateFunction(max, Bool), -- will be written False to by the events table mv and True to by the replay table mv
+  
+      -- as a performance optimisation, also keep track of the uniq events for all of these combined, a bounce is a session with <2 of these
+      page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID))
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.raw_sessions', '{replica}')
   
   PARTITION BY toYYYYMM(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)))

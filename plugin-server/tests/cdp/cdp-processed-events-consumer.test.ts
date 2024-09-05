@@ -1,10 +1,16 @@
 import { CdpProcessedEventsConsumer } from '../../src/cdp/cdp-consumers'
-import { HogFunctionType } from '../../src/cdp/types'
+import { HogWatcherState } from '../../src/cdp/hog-watcher'
+import { HogFunctionInvocationGlobals, HogFunctionType } from '../../src/cdp/types'
 import { Hub, Team } from '../../src/types'
-import { createHub } from '../../src/utils/db/hub'
+import { closeHub, createHub } from '../../src/utils/db/hub'
 import { getFirstTeam, resetTestDatabase } from '../helpers/sql'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './examples'
-import { createIncomingEvent, createMessage, insertHogFunction as _insertHogFunction } from './fixtures'
+import {
+    createHogExecutionGlobals,
+    createIncomingEvent,
+    createMessage,
+    insertHogFunction as _insertHogFunction,
+} from './fixtures'
 
 const mockConsumer = {
     on: jest.fn(),
@@ -49,7 +55,7 @@ jest.mock('../../src/utils/db/kafka-producer-wrapper', () => {
             connect: jest.fn(),
         },
         disconnect: jest.fn(),
-        produce: jest.fn(),
+        produce: jest.fn(() => Promise.resolve()),
     }
     return {
         KafkaProducerWrapper: jest.fn(() => mockKafkaProducer),
@@ -62,8 +68,6 @@ const mockProducer = require('../../src/utils/db/kafka-producer-wrapper').KafkaP
 
 jest.setTimeout(1000)
 
-const noop = () => {}
-
 const decodeKafkaMessage = (message: any): any => {
     return {
         ...message,
@@ -71,10 +75,13 @@ const decodeKafkaMessage = (message: any): any => {
     }
 }
 
-describe('CDP Processed Events Consuner', () => {
+const decodeAllKafkaMessages = (): any[] => {
+    return mockProducer.produce.mock.calls.map((x) => decodeKafkaMessage(x[0]))
+}
+
+describe('CDP Processed Events Consumer', () => {
     let processor: CdpProcessedEventsConsumer
     let hub: Hub
-    let closeHub: () => Promise<void>
     let team: Team
 
     const insertHogFunction = async (hogFunction: Partial<HogFunctionType>) => {
@@ -86,7 +93,7 @@ describe('CDP Processed Events Consuner', () => {
 
     beforeEach(async () => {
         await resetTestDatabase()
-        ;[hub, closeHub] = await createHub()
+        hub = await createHub()
         team = await getFirstTeam(hub)
 
         processor = new CdpProcessedEventsConsumer(hub)
@@ -98,7 +105,7 @@ describe('CDP Processed Events Consuner', () => {
     afterEach(async () => {
         jest.setTimeout(10000)
         await processor.stop()
-        await closeHub()
+        await closeHub(hub)
     })
 
     afterAll(() => {
@@ -106,59 +113,163 @@ describe('CDP Processed Events Consuner', () => {
     })
 
     describe('general event processing', () => {
-        /**
-         * Tests here are somewhat expensive so should mostly simulate happy paths and the more e2e scenarios
-         */
-        it('can parse incoming messages correctly', async () => {
-            await insertHogFunction({
-                ...HOG_EXAMPLES.simple_fetch,
-                ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                ...HOG_FILTERS_EXAMPLES.no_filters,
-            })
-            // Create a message that should be processed by this function
-            // Run the function and check that it was executed
-            await processor.handleEachBatch(
-                [
-                    createMessage(
-                        createIncomingEvent(team.id, {
-                            uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0',
-                            event: '$pageview',
-                            properties: JSON.stringify({
-                                $lib_version: '1.0.0',
-                            }),
-                        })
-                    ),
-                ],
-                noop
-            )
-
-            expect(mockFetch).toHaveBeenCalledTimes(1)
-            expect(mockFetch.mock.calls[0]).toMatchInlineSnapshot(`
-                Array [
-                  "https://example.com/posthog-webhook",
-                  Object {
-                    "body": "{\\"event\\":{\\"uuid\\":\\"b3a1fe86-b10c-43cc-acaf-d208977608d0\\",\\"name\\":\\"$pageview\\",\\"distinct_id\\":\\"distinct_id_1\\",\\"properties\\":{\\"$lib_version\\":\\"1.0.0\\",\\"$elements_chain\\":\\"[]\\"},\\"timestamp\\":null,\\"url\\":\\"http://localhost:8000/project/2/events/b3a1fe86-b10c-43cc-acaf-d208977608d0/null\\"},\\"groups\\":{},\\"nested\\":{\\"foo\\":\\"http://localhost:8000/project/2/events/b3a1fe86-b10c-43cc-acaf-d208977608d0/null\\"},\\"person\\":null,\\"event_url\\":\\"http://localhost:8000/project/2/events/b3a1fe86-b10c-43cc-acaf-d208977608d0/null-test\\"}",
-                    "headers": Object {
-                      "version": "v=1.0.0",
-                    },
-                    "method": "POST",
-                    "timeout": 10000,
-                  },
-                ]
-            `)
+        beforeEach(() => {
+            hub.CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP = false
         })
 
-        it('generates logs and metrics and produces them to kafka', async () => {
-            const hogFunction = await insertHogFunction({
-                ...HOG_EXAMPLES.simple_fetch,
-                ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                ...HOG_FILTERS_EXAMPLES.no_filters,
+        describe('common processing', () => {
+            let fnFetchNoFilters: HogFunctionType
+            let fnPrinterPageviewFilters: HogFunctionType
+            let globals: HogFunctionInvocationGlobals
+
+            beforeEach(async () => {
+                fnFetchNoFilters = await insertHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                })
+
+                fnPrinterPageviewFilters = await insertHogFunction({
+                    ...HOG_EXAMPLES.input_printer,
+                    ...HOG_INPUTS_EXAMPLES.secret_inputs,
+                    ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
+                })
+
+                globals = createHogExecutionGlobals({
+                    project: {
+                        id: team.id,
+                    } as any,
+                    event: {
+                        uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0',
+                        name: '$pageview',
+                        properties: {
+                            $current_url: 'https://posthog.com',
+                            $lib_version: '1.0.0',
+                        },
+                    } as any,
+                })
             })
 
-            // Create a message that should be processed by this function
-            // Run the function and check that it was executed
-            await processor.handleEachBatch(
-                [
+            const matchInvocation = (hogFunction: HogFunctionType, globals: HogFunctionInvocationGlobals) => {
+                return {
+                    hogFunction: {
+                        id: hogFunction.id,
+                    },
+                    globals: {
+                        event: globals.event,
+                    },
+                }
+            }
+
+            it('should process events', async () => {
+                const invocations = await processor.processBatch([globals])
+
+                expect(invocations).toHaveLength(2)
+                expect(invocations).toMatchObject([
+                    matchInvocation(fnFetchNoFilters, globals),
+                    matchInvocation(fnPrinterPageviewFilters, globals),
+                ])
+
+                expect(mockProducer.produce).toHaveBeenCalledTimes(2)
+
+                expect(decodeAllKafkaMessages()).toMatchObject([
+                    {
+                        key: expect.any(String),
+                        topic: 'cdp_function_callbacks_test',
+                        value: {
+                            state: expect.any(String),
+                        },
+                        waitForAck: true,
+                    },
+                    {
+                        key: expect.any(String),
+                        topic: 'cdp_function_callbacks_test',
+                        value: {
+                            state: expect.any(String),
+                        },
+                        waitForAck: true,
+                    },
+                ])
+            })
+
+            it("should filter out functions that don't match the filter", async () => {
+                globals.event.properties.$current_url = 'https://nomatch.com'
+
+                const invocations = await processor.processBatch([globals])
+
+                expect(invocations).toHaveLength(1)
+                expect(invocations).toMatchObject([matchInvocation(fnFetchNoFilters, globals)])
+                expect(mockProducer.produce).toHaveBeenCalledTimes(2)
+
+                expect(decodeAllKafkaMessages()).toMatchObject([
+                    {
+                        key: expect.any(String),
+                        topic: 'clickhouse_app_metrics2_test',
+                        value: {
+                            app_source: 'hog_function',
+                            app_source_id: fnPrinterPageviewFilters.id,
+                            count: 1,
+                            metric_kind: 'other',
+                            metric_name: 'filtered',
+                            team_id: 2,
+                            timestamp: expect.any(String),
+                        },
+                    },
+                    {
+                        topic: 'cdp_function_callbacks_test',
+                    },
+                ])
+            })
+
+            it.each([
+                [HogWatcherState.disabledForPeriod, 'disabled_temporarily'],
+                [HogWatcherState.disabledIndefinitely, 'disabled_permanently'],
+            ])('should filter out functions that are disabled', async (state, metric_name) => {
+                await processor.hogWatcher.forceStateChange(fnFetchNoFilters.id, state)
+                await processor.hogWatcher.forceStateChange(fnPrinterPageviewFilters.id, state)
+
+                const invocations = await processor.processBatch([globals])
+
+                expect(invocations).toHaveLength(0)
+                expect(mockProducer.produce).toHaveBeenCalledTimes(2)
+
+                expect(decodeAllKafkaMessages()).toMatchObject([
+                    {
+                        topic: 'clickhouse_app_metrics2_test',
+                        value: {
+                            app_source: 'hog_function',
+                            app_source_id: fnFetchNoFilters.id,
+                            count: 1,
+                            metric_kind: 'failure',
+                            metric_name: metric_name,
+                            team_id: 2,
+                        },
+                    },
+                    {
+                        topic: 'clickhouse_app_metrics2_test',
+                        value: {
+                            app_source: 'hog_function',
+                            app_source_id: fnPrinterPageviewFilters.id,
+                            count: 1,
+                            metric_kind: 'failure',
+                            metric_name: metric_name,
+                            team_id: 2,
+                        },
+                    },
+                ])
+            })
+        })
+
+        describe('kafka parsing', () => {
+            it('can parse incoming messages correctly', async () => {
+                await insertHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                })
+                // Create a message that should be processed by this function
+                // Run the function and check that it was executed
+                await processor._handleKafkaBatch([
                     createMessage(
                         createIncomingEvent(team.id, {
                             uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0',
@@ -168,118 +279,76 @@ describe('CDP Processed Events Consuner', () => {
                             }),
                         })
                     ),
-                ],
-                noop
-            )
+                ])
 
-            expect(mockFetch).toHaveBeenCalledTimes(1)
-            // Once for the async callback, twice for the logs, once for metrics
-            expect(mockProducer.produce).toHaveBeenCalledTimes(4)
-
-            expect(decodeKafkaMessage(mockProducer.produce.mock.calls[0][0])).toEqual({
-                key: expect.any(String),
-                topic: 'clickhouse_app_metrics2_test',
-                value: {
-                    app_source: 'hog_function',
-                    team_id: 2,
-                    app_source_id: hogFunction.id,
-                    metric_kind: 'success',
-                    metric_name: 'succeeded',
-                    count: 1,
-                    timestamp: expect.any(String),
-                },
-                waitForAck: true,
-            })
-
-            expect(decodeKafkaMessage(mockProducer.produce.mock.calls[1][0])).toEqual({
-                key: expect.any(String),
-                topic: 'log_entries_test',
-                value: {
-                    instance_id: expect.any(String),
-                    level: 'debug',
-                    log_source: 'hog_function',
-                    log_source_id: expect.any(String),
-                    message: 'Executing function',
-                    team_id: 2,
-                    timestamp: expect.any(String),
-                },
-
-                waitForAck: true,
-            })
-
-            expect(decodeKafkaMessage(mockProducer.produce.mock.calls[2][0])).toMatchObject({
-                topic: 'log_entries_test',
-                value: {
-                    log_source: 'hog_function',
-                    message: "Suspending function due to async function call 'fetch'",
-                    team_id: 2,
-                },
-            })
-
-            const msg = decodeKafkaMessage(mockProducer.produce.mock.calls[3][0])
-            // Parse body so it can match by object equality rather than exact string equality
-            msg.value.asyncFunctionRequest.args[1].body = JSON.parse(msg.value.asyncFunctionRequest.args[1].body)
-            expect(msg).toEqual({
-                key: expect.any(String),
-                topic: 'cdp_function_callbacks_test',
-                value: {
-                    id: expect.any(String),
-                    globals: expect.objectContaining({
-                        project: { id: 2, name: 'TEST PROJECT', url: 'http://localhost:8000/project/2' },
-                        // We assume the rest is correct
-                    }),
-                    teamId: 2,
-                    hogFunctionId: expect.any(String),
-                    finished: false,
-                    logs: [],
-                    timings: [
-                        {
-                            kind: 'hog',
-                            duration_ms: expect.any(Number),
+                // Generall check that the message seemed to get processed
+                expect(decodeAllKafkaMessages()).toMatchObject([
+                    {
+                        key: expect.any(String),
+                        topic: 'cdp_function_callbacks_test',
+                        value: {
+                            state: expect.any(String),
                         },
-                    ],
-                    asyncFunctionRequest: {
-                        name: 'fetch',
-                        args: [
-                            'https://example.com/posthog-webhook',
-                            {
-                                headers: { version: 'v=1.0.0' },
-                                body: {
-                                    event: {
-                                        uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0',
-                                        name: '$pageview',
-                                        distinct_id: 'distinct_id_1',
-                                        properties: { $lib_version: '1.0.0', $elements_chain: '[]' },
-                                        timestamp: null,
-                                        url: 'http://localhost:8000/project/2/events/b3a1fe86-b10c-43cc-acaf-d208977608d0/null',
-                                    },
-                                    groups: {},
-                                    nested: {
-                                        foo: 'http://localhost:8000/project/2/events/b3a1fe86-b10c-43cc-acaf-d208977608d0/null',
-                                    },
-                                    person: null,
-                                    event_url:
-                                        'http://localhost:8000/project/2/events/b3a1fe86-b10c-43cc-acaf-d208977608d0/null-test',
-                                },
-                                method: 'POST',
-                            },
-                        ],
-                        vmState: expect.any(Object),
+                        waitForAck: true,
                     },
-                    asyncFunctionResponse: {
-                        response: {
-                            status: 200,
-                            body: { success: true },
+                ])
+            })
+        })
+
+        describe('no delayed execution', () => {
+            beforeEach(() => {
+                hub.CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP = true
+            })
+
+            it('should invoke the initial function before enqueuing', async () => {
+                await insertHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                })
+                // Create a message that should be processed by this function
+                // Run the function and check that it was executed
+                await processor._handleKafkaBatch([
+                    createMessage(
+                        createIncomingEvent(team.id, {
+                            uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0',
+                            event: '$pageview',
+                            properties: JSON.stringify({
+                                $lib_version: '1.0.0',
+                            }),
+                        })
+                    ),
+                ])
+
+                // General check that the message seemed to get processed
+                expect(decodeAllKafkaMessages()).toMatchObject([
+                    {
+                        key: expect.any(String),
+                        topic: 'log_entries_test',
+                        value: {
+                            message: 'Executing function',
                         },
-                        timings: [
-                            {
-                                kind: 'async_function',
-                                duration_ms: expect.any(Number),
-                            },
-                        ],
+                        waitForAck: true,
                     },
-                },
-                waitForAck: true,
+                    {
+                        key: expect.any(String),
+                        topic: 'log_entries_test',
+                        value: {
+                            message: expect.stringContaining(
+                                "Suspending function due to async function call 'fetch'. Payload"
+                            ),
+                        },
+                        waitForAck: true,
+                    },
+                    {
+                        key: expect.any(String),
+                        topic: 'cdp_function_callbacks_test',
+                        value: {
+                            state: expect.any(String),
+                        },
+                        waitForAck: true,
+                    },
+                ])
             })
         })
     })

@@ -142,6 +142,7 @@ export const mockActionDefinition = {
     last_calculated_at: '2022-01-24T21:32:38.359756Z',
     team_id: 1,
     created_by: null,
+    pinned_at: null,
 }
 
 export const mockCohort: CohortType = {

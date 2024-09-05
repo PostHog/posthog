@@ -1,35 +1,77 @@
+import { useEffect, useRef, useState } from 'react'
+
 import { HedgehogConfig } from '~/types'
 
+import { FPS, X_FRAMES } from './HedgehogBuddy'
 import { COLOR_TO_FILTER_MAP } from './hedgehogBuddyLogic'
-import { baseSpriteAccessoriesPath, baseSpritePath, standardAccessories } from './sprites/sprites'
+import {
+    baseSpriteAccessoriesPath,
+    baseSpritePath,
+    SPRITE_SIZE,
+    standardAccessories,
+    standardAnimations,
+} from './sprites/sprites'
 
-export type HedgehogBuddyStaticProps = Partial<HedgehogConfig> & { size?: number | string }
+export type HedgehogBuddyStaticProps = Partial<HedgehogConfig> & { size?: number | string; waveOnAppearance?: boolean }
 
 // Takes a range of options and renders a static hedgehog
-export function HedgehogBuddyStatic({ accessories, color, size }: HedgehogBuddyStaticProps): JSX.Element {
+export function HedgehogBuddyStatic({
+    accessories,
+    color,
+    size,
+    waveOnAppearance,
+}: HedgehogBuddyStaticProps): JSX.Element {
     const imgSize = size ?? 60
 
     const accessoryInfos = accessories?.map((x) => standardAccessories[x])
     const filter = color ? COLOR_TO_FILTER_MAP[color] : null
 
+    const [animationIteration, setAnimationIteration] = useState(waveOnAppearance ? 1 : 0)
+    const [_, setTimerLoop] = useState(0)
+    const animationFrameRef = useRef(0)
+
+    useEffect(() => {
+        if (animationIteration) {
+            setTimerLoop(0)
+            let timer: any = null
+            const loop = (): void => {
+                if (animationFrameRef.current < standardAnimations.wave.frames) {
+                    animationFrameRef.current++
+                    timer = setTimeout(loop, 1000 / FPS)
+                } else {
+                    animationFrameRef.current = 0
+                }
+                setTimerLoop((x) => x + 1)
+            }
+            loop()
+            return () => {
+                clearTimeout(timer)
+            }
+        }
+    }, [animationIteration])
+
     return (
         <div
-            className="relative overflow-hidden pointer-events-none"
+            className="relative overflow-hidden select-none flex-none"
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 width: imgSize,
                 height: imgSize,
                 margin: -2,
             }}
+            onClick={waveOnAppearance ? () => setAnimationIteration((x) => x + 1) : undefined}
         >
-            <img
-                src={`${baseSpritePath()}/wave.png`}
+            <div
                 className="object-cover absolute inset-0 image-pixelated"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
                     width: '400%',
                     height: '400%',
                     filter: filter as any,
+                    backgroundImage: `url(${baseSpritePath()}/wave.png)`,
+                    backgroundPosition: `-${((animationFrameRef.current - 1) % X_FRAMES) * SPRITE_SIZE}px -${
+                        Math.floor((animationFrameRef.current - 1) / X_FRAMES) * SPRITE_SIZE
+                    }px`,
                 }}
             />
 
@@ -37,7 +79,7 @@ export function HedgehogBuddyStatic({ accessories, color, size }: HedgehogBuddyS
                 <img
                     key={index}
                     src={`${baseSpriteAccessoriesPath()}/${accessory.img}.png`}
-                    className="object-cover absolute inset-0 image-pixelated"
+                    className="object-cover absolute inset-0 image-pixelated pointer-events-none"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
                         width: imgSize,
@@ -53,7 +95,7 @@ export function HedgehogBuddyStatic({ accessories, color, size }: HedgehogBuddyS
 export function HedgehogBuddyProfile({ size, ...props }: HedgehogBuddyStaticProps): JSX.Element {
     return (
         <div
-            className="relative rounded-full overflow-hidden bg-bg-light border"
+            className="relative rounded-full overflow-hidden"
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 width: size,

@@ -21,10 +21,8 @@ import { CUSTOM_OPTION_KEY } from './components/DateFilter/types'
 import { LemonTagType } from './lemon-ui/LemonTag'
 import { getAppContext } from './utils/getAppContext'
 
-/**
- * WARNING: Be very careful importing things here. This file is heavily used and can trigger a lot of cyclic imports
- * Preferably create a dedicated file in utils/..
- */
+// WARNING: Be very careful importing things here. This file is heavily used and can trigger a lot of cyclic imports
+// Preferably create a dedicated file in utils/..
 
 export function uuid(): string {
     return '10000000-1000-4000-8000-100000000000'.replace(/[018]/g, (c) =>
@@ -596,9 +594,9 @@ export function stripHTTP(url: string): string {
     return url
 }
 
-export function isDomain(url: string): boolean {
+export function isDomain(url: string | URL): boolean {
     try {
-        const parsedUrl = new URL(url)
+        const parsedUrl = typeof url === 'string' ? new URL(url) : url
         if (parsedUrl.protocol.includes('http') && (!parsedUrl.pathname || parsedUrl.pathname === '/')) {
             return true
         }
@@ -615,7 +613,7 @@ export function isURL(input: any): boolean {
     if (!input || typeof input !== 'string') {
         return false
     }
-    const regexp = /^http(s)?:\/\/[\w*.-]+[\w*.-]+[\w\-._~:/?#[\]@%!$&'()*+,;=]+$/
+    const regexp = /^(http|capacitor|https):\/\/[\w*.-]+[\w*.-]+[\w\-._~:/?#[\]@%!$&'()*+,;=]+$/
     return !!input.trim().match(regexp)
 }
 

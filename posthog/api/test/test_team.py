@@ -1043,7 +1043,7 @@ class TestTeamAPI(APIBaseTest):
         return response
 
 
-def create_team(organization: Organization, name: str = "Test team") -> Team:
+def create_team(organization: Organization, name: str = "Test team", timezone: str = "UTC") -> Team:
     """
     This is a helper that just creates a team. It currently uses the orm, but we
     could use either the api, or django admin to create, to get better parity
@@ -1055,13 +1055,14 @@ def create_team(organization: Organization, name: str = "Test team") -> Team:
         ingested_event=True,
         completed_snippet_onboarding=True,
         is_demo=True,
+        timezone=timezone,
     )
 
 
-async def acreate_team(organization: Organization, name: str = "Test team") -> Team:
+async def acreate_team(organization: Organization, name: str = "Test team", timezone: str = "UTC") -> Team:
     """
     This is a helper that just creates a team. It currently uses the orm, but we
     could use either the api, or django admin to create, to get better parity
     with real world  scenarios.
     """
-    return await sync_to_async(create_team)(organization, name=name)
+    return await sync_to_async(create_team)(organization, name=name, timezone=timezone)

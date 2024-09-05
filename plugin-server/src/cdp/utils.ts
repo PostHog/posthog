@@ -1,15 +1,21 @@
 // NOTE: PostIngestionEvent is our context event - it should never be sent directly to an output, but rather transformed into a lightweight schema
 
 import { DateTime } from 'luxon'
+import RE2 from 're2'
+import { gunzip, gzip } from 'zlib'
 
-import { RawClickHouseEvent, Team } from '../types'
+import { RawClickHouseEvent, Team, TimestampFormat } from '../types'
 import { safeClickhouseString } from '../utils/db/utils'
-import { clickHouseTimestampToISO, UUIDT } from '../utils/utils'
+import { castTimestampOrNow, clickHouseTimestampToISO, UUIDT } from '../utils/utils'
 import {
     HogFunctionCapturedEvent,
     HogFunctionFilterGlobals,
+    HogFunctionInvocation,
     HogFunctionInvocationGlobals,
-    ParsedClickhouseEvent,
+    HogFunctionInvocationResult,
+    HogFunctionInvocationSerialized,
+    HogFunctionLogEntrySerialized,
+    HogFunctionType,
 } from './types'
 
 export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
@@ -31,26 +37,6 @@ const getPersonDisplayName = (team: Team, distinctId: string, properties: Record
         typeof propertyIdentifier !== 'string' ? JSON.stringify(propertyIdentifier) : propertyIdentifier
 
     return (customIdentifier || distinctId)?.trim()
-}
-
-export function convertToParsedClickhouseEvent(event: RawClickHouseEvent): ParsedClickhouseEvent {
-    const properties = event.properties ? JSON.parse(event.properties) : {}
-    if (event.elements_chain) {
-        properties['$elements_chain'] = event.elements_chain
-    }
-
-    return {
-        uuid: event.uuid,
-        event: event.event,
-        team_id: event.team_id,
-        distinct_id: event.distinct_id,
-        person_id: event.person_id,
-        timestamp: clickHouseTimestampToISO(event.timestamp),
-        created_at: clickHouseTimestampToISO(event.created_at),
-        properties: properties,
-        person_created_at: event.person_created_at ? clickHouseTimestampToISO(event.person_created_at) : undefined,
-        person_properties: event.person_properties ? JSON.parse(event.person_properties) : {},
-    }
 }
 
 // that we can keep to as a contract
@@ -102,6 +88,46 @@ export function convertToHogFunctionInvocationGlobals(
     return context
 }
 
+function getElementsChainHref(elementsChain: string): string {
+    // Adapted from SQL: extract(elements_chain, '(?::|\")href="(.*?)"'),
+    const hrefRegex = new RE2(/(?::|")href="(.*?)"/)
+    const hrefMatch = hrefRegex.exec(elementsChain)
+    return hrefMatch ? hrefMatch[1] : ''
+}
+
+function getElementsChainTexts(elementsChain: string): string[] {
+    // Adapted from SQL: arrayDistinct(extractAll(elements_chain, '(?::|\")text="(.*?)"')),
+    const textRegex = new RE2(/(?::|")text="(.*?)"/g)
+    const textMatches = new Set<string>()
+    let textMatch
+    while ((textMatch = textRegex.exec(elementsChain)) !== null) {
+        textMatches.add(textMatch[1])
+    }
+    return Array.from(textMatches)
+}
+
+function getElementsChainIds(elementsChain: string): string[] {
+    // Adapted from SQL: arrayDistinct(extractAll(elements_chain, '(?::|\")attr_id="(.*?)"')),
+    const idRegex = new RE2(/(?::|")attr_id="(.*?)"/g)
+    const idMatches = new Set<string>()
+    let idMatch
+    while ((idMatch = idRegex.exec(elementsChain)) !== null) {
+        idMatches.add(idMatch[1])
+    }
+    return Array.from(idMatches)
+}
+
+function getElementsChainElements(elementsChain: string): string[] {
+    // Adapted from SQL: arrayDistinct(extractAll(elements_chain, '(?:^|;)(a|button|form|input|select|textarea|label)(?:\\.|$|:)'))
+    const elementRegex = new RE2(/(?:^|;)(a|button|form|input|select|textarea|label)(?:\.|$|:)/g)
+    const elementMatches = new Set<string>()
+    let elementMatch
+    while ((elementMatch = elementRegex.exec(elementsChain)) !== null) {
+        elementMatches.add(elementMatch[1])
+    }
+    return Array.from(elementMatches)
+}
+
 export function convertToHogFunctionFilterGlobal(globals: HogFunctionInvocationGlobals): HogFunctionFilterGlobals {
     const groups: Record<string, any> = {}
 
@@ -111,14 +137,53 @@ export function convertToHogFunctionFilterGlobal(globals: HogFunctionInvocationG
         }
     }
 
-    return {
+    const elementsChain = globals.event.properties['$elements_chain']
+    const response = {
         event: globals.event.name,
-        elements_chain: globals.event.properties['$elements_chain'],
+        elements_chain: elementsChain,
+        elements_chain_href: '',
+        elements_chain_texts: [] as string[],
+        elements_chain_ids: [] as string[],
+        elements_chain_elements: [] as string[],
         timestamp: globals.event.timestamp,
         properties: globals.event.properties,
         person: globals.person ? { properties: globals.person.properties } : undefined,
         ...groups,
+    } satisfies HogFunctionFilterGlobals
+
+    // The elements_chain_* fields are stored as materialized columns in ClickHouse.
+    // We use the same formula to calculate them here.
+    if (elementsChain) {
+        const cache: Record<string, any> = {}
+        Object.defineProperties(response, {
+            elements_chain_href: {
+                get: () => {
+                    cache.elements_chain_href ??= getElementsChainHref(elementsChain)
+                    return cache.elements_chain_href
+                },
+            },
+            elements_chain_texts: {
+                get: () => {
+                    cache.elements_chain_texts ??= getElementsChainTexts(elementsChain)
+                    return cache.elements_chain_texts
+                },
+            },
+            elements_chain_ids: {
+                get: () => {
+                    cache.elements_chain_ids ??= getElementsChainIds(elementsChain)
+                    return cache.elements_chain_ids
+                },
+            },
+            elements_chain_elements: {
+                get: () => {
+                    cache.elements_chain_elements ??= getElementsChainElements(elementsChain)
+                    return cache.elements_chain_elements
+                },
+            },
+        })
     }
+
+    return response
 }
 
 export const convertToCaptureEvent = (event: HogFunctionCapturedEvent, team: Team): any => {
@@ -135,4 +200,97 @@ export const convertToCaptureEvent = (event: HogFunctionCapturedEvent, team: Tea
         sent_at: DateTime.now().toISO(),
         token: team.api_token,
     }
+}
+
+export const gzipObject = async <T extends object>(object: T): Promise<string> => {
+    const payload = JSON.stringify(object)
+    const buffer = await new Promise<Buffer>((res, rej) =>
+        gzip(payload, (err, result) => (err ? rej(err) : res(result)))
+    )
+    const res = buffer.toString('base64')
+
+    // NOTE: Base64 encoding isn't as efficient but we would need to change the kafka producer/consumers to use ucs2 or something
+    // as well in order to support binary data better
+
+    return res
+}
+
+export const unGzipObject = async <T extends object>(data: string): Promise<T> => {
+    const res = await new Promise<Buffer>((res, rej) =>
+        gunzip(Buffer.from(data, 'base64'), (err, result) => (err ? rej(err) : res(result)))
+    )
+
+    return JSON.parse(res.toString())
+}
+
+export const prepareLogEntriesForClickhouse = (
+    result: HogFunctionInvocationResult
+): HogFunctionLogEntrySerialized[] => {
+    const preparedLogs: HogFunctionLogEntrySerialized[] = []
+    const logs = result.logs
+    result.logs = [] // Clear it to ensure it isn't passed on anywhere else
+
+    const sortedLogs = logs.sort((a, b) => a.timestamp.toMillis() - b.timestamp.toMillis())
+
+    if (sortedLogs.length === 0) {
+        return []
+    }
+
+    // Start with a timestamp that is guaranteed to be before the first log entry
+    let previousTimestamp = sortedLogs[0].timestamp.minus(1)
+
+    sortedLogs.forEach((logEntry) => {
+        // TRICKY: The clickhouse table dedupes logs with the same timestamp - we need to ensure they are unique by simply plus-ing 1ms
+        // if the timestamp is the same as the previous one
+        if (logEntry.timestamp <= previousTimestamp) {
+            logEntry.timestamp = previousTimestamp.plus(1)
+        }
+
+        previousTimestamp = logEntry.timestamp
+
+        const sanitized: HogFunctionLogEntrySerialized = {
+            ...logEntry,
+            team_id: result.invocation.teamId,
+            log_source: 'hog_function',
+            log_source_id: result.invocation.hogFunction.id,
+            instance_id: result.invocation.id,
+            timestamp: castTimestampOrNow(logEntry.timestamp, TimestampFormat.ClickHouse),
+        }
+        preparedLogs.push(sanitized)
+    })
+
+    return preparedLogs
+}
+
+export function createInvocation(
+    globals: HogFunctionInvocationGlobals,
+    hogFunction: HogFunctionType
+): HogFunctionInvocation {
+    // Add the source of the trigger to the globals
+    const modifiedGlobals: HogFunctionInvocationGlobals = {
+        ...globals,
+        source: {
+            name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
+            url: `${globals.project.url}/pipeline/destinations/hog-${hogFunction.id}/configuration/`,
+        },
+    }
+
+    return {
+        id: new UUIDT().toString(),
+        globals: modifiedGlobals,
+        teamId: hogFunction.team_id,
+        hogFunction,
+        queue: 'hog',
+        timings: [],
+    }
+}
+
+export function serializeInvocation(invocation: HogFunctionInvocation): HogFunctionInvocationSerialized {
+    const serializedInvocation: HogFunctionInvocationSerialized = {
+        ...invocation,
+        hogFunctionId: invocation.hogFunction.id,
+    }
+
+    delete (serializedInvocation as any).hogFunction
+    return invocation
 }

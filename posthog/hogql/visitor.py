@@ -102,6 +102,11 @@ class TraversingVisitor(Visitor[None]):
             for expr in node.params:
                 self.visit(expr)
 
+    def visit_expr_call(self, node: ast.ExprCall):
+        self.visit(node.expr)
+        for expr in node.args:
+            self.visit(expr)
+
     def visit_sample_expr(self, node: ast.SampleExpr):
         self.visit(node.sample_value)
         self.visit(node.offset_value)
@@ -493,7 +498,7 @@ class CloningVisitor(Visitor[Any]):
             start=None if self.clear_locations else node.start,
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
-            field=node.field,
+            chain=node.chain,
         )
 
     def visit_call(self, node: ast.Call):
@@ -505,6 +510,15 @@ class CloningVisitor(Visitor[Any]):
             args=[self.visit(arg) for arg in node.args],
             params=[self.visit(param) for param in node.params] if node.params is not None else None,
             distinct=node.distinct,
+        )
+
+    def visit_expr_call(self, node: ast.ExprCall):
+        return ast.ExprCall(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            expr=self.visit(node.expr),
+            args=[self.visit(arg) for arg in node.args],
         )
 
     def visit_ratio_expr(self, node: ast.RatioExpr):

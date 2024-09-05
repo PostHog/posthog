@@ -7,10 +7,11 @@ describe('mergeGroups', () => {
         const primaryGroup: ErrorTrackingGroup = {
             assignee: 400,
             description: 'This is the original description',
-            fingerprint: 'Fingerprint',
+            exception_type: 'TypeError',
+            fingerprint: ['Fingerprint'],
             first_seen: '2024-07-22T13:15:07.074000Z',
             last_seen: '2024-07-20T13:15:50.186000Z',
-            merged_fingerprints: ['ExistingFingerprint'],
+            merged_fingerprints: [['ExistingFingerprint']],
             occurrences: 250,
             sessions: 100,
             status: 'active',
@@ -35,10 +36,11 @@ describe('mergeGroups', () => {
             {
                 assignee: 100,
                 description: 'This is another description',
-                fingerprint: 'Fingerprint2',
+                exception_type: 'SyntaxError',
+                fingerprint: ['Fingerprint2'],
                 first_seen: '2024-07-21T13:15:07.074000Z',
                 last_seen: '2024-07-20T13:15:50.186000Z',
-                merged_fingerprints: ['NestedFingerprint'],
+                merged_fingerprints: [['NestedFingerprint']],
                 occurrences: 10,
                 sessions: 5,
                 status: 'active',
@@ -61,7 +63,8 @@ describe('mergeGroups', () => {
             {
                 assignee: 400,
                 description: 'This is another description',
-                fingerprint: 'Fingerprint3',
+                exception_type: 'SyntaxError',
+                fingerprint: ['Fingerprint3'],
                 first_seen: '2024-07-21T13:15:07.074000Z',
                 last_seen: '2024-07-22T13:15:50.186000Z',
                 merged_fingerprints: [],
@@ -87,7 +90,8 @@ describe('mergeGroups', () => {
             {
                 assignee: null,
                 description: 'This is another description',
-                fingerprint: 'Fingerprint4',
+                exception_type: 'SyntaxError',
+                fingerprint: ['Fingerprint4'],
                 first_seen: '2023-07-22T13:15:07.074000Z',
                 last_seen: '2024-07-22T13:15:50.186000Z',
                 merged_fingerprints: [],
@@ -118,7 +122,8 @@ describe('mergeGroups', () => {
             // retains values from primary group
             assignee: 400,
             description: 'This is the original description',
-            fingerprint: 'Fingerprint',
+            exception_type: 'TypeError',
+            fingerprint: ['Fingerprint'],
             status: 'active',
             // earliest first_seen
             first_seen: '2023-07-22T13:15:07.074Z',
@@ -127,11 +132,11 @@ describe('mergeGroups', () => {
             // retains previously merged_fingerprints
             // adds new fingerprints AND their nested fingerprints
             merged_fingerprints: [
-                'ExistingFingerprint',
-                'Fingerprint2',
-                'NestedFingerprint',
-                'Fingerprint3',
-                'Fingerprint4',
+                ['ExistingFingerprint'],
+                ['Fingerprint2'],
+                ['NestedFingerprint'],
+                ['Fingerprint3'],
+                ['Fingerprint4'],
             ],
             // sums counts
             occurrences: 1261,
