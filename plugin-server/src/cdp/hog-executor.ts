@@ -153,6 +153,7 @@ export class HogExecutor {
         try {
             // If the queueParameter is set then we have an expected format that we want to parse and add to the stack
             if (invocation.queueParameters) {
+                // NOTE: This is all based around the only response type being fetch currently
                 const {
                     logs = [],
                     response = null,
@@ -198,8 +199,14 @@ export class HogExecutor {
                     }
                 }
 
+                // Finally we create the response object as the VM expects
+                const fetchResponse = {
+                    status,
+                    body: responseBody,
+                }
+
                 // Add the response to the stack to continue execution
-                invocation.vmState!.stack.push(response)
+                invocation.vmState!.stack.push(fetchResponse)
                 invocation.timings.push(...timings)
                 result.logs = [...logs, ...result.logs]
             }
