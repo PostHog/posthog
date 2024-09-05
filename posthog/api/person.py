@@ -360,7 +360,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def destroy(self, request: request.Request, pk=None, **kwargs):
         """
-        Use this endpoint to delete individual persons. If you wnat to bulk delete, use the bulk_delete endpoint.
+        Use this endpoint to delete individual persons. For bulk deletion, use the bulk_delete endpoint instead.
         """
         try:
             person = self.get_object()
