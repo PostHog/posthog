@@ -1,14 +1,12 @@
-use chrono::{DateTime, Duration, Timelike, Utc};
+use chrono::{Duration, Timelike, Utc};
 use common_kafka::kafka_messages::app_metrics2::{
     AppMetric2, Kind as AppMetric2Kind, Source as AppMetric2Source,
 };
 use cyclotron_core::{JobInit, JobState, QueueManager, Worker};
 use cyclotron_janitor::{config::JanitorSettings, janitor::Janitor};
 use rdkafka::consumer::{Consumer, StreamConsumer};
-use rdkafka::types::{RDKafkaApiKey, RDKafkaRespErr};
 use rdkafka::{ClientConfig, Message};
 use sqlx::PgPool;
-use std::str::FromStr;
 use uuid::Uuid;
 
 use common_kafka::{test::create_mock_kafka, APP_METRICS2_TOPIC};
@@ -58,7 +56,7 @@ async fn janitor_test(db: PgPool) {
         queue_name: queue_name.clone(),
         priority: 0,
         scheduled: now,
-        function_id: Some(uuid.clone()),
+        function_id: Some(uuid),
         vm_state: None,
         parameters: None,
         blob: None,

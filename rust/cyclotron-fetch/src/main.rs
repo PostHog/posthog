@@ -10,6 +10,8 @@ use health::HealthRegistry;
 use std::{future::ready, sync::Arc};
 use tracing::{error, info};
 
+common_alloc::used!();
+
 async fn listen(app: Router, bind: String) -> Result<(), std::io::Error> {
     let listener = tokio::net::TcpListener::bind(bind).await?;
 
