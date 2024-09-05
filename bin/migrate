@@ -2,6 +2,9 @@
 set -e
 SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
 
+ls $SCRIPT_DIR
+ls $SCRIPT_DIR/../rust
+ls $SCRIPT_DIR/../rust/bin
 bash $SCRIPT_DIR/../rust/bin/migrate-cyclotron
 
 python manage.py migrate

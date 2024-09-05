@@ -40,7 +40,7 @@ export class FetchExecutor {
 
     async execute(invocation: HogFunctionInvocation): Promise<HogFunctionInvocationResult | undefined> {
         if (invocation.queue !== 'fetch' || !invocation.queueParameters) {
-            // throw new Error('Bad invocation')
+            status.error('🦔', `[HogExecutor] Bad invocation`, { invocation })
             return
         }
 
