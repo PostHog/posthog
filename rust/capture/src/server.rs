@@ -6,8 +6,8 @@ use health::{ComponentStatus, HealthRegistry};
 use time::Duration;
 use tokio::net::TcpListener;
 
-use crate::config::Config;
 use crate::config::CaptureMode;
+use crate::config::Config;
 
 use crate::limiters::overflow::OverflowLimiter;
 use crate::limiters::redis::{QuotaResource, RedisLimiter};
