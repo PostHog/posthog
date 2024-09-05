@@ -400,9 +400,7 @@ export class HedgehogActor {
             const yDiff = window.innerHeight - clientY - this.y
 
             const distance = Math.sqrt(xDiff ** 2 + yDiff ** 2)
-            // We want the speed to decrease the closer we get
-            const speed = distance / 100
-            console.log(distance, speed)
+            const speed = 3
             const ratio = speed / distance
 
             if (yDiff < 0) {
