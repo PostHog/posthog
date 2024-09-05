@@ -498,9 +498,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                                 FROM events
                                 WHERE timestamp > ${dayjs(event.timestamp).subtract(1000, 'ms')}
                                 AND timestamp < ${dayjs(event.timestamp).add(1000, 'ms')}
-                                ${person?.id ? `person.id = ${person.id}` : ''}
-                                event = ${event.event}
-                                order by timestamp ASC`,
+                                ${person?.id ? `AND person.id = ${person.id}` : ''}
+                                AND event = ${event.event}
+                                ORDER BY timestamp ASC`,
                         }
                         const response = await api.query(query)
                         if (response.error) {
