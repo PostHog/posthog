@@ -1,10 +1,15 @@
 import './ErrorTracking.scss'
 
-import { LemonDivider } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { PageHeader } from 'lib/components/PageHeader'
 import { base64Decode } from 'lib/utils'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 
+import { ErrorTrackingGroup } from '~/queries/schema'
+
+import { AssigneeSelect } from './AssigneeSelect'
 import ErrorTrackingFilters from './ErrorTrackingFilters'
 import { errorTrackingGroupSceneLogic } from './errorTrackingGroupSceneLogic'
 import { OverviewTab } from './groups/OverviewTab'
@@ -17,9 +22,54 @@ export const scene: SceneExport = {
     }),
 }
 
+const STATUS_LABEL: Record<ErrorTrackingGroup['status'], string> = {
+    active: 'Active',
+    archived: 'Archived',
+    resolved: 'Resolved',
+    pending_release: 'Pending release',
+}
+
 export function ErrorTrackingGroupScene(): JSX.Element {
+    const { group } = useValues(errorTrackingGroupSceneLogic)
+    const { updateGroup } = useActions(errorTrackingGroupSceneLogic)
+
     return (
         <>
+            <PageHeader
+                buttons={
+                    group ? (
+                        group.status === 'active' ? (
+                            <div className="flex divide-x gap-x-2">
+                                <AssigneeSelect
+                                    assignee={group.assignee}
+                                    onChange={(assignee) => updateGroup({ assignee })}
+                                    type="secondary"
+                                    showName
+                                />
+                                <div className="flex pl-2 gap-x-2">
+                                    <LemonButton type="secondary" onClick={() => updateGroup({ status: 'archived' })}>
+                                        Archive
+                                    </LemonButton>
+                                    <LemonButton type="primary" onClick={() => updateGroup({ status: 'resolved' })}>
+                                        Resolve
+                                    </LemonButton>
+                                </div>
+                            </div>
+                        ) : (
+                            <LemonButton
+                                type="secondary"
+                                className="upcasefirst-letter:uppercase"
+                                onClick={() => updateGroup({ status: 'active' })}
+                                tooltip="Mark as active"
+                            >
+                                {STATUS_LABEL[group.status]}
+                            </LemonButton>
+                        )
+                    ) : (
+                        false
+                    )
+                }
+            />
             <SessionPlayerModal />
             <ErrorTrackingFilters.FilterGroup />
             <LemonDivider className="mt-2" />

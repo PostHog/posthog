@@ -1741,7 +1741,7 @@ const api = {
     errorTracking: {
         async update(
             fingerprint: ErrorTrackingGroup['fingerprint'],
-            data: Partial<Pick<ErrorTrackingGroup, 'assignee'>>
+            data: Partial<Pick<ErrorTrackingGroup, 'assignee' | 'status'>>
         ): Promise<ErrorTrackingGroup> {
             return await new ApiRequest().errorTrackingGroup(fingerprint).update({ data })
         },

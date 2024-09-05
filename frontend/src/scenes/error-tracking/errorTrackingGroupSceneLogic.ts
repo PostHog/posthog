@@ -45,6 +45,7 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
     actions({
         setErrorGroupTab: (tab: ErrorGroupTab) => ({ tab }),
         setActiveEventUUID: (uuid: ErrorTrackingEvent['uuid']) => ({ uuid }),
+        updateGroup: (group: Partial<Pick<ErrorTrackingGroup, 'assignee' | 'status'>>) => ({ group }),
     }),
 
     reducers(() => ({
@@ -79,6 +80,10 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
                     // ErrorTrackingQuery returns a list of groups
                     // when a fingerprint is supplied there will only be a single group
                     return response.results[0]
+                },
+                updateGroup: async ({ group }) => {
+                    const response = await api.errorTracking.update(props.fingerprint, group)
+                    return { ...values.group, ...response }
                 },
             },
         ],
