@@ -53,11 +53,11 @@ dependencies:
     specifier: 4.6.0
     version: 4.6.0(monaco-editor@0.49.0)(react-dom@18.2.0)(react@18.2.0)
   '@posthog/hogvm':
-    specifier: ^1.0.43
-    version: 1.0.43(luxon@3.5.0)
+    specifier: ^1.0.46
+    version: 1.0.46(luxon@3.5.0)
   '@posthog/icons':
-    specifier: 0.7.3
-    version: 0.7.3(react-dom@18.2.0)(react@18.2.0)
+    specifier: 0.8.1
+    version: 0.8.1(react-dom@18.2.0)(react@18.2.0)
   '@posthog/plugin-scaffold':
     specifier: ^1.4.4
     version: 1.4.4
@@ -374,7 +374,7 @@ dependencies:
 optionalDependencies:
   fsevents:
     specifier: ^2.3.2
-    version: 2.3.3
+    version: 2.3.2
 
 devDependencies:
   '@babel/core':
@@ -5414,16 +5414,16 @@ packages:
     resolution: {integrity: sha512-50/17A98tWUfQ176raKiOGXuYpLyyVMkxxG6oylzL3BPOlA6ADGdK7EYunSa4I064xerltq9TGXs8HmOk5E+vw==}
     dev: false
 
-  /@posthog/hogvm@1.0.43(luxon@3.5.0):
-    resolution: {integrity: sha512-VjZ7uwxlWB5XoZNoH/xhxv3SVikvrcMuTV+LjV7j6Ddw1pFDvWlebMHNLgtrUZKChrs+ZhOOE6KWk5qPDv48bg==}
+  /@posthog/hogvm@1.0.46(luxon@3.5.0):
+    resolution: {integrity: sha512-oTXytxHImxcAUYvK+QVI5nRc3YnVSbn01rFlOrpeTYjW5oqYKMR8nYsjhHGLt5p0pnfeBhmQjBM5mJtVs5bA2Q==}
     peerDependencies:
       luxon: ^3.4.4
     dependencies:
       luxon: 3.5.0
     dev: false
 
-  /@posthog/icons@0.7.3(react-dom@18.2.0)(react@18.2.0):
-    resolution: {integrity: sha512-dw8qLS6aSBGGIjo/d24/yuLOgkFAov4C7yOhomMfhce/RwS+u96XXghVolioRHppnAn48pgGnBQIXEELGVEvPA==}
+  /@posthog/icons@0.8.1(react-dom@18.2.0)(react@18.2.0):
+    resolution: {integrity: sha512-/ryXgFnWGzHmwijHE/0gQcEyAD/WkKuwf3NCMG4ibmGMpEqm/d12/+Ccuf3Zj2VZuc+0atGCHkHOiSNJ8dw97A==}
     peerDependencies:
       react: '>=16.14.0'
       react-dom: '>=16.14.0'
@@ -13077,7 +13077,6 @@ packages:
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
     requiresBuild: true
-    dev: true
     optional: true
 
   /fsevents@2.3.3:
@@ -15428,7 +15427,7 @@ packages:
       image-size: 0.5.5
       make-dir: 2.1.0
       mime: 1.6.0
-      native-request: 1.1.2
+      native-request: 1.1.0
       source-map: 0.6.1
     dev: true
 
@@ -16164,8 +16163,8 @@ packages:
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
 
-  /native-request@1.1.2:
-    resolution: {integrity: sha512-/etjwrK0J4Ebbcnt35VMWnfiUX/B04uwGJxyJInagxDqf2z5drSt/lsOvEMWGYunz1kaLZAFrV4NDAbOoDKvAQ==}
+  /native-request@1.1.0:
+    resolution: {integrity: sha512-uZ5rQaeRn15XmpgE0xoPL8YWqcX90VtCFglYwAgkvKM5e8fog+vePLAhHxuuv/gRkrQxIeh5U3q9sMNUrENqWw==}
     requiresBuild: true
     dev: true
     optional: true
@@ -18299,7 +18298,7 @@ packages:
       react: '>=15'
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.65.0
+      unlayer-types: 1.75.0
     dev: false
 
   /react-error-boundary@3.1.4(react@18.2.0):
@@ -20833,8 +20832,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  /unlayer-types@1.65.0:
-    resolution: {integrity: sha512-fIeh/TtUhQ16A0oW3mHkcDekvhIbZbN+h0qVgBuVxjGnYME/Ma3saFRO4eKJll0YNyalvb9MdmSz0nyTgr/1/w==}
+  /unlayer-types@1.75.0:
+    resolution: {integrity: sha512-yB4TeimlZPKkAGIIE3Acs9e5YHjCpeGcoybq/E8w4lzNTI5EybI9Z9rwIBXhNK0miNarxEIO7rJUWB+Yeve80g==}
     dev: false
 
   /unpipe@1.0.0:

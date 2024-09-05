@@ -3861,6 +3861,7 @@ export const externalDataSources = [
     'Zendesk',
     'Snowflake',
     'Salesforce',
+    'Vitally',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -3924,7 +3925,7 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
 export interface ExternalDataJob {
     id: string
     created_at: string
-    status: 'Running' | 'Failed' | 'Completed' | 'Cancelled'
+    status: 'Running' | 'Failed' | 'Completed' | 'Billing limits'
     schema: SimpleExternalDataSourceSchema
     rows_synced: number
     latest_error: string

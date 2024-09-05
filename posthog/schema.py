@@ -2475,6 +2475,16 @@ class EventsQueryResponse(BaseModel):
     types: list[str]
 
 
+class BreakdownFilter1(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown_hide_other_aggregation: Optional[bool] = None
+    breakdown_histogram_bin_count: Optional[int] = None
+    breakdown_limit: Optional[int] = None
+    breakdowns: Optional[list[Breakdown]] = Field(default=None, max_length=3)
+
+
 class FeaturePropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4422,6 +4432,88 @@ class SessionsTimelineQuery(BaseModel):
     response: Optional[SessionsTimelineQueryResponse] = None
 
 
+class AIActionsNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: Optional[str] = None
+    event: Optional[str] = Field(default=None, description="The event or `null` for all events.")
+    fixedProperties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+            ]
+        ]
+    ] = None
+    kind: Literal["EventsNode"] = "EventsNode"
+    math: Optional[
+        Union[BaseMathType, PropertyMathType, CountPerActorMathType, Literal["unique_group"], Literal["hogql"]]
+    ] = None
+    math_group_type_index: Optional[MathGroupTypeIndex] = None
+    math_property: Optional[str] = None
+    name: Optional[str] = None
+    orderBy: Optional[list[str]] = Field(default=None, description="Columns to order by")
+    properties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+            ]
+        ]
+    ] = None
+    response: Optional[dict[str, Any]] = None
+
+
+class AIEventsNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: Optional[str] = None
+    event: Optional[str] = Field(default=None, description="The event or `null` for all events.")
+    fixedProperties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+            ]
+        ]
+    ] = None
+    kind: Literal["EventsNode"] = "EventsNode"
+    math: Optional[
+        Union[BaseMathType, PropertyMathType, CountPerActorMathType, Literal["unique_group"], Literal["hogql"]]
+    ] = None
+    math_group_type_index: Optional[MathGroupTypeIndex] = None
+    math_property: Optional[str] = None
+    name: Optional[str] = None
+    orderBy: Optional[list[str]] = Field(default=None, description="Columns to order by")
+    properties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+            ]
+        ]
+    ] = None
+    response: Optional[dict[str, Any]] = None
+
+
 class ActionsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4500,6 +4592,39 @@ class DatabaseSchemaViewTable(BaseModel):
     name: str
     query: HogQLQuery
     type: Literal["view"] = "view"
+
+
+class ExperimentalAITrendsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
+    breakdownFilter: Optional[BreakdownFilter1] = Field(default=None, description="Breakdown of the events and actions")
+    compareFilter: Optional[CompareFilter] = Field(default=None, description="Compare to date range")
+    dateRange: Optional[InsightDateRange] = Field(default=None, description="Date range for the query")
+    filterTestAccounts: Optional[bool] = Field(
+        default=False, description="Exclude internal and test users by applying the respective filters"
+    )
+    interval: Optional[IntervalType] = Field(
+        default=IntervalType.DAY,
+        description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`",
+    )
+    kind: Literal["TrendsQuery"] = "TrendsQuery"
+    properties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+            ]
+        ]
+    ] = Field(default=[], description="Property filters for all series")
+    samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
+    series: list[Union[AIEventsNode, AIActionsNode]] = Field(..., description="Events and actions to include")
+    trendsFilter: Optional[TrendsFilter] = Field(default=None, description="Properties specific to the trends insight")
 
 
 class FunnelsFilter(BaseModel):

@@ -649,6 +649,24 @@ class TestProperty(BaseTest):
             self._parse_expr("event = '$autocapture' and arrayExists(x -> x =~ 'blabla', elements_chain_texts)"),
         )
 
+        action7 = Action.objects.create(
+            team=self.team,
+            steps_json=[{"event": "$autocapture", "text": "blabla", "text_matching": "contains"}],
+        )
+        self.assertEqual(
+            clear_locations(action_to_expr(action7)),
+            self._parse_expr("event = '$autocapture' and arrayExists(x -> x ilike '%blabla%', elements_chain_texts)"),
+        )
+
+        action8 = Action.objects.create(
+            team=self.team,
+            steps_json=[{"event": "$autocapture", "text": "blabla", "text_matching": "exact"}],
+        )
+        self.assertEqual(
+            clear_locations(action_to_expr(action8)),
+            self._parse_expr("event = '$autocapture' and arrayExists(x -> x = 'blabla', elements_chain_texts)"),
+        )
+
     def test_cohort_filter_static(self):
         cohort = Cohort.objects.create(
             team=self.team,

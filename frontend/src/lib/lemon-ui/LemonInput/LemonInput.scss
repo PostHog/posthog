@@ -81,6 +81,14 @@
         }
     }
 
+    &.LemonInput--large {
+        --lemon-input-height: 3rem;
+
+        .LemonIcon {
+            font-size: 1.5rem;
+        }
+    }
+
     &.LemonInput--has-content {
         > .LemonIcon {
             color: var(--primary-3000);

@@ -129,6 +129,14 @@ impl KafkaSink {
             .set("bootstrap.servers", &config.kafka_hosts)
             .set("statistics.interval.ms", "10000")
             .set("partitioner", "murmur2_random") // Compatibility with python-kafka
+            .set(
+                "metadata.max.age.ms",
+                config.kafka_metadata_max_age_ms.to_string(),
+            )
+            .set(
+                "message.send.max.retries",
+                config.kafka_producer_max_retries.to_string(),
+            )
             .set("linger.ms", config.kafka_producer_linger_ms.to_string())
             .set(
                 "message.max.bytes",
@@ -371,6 +379,8 @@ mod tests {
             kafka_heatmaps_topic: "events_plugin_ingestion".to_string(),
             kafka_tls: false,
             kafka_client_id: "".to_string(),
+            kafka_metadata_max_age_ms: 60000,
+            kafka_producer_max_retries: 2,
         };
         let sink = KafkaSink::new(config, handle, limiter).expect("failed to create sink");
         (cluster, sink)

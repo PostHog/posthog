@@ -11,7 +11,7 @@ const StatusTagSetting: Record<ExternalDataJob['status'], LemonTagType> = {
     Running: 'primary',
     Completed: 'success',
     Failed: 'danger',
-    Cancelled: 'default',
+    'Billing limits': 'danger',
 }
 
 interface SyncsProps {

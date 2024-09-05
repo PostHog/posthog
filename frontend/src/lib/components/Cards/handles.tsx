@@ -5,8 +5,8 @@ export function ResizeHandle1D({ orientation }: { orientation: 'horizontal' | 'v
     return (
         <div className={clsx('handle', orientation)}>
             <svg fill="none" height="24" viewBox="0 0 16 24" width="16" xmlns="http://www.w3.org/2000/svg">
-                <rect fill="#fff" height="23" rx="3.5" width="15" x=".5" y=".5" />
-                <g fill="#5375ff">
+                <rect fill="var(--bg-light)" height="23" rx="3.5" width="15" x=".5" y=".5" />
+                <g fill="var(--primary)">
                     <rect height="2" rx=".25" width="2" x="5" y="5" />
                     <rect height="2" rx=".25" width="2" x="9" y="5" />
                     <rect height="2" rx=".25" width="2" x="5" y="9" />
@@ -16,7 +16,7 @@ export function ResizeHandle1D({ orientation }: { orientation: 'horizontal' | 'v
                     <rect height="2" rx=".25" width="2" x="5" y="13" />
                     <rect height="2" rx=".25" width="2" x="5" y="17" />
                 </g>
-                <rect height="23" rx="3.5" stroke="#d9d9d9" width="15" x=".5" y=".5" />
+                <rect height="23" rx="3.5" stroke="var(--border)" width="15" x=".5" y=".5" />
             </svg>
         </div>
     )
@@ -27,8 +27,8 @@ export function ResizeHandle2D(): JSX.Element {
     return (
         <div className="handle corner">
             <svg fill="none" height="18" viewBox="0 0 18 18" width="18" xmlns="http://www.w3.org/2000/svg">
-                <rect fill="#fff" height="17" rx="3.5" width="17" x=".5" y=".5" />
-                <g fill="#5375ff">
+                <rect fill="var(--bg-light)" height="17" rx="3.5" width="17" x=".5" y=".5" />
+                <g fill="var(--primary)">
                     <rect height="2" rx=".25" width="2" x="8" y="8" />
                     <rect height="2" rx=".25" width="2" x="8" y="12" />
                     <rect height="2" rx=".25" width="2" x="12" y="4" />
@@ -36,7 +36,7 @@ export function ResizeHandle2D(): JSX.Element {
                     <rect height="2" rx=".25" width="2" x="12" y="8" />
                     <rect height="2" rx=".25" width="2" x="12" y="12" />
                 </g>
-                <rect height="17" rx="3.5" stroke="#d9d9d9" width="17" x=".5" y=".5" />
+                <rect height="17" rx="3.5" stroke="var(--border)" width="17" x=".5" y=".5" />
             </svg>
         </div>
     )
