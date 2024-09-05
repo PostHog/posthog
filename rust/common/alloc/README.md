@@ -9,4 +9,4 @@ jemalloc helps reduce memory fragmentation hugely, to the point of solving produ
 At time of writing (2024-09-04), rust workspaces don't have good support for specifying dependencies on a per-target basis, so this crate does the work of pulling in jemalloc only when compiling for supported targets, and then exposes a simple macro to use jemalloc as the global allocator. Anyone writing a binary crate should put this macro at the top of their `main.rs`. Libraries should not make use of this crate.
 
 ## Future work
-Functions could be added to this crate to, in situations where jemalloc is in use, report report a set of metrics about the allocator, as well as other functionality (health/liveness, a way to specify hooks to execute when memory usage exceeds a certain threshold, etc). Right now, it's prety barebones.
+Functions could be added to this crate to, in situations where jemalloc is in use, report a set of metrics about the allocator, as well as other functionality (health/liveness, a way to specify hooks to execute when memory usage exceeds a certain threshold, etc). Right now, it's prety barebones.
