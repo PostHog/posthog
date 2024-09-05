@@ -67,7 +67,14 @@ export class Status implements StatusBlueprint {
             const logMessage = `[${this.prompt}] ${icon} ${message}`
 
             if (!this.logger) {
-                throw new Error(`Logger has been closed! Cannot log: ${logMessage}`)
+                if (isProdEnv()) {
+                    // This can throw on tests if the logger is closed. We don't really want tests to be bothered with this.
+                    throw new Error(`Logger has been closed! Cannot log: ${logMessage}`)
+                }
+                console.log(
+                    `Logger has been closed! Cannot log: ${logMessage}. Logging to console instead due to non-prod env.`
+                )
+                return
             }
             if (extra instanceof Object) {
                 this.logger[type]({ ...extra, msg: logMessage })
