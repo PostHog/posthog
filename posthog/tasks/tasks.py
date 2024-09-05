@@ -16,7 +16,6 @@ from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.hogql.constants import LimitContext
 from posthog.metrics import pushed_metrics_registry
-from posthog.models.team.team import Team
 from posthog.ph_client import get_ph_client
 from posthog.redis import get_client
 from posthog.tasks.utils import CeleryQueue
@@ -190,9 +189,8 @@ def ingestion_lag() -> None:
     from statshog.defaults.django import statsd
 
     from posthog.client import sync_execute
+    from posthog.models.team.team import Team
 
-    # Requires https://github.com/PostHog/posthog-heartbeat-plugin to be enabled on team 2
-    # Note that it runs every minute, and we compare it with now(), so there's up to 60s delay
     query = """
     SELECT event, date_diff('second', max(timestamp), now())
     FROM events
