@@ -1,6 +1,7 @@
 """This module contains a temporary file to stage data in batch exports."""
 
 import abc
+import asyncio
 import collections.abc
 import contextlib
 import csv
@@ -390,7 +391,7 @@ class BatchExportWriter(abc.ABC):
         column_names = record_batch.column_names
         column_names.pop(column_names.index("_inserted_at"))
 
-        self._write_record_batch(record_batch.select(column_names))
+        await asyncio.to_thread(self._write_record_batch, record_batch.select(column_names))
 
         self.last_inserted_at = last_inserted_at
         self.track_records_written(record_batch)

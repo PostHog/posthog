@@ -7,8 +7,7 @@ use health::{HealthHandle, HealthRegistry};
 use std::{future::ready, time::Duration};
 use tracing::{error, info};
 
-/// Most of this stuff is stolen pretty shamelessly from the rustyhook janitor. It'll diverge more
-/// once we introduce the management command stuff, but for now it's a good starting point.
+common_alloc::used!();
 
 async fn cleanup_loop(janitor: Janitor, livenes: HealthHandle, interval_secs: u64) -> Result<()> {
     let mut interval = tokio::time::interval(Duration::from_secs(interval_secs));
