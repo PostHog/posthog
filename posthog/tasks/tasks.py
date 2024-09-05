@@ -8,6 +8,7 @@ from django.db import connection
 from django.utils import timezone
 from prometheus_client import Gauge
 from redis import Redis
+import requests
 from structlog import get_logger
 
 from posthog.clickhouse.client.limit import limit_concurrency, CeleryConcurrencyLimitExceeded
@@ -15,6 +16,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.hogql.constants import LimitContext
 from posthog.metrics import pushed_metrics_registry
+from posthog.models.team.team import Team
 from posthog.ph_client import get_ph_client
 from posthog.redis import get_client
 from posthog.tasks.utils import CeleryQueue
@@ -180,11 +182,7 @@ CLICKHOUSE_TABLES = [
     "log_entries",
 ]
 
-HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC = {
-    "heartbeat": "ingestion",
-    "heartbeat_buffer": "ingestion_buffer",
-    "heartbeat_api": "ingestion_api",
-}
+HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC = {"heartbeat": "ingestion", "$heartbeat": "ingestion_api"}
 
 
 @shared_task(ignore_result=True)
@@ -204,11 +202,13 @@ def ingestion_lag() -> None:
     GROUP BY event
     """
 
+    team_ids = settings.INGESTION_LAG_METRIC_TEAM_IDS
+
     try:
         results = sync_execute(
             query,
             {
-                "team_ids": settings.INGESTION_LAG_METRIC_TEAM_IDS,
+                "team_ids": team_ids,
                 "events": list(HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC.keys()),
             },
         )
@@ -225,6 +225,17 @@ def ingestion_lag() -> None:
                 lag_gauge.labels(scenario=metric).set(lag)
     except:
         pass
+
+    for team in Team.objects.filter(pk__in=team_ids):
+        requests.post(
+            settings.SITE_URL + "/e",
+            json={
+                "event": "$heartbeat",
+                "distinct_id": "posthog-celery-heartbeat",
+                "token": team.api_token,
+                "properties": {"$timestamp": timezone.now().isoformat()},
+            },
+        )
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.SESSION_REPLAY_GENERAL.value)
