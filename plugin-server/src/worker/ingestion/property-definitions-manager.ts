@@ -109,13 +109,11 @@ export class PropertyDefinitionsManager {
         })
         this.propertyDefinitionsCache = new PropertyDefinitionsCache(serverConfig)
 
-        this.teamIdsToSkip = new Set(
-            // I have no idea why this is needed but otherwise I get ""
-            (serverConfig.SKIP_DEFINITIONS_FOR_TEAM_IDS ?? '')
-                .trim()
-                .split(',')
-                .map((id) => parseInt(id))
-        )
+        if (serverConfig.SKIP_DEFINITIONS_FOR_TEAM_IDS.length > 0) {
+            this.teamIdsToSkip = new Set(
+                serverConfig.SKIP_DEFINITIONS_FOR_TEAM_IDS.split(',').map((id) => parseInt(id))
+            )
+        }
     }
 
     public async updateEventNamesAndProperties(teamId: number, event: string, properties: Properties): Promise<void> {
