@@ -8846,7 +8846,7 @@
                             "$ref": "#/definitions/DurationType"
                         },
                         {
-                            "const": "latest",
+                            "const": "start_time",
                             "type": "string"
                         },
                         {
