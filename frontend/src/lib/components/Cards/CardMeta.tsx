@@ -31,7 +31,7 @@ export interface CardMetaProps extends Pick<React.HTMLAttributes<HTMLDivElement>
     metaDetails?: JSX.Element | null
     moreButtons?: JSX.Element | null
     topHeading?: JSX.Element | null
-    samplingFactor?: number
+    samplingFactor?: number | null
 }
 
 export function CardMeta({
