@@ -1,7 +1,7 @@
 import json
 from datetime import datetime, timedelta
 from enum import Enum, auto
-from typing import Any, Optional, Union
+from typing import Any, Optional, Union, overload
 
 from zoneinfo import ZoneInfo
 from django.utils import timezone
@@ -39,7 +39,11 @@ class PersonPropertiesMode(Enum):
     """
 
 
-def alias_poe_mode_for_legacy(persons_on_events_mode: PersonsOnEventsMode | None) -> PersonsOnEventsMode:
+@overload
+def alias_poe_mode_for_legacy(persons_on_events_mode: PersonsOnEventsMode) -> PersonsOnEventsMode: ...
+@overload
+def alias_poe_mode_for_legacy(persons_on_events_mode: PersonsOnEventsMode | None) -> PersonsOnEventsMode | None: ...
+def alias_poe_mode_for_legacy(persons_on_events_mode: PersonsOnEventsMode | None) -> PersonsOnEventsMode | None:
     if persons_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED:
         # PERSON_ID_OVERRIDE_PROPERTIES_JOINED is not implemented in legacy insights
         # It's functionally the same as DISABLED, just slower - hence aliasing to DISABLED
