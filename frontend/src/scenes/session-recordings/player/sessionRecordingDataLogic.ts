@@ -1,6 +1,6 @@
 import posthogEE from '@posthog/ee/exports'
 import { customEvent, EventType, eventWithTime } from '@rrweb/types'
-import { captureException } from '@sentry/react'
+import { captureException, captureMessage } from '@sentry/react'
 import {
     actions,
     afterMount,
@@ -25,7 +25,8 @@ import { chainToElements } from 'lib/utils/elements-chain'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
 
-import { NodeKind } from '~/queries/schema'
+import { HogQLQuery, NodeKind } from '~/queries/schema'
+import { hogql } from '~/queries/utils'
 import {
     AnyPropertyFilter,
     EncodedRecordingSnapshot,
@@ -489,20 +490,36 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     const { person } = values.sessionPlayerData
 
                     let loadedProperties: Record<string, any> = existingEvent.properties
-                    // TODO: Move this to an optimised HogQL query when available...
-                    try {
-                        const res: any = await api.query({
-                            kind: 'EventsQuery',
-                            select: ['properties', 'timestamp'],
-                            orderBy: ['timestamp ASC'],
-                            limit: 100,
-                            personId: String(person?.id),
-                            after: dayjs(event.timestamp).subtract(1000, 'ms').format(),
-                            before: dayjs(event.timestamp).add(1000, 'ms').format(),
-                            event: existingEvent.event,
-                        })
 
-                        const result = res.results.find((x: any) => x[1] === event.timestamp)
+                    try {
+                        const query: HogQLQuery = {
+                            kind: NodeKind.HogQLQuery,
+                            query: hogql`SELECT properties, timestamp, uuid 
+                                FROM events
+                                WHERE timestamp > ${dayjs(event.timestamp).subtract(1000, 'ms')}
+                                AND timestamp < ${dayjs(event.timestamp).add(1000, 'ms')}
+                                ${person?.id ? `AND person.id = ${person.id}` : ''}
+                                AND event = ${event.event}
+                                ORDER BY timestamp ASC`,
+                        }
+                        const response = await api.query(query)
+                        if (response.error) {
+                            throw new Error(response.error)
+                        }
+
+                        // historically we compared timestamps here when finding properties for a particular event
+                        // it's nicer to use the event id
+                        // but since we were using timestamps, we might not be guaranteed to have the id?
+                        // TODO - check if we can remove the timestamp comparison
+                        const result = response.results.find((x: any) => {
+                            if (event.id) {
+                                return x[2] === event.id
+                            }
+                            captureMessage('event id not available for matching', {
+                                tags: { feature: 'session-recording-load-full-event-data' },
+                            })
+                            return x[1] === event.timestamp
+                        })
 
                         if (result) {
                             loadedProperties = JSON.parse(result[0])
@@ -512,7 +529,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     } catch (e) {
                         // NOTE: This is not ideal but should happen so rarely that it is tolerable.
                         existingEvent.fullyLoaded = true
-                        captureException(e)
+                        captureException(e, {
+                            tags: { feature: 'session-recording-load-full-event-data' },
+                        })
                     }
 
                     // here we map the events list because we want the result to be a new instance to trigger downstream recalculation
