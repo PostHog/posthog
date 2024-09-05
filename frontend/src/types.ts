@@ -3861,6 +3861,7 @@ export const externalDataSources = [
     'Zendesk',
     'Snowflake',
     'Salesforce',
+    'Vitally',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

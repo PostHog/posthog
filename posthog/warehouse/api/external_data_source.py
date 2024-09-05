@@ -24,6 +24,7 @@ from posthog.warehouse.api.external_data_schema import ExternalDataSchemaSeriali
 from posthog.hogql.database.database import create_hogql_database
 from posthog.temporal.data_imports.pipelines.stripe import validate_credentials as validate_stripe_credentials
 from posthog.temporal.data_imports.pipelines.zendesk import validate_credentials as validate_zendesk_credentials
+from posthog.temporal.data_imports.pipelines.vitally import validate_credentials as validate_vitally_credentials
 from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING,
     PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING,
@@ -280,6 +281,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             new_source_model = self._handle_zendesk_source(request, *args, **kwargs)
         elif source_type == ExternalDataSource.Type.SALESFORCE:
             new_source_model = self._handle_salesforce_source(request, *args, **kwargs)
+        elif source_type == ExternalDataSource.Type.VITALLY:
+            new_source_model = self._handle_vitally_source(request, *args, **kwargs)
         elif source_type in [
             ExternalDataSource.Type.POSTGRES,
             ExternalDataSource.Type.MYSQL,
@@ -390,6 +393,28 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             status="Running",
             source_type=source_type,
             job_inputs={"stripe_secret_key": client_secret, "stripe_account_id": account_id},
+            prefix=prefix,
+        )
+
+        return new_source_model
+
+    def _handle_vitally_source(self, request: Request, *args: Any, **kwargs: Any) -> ExternalDataSource:
+        payload = request.data["payload"]
+        secret_token = payload.get("secret_token")
+        region = payload.get("region")
+        subdomain = payload.get("subdomain", None)
+        prefix = request.data.get("prefix", None)
+        source_type = request.data["source_type"]
+
+        # TODO: remove dummy vars
+        new_source_model = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            team=self.team,
+            status="Running",
+            source_type=source_type,
+            job_inputs={"secret_token": secret_token, "region": region, "subdomain": subdomain},
             prefix=prefix,
         )
 
@@ -686,6 +711,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             api_key = request.data.get("api_key", "")
             email_address = request.data.get("email_address", "")
             if not validate_zendesk_credentials(subdomain=subdomain, api_key=api_key, email_address=email_address):
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Invalid credentials: Zendesk credentials are incorrect"},
+                )
+        elif source_type == ExternalDataSource.Type.VITALLY:
+            secret_token = request.data.get("secret_token", "")
+            region = request.data.get("region", "")
+            subdomain = request.data.get("subdomain", "")
+            if not validate_vitally_credentials(subdomain=subdomain, secret_token=secret_token, region=region):
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": "Invalid credentials: Zendesk credentials are incorrect"},
