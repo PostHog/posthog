@@ -109,10 +109,10 @@ export class PropertyDefinitionsManager {
         })
         this.propertyDefinitionsCache = new PropertyDefinitionsCache(serverConfig)
 
-        if (serverConfig.SKIP_DEFINITIONS_FOR_TEAM_IDS.length > 0) {
-            this.teamIdsToSkip = new Set(
-                serverConfig.SKIP_DEFINITIONS_FOR_TEAM_IDS.split(',').map((id) => parseInt(id))
-            )
+        const skipTeams = serverConfig.SKIP_DEFINITIONS_FOR_TEAM_IDS ?? ''
+
+        if (skipTeams.length > 0) {
+            this.teamIdsToSkip = new Set(skipTeams.split(',').map((id) => parseInt(id)))
         }
     }
 
