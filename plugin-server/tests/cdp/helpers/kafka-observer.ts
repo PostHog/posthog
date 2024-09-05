@@ -1,5 +1,6 @@
 import { KafkaConsumer, Message } from 'node-rdkafka'
 
+import { createAdminClient, ensureTopicExists } from '../../../src/kafka/admin'
 import { createRdConnectionConfigFromEnvVars } from '../../../src/kafka/config'
 import { createKafkaConsumer } from '../../../src/kafka/consumer'
 import { Hub } from '../../../src/types'
@@ -20,6 +21,9 @@ export const createKafkaObserver = async (hub: Hub, topics: string[]): Promise<T
         ...createRdConnectionConfigFromEnvVars(hub),
         'group.id': `test-group-${new UUIDT().toString()}`,
     })
+
+    const adminClient = createAdminClient(createRdConnectionConfigFromEnvVars(hub))
+    await Promise.all(topics.map((topic) => ensureTopicExists(adminClient, topic, 1000)))
 
     consumer.connect()
     consumer.subscribe(topics)
