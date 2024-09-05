@@ -24,6 +24,7 @@ export const createKafkaObserver = async (hub: Hub, topics: string[]): Promise<T
 
     const adminClient = createAdminClient(createRdConnectionConfigFromEnvVars(hub))
     await Promise.all(topics.map((topic) => ensureTopicExists(adminClient, topic, 1000)))
+    adminClient.disconnect()
 
     consumer.connect()
     consumer.subscribe(topics)
