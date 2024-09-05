@@ -168,6 +168,11 @@ jobs:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
               run: cd plugin-server && pnpm setup:test
 
+            - name: Run Cyclotron
+              env:
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_cyclotron'
+              run: ./bin/run-cyclotron &
+
             - name: Test with Jest
               env:
                   # Below DB name has `test_` prepended, as that's how Django (ran above) creates the test DB
