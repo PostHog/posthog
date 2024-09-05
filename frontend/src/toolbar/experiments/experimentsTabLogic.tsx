@@ -5,30 +5,20 @@ import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
-import { experimentsLogic } from '~/toolbar/experiments/experimentsLogic'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
+import { experimentsLogic } from '~/toolbar/experiments/experimentsLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ExperimentDraftType, ExperimentForm, WebExperiment, WebExperimentVariant } from '~/toolbar/types'
-import {
-    experimentStepToExperimentStepFormItem,
-    elementToExperimentStep,
-    stepToDatabaseFormat,
-    elementToQuery,
-} from '~/toolbar/utils'
-import { Experiment, ElementType } from '~/types'
+import { elementToQuery } from '~/toolbar/utils'
+import { ElementType, Experiment } from '~/types'
 
 import type { experimentsTabLogicType } from './experimentsTabLogicType'
 
-function newExperiment(element: HTMLElement | null, dataAttributes: string[] = []): ExperimentDraftType {
+function newExperiment(): ExperimentDraftType {
     return {
-        name: '',
-        // steps: [
-        //     element
-        //         ? experimentStepToExperimentStepFormItem(elementToExperimentStep(element, dataAttributes), true)
-        //         : {},
-        // ],
-    }
+        name: 'new experiment',
+    } as unknown as ExperimentDraftType
 }
 
 function toElementsChain(element: HTMLElement): ElementType[] {
@@ -170,7 +160,6 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                 name: !name || !name.length ? 'Must name this experiment' : undefined,
             }),
             submit: async (formValues, breakpoint) => {
-                console.log(`submitting form, experiment is `, formValues)
                 const experimentToSave = {
                     ...formValues,
                 }
@@ -211,11 +200,9 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
 
     selectors({
         editingSelectorValue: [
-            (s) => [s.editingSelector, s.experimentForm],
-            (editingSelector, experimentForm): string | null => {
-                console.log(`getting editingSelectorValue`)
+            (s) => [s.editingSelector],
+            (editingSelector): string | null => {
                 if (editingSelector === null) {
-                    console.log(`returning because editingSelector is null`)
                     return null
                 }
                 const selector = '#set-user-properties'
@@ -233,15 +220,10 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
             },
         ],
         selectedExperiment: [
-            (s) => [s.selectedExperimentId, s.newExperimentForElement, s.allExperiments, s.dataAttributes],
-            (
-                selectedExperimentId,
-                newExperimentForElement,
-                allExperiments,
-                dataAttributes
-            ): Experiment | ExperimentDraftType | null => {
+            (s) => [s.selectedExperimentId, s.allExperiments],
+            (selectedExperimentId, allExperiments: WebExperiment[]): Experiment | ExperimentDraftType | null => {
                 if (selectedExperimentId === 'new') {
-                    return newExperiment(newExperimentForElement, dataAttributes)
+                    return newExperiment()
                 }
                 return allExperiments.find((a) => a.id === selectedExperimentId) || null
             },
@@ -250,20 +232,9 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
 
     subscriptions(({ actions }) => ({
         selectedExperiment: (selectedExperiment: Experiment | ExperimentDraftType | null) => {
-            console.log(`latest: selectedExperiment is `, selectedExperiment)
             if (!selectedExperiment) {
                 actions.setExperimentFormValues({ name: '', variants: {} })
             } else {
-                // const webExperiment = (selectedExperiment as WebExperiment)
-                // actions.setExperimentFormValues({
-                //     ...selectedExperiment,
-                //     elements: selectedExperiment.variants
-                //         ? selectedExperiment.elements.map((element) =>
-                //               experimentStepToExperimentStepFormItem(step, false)
-                //           )
-                //         : [{}],
-                // })
-
                 actions.setExperimentFormValues({
                     name: selectedExperiment.name,
                     variants: (selectedExperiment as WebExperiment).variants
@@ -276,7 +247,6 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
 
     listeners(({ actions, values }) => ({
         setElementSelector: ({ selector, index }) => {
-            console.log(`in setElementSelector`)
             if (values.experimentForm) {
                 const steps = [...(values.experimentForm.steps || [])]
                 if (steps && steps[index]) {
@@ -300,42 +270,24 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
         },
         newExperiment: () => {
             // if (!values.buttonExperimentsVisible) {
-                actions.showButtonExperiments()
+            actions.showButtonExperiments()
             // }
             toolbarLogic.actions.setVisibleMenu('experiments')
         },
         inspectElementSelected: ({ element, variant, index }) => {
-            console.log(
-                `experimentsTabLogic: in  inspectElementsSelected, element is `,
-                element,
-                ` index is `,
-                index,
-                ` variant is `,
-                variant
-            )
             if (values.experimentForm) {
-                const experimentStep = experimentStepToExperimentStepFormItem(
-                    elementToExperimentStep(element, values.dataAttributes),
-                    true
-                )
-                // const newVariants = (values.experimentForm.variants || []).map((step, i) =>
-                //     // null index implicitly means "new step front of the list"
-                //     i === (index ?? 0) ? experimentStep : step
-                // )
-
                 for (const eVariant in values.experimentForm.variants) {
                     if (eVariant === variant) {
                         if (index && values.experimentForm.variants[eVariant].transforms.length <= index) {
-                            values.experimentForm.variants[eVariant].transforms[index - 1].selector = element.id
-                                ? `#${element.id}`
-                                : elementToQuery(element, [])
+                            const transform = values.experimentForm.variants[eVariant].transforms[index - 1]
+                            transform.selector = element.id ? `#${element.id}` : elementToQuery(element, [])
+                            if (element.textContent) {
+                                transform.text = element.textContent
+                            }
                             actions.setExperimentFormValue('variants', values.experimentForm.variants)
                         }
                     }
                 }
-                // const variant = values.experimentForm.variants.fin
-
-                // actions.setExperimentFormValue('steps', newSteps)
                 actions.incrementVariantCounter()
             }
         },

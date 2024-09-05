@@ -4,10 +4,9 @@ import { loaders } from 'kea-loaders'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
-// import { WebExperiment } from '~/types'
+import { WebExperiment } from '~/toolbar/types'
 
 import type { experimentsLogicType } from './experimentsLogicType'
-import { WebExperiment } from '~/toolbar/types'
 
 export const experimentsLogic = kea<experimentsLogicType>([
     path(['toolbar', 'experiments', 'experimentsLogic']),
@@ -34,7 +33,6 @@ export const experimentsLogic = kea<experimentsLogicType>([
                         throw new Error('Error loading experiments!')
                     }
 
-                    console.log(`results.results is `, results.results)
                     return results.results
                 },
                 updateExperiment: ({ experiment }: { experiment: WebExperiment }) => {

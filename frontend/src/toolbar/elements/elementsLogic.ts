@@ -4,6 +4,7 @@ import { collectAllElementsDeep } from 'query-selector-shadow-dom'
 
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
+import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
@@ -12,7 +13,6 @@ import { ActionElementWithMetadata, ElementWithMetadata } from '~/toolbar/types'
 import { elementToActionStep, getAllClickTargets, getElementForStep, getRectForElement } from '../utils'
 import type { elementsLogicType } from './elementsLogicType'
 import { heatmapLogic } from './heatmapLogic'
-import {experimentsTabLogic} from "~/toolbar/experiments/experimentsTabLogic";
 
 export type ActionElementMap = Map<HTMLElement, ActionElementWithMetadata[]>
 export type ElementMap = Map<HTMLElement, ElementWithMetadata>
@@ -103,9 +103,8 @@ export const elementsLogic = kea<elementsLogicType>([
         activeMetaIsSelected: [
             (s) => [s.selectedElementMeta, s.activeMeta],
             (selectedElementMeta, activeMeta) => {
-                console.log(`elementsLogic: in activeMetaIsSelected, value is `, !!selectedElementMeta && !!activeMeta && selectedElementMeta.element === activeMeta.element)
                 return !!selectedElementMeta && !!activeMeta && selectedElementMeta.element === activeMeta.element
-            }
+            },
         ],
         inspectEnabled: [
             (s) => [
@@ -114,10 +113,18 @@ export const elementsLogic = kea<elementsLogicType>([
                 actionsTabLogic.selectors.buttonActionsVisible,
                 experimentsTabLogic.selectors.inspectingElement,
             ],
-            (inspectEnabledRaw, actionsInspectingElement, actionsButtonActionsVisible, experimentsInspectingElement) => {
-                console.log(`elementsLogic: enabling inspect, value is `, experimentsInspectingElement)
-                return inspectEnabledRaw || (actionsButtonActionsVisible && actionsInspectingElement !== null) || experimentsInspectingElement
-            }
+            (
+                inspectEnabledRaw,
+                actionsInspectingElement,
+                actionsButtonActionsVisible,
+                experimentsInspectingElement
+            ) => {
+                return (
+                    inspectEnabledRaw ||
+                    (actionsButtonActionsVisible && actionsInspectingElement !== null) ||
+                    experimentsInspectingElement
+                )
+            },
         ],
 
         heatmapEnabled: [() => [heatmapLogic.selectors.heatmapEnabled], (heatmapEnabled) => heatmapEnabled],
@@ -148,7 +155,6 @@ export const elementsLogic = kea<elementsLogicType>([
         displayActionElements: [
             () => [actionsTabLogic.selectors.buttonActionsVisible],
             (buttonActionsVisible) => {
-                console.log(`elementsLogic: in displayActionElements`)
                 return buttonActionsVisible
             },
         ],
@@ -381,11 +387,9 @@ export const elementsLogic = kea<elementsLogicType>([
                 actionsTabLogic.values.buttonActionsVisible && actionsTabLogic.values.inspectingElement !== null
 
             const inspectForExperiment =
-                experimentsTabLogic.values.buttonExperimentsVisible && experimentsTabLogic.values.inspectingElement !== null
+                experimentsTabLogic.values.buttonExperimentsVisible &&
+                experimentsTabLogic.values.inspectingElement !== null
 
-            console.log(`elementsLogic: selectElement : experiments.inspectingElement is `,  experimentsTabLogic.values.inspectingElement,
-                ` inspectForExperiment is`, inspectForExperiment, `  selectedVariant is `, experimentsTabLogic.values.selectedVariant,
-                `buttonExperimentsVisible is `, experimentsTabLogic.values.buttonExperimentsVisible)
             if (inspectForAction) {
                 actions.setHoverElement(null)
                 if (element) {
@@ -398,7 +402,11 @@ export const elementsLogic = kea<elementsLogicType>([
             if (inspectForExperiment) {
                 actions.setHoverElement(null)
                 if (element) {
-                    experimentsTabLogic.actions.inspectElementSelected(element, experimentsTabLogic.values.selectedVariant, experimentsTabLogic.values.inspectingElement)
+                    experimentsTabLogic.actions.inspectElementSelected(
+                        element,
+                        experimentsTabLogic.values.selectedVariant,
+                        experimentsTabLogic.values.inspectingElement
+                    )
                 }
             }
 

@@ -1,12 +1,11 @@
-import {IconAIText, IconCode, IconMessage} from "@posthog/icons";
-import { Field } from 'kea-forms'
-import {LemonSegmentedButton, LemonSegmentedButtonOption} from 'lib/lemon-ui/LemonSegmentedButton'
+import { IconAIText, IconCode, IconMessage } from '@posthog/icons'
+import { useActions, useValues } from 'kea'
+import { LemonSegmentedButton, LemonSegmentedButtonOption } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
-import {useState} from "react";
+import { useState } from 'react'
 
-import {WebExperimentTransform} from '~/toolbar/types'
-import {useActions, useValues} from "kea";
-import {experimentsTabLogic} from "~/toolbar/experiments/experimentsTabLogic";
+import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
+import { WebExperimentTransform } from '~/toolbar/types'
 
 interface WebExperimentTransformFieldProps {
     variant: string
@@ -32,82 +31,81 @@ const ELEMENT_TRANSFORM_OPTIONS: LemonSegmentedButtonOption<elementTransformKind
     },
 ]
 
-export function WebExperimentTransformField({ variant, tIndex, transform }: WebExperimentTransformFieldProps): JSX.Element {
-
-    const [transformSelected, setTransformSelected] = useState(transform.html ? "html": "text")
-    const {
-        experimentForm,
-    } = useValues(experimentsTabLogic)
-    const {
-        setExperimentFormValue,
-    } = useActions(experimentsTabLogic)
+export function WebExperimentTransformField({
+    variant,
+    tIndex,
+    transform,
+}: WebExperimentTransformFieldProps): JSX.Element {
+    const [transformSelected, setTransformSelected] = useState(transform.html ? 'html' : 'text')
+    const { experimentForm } = useValues(experimentsTabLogic)
+    const { setExperimentFormValue } = useActions(experimentsTabLogic)
     return (
         <>
-            <LemonSegmentedButton fullWidth options={ELEMENT_TRANSFORM_OPTIONS}
-                                  onChange={(e) => setTransformSelected(e)}
-            value ={transformSelected}/>
-            { transformSelected == 'text' && (
+            <LemonSegmentedButton
+                fullWidth
+                options={ELEMENT_TRANSFORM_OPTIONS}
+                onChange={(e) => setTransformSelected(e)}
+                value={transformSelected}
+            />
+            {transformSelected == 'text' && (
                 <LemonTextArea
-                    onChange={(value)=>{
-                        console.log(`changing text to ${value}`)
-                        if(experimentForm.variants) {
+                    onChange={(value) => {
+                        if (experimentForm.variants) {
                             const webVariant = experimentForm.variants[variant]
                             if (webVariant) {
                                 webVariant.transforms[tIndex].text = value
                                 if (transform.selector) {
-                                    const element =document.querySelector(transform.selector) as HTMLElement
+                                    const element = document.querySelector(transform.selector) as HTMLElement
                                     if (element) {
                                         element.innerText = value
                                     }
                                 }
                             }
                         }
-                        setExperimentFormValue('variants', experimentForm.variants )
+                        setExperimentFormValue('variants', experimentForm.variants)
                     }}
                     value={transform.text}
                 />
             )}
 
-            { transformSelected == 'html' && (
+            {transformSelected == 'html' && (
                 <LemonTextArea
-                    onChange={(value)=>{
-                        console.log(`changing html to ${value}`)
+                    onChange={(value) => {
                         transform.html = value
-                        if(experimentForm.variants) {
+                        if (experimentForm.variants) {
                             const webVariant = experimentForm.variants[variant]
                             if (webVariant) {
                                 webVariant.transforms[tIndex].html = value
                                 if (transform.selector) {
-                                    const element =document.querySelector(transform.selector) as HTMLElement
+                                    const element = document.querySelector(transform.selector) as HTMLElement
                                     if (element) {
                                         element.innerHTML = value
                                     }
                                 }
                             }
                         }
-                        setExperimentFormValue('variants', experimentForm.variants )
+                        setExperimentFormValue('variants', experimentForm.variants)
                     }}
                     value={transform.html}
                 />
             )}
 
-            { transformSelected == 'css' && (
+            {transformSelected == 'css' && (
                 <LemonTextArea
-                    onChange={(value)=>{
-                        console.log(`changing className to ${value}`)
-                        if(experimentForm.variants) {
+                    onChange={(value) => {
+                        if (experimentForm.variants) {
                             const webVariant = experimentForm.variants[variant]
                             if (webVariant) {
                                 webVariant.transforms[tIndex].className = value
                                 if (transform.selector) {
-                                    const element =document.querySelector(transform.selector) as HTMLElement
+                                    const element = document.querySelector(transform.selector) as HTMLElement
                                     if (element) {
                                         element.className = value
                                     }
                                 }
                             }
                         }
-                        setExperimentFormValue('variants', experimentForm.variants )
+                        setExperimentFormValue('variants', experimentForm.variants)
                     }}
                     value={transform.className}
                 />
