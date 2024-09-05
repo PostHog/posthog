@@ -1,17 +1,17 @@
 import { IconArrowRight } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonSkeleton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { IframedToolbarBrowser } from 'lib/components/IframedToolbarBrowser/IframedToolbarBrowser'
 import { iframedToolbarBrowserLogic } from 'lib/components/IframedToolbarBrowser/iframedToolbarBrowserLogic'
 import { useRef, useState } from 'react'
-import { DashboardTemplateVariables } from 'scenes/dashboard/DashboardTemplateVariables'
 import { dashboardTemplateVariablesLogic } from 'scenes/dashboard/dashboardTemplateVariablesLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
 import { OnboardingStepKey } from '../onboardingLogic'
 import { OnboardingStep } from '../OnboardingStep'
 import { sdksLogic } from '../sdks/sdksLogic'
+import { DashboardTemplateVariables } from './DashboardTemplateVariables'
 import { onboardingTemplateConfigLogic } from './onboardingTemplateConfigLogic'
 
 export const OnboardingDashboardTemplateConfigureStep = ({
@@ -23,11 +23,14 @@ export const OnboardingDashboardTemplateConfigureStep = ({
     const { activeDashboardTemplate } = useValues(onboardingTemplateConfigLogic)
     const { createDashboardFromTemplate } = useActions(newDashboardLogic)
     const { isLoading } = useValues(newDashboardLogic)
-    const { variables } = useValues(dashboardTemplateVariablesLogic)
     const { snippetHosts } = useValues(sdksLogic)
     const { addUrl } = useActions(authorizedUrlListLogic({ actionId: null, type: AuthorizedUrlListType.TOOLBAR_URLS }))
     const { setBrowserUrl } = useActions(iframedToolbarBrowserLogic({ iframeRef, clearBrowserUrlOnUnmount: true }))
     const { browserUrl } = useValues(iframedToolbarBrowserLogic({ iframeRef, clearBrowserUrlOnUnmount: true }))
+    const theDashboardTemplateVariablesLogic = dashboardTemplateVariablesLogic({
+        variables: activeDashboardTemplate?.variables || [],
+    })
+    const { variables, allVariablesAreTouched } = useValues(theDashboardTemplateVariablesLogic)
 
     const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -105,7 +108,15 @@ export const OnboardingDashboardTemplateConfigureStep = ({
                             )}
                         </div>
                         <div className="col-span-2">
-                            <DashboardTemplateVariables />
+                            <p>
+                                For each action below, select an element on your site that indicates when that action is
+                                taken, or enter a custom event name that you'll send using{' '}
+                                <Link to="https://posthog.com/docs/product-analytics/capture-events">
+                                    <code>posthog.capture()</code>
+                                </Link>{' '}
+                                (no need to send it now) .
+                            </p>
+                            <DashboardTemplateVariables hasSelectedSite={!!browserUrl} />
                             <LemonButton
                                 type="primary"
                                 status="alt"
@@ -119,6 +130,7 @@ export const OnboardingDashboardTemplateConfigureStep = ({
                                 fullWidth
                                 center
                                 className="mt-6"
+                                disabledReason={!allVariablesAreTouched && 'Please select an event for each variable'}
                             >
                                 Create dashboard
                             </LemonButton>

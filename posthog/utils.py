@@ -58,6 +58,7 @@ if TYPE_CHECKING:
     from posthog.models import Team, User
 
 DATERANGE_MAP = {
+    "second": datetime.timedelta(seconds=1),
     "minute": datetime.timedelta(minutes=1),
     "hour": datetime.timedelta(hours=1),
     "day": datetime.timedelta(days=1),
