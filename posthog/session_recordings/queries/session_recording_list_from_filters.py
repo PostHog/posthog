@@ -173,11 +173,10 @@ class SessionRecordingListFromFilters:
         ]
 
     def _order_by_clause(self) -> ast.OrderExpr:
-        field = "start_time" if self._filter.order == "latest" else self._filter.order
         expr = (
             ast.Call(name="sipHash64", args=[ast.Field(chain=["session_id"])])
             if self._filter.order == "random_sample"
-            else ast.Field(chain=[field])
+            else ast.Field(chain=[self._filter.order])
         )
         return ast.OrderExpr(expr=expr, order="DESC")
 

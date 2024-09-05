@@ -296,7 +296,7 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
     person_uuid?: string
     order:
         | DurationType
-        | 'latest'
+        | 'start_time'
         | 'console_error_count'
         | 'click_count'
         | 'keypress_count'
