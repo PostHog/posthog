@@ -244,7 +244,7 @@ LOGIN_URL = "/login"
 LOGOUT_URL = "/logout"
 LOGIN_REDIRECT_URL = "/"
 APPEND_SLASH = False
-CORS_URLS_REGEX = r"^/api/(?!early_access_features|surveys|experiments).*$"
+CORS_URLS_REGEX = r"^/api/(?!early_access_features|surveys|toolbar_experiments).*$"
 CORS_ALLOW_HEADERS = default_headers + CORS_ALLOWED_TRACING_HEADERS
 X_FRAME_OPTIONS = "SAMEORIGIN"
 

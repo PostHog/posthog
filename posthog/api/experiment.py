@@ -99,6 +99,24 @@ class ExperimentsAPISerializer(serializers.ModelSerializer):
             'name': validated_data.get('name', ''),
             'description': '',
             'type': 'web',
+            'filters': {
+                'events': [
+                    {
+                        'type': 'events',
+                        'id': '$pageview',
+                        'order': 0,
+                        'name': '$pageview'
+                    }
+                ],
+                "layout": "horizontal",
+                "date_to": "2024-09-05T23:59",
+                "insight": "FUNNELS",
+                "interval": "day",
+                "date_from": "2024-08-22T10:44",
+                "entity_type": "events",
+                "funnel_viz_type": "steps",
+                "filter_test_accounts": True
+            }
         }
         variants = validated_data.get("variants", None)
         multivariant_variants = self.extract_transforms(validated_data)
@@ -106,14 +124,7 @@ class ExperimentsAPISerializer(serializers.ModelSerializer):
             "groups": [{"properties": [], "rollout_percentage": 100}],
             "payloads": multivariant_variants.get('payloads', None),
             "multivariate": multivariant_variants.get('variants', None),
-            'events': [
-                {
-                    'type': 'events',
-                    'id': '$pageview',
-                    'order': 0,
-                    'name': '$pageview'
-                }
-            ]
+
         }
 
         for variant, transforms in variants.items():
