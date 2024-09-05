@@ -337,13 +337,13 @@ export const parseKafkaBatch = async (
         const newEventsByWindowId: IncomingRecordingMessage['eventsByWindowId'] = Object.entries(
             existingMessage.eventsByWindowId
         ).reduce((acc, [windowId, events]) => {
-            acc[windowId] = [...events]
+            acc[windowId] = ([] as RRWebEvent[]).concat(events)
             return acc
         }, {} as IncomingRecordingMessage['eventsByWindowId'])
 
         for (const [windowId, events] of Object.entries(parsedMessage.eventsByWindowId)) {
             newEventsByWindowId[windowId] = newEventsByWindowId[windowId] || []
-            newEventsByWindowId[windowId].push(...events)
+            newEventsByWindowId[windowId].concat(events)
         }
 
         existingMessage.eventsByWindowId = newEventsByWindowId
