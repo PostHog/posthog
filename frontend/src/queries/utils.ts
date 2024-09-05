@@ -204,7 +204,7 @@ export function isQueryForGroup(query: PersonsNode | ActorsQuery): boolean {
 }
 
 export function isAsyncResponse(response: NonNullable<QuerySchema['response']>): response is QueryStatusResponse {
-    return 'query_status' in response
+    return 'query_status' in response && response.query_status
 }
 
 export function isInsightQueryWithSeries(
