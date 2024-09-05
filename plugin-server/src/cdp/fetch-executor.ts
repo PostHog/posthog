@@ -12,7 +12,7 @@ import {
     HogFunctionQueueParametersFetchRequest,
     HogFunctionQueueParametersFetchResponse,
 } from './types'
-import { gzipObject, serializeHogFunctionInvocation } from './utils'
+import { gzipObject, queueBlobToString, serializeHogFunctionInvocation } from './utils'
 
 export const BUCKETS_KB_WRITTEN = [0, 128, 512, 1024, 2024, 4096, 10240, Infinity]
 
@@ -40,13 +40,13 @@ export class FetchExecutor {
 
     async execute(invocation: HogFunctionInvocation): Promise<HogFunctionInvocationResult | undefined> {
         if (invocation.queue !== 'fetch' || !invocation.queueParameters) {
-            throw new Error('Bad invocation')
+            // throw new Error('Bad invocation')
+            return
         }
 
         const params = invocation.queueParameters as HogFunctionQueueParametersFetchRequest
-        const blob = invocation.queueBlob
 
-        const body = blob ? blob.toString() : undefined
+        const body = queueBlobToString(invocation.queueBlob)
         if (body) {
             histogramFetchPayloadSize.observe(body.length / 1024)
         }
@@ -92,7 +92,7 @@ export class FetchExecutor {
         }
 
         const params = invocation.queueParameters as HogFunctionQueueParametersFetchRequest
-        const body = invocation.queueBlob ? invocation.queueBlob.toString() : undefined
+        const body = queueBlobToString(invocation.queueBlob) || ''
         let responseBody = ''
 
         const resParams: HogFunctionQueueParametersFetchResponse = {

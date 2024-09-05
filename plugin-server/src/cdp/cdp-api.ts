@@ -9,7 +9,7 @@ import { HogExecutor } from './hog-executor'
 import { HogFunctionManager } from './hog-function-manager'
 import { HogWatcher, HogWatcherState } from './hog-watcher'
 import { HogFunctionInvocationResult, HogFunctionType, LogEntry } from './types'
-import { createInvocation } from './utils'
+import { createInvocation, queueBlobToString } from './utils'
 
 export class CdpApi {
     private hogExecutor: HogExecutor
@@ -148,7 +148,7 @@ export class CdpApi {
                         // Re-parse the fetch args for the logging
                         const fetchArgs = {
                             ...invocation.queueParameters,
-                            body: invocation.queueBlob?.toString(),
+                            body: queueBlobToString(invocation.queueBlob),
                         }
 
                         response = {

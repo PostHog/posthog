@@ -14,7 +14,7 @@ import {
     HogFunctionQueueParametersFetchResponse,
     HogFunctionType,
 } from './types'
-import { convertToHogFunctionFilterGlobal } from './utils'
+import { convertToHogFunctionFilterGlobal, queueBlobToString } from './utils'
 
 const MAX_ASYNC_STEPS = 2
 const MAX_HOG_LOGS = 10
@@ -163,7 +163,7 @@ export class HogExecutor {
                 let responseBody: any = undefined
                 if (response) {
                     // Convert from buffer to string
-                    responseBody = invocation.queueBlob ? Buffer.from(invocation.queueBlob).toString() : undefined
+                    responseBody = queueBlobToString(invocation.queueBlob)
                 }
 
                 // Reset the queue parameters to be sure
@@ -341,16 +341,18 @@ export class HogExecutor {
                             const headers = fetchOptions?.headers || {
                                 'Content-Type': 'application/json',
                             }
-                            let body = fetchOptions?.body
                             // Modify the body to ensure it is a string (we allow Hog to send an object to keep things simple)
-                            body = body ? (typeof body === 'string' ? body : JSON.stringify(body)) : body
+                            const body: string | undefined = fetchOptions?.body
+                                ? typeof fetchOptions.body === 'string'
+                                    ? fetchOptions.body
+                                    : JSON.stringify(fetchOptions.body)
+                                : fetchOptions?.body
 
                             result.invocation.queue = 'fetch'
                             result.invocation.queueParameters = {
                                 url,
                                 method,
                                 headers,
-                                // body,
                                 return_queue: 'hog',
                             }
                             // The payload is always blob encoded

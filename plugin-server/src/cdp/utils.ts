@@ -240,3 +240,7 @@ export function serializeHogFunctionInvocation(invocation: HogFunctionInvocation
 
     return serializedInvocation
 }
+
+export function queueBlobToString(blob?: HogFunctionInvocation["queueBlob"]): string | undefined {
+    return blob ? Buffer.from(blob).toString('utf-8') : undefined
+}

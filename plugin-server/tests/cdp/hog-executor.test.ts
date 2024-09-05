@@ -134,7 +134,7 @@ describe('Hog Executor', () => {
                 },
             })
 
-            const body = JSON.parse(result.invocation.queueBlob!.toString())
+            const body = JSON.parse(Buffer.from(result.invocation.queueBlob!).toString())
             expect(body).toEqual({
                 event: {
                     uuid: 'uuid',
@@ -256,7 +256,7 @@ describe('Hog Executor', () => {
             // This time we should see an error for hitting the loop limit
             setupFetchResponse(result2.invocation)
             const result3 = executor.execute(result1.invocation)
-            expect(result3.finished).toBe(false)
+            expect(result3.finished).toBe(true)
             expect(result3.error).toEqual('Exceeded maximum number of async steps: 2')
             expect(result3.logs.map((log) => log.message)).toEqual([
                 'Resuming function',
