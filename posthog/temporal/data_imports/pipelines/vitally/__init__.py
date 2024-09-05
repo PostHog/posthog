@@ -1,4 +1,5 @@
 import base64
+from dateutil import parser
 from typing import Any, Optional
 import dlt
 from dlt.sources.helpers.rest_client.paginators import BasePaginator
@@ -23,7 +24,18 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "endpoint": {
                 "data_selector": "results",
                 "path": "/resources/organizations",
-                "params": {"limit": 100, "sortBy": "updatedAt"},
+                "params": {
+                    "limit": 100,
+                    "sortBy": "updatedAt",
+                    "updatedAt": {
+                        "type": "incremental",
+                        "cursor_path": "updatedAt",
+                        "initial_value": "1970-01-01",  # type: ignore
+                        "convert": lambda x: parser.parse(x).timestamp(),
+                    }
+                    if is_incremental
+                    else None,
+                },
             },
             "table_format": "delta",
         },
@@ -40,7 +52,18 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "endpoint": {
                 "data_selector": "results",
                 "path": "/resources/accounts",
-                "params": {"limit": 100, "sortBy": "updatedAt"},
+                "params": {
+                    "limit": 100,
+                    "sortBy": "updatedAt",
+                    "updatedAt": {
+                        "type": "incremental",
+                        "cursor_path": "updatedAt",
+                        "initial_value": "1970-01-01",  # type: ignore
+                        "convert": lambda x: parser.parse(x).timestamp(),
+                    }
+                    if is_incremental
+                    else None,
+                },
             },
             "table_format": "delta",
         },
@@ -57,7 +80,18 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "endpoint": {
                 "data_selector": "results",
                 "path": "/resources/users",
-                "params": {"limit": 100, "sortBy": "updatedAt"},
+                "params": {
+                    "limit": 100,
+                    "sortBy": "updatedAt",
+                    "updatedAt": {
+                        "type": "incremental",
+                        "cursor_path": "updatedAt",
+                        "initial_value": "1970-01-01",  # type: ignore
+                        "convert": lambda x: parser.parse(x).timestamp(),
+                    }
+                    if is_incremental
+                    else None,
+                },
             },
             "table_format": "delta",
         },
@@ -74,7 +108,18 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "endpoint": {
                 "data_selector": "results",
                 "path": "/resources/conversations",
-                "params": {"limit": 100, "sortBy": "updatedAt"},
+                "params": {
+                    "limit": 100,
+                    "sortBy": "updatedAt",
+                    "updatedAt": {
+                        "type": "incremental",
+                        "cursor_path": "updatedAt",
+                        "initial_value": "1970-01-01",  # type: ignore
+                        "convert": lambda x: parser.parse(x).timestamp(),
+                    }
+                    if is_incremental
+                    else None,
+                },
             },
             "table_format": "delta",
         },
@@ -91,7 +136,18 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "endpoint": {
                 "data_selector": "results",
                 "path": "/resources/notes",
-                "params": {"limit": 100, "sortBy": "updatedAt"},
+                "params": {
+                    "limit": 100,
+                    "sortBy": "updatedAt",
+                    "updatedAt": {
+                        "type": "incremental",
+                        "cursor_path": "updatedAt",
+                        "initial_value": "1970-01-01",  # type: ignore
+                        "convert": lambda x: parser.parse(x).timestamp(),
+                    }
+                    if is_incremental
+                    else None,
+                },
             },
             "table_format": "delta",
         },
@@ -108,7 +164,18 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "endpoint": {
                 "data_selector": "results",
                 "path": "/resources/projects",
-                "params": {"limit": 100, "sortBy": "updatedAt"},
+                "params": {
+                    "limit": 100,
+                    "sortBy": "updatedAt",
+                    "updatedAt": {
+                        "type": "incremental",
+                        "cursor_path": "updatedAt",
+                        "initial_value": "1970-01-01",  # type: ignore
+                        "convert": lambda x: parser.parse(x).timestamp(),
+                    }
+                    if is_incremental
+                    else None,
+                },
             },
             "table_format": "delta",
         },
@@ -125,7 +192,18 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "endpoint": {
                 "data_selector": "results",
                 "path": "/resources/tasks",
-                "params": {"limit": 100, "sortBy": "updatedAt"},
+                "params": {
+                    "limit": 100,
+                    "sortBy": "updatedAt",
+                    "updatedAt": {
+                        "type": "incremental",
+                        "cursor_path": "updatedAt",
+                        "initial_value": "1970-01-01",  # type: ignore
+                        "convert": lambda x: parser.parse(x).timestamp(),
+                    }
+                    if is_incremental
+                    else None,
+                },
             },
             "table_format": "delta",
         },
@@ -142,7 +220,18 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "endpoint": {
                 "data_selector": "results",
                 "path": "/resources/npsResponses",
-                "params": {"limit": 100, "sortBy": "updatedAt"},
+                "params": {
+                    "limit": 100,
+                    "sortBy": "updatedAt",
+                    "updatedAt": {
+                        "type": "incremental",
+                        "cursor_path": "updatedAt",
+                        "initial_value": "1970-01-01",  # type: ignore
+                        "convert": lambda x: parser.parse(x).timestamp(),
+                    }
+                    if is_incremental
+                    else None,
+                },
             },
             "table_format": "delta",
         },
@@ -159,7 +248,18 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "endpoint": {
                 "data_selector": "results",
                 "path": "/resources/customObjects",
-                "params": {"limit": 100, "sortBy": "updatedAt"},
+                "params": {
+                    "limit": 100,
+                    "sortBy": "updatedAt",
+                    "updatedAt": {
+                        "type": "incremental",
+                        "cursor_path": "updatedAt",
+                        "initial_value": "1970-01-01",  # type: ignore
+                        "convert": lambda x: parser.parse(x).timestamp(),
+                    }
+                    if is_incremental
+                    else None,
+                },
             },
             "table_format": "delta",
         },
@@ -175,11 +275,25 @@ class VitallyPaginator(BasePaginator):
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         res = response.json()
 
+        current_source = dlt.current.get_source()
+        resources = current_source.resources
+        current_resource = next(iter(resources.values()))
+        incremental = current_resource.incremental.incremental
+
         self._cursor = None
 
         if not res:
             self._has_next_page = False
             return
+
+        if incremental:
+            updated_at_str = res["results"][0]["updatedAt"]
+            updated_at = parser.parse(updated_at_str).timestamp()
+            start_value = parser.parse(incremental.start_value).timestamp()
+
+            if start_value >= updated_at:
+                self._has_next_page = False
+                return
 
         if res["next"]:
             self._has_next_page = True
