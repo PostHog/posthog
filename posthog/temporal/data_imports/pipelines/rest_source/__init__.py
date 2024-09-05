@@ -23,7 +23,6 @@ from dlt.sources.helpers.rest_client.client import RESTClient
 from dlt.sources.helpers.rest_client.paginators import BasePaginator
 from dlt.sources.helpers.rest_client.typing import HTTPMethodBasic
 
-from posthog.temporal.data_imports.pipelines.helpers import is_job_cancelled
 from .typing import (
     ClientConfig,
     ResolvedParam,
@@ -259,9 +258,6 @@ def create_resources(
             ) -> AsyncGenerator[Iterator[Any], Any]:
                 yield dlt.mark.materialize_table_schema()  # type: ignore
 
-                if await is_job_cancelled(team_id=team_id, job_id=job_id):
-                    return
-
                 if incremental_object:
                     params = _set_incremental_params(
                         params,
@@ -314,9 +310,6 @@ def create_resources(
                 incremental_cursor_transform: Optional[Callable[..., Any]] = incremental_cursor_transform,
             ) -> AsyncGenerator[Any, Any]:
                 yield dlt.mark.materialize_table_schema()  # type: ignore
-
-                if await is_job_cancelled(team_id=team_id, job_id=job_id):
-                    return
 
                 if incremental_object:
                     params = _set_incremental_params(

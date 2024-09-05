@@ -685,3 +685,136 @@ async def test_postgres_schema_evolution(team, postgres_config, postgres_connect
     assert any(x == "new_col" for x in columns)
     assert any(x == "_dlt_id" for x in columns)
     assert any(x == "_dlt_load_id" for x in columns)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_sql_database_missing_incremental_values(team, postgres_config, postgres_connection):
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.test_table (id integer)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.test_table (id) VALUES (1)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.test_table (id) VALUES (null)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.commit()
+
+    await _run(
+        team=team,
+        schema_name="test_table",
+        table_name="postgres_test_table",
+        source_type="Postgres",
+        job_inputs={
+            "host": postgres_config["host"],
+            "port": postgres_config["port"],
+            "database": postgres_config["database"],
+            "user": postgres_config["user"],
+            "password": postgres_config["password"],
+            "schema": postgres_config["schema"],
+            "ssh_tunnel_enabled": "False",
+        },
+        mock_data_response=[],
+        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
+    )
+
+    res = await sync_to_async(execute_hogql_query)("SELECT * FROM postgres_test_table", team)
+    columns = res.columns
+
+    assert columns is not None
+    assert len(columns) == 3
+    assert any(x == "id" for x in columns)
+    assert any(x == "_dlt_id" for x in columns)
+    assert any(x == "_dlt_load_id" for x in columns)
+
+    # Exclude rows that don't have the incremental cursor key set
+    assert len(res.results) == 1
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_sql_database_incremental_initual_value(team, postgres_config, postgres_connection):
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.test_table (id integer)".format(schema=postgres_config["schema"])
+    )
+    # Setting `id` to `0` - the same as an `integer` incremental initial value
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.test_table (id) VALUES (0)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.commit()
+
+    await _run(
+        team=team,
+        schema_name="test_table",
+        table_name="postgres_test_table",
+        source_type="Postgres",
+        job_inputs={
+            "host": postgres_config["host"],
+            "port": postgres_config["port"],
+            "database": postgres_config["database"],
+            "user": postgres_config["user"],
+            "password": postgres_config["password"],
+            "schema": postgres_config["schema"],
+            "ssh_tunnel_enabled": "False",
+        },
+        mock_data_response=[],
+        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
+    )
+
+    res = await sync_to_async(execute_hogql_query)("SELECT * FROM postgres_test_table", team)
+    columns = res.columns
+
+    assert columns is not None
+    assert len(columns) == 3
+    assert any(x == "id" for x in columns)
+    assert any(x == "_dlt_id" for x in columns)
+    assert any(x == "_dlt_load_id" for x in columns)
+
+    # Include rows that have the same incremental value as the `initial_value`
+    assert len(res.results) == 1
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_billing_limits(team, stripe_customer):
+    source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=uuid.uuid4(),
+        connection_id=uuid.uuid4(),
+        destination_id=uuid.uuid4(),
+        team=team,
+        status="running",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+    )
+
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        name="Customer",
+        team_id=team.pk,
+        source_id=source.pk,
+        sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        sync_type_config={},
+    )
+
+    workflow_id = str(uuid.uuid4())
+    inputs = ExternalDataWorkflowInputs(
+        team_id=team.id,
+        external_data_source_id=source.pk,
+        external_data_schema_id=schema.id,
+    )
+
+    with mock.patch(
+        "posthog.temporal.data_imports.workflow_activities.check_billing_limits.list_limited_team_attributes",
+    ) as mock_list_limited_team_attributes:
+        mock_list_limited_team_attributes.return_value = [team.api_token]
+
+        await _execute_run(workflow_id, inputs, stripe_customer["data"])
+
+    job: ExternalDataJob = await sync_to_async(ExternalDataJob.objects.get)(team_id=team.id, schema_id=schema.pk)
+
+    assert job.status == ExternalDataJob.Status.CANCELLED
+
+    with pytest.raises(Exception):
+        await sync_to_async(execute_hogql_query)("SELECT * FROM stripe_customer", team)

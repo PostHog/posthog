@@ -13,7 +13,7 @@ export function snippetFunctions(): string {
         if (
             typeof posthogPrototype[key] === 'function' &&
             !key.startsWith('_') &&
-            !['constructor', 'toString'].includes(key)
+            !['constructor', 'toString', 'push'].includes(key)
         ) {
             methods.push(key)
         }

@@ -171,7 +171,7 @@ openapi-schema-validator==0.6.2
     # via openapi-spec-validator
 openapi-spec-validator==0.7.1
     # via -r requirements-dev.in
-packaging==23.1
+packaging==24.1
     # via
     #   -c requirements.txt
     #   -r requirements-dev.in
