@@ -386,6 +386,20 @@ STL: dict[str, STLFunction] = {
     "replaceAll": STLFunction(
         fn=lambda args, team, stdout, timeout: args[0].replace(args[1], args[2]), minArgs=3, maxArgs=3
     ),
+    "position": STLFunction(
+        fn=lambda args, team, stdout, timeout: (args[0].index(str(args[1])) + 1)
+        if isinstance(args[0], str) and str(args[1]) in args[0]
+        else 0,
+        minArgs=2,
+        maxArgs=2,
+    ),
+    "positionCaseInsensitive": STLFunction(
+        fn=lambda args, team, stdout, timeout: (args[0].lower().index(str(args[1]).lower()) + 1)
+        if isinstance(args[0], str) and str(args[1]).lower() in args[0].lower()
+        else 0,
+        minArgs=2,
+        maxArgs=2,
+    ),
     "trim": STLFunction(fn=trim, minArgs=1, maxArgs=2),
     "trimLeft": STLFunction(fn=trimLeft, minArgs=1, maxArgs=2),
     "trimRight": STLFunction(fn=trimRight, minArgs=1, maxArgs=2),
@@ -398,6 +412,13 @@ STL: dict[str, STLFunction] = {
     ),
     "keys": STLFunction(fn=keys, minArgs=1, maxArgs=1),
     "values": STLFunction(fn=values, minArgs=1, maxArgs=1),
+    "indexOf": STLFunction(
+        fn=lambda args, team, stdout, timeout: (args[0].index(args[1]) + 1)
+        if isinstance(args[0], list) and args[1] in args[0]
+        else 0,
+        minArgs=2,
+        maxArgs=2,
+    ),
     "arrayPushBack": STLFunction(fn=arrayPushBack, minArgs=2, maxArgs=2),
     "arrayPushFront": STLFunction(fn=arrayPushFront, minArgs=2, maxArgs=2),
     "arrayPopBack": STLFunction(fn=arrayPopBack, minArgs=1, maxArgs=1),
