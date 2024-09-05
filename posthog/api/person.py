@@ -405,7 +405,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             OpenApiParameter(
                 "distinct_ids",
                 OpenApiTypes.OBJECT,
-                description="A list of distinct ids. We'll delete all persons associated with those distinct ids. The maximum amount of ids you can pass in one call is 100.",
+                description="A list of distinct IDs, up to 100 of them. We'll delete all persons associated with those distinct IDs.",
             ),
             OpenApiParameter(
                 "ids",
