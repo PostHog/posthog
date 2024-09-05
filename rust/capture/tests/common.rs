@@ -26,7 +26,9 @@ use tokio::time::timeout;
 use tracing::{debug, warn};
 
 use capture::config::{CaptureMode, Config, KafkaConfig};
-use capture::limiters::redis::QuotaResource;
+use capture::limiters::redis::{
+    QuotaResource, OVERFLOW_LIMITER_CACHE_KEY, QUOTA_LIMITER_CACHE_KEY,
+};
 use capture::server::serve;
 
 pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
@@ -279,7 +281,27 @@ impl PrefixedRedis {
     }
 
     pub fn add_billing_limit(&self, res: QuotaResource, token: &str, until: time::Duration) {
-        let key = format!("{}@posthog/quota-limits/{}", self.key_prefix, res.as_str());
+        let key = format!(
+            "{}{}{}",
+            self.key_prefix,
+            QUOTA_LIMITER_CACHE_KEY,
+            res.as_str()
+        );
+        let score = OffsetDateTime::now_utc().add(until).unix_timestamp();
+        self.client
+            .get_connection()
+            .expect("failed to get connection")
+            .zadd::<String, i64, &str, i64>(key, token, score)
+            .expect("failed to insert in redis");
+    }
+
+    pub fn add_overflow_limit(&self, res: QuotaResource, token: &str, until: time::Duration) {
+        let key = format!(
+            "{}{}{}",
+            self.key_prefix,
+            OVERFLOW_LIMITER_CACHE_KEY,
+            res.as_str()
+        );
         let score = OffsetDateTime::now_utc().add(until).unix_timestamp();
         self.client
             .get_connection()
