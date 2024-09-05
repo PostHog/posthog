@@ -110,7 +110,9 @@ export class PropertyDefinitionsManager {
         this.propertyDefinitionsCache = new PropertyDefinitionsCache(serverConfig)
 
         this.teamIdsToSkip = new Set(
-            serverConfig.SKIP_DEFINITIONS_FOR_TEAM_IDS.trim()
+            // I have no idea why this is needed but otherwise I get ""
+            (serverConfig.SKIP_DEFINITIONS_FOR_TEAM_IDS ?? '')
+                .trim()
                 .split(',')
                 .map((id) => parseInt(id))
         )
