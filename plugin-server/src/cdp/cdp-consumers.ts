@@ -692,12 +692,6 @@ export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
                         })
                     )
 
-                    invocations.forEach((item) => {
-                        if (!item.hogFunction?.id) {
-                            console.error('No hog function id', item)
-                        }
-                    })
-
                     return invocations
                 },
             })
