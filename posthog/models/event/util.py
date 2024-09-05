@@ -173,7 +173,7 @@ def bulk_create_events(
         )
 
         #  use person properties mapping to populate person properties in given event
-        team_id = event["team"].pk
+        team_id = event.get("team_id") or event.get("team").pk
         person_mode = event.get("person_mode", "full")
         if person_mapping and person_mapping.get(event["distinct_id"]):
             person = person_mapping[event["distinct_id"]]

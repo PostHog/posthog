@@ -12,6 +12,7 @@ from posthog.kafka_client.topics import (
     KAFKA_LOG_ENTRIES,
 )
 from posthog.models.event.util import format_clickhouse_timestamp
+from posthog.test.base import _create_event
 from posthog.utils import cast_timestamp_or_now
 
 INSERT_SINGLE_SESSION_REPLAY = """
@@ -145,6 +146,14 @@ def produce_replay_summary(
         topic=KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
         sql=INSERT_SINGLE_SESSION_REPLAY,
         data=data,
+    )
+    # We also need to create a random analytics event, since sessions querying joins with events in
+    # any person-ID-on-events mode - sessions without an analytics event are excluded
+    _create_event(
+        distinct_id=data["distinct_id"],
+        event="foobarino",
+        properties={"$session_id": data["session_id"]},
+        team_id=team_id,
     )
 
     for level, messages in log_messages.items():
