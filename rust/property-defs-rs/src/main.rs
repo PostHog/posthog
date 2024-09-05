@@ -6,12 +6,13 @@ use envconfig::Envconfig;
 use futures::future::ready;
 use property_defs_rs::{
     app_context::AppContext,
-    config::Config,
+    config::{Config, TeamFilterMode, TeamList},
     message_to_event,
     metrics_consts::{
         BATCH_ACQUIRE_TIME, CACHE_CONSUMED, COMPACTED_UPDATES, EVENTS_RECEIVED, FORCED_SMALL_BATCH,
-        PERMIT_WAIT_TIME, RECV_DEQUEUED, TRANSACTION_LIMIT_SATURATION, UPDATES_FILTERED_BY_CACHE,
-        UPDATES_PER_EVENT, UPDATES_SEEN, UPDATE_ISSUE_TIME, WORKER_BLOCKED,
+        PERMIT_WAIT_TIME, RECV_DEQUEUED, SKIPPED_DUE_TO_TEAM_FILTER, TRANSACTION_LIMIT_SATURATION,
+        UPDATES_FILTERED_BY_CACHE, UPDATES_PER_EVENT, UPDATES_SEEN, UPDATE_ISSUE_TIME,
+        WORKER_BLOCKED,
     },
     types::Update,
 };
@@ -70,6 +71,8 @@ async fn spawn_producer_loop(
     shared_cache: Arc<Cache<Update, ()>>,
     skip_threshold: usize,
     compaction_batch_size: usize,
+    team_filter_mode: TeamFilterMode,
+    team_list: TeamList,
 ) {
     let mut batch = AHashSet::with_capacity(compaction_batch_size);
     let mut last_send = tokio::time::Instant::now();
@@ -82,6 +85,11 @@ async fn spawn_producer_loop(
         let Some(event) = message_to_event(message) else {
             continue;
         };
+
+        if !team_filter_mode.should_process(&team_list.teams, event.team_id) {
+            metrics::counter!(SKIPPED_DUE_TO_TEAM_FILTER).increment(1);
+            continue;
+        }
 
         let updates = event.into_updates(skip_threshold);
 
@@ -155,6 +163,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             cache.clone(),
             config.update_count_skip_threshold,
             config.compaction_batch_size,
+            config.filter_mode.clone(),
+            config.filtered_teams.clone(),
         ));
     }
 

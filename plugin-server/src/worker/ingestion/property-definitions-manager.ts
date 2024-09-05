@@ -66,6 +66,10 @@ function willFitInPostgresColumn(str: string, maxLength = DJANGO_EVENT_MAX_CHARF
     return unicodeCharacters.length <= maxLength
 }
 
+// TODO - this entire class should be removed once propdefs-rs is fully up and running. This class does
+// 3 different things: Tracks 1st event seen, updates event/property definitions, and auto-creates group-types.
+// propdefs-rs will handle the definitions portion of the work, and this should become a simple 1st event seen and group-types
+// manager
 export class PropertyDefinitionsManager {
     db: DB
     teamManager: TeamManager
@@ -74,6 +78,7 @@ export class PropertyDefinitionsManager {
     eventPropertiesCache: LRU<string, Set<string>> // Map<JSON.stringify([TeamId, Event], Set<Property>>
     eventLastSeenCache: LRU<string, number> // key: JSON.stringify([team_id, event]); value: parseInt(YYYYMMDD)
     propertyDefinitionsCache: PropertyDefinitionsCache
+    teamIdsToSkip: Set<number> = new Set()
     private readonly lruCacheSize: number
 
     constructor(
@@ -103,12 +108,23 @@ export class PropertyDefinitionsManager {
             updateAgeOnGet: true,
         })
         this.propertyDefinitionsCache = new PropertyDefinitionsCache(serverConfig)
+
+        this.teamIdsToSkip = new Set(
+            serverConfig.SKIP_DEFINITIONS_FOR_TEAM_IDS.trim()
+                .split(',')
+                .map((id) => parseInt(id))
+        )
     }
 
     public async updateEventNamesAndProperties(teamId: number, event: string, properties: Properties): Promise<void> {
         if (EVENTS_WITHOUT_EVENT_DEFINITION.includes(event)) {
             return
         }
+
+        // We don't bail out early here because this code also handles creating new
+        // group-types and groupt-type indexes, and 1st event tracking, and we want
+        // to do that even IF we're not generating any definitions for the event.
+        const shouldSkip = this.teamIdsToSkip.has(teamId)
 
         event = sanitizeString(event)
         if (!willFitInPostgresColumn(event)) {
@@ -129,13 +145,28 @@ export class PropertyDefinitionsManager {
             if (!team) {
                 return
             }
-            await this.cacheEventNamesAndProperties(team.id, event)
-            await Promise.all([
-                this.syncEventDefinitions(team, event),
-                this.syncEventProperties(team, event, properties),
-                this.syncPropertyDefinitions(team, event, properties),
-                this.teamManager.setTeamIngestedEvent(team, properties),
-            ])
+            if (!shouldSkip) {
+                // If we're skipping the definition updates for this team, we shouldn't bother with any
+                // prefetching or caching.
+                await this.cacheEventNamesAndProperties(team.id, event)
+            }
+
+            // We always track 1st event ingestion
+            const promises = [this.teamManager.setTeamIngestedEvent(team, properties)]
+
+            // Property definitions are more complicated - group-type-index resolution is done here, and
+            // that includes automatic group creation, which we want to do even if we're skipping the
+            // rest of the definition updates, so we run this and tell it to skip, rather than skipping
+            // it outright.
+            promises.push(this.syncPropertyDefinitions(team, event, properties, shouldSkip))
+
+            // Event and event-property definitions only do what they say on the tin, so we can skip them
+            if (!shouldSkip) {
+                promises.push(this.syncEventDefinitions(team, event))
+                promises.push(this.syncEventProperties(team, event, properties))
+            }
+
+            await Promise.all(promises)
         } finally {
             clearTimeout(timeout)
             updateEventNamesAndPropertiesMsSummary.observe(Date.now() - timer.valueOf())
@@ -202,11 +233,19 @@ ON CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq DO UPDATE SET l
         }
     }
 
-    private async syncPropertyDefinitions(team: Team, event: string, properties: Properties) {
+    private async syncPropertyDefinitions(team: Team, event: string, properties: Properties, shouldSkip: boolean) {
         const toInsert: Array<
             [string, string, number, number | null, boolean, null, null, TeamId, PropertyType | null]
         > = []
+        // This call to `getPropertyDefinitions` is the place where group-type-indexes are resolved, and by extension,
+        // where groups are auto-created. We want to ALWAYS do this, even if we're skipping the rest of the definition
+        // update process. We have to do it on every property, too, unfortunately.
         for await (const definitions of this.getPropertyDefinitions(team.id, event, properties)) {
+            // Now that we've done the group-type-index resolution/creation, we can skip everything else.
+            if (shouldSkip) {
+                continue
+            }
+
             let { key } = definitions
             key = sanitizeString(key)
             if (!willFitInPostgresColumn(key)) {
