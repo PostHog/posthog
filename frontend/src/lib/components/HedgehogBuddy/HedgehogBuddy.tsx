@@ -81,6 +81,8 @@ export class HedgehogActor {
     startY = Math.min(Math.max(0, Math.floor(Math.random() * window.innerHeight)), window.innerHeight - SPRITE_SIZE)
     x = this.startX
     y = this.startY
+    followMouse = false
+    lastKnownMousePosition: [number, number] | null = null
     isDragging = false
     isControlledByUser = false
     yVelocity = -30 // Appears as if jumping out of thin air
@@ -197,8 +199,46 @@ export class HedgehogActor {
             }
         }
 
+        const onMouseDown = (e: MouseEvent): void => {
+            if (!this.hedgehogConfig.controls_enabled) {
+                return
+            }
+
+            // Whilst the mouse is down we will move the hedgehog towards it
+
+            // First check that we haven't clicked the hedgehog
+            const elementBounds = this.element?.getBoundingClientRect()
+
+            if (
+                elementBounds &&
+                e.clientX >= elementBounds.left &&
+                e.clientX <= elementBounds.right &&
+                e.clientY >= elementBounds.top &&
+                e.clientY <= elementBounds.bottom
+            ) {
+                return
+            }
+
+            this.setAnimation('fall')
+            this.followMouse = true
+            this.lastKnownMousePosition = [e.clientX, e.clientY]
+
+            const onMouseMove = (e: MouseEvent): void => {
+                this.lastKnownMousePosition = [e.clientX, e.clientY]
+            }
+
+            const onMouseUp = (): void => {
+                this.followMouse = false
+                window.removeEventListener('mousemove', onMouseMove)
+            }
+
+            window.addEventListener('mousemove', onMouseMove)
+            window.addEventListener('mouseup', onMouseUp)
+        }
+
         window.addEventListener('keydown', keyDownListener)
         window.addEventListener('keyup', keyUpListener)
+        window.addEventListener('mousedown', onMouseDown)
 
         return () => {
             window.removeEventListener('keydown', keyDownListener)
@@ -352,11 +392,41 @@ export class HedgehogActor {
             return
         }
 
+        if (this.followMouse) {
+            this.ground = null
+            const [clientX, clientY] = this.lastKnownMousePosition ?? [0, 0]
+
+            const xDiff = clientX - this.x
+            const yDiff = window.innerHeight - clientY - this.y
+
+            const distance = Math.sqrt(xDiff ** 2 + yDiff ** 2)
+            // We want the speed to decrease the closer we get
+            const speed = distance / 100
+            console.log(distance, speed)
+            const ratio = speed / distance
+
+            if (yDiff < 0) {
+                this.yVelocity -= GRAVITY_PIXELS
+            }
+
+            this.yVelocity += yDiff * ratio
+            this.xVelocity += xDiff * ratio
+            this.y = this.y + this.yVelocity
+            if (this.y < 0) {
+                this.y = 0
+                this.yVelocity = -this.yVelocity * 0.4
+            }
+            this.x = this.x + this.xVelocity
+            this.direction = this.xVelocity > 0 ? 'right' : 'left'
+
+            return
+        }
+
         this.ground = this.findGround()
         this.yVelocity -= GRAVITY_PIXELS
 
         // We decelerate the x velocity if the hedgehog is stopped
-        if (['stop'].includes(this.animationName) && !this.isControlledByUser) {
+        if (!this.isControlledByUser && this.animationName !== 'walk' && this.onGround()) {
             this.xVelocity = this.xVelocity * 0.6
         }
 
@@ -455,6 +525,36 @@ export class HedgehogActor {
 
     private isFalling(): boolean {
         return !this.onGround() && Math.abs(this.yVelocity) > 1
+    }
+
+    renderRope(): JSX.Element | null {
+        if (!this.lastKnownMousePosition) {
+            return null
+        }
+
+        // We position the rope to roughly where the hand should be
+        const x = this.x + SPRITE_SIZE / 2
+        const y = this.y + SPRITE_SIZE / 2
+        const mouseX = this.lastKnownMousePosition[0]
+        // Y coords are inverted
+        const mouseY = window.innerHeight - this.lastKnownMousePosition[1]
+
+        return (
+            <div
+                className="border rounded bg-white pointer-events-none"
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{
+                    position: 'fixed',
+                    left: x,
+                    bottom: y,
+                    width: this.followMouse ? Math.sqrt((mouseX - x) ** 2 + (mouseY - y) ** 2) : 0,
+                    height: 3,
+                    zIndex: 1000,
+                    transformOrigin: '0 0',
+                    transform: `rotate(${Math.atan2(y - mouseY, mouseX - x)}rad)`,
+                }}
+            />
+        )
     }
 
     render({ onClick, ref }: { onClick: () => void; ref: ForwardedRef<HTMLDivElement> }): JSX.Element {
@@ -558,7 +658,7 @@ export class HedgehogActor {
                         position: 'fixed',
                         left: this.x,
                         bottom: this.y - SHADOW_HEIGHT * 0.5,
-                        transition: !this.isDragging ? `all ${1000 / FPS}ms` : undefined,
+                        transition: !(this.isDragging || this.followMouse) ? `all ${1000 / FPS}ms` : undefined,
                         cursor: 'pointer',
                         margin: 0,
                     }}
@@ -619,6 +719,8 @@ export class HedgehogActor {
                         ))}
                     </div>
                 </div>
+                {this.renderRope()}
+
                 {(window as any)._posthogDebugHedgehog && (
                     <>
                         {[this.element && elementToBox(this.element), this.ground && elementToBox(this.ground)].map(
