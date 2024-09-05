@@ -31,7 +31,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
     connect(() => ({
         actions: [
             actionsTabLogic,
-            ['showButtonActions', 'hideButtonActions', 'selectAction'],
+            ['showButtonActions', 'hideButtonActions', 'selectAction', 'setAutomaticActionCreationEnabled'],
             elementsLogic,
             ['enableInspect', 'disableInspect', 'createAction'],
             heatmapLogic,
@@ -439,6 +439,16 @@ export const toolbarLogic = kea<toolbarLogicType>([
                     return
                 case PostHogAppToolbarEvent.PH_HEATMAPS_COMMON_FILTERS:
                     actions.setCommonFilters(e.data.payload.commonFilters)
+                    return
+                case PostHogAppToolbarEvent.PH_ELEMENT_SELECTOR:
+                    if (e.data.payload.enabled) {
+                        actions.enableInspect()
+                    } else {
+                        actions.disableInspect()
+                    }
+                    return
+                case PostHogAppToolbarEvent.PH_NEW_ACTION_NAME:
+                    actions.setAutomaticActionCreationEnabled(true, e.data.payload.name)
                     return
                 default:
                     console.warn(`[PostHog Toolbar] Received unknown parent window message: ${type}`)

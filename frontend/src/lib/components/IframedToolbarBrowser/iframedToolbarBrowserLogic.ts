@@ -10,11 +10,14 @@ import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner'
 import posthog from 'posthog-js'
 import { RefObject } from 'react'
 
+import { ToolbarUserIntent } from '~/types'
+
 import type { iframedToolbarBrowserLogicType } from './iframedToolbarBrowserLogicType'
 
 export type IframedToolbarBrowserLogicProps = {
     iframeRef: RefObject<HTMLIFrameElement | null>
     clearBrowserUrlOnUnmount?: boolean
+    userIntent?: ToolbarUserIntent
 }
 
 export interface IFrameBanner {
@@ -50,6 +53,9 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
         setIframeBanner: (banner: IFrameBanner | null) => ({ banner }),
         startTrackingLoading: true,
         stopTrackingLoading: true,
+        enableElementSelector: true,
+        disableElementSelector: true,
+        setNewActionName: (name: string | null) => ({ name }),
     }),
 
     reducers({
@@ -138,7 +144,7 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
                 '*'
             )
         },
-
+        // heatmaps
         patchHeatmapFilters: ({ filters }) => {
             actions.sendToolbarMessage(PostHogAppToolbarEvent.PH_PATCH_HEATMAP_FILTERS, { filters })
         },
@@ -159,6 +165,17 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
             actions.sendToolbarMessage(PostHogAppToolbarEvent.PH_HEATMAPS_COMMON_FILTERS, { commonFilters: filters })
         },
 
+        // actions
+        enableElementSelector: () => {
+            actions.sendToolbarMessage(PostHogAppToolbarEvent.PH_ELEMENT_SELECTOR, { enabled: true })
+        },
+        disableElementSelector: () => {
+            actions.sendToolbarMessage(PostHogAppToolbarEvent.PH_ELEMENT_SELECTOR, { enabled: false })
+        },
+        setNewActionName: ({ name }) => {
+            actions.sendToolbarMessage(PostHogAppToolbarEvent.PH_NEW_ACTION_NAME, { name })
+        },
+
         onIframeLoad: () => {
             // we get this callback whether the iframe loaded successfully or not
             // and don't get a signal if the load was successful, so we have to check
@@ -171,9 +188,13 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
                     fixedPositionMode: values.heatmapFixedPositionMode,
                     commonFilters: values.commonFilters,
                 })
-                actions.sendToolbarMessage(PostHogAppToolbarEvent.PH_HEATMAPS_CONFIG, {
-                    enabled: true,
-                })
+                switch (props.userIntent) {
+                    case 'heatmaps':
+                        actions.sendToolbarMessage(PostHogAppToolbarEvent.PH_HEATMAPS_CONFIG, {
+                            enabled: true,
+                        })
+                        break
+                }
             }
 
             const onIframeMessage = (e: MessageEvent): void => {

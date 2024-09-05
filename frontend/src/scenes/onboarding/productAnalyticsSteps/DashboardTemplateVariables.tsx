@@ -1,6 +1,7 @@
 import { IconCheckCircle, IconInfo, IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCollapse, LemonInput, LemonLabel } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { iframedToolbarBrowserLogic } from 'lib/components/IframedToolbarBrowser/iframedToolbarBrowserLogic'
 import { useEffect, useState } from 'react'
 import { dashboardTemplateVariablesLogic } from 'scenes/dashboard/dashboardTemplateVariablesLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
@@ -10,9 +11,11 @@ import { DashboardTemplateVariableType } from '~/types'
 function VariableSelector({
     variable,
     hasSelectedSite,
+    iframeRef,
 }: {
     variable: DashboardTemplateVariableType
     hasSelectedSite: boolean
+    iframeRef: React.RefObject<HTMLIFrameElement>
 }): JSX.Element {
     const { activeDashboardTemplate } = useValues(newDashboardLogic)
     const theDashboardTemplateVariablesLogic = dashboardTemplateVariablesLogic({
@@ -23,6 +26,9 @@ function VariableSelector({
     const { allVariablesAreTouched, variables, activeVariableIndex } = useValues(theDashboardTemplateVariablesLogic)
     const [customEventName, setCustomEventName] = useState<string | null>(null)
     const [showCustomEventField, setShowCustomEventField] = useState(false)
+    const { enableElementSelector, disableElementSelector, setNewActionName } = useActions(
+        iframedToolbarBrowserLogic({ iframeRef, clearBrowserUrlOnUnmount: true })
+    )
 
     const FALLBACK_EVENT = {
         id: '$other_event',
@@ -131,12 +137,21 @@ function VariableSelector({
                                 status="alt"
                                 onClick={() => {
                                     setShowCustomEventField(false)
+                                    enableElementSelector()
+                                    setNewActionName(variable.name)
                                     setVariable(variable.name, { events: [FALLBACK_EVENT] })
                                 }}
                             >
                                 Select from site
                             </LemonButton>
-                            <LemonButton type="secondary" onClick={() => setShowCustomEventField(true)}>
+                            <LemonButton
+                                type="secondary"
+                                onClick={() => {
+                                    disableElementSelector()
+                                    setNewActionName(null)
+                                    setShowCustomEventField(true)
+                                }}
+                            >
                                 Use custom event
                             </LemonButton>
                         </div>
@@ -147,7 +162,13 @@ function VariableSelector({
     )
 }
 
-export function DashboardTemplateVariables({ hasSelectedSite }: { hasSelectedSite: boolean }): JSX.Element {
+export function DashboardTemplateVariables({
+    hasSelectedSite,
+    iframeRef,
+}: {
+    hasSelectedSite: boolean
+    iframeRef: React.RefObject<HTMLIFrameElement>
+}): JSX.Element {
     const { activeDashboardTemplate } = useValues(newDashboardLogic)
     const theDashboardTemplateVariablesLogic = dashboardTemplateVariablesLogic({
         variables: activeDashboardTemplate?.variables || [],
@@ -172,7 +193,9 @@ export function DashboardTemplateVariables({ hasSelectedSite }: { hasSelectedSit
                             {v.touched && <IconCheckCircle className="text-success ml-2 text-base" />}
                         </div>
                     ),
-                    content: <VariableSelector variable={v} {...v} hasSelectedSite={hasSelectedSite} />,
+                    content: (
+                        <VariableSelector variable={v} {...v} hasSelectedSite={hasSelectedSite} iframeRef={iframeRef} />
+                    ),
                     className: 'p-4 bg-white',
                     onHeaderClick: () => {
                         setActiveVariableIndex(i)

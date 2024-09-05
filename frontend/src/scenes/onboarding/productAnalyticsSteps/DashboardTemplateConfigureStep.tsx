@@ -116,7 +116,7 @@ export const OnboardingDashboardTemplateConfigureStep = ({
                                 </Link>{' '}
                                 (no need to send it now) .
                             </p>
-                            <DashboardTemplateVariables hasSelectedSite={!!browserUrl} />
+                            <DashboardTemplateVariables hasSelectedSite={!!browserUrl} iframeRef={iframeRef} />
                             <LemonButton
                                 type="primary"
                                 status="alt"

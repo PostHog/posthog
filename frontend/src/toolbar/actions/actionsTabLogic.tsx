@@ -15,9 +15,9 @@ import { ActionType, ElementType } from '~/types'
 
 import type { actionsTabLogicType } from './actionsTabLogicType'
 
-function newAction(element: HTMLElement | null, dataAttributes: string[] = []): ActionDraftType {
+function newAction(element: HTMLElement | null, dataAttributes: string[] = [], name: string | null): ActionDraftType {
     return {
-        name: '',
+        name: name || '',
         steps: [element ? actionStepToActionStepFormItem(elementToActionStep(element, dataAttributes), true) : {}],
         pinned_at: null,
     }
@@ -67,6 +67,7 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
         hideButtonActions: true,
         setShowActionsTooltip: (showActionsTooltip: boolean) => ({ showActionsTooltip }),
         setElementSelector: (selector: string, index: number) => ({ selector, index }),
+        setAutomaticActionCreationEnabled: (enabled: boolean, name?: string) => ({ enabled, name }),
     }),
 
     connect(() => ({
@@ -142,6 +143,18 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
                 setShowActionsTooltip: (_, { showActionsTooltip }) => showActionsTooltip,
             },
         ],
+        automaticActionCreationEnabled: [
+            false as boolean,
+            {
+                setAutomaticActionCreationEnabled: (_, { enabled }) => enabled,
+            },
+        ],
+        newActionName: [
+            null as string | null,
+            {
+                setAutomaticActionCreationEnabled: (_, { enabled, name }) => (enabled && name ? name : null),
+            },
+        ],
     }),
 
     forms(({ values, actions }) => ({
@@ -211,22 +224,34 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
             },
         ],
         selectedAction: [
-            (s) => [s.selectedActionId, s.newActionForElement, s.allActions, s.dataAttributes],
+            (s) => [s.selectedActionId, s.newActionForElement, s.allActions, s.dataAttributes, s.newActionName],
             (
                 selectedActionId,
                 newActionForElement,
                 allActions,
-                dataAttributes
+                dataAttributes,
+                newActionName
             ): ActionType | ActionDraftType | null => {
                 if (selectedActionId === 'new') {
-                    return newAction(newActionForElement, dataAttributes)
+                    return newAction(newActionForElement, dataAttributes, newActionName)
                 }
                 return allActions.find((a) => a.id === selectedActionId) || null
             },
         ],
+        isReadyForAutomaticSubmit: [
+            (s) => [s.automaticActionCreationEnabled, s.selectedAction, s.actionForm],
+            (automaticActionCreationEnabled, selectedAction, actionForm): boolean => {
+                return (
+                    (automaticActionCreationEnabled &&
+                        selectedAction?.name &&
+                        actionForm.steps?.[0]?.selector_selected) ||
+                    false // annoying type requirement
+                )
+            },
+        ],
     }),
 
-    subscriptions(({ actions }) => ({
+    subscriptions(({ actions, values }) => ({
         selectedAction: (selectedAction: ActionType | ActionDraftType | null) => {
             if (!selectedAction) {
                 actions.setActionFormValues({ name: null, steps: [{}] })
@@ -237,6 +262,9 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
                         ? selectedAction.steps.map((step) => actionStepToActionStepFormItem(step, false))
                         : [{}],
                 })
+                if (values.isReadyForAutomaticSubmit) {
+                    actions.submitActionForm()
+                }
             }
         },
     })),
