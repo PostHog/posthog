@@ -29,7 +29,10 @@ use crate::redis::Client;
 ///
 /// Some small delay between an account being limited and the limit taking effect is acceptable.
 /// However, ideally we should not allow requests from some pods but 429 from others.
-const QUOTA_LIMITER_CACHE_KEY: &str = "@posthog/quota-limits/";
+
+// todo: fetch from env
+pub const QUOTA_LIMITER_CACHE_KEY: &str = "@posthog/quota-limits/";
+pub const OVERFLOW_LIMITER_CACHE_KEY: &str = "@posthog/capture-overflow/";
 
 #[derive(Debug)]
 pub enum QuotaResource {
@@ -66,6 +69,7 @@ impl RedisLimiter {
     pub fn new(
         interval: Duration,
         redis: Arc<dyn Client + Send + Sync>,
+        limiter_cache_key: String,
         redis_key_prefix: Option<String>,
         resource: QuotaResource,
     ) -> anyhow::Result<RedisLimiter> {
@@ -76,7 +80,7 @@ impl RedisLimiter {
             interval,
             limited,
             redis: redis.clone(),
-            key: format!("{key_prefix}{QUOTA_LIMITER_CACHE_KEY}{}", resource.as_str()),
+            key: format!("{key_prefix}{limiter_cache_key}{}", resource.as_str()),
         };
 
         // Spawn a background task to periodically fetch data from Redis
@@ -133,6 +137,7 @@ impl RedisLimiter {
 
 #[cfg(test)]
 mod tests {
+    use crate::limiters::redis::QUOTA_LIMITER_CACHE_KEY;
     use std::sync::Arc;
     use time::Duration;
 
@@ -147,7 +152,7 @@ mod tests {
             .zrangebyscore_ret("@posthog/quota-limits/events", vec![String::from("banana")]);
         let client = Arc::new(client);
 
-        let limiter = RedisLimiter::new(Duration::seconds(1), client, None, QuotaResource::Events)
+        let limiter = RedisLimiter::new(Duration::seconds(1), client, QUOTA_LIMITER_CACHE_KEY.to_string(), None, QuotaResource::Events)
             .expect("Failed to create billing limiter");
         tokio::time::sleep(std::time::Duration::from_millis(30)).await;
 
@@ -167,6 +172,7 @@ mod tests {
         let limiter = RedisLimiter::new(
             Duration::seconds(1),
             client.clone(),
+            QUOTA_LIMITER_CACHE_KEY.to_string(),
             None,
             QuotaResource::Events,
         )
@@ -178,6 +184,7 @@ mod tests {
         let prefixed_limiter = RedisLimiter::new(
             Duration::microseconds(1),
             client,
+            QUOTA_LIMITER_CACHE_KEY.to_string(),
             Some("prefix//".to_string()),
             QuotaResource::Events,
         )
