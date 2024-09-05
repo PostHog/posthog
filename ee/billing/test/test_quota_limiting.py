@@ -74,7 +74,7 @@ class TestQuotaLimiting(BaseTest):
             group_properties={"organization": {"id": str(org_id)}},
         )
         patch_capture.assert_called_once_with(
-            org_id,
+            str(org_id),
             "quota limiting suspended",
             properties={"current_usage": 109},
             groups={"instance": "http://localhost:8000", "organization": org_id},
