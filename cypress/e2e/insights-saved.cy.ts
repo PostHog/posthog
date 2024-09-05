@@ -22,6 +22,7 @@ describe('Insights - saved', () => {
         createInsight('saved insight').then((newInsightId) => {
             cy.get('[data-attr=trend-line-graph]').should('exist') // Results cached
             cy.visit(urls.insightView(newInsightId)) // Full refresh
+            cy.wait(2000)
             cy.get('.InsightViz').should('exist').should('neverHaveChild', '.insight-empty-state') // Only cached data
             cy.get('[data-attr=trend-line-graph]').should('exist')
         })

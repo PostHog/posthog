@@ -35,8 +35,11 @@ describe('Insights', () => {
             cy.get('tr.DataVizRow').should('have.length.gte', 2)
 
             cy.get('[data-attr="insight-edit-button"]').click()
+            cy.wait(2000)
+
             insight.clickTab('RETENTION')
 
+            cy.wait(2000)
             cy.get('[data-attr="insight-save-button"]').click()
 
             cy.get('.RetentionContainer canvas').should('exist')
