@@ -334,7 +334,9 @@ export const parseKafkaBatch = async (
         }
 
         for (const [windowId, events] of Object.entries(parsedMessage.eventsByWindowId)) {
-            existingMessage.eventsByWindowId[windowId] = (existingMessage.eventsByWindowId[windowId] || []).concat(events)
+            existingMessage.eventsByWindowId[windowId] = (existingMessage.eventsByWindowId[windowId] || []).concat(
+                events
+            )
         }
 
         existingMessage.metadata.rawSize += parsedMessage.metadata.rawSize
