@@ -333,20 +333,11 @@ export const parseKafkaBatch = async (
             continue
         }
 
-        // Shallow clone the eventsByWindowId object to make sure we don't mutate the original
-        const newEventsByWindowId: IncomingRecordingMessage['eventsByWindowId'] = Object.entries(
-            existingMessage.eventsByWindowId
-        ).reduce((acc, [windowId, events]) => {
-            acc[windowId] = ([] as RRWebEvent[]).concat(events)
-            return acc
-        }, {} as IncomingRecordingMessage['eventsByWindowId'])
-
         for (const [windowId, events] of Object.entries(parsedMessage.eventsByWindowId)) {
-            newEventsByWindowId[windowId] = newEventsByWindowId[windowId] || []
-            newEventsByWindowId[windowId].concat(events)
+            existingMessage.eventsByWindowId[windowId] = existingMessage.eventsByWindowId[windowId] || []
+            existingMessage.eventsByWindowId[windowId].concat(events)
         }
 
-        existingMessage.eventsByWindowId = newEventsByWindowId
         existingMessage.metadata.rawSize += parsedMessage.metadata.rawSize
 
         // Update the events ranges
