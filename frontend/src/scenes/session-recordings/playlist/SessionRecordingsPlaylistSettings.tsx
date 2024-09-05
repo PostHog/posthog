@@ -63,7 +63,7 @@ export function SessionRecordingsPlaylistSettings(): JSX.Element {
                                 },
                                 {
                                     value: 'keypress_count',
-                                    label: 'Keypresses',
+                                    label: 'Key presses',
                                 },
                                 {
                                     value: 'mouse_activity_count',
@@ -81,7 +81,7 @@ export function SessionRecordingsPlaylistSettings(): JSX.Element {
                         },
                     ]}
                     size="small"
-                    value={orderBy}
+                    value={orderBy as string}
                     onChange={setOrderBy}
                 />
             </div>

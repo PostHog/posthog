@@ -426,10 +426,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     })),
     reducers(({ props }) => ({
         orderBy: [
-            'start_time' as Omit<RecordingsQuery['order'], 'random_sample'>,
+            'start_time' as RecordingsQuery['order'],
             { persist: true },
             {
-                setOrderBy: (_, { orderBy }) => orderBy,
+                setOrderBy: (_, { orderBy }) => orderBy as RecordingsQuery['order'],
             },
         ],
         randomSample: [
@@ -738,7 +738,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         queryOrder: [
             (s) => [s.orderBy, s.randomSample],
             (orderBy, randomSample): RecordingsQuery['order'] => {
-                return randomSample ? 'random_sample' : orderBy
+                return randomSample ? 'random_sample' : (orderBy as RecordingsQuery['order'])
             },
         ],
 
