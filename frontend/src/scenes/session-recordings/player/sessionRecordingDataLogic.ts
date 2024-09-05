@@ -1,6 +1,6 @@
 import posthogEE from '@posthog/ee/exports'
 import { customEvent, EventType, eventWithTime } from '@rrweb/types'
-import { captureException } from '@sentry/react'
+import { captureException, captureMessage } from '@sentry/react'
 import {
     actions,
     afterMount,
@@ -25,7 +25,8 @@ import { chainToElements } from 'lib/utils/elements-chain'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
 
-import { NodeKind } from '~/queries/schema'
+import { HogQLQuery, NodeKind } from '~/queries/schema'
+import { hogql } from '~/queries/utils'
 import {
     AnyPropertyFilter,
     EncodedRecordingSnapshot,
@@ -486,23 +487,34 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         return values.sessionEventsData
                     }
 
-                    const { person } = values.sessionPlayerData
+                    if (!event.id) {
+                        captureMessage('event id not available for matching', {
+                            tags: { feature: 'session-recording-load-full-event-data' },
+                            extra: { event },
+                        })
+                        return values.sessionEventsData
+                    }
 
                     let loadedProperties: Record<string, any> = existingEvent.properties
-                    // TODO: Move this to an optimised HogQL query when available...
-                    try {
-                        const res: any = await api.query({
-                            kind: 'EventsQuery',
-                            select: ['properties', 'timestamp'],
-                            orderBy: ['timestamp ASC'],
-                            limit: 100,
-                            personId: String(person?.id),
-                            after: dayjs(event.timestamp).subtract(1000, 'ms').format(),
-                            before: dayjs(event.timestamp).add(1000, 'ms').format(),
-                            event: existingEvent.event,
-                        })
 
-                        const result = res.results.find((x: any) => x[1] === event.timestamp)
+                    try {
+                        const query: HogQLQuery = {
+                            kind: NodeKind.HogQLQuery,
+                            query: hogql`SELECT properties, uuid 
+                                FROM events
+                                WHERE timestamp > ${dayjs(event.timestamp).subtract(1000, 'ms')}
+                                AND timestamp < ${dayjs(event.timestamp).add(1000, 'ms')}
+                                AND event = ${event.event}
+                                AND uuid = ${event.id}`,
+                        }
+                        const response = await api.query(query)
+                        if (response.error) {
+                            throw new Error(response.error)
+                        }
+
+                        const result = response.results.find((x: any) => {
+                            return x[1] === event.id
+                        })
 
                         if (result) {
                             loadedProperties = JSON.parse(result[0])
@@ -512,7 +524,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     } catch (e) {
                         // NOTE: This is not ideal but should happen so rarely that it is tolerable.
                         existingEvent.fullyLoaded = true
-                        captureException(e)
+                        captureException(e, {
+                            tags: { feature: 'session-recording-load-full-event-data' },
+                        })
                     }
 
                     // here we map the events list because we want the result to be a new instance to trigger downstream recalculation
@@ -881,12 +895,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 if (everyWindowMissingFullSnapshot) {
                     // video is definitely unplayable
                     posthog.capture('recording_has_no_full_snapshot', {
-                        ...windowsHaveFullSnapshot,
                         sessionId: sessionRecordingId,
                     })
                 } else if (anyWindowMissingFullSnapshot) {
                     posthog.capture('recording_window_missing_full_snapshot', {
-                        ...windowsHaveFullSnapshot,
                         sessionId: sessionRecordingId,
                     })
                 }

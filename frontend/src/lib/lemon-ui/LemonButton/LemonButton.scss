@@ -76,7 +76,8 @@
     outline: none;
     transition: var(--lemon-button-transition);
 
-    .font-normal {
+    .font-normal,
+    &.font-normal {
         font-family: var(--font-sans);
     }
 

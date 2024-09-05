@@ -124,7 +124,7 @@ export class HogWatcher {
         const costs: Record<HogFunctionType['id'], number> = {}
 
         results.forEach((result) => {
-            let cost = (costs[result.invocation.hogFunctionId] = costs[result.invocation.hogFunctionId] || 0)
+            let cost = (costs[result.invocation.hogFunction.id] = costs[result.invocation.hogFunction.id] || 0)
 
             if (result.finished) {
                 // If it is finished we can calculate the score based off of the timings
@@ -142,7 +142,7 @@ export class HogWatcher {
                 cost += this.hub.CDP_WATCHER_COST_ERROR
             }
 
-            costs[result.invocation.hogFunctionId] = cost
+            costs[result.invocation.hogFunction.id] = cost
         })
 
         const res = await this.redis.usePipeline({ name: 'checkRateLimits' }, (pipeline) => {

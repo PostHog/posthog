@@ -9,6 +9,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.api.instance_settings import get_instance_setting
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType, FunnelVizType
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.insights.funnels import Funnel
@@ -41,7 +42,9 @@ from posthog.schema import (
     FunnelsActorsQuery,
     FunnelsFilter,
     FunnelsQuery,
+    HogQLQueryModifiers,
     InsightDateRange,
+    PersonsOnEventsMode,
     PropertyOperator,
 )
 from posthog.test.base import (
@@ -808,6 +811,56 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             self.assertEqual(results[1]["name"], "paid")
             self.assertEqual(results[1]["count"], 1)
+
+        def test_basic_funnel_with_person_id_override_properties_joined_modifier_and_person_breakdown(self):
+            filters = {
+                "events": [
+                    {"id": "user signed up", "type": "events", "order": 0},
+                    {"id": "paid", "type": "events", "order": 1},
+                ],
+                "insight": INSIGHT_FUNNELS,
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-14",
+                "breakdown": "$browser",
+                "breakdown_type": "person",
+            }
+
+            # event
+            _create_person(distinct_ids=["user_1"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id="user_1",
+                timestamp="2020-01-02T14:00:00Z",
+            )
+            _create_event(
+                team=self.team,
+                event="paid",
+                distinct_id="user_1",
+                timestamp="2020-01-10T14:00:00Z",
+            )
+
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = (
+                FunnelsQueryRunner(
+                    query=query,
+                    team=self.team,
+                    modifiers=create_default_modifiers_for_team(
+                        self.team,
+                        HogQLQueryModifiers(
+                            personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED
+                        ),
+                    ),
+                )
+                .calculate()
+                .results
+            )
+
+            self.assertEqual(results[0][0]["name"], "user signed up")
+            self.assertEqual(results[0][0]["count"], 1)
+
+            self.assertEqual(results[0][1]["name"], "paid")
+            self.assertEqual(results[0][1]["count"], 1)
 
         def test_basic_funnel_with_repeat_steps(self):
             filters = {

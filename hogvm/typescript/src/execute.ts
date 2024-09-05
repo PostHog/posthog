@@ -13,6 +13,7 @@ import {
     like,
     setNestedValue,
     UncaughtHogVMException,
+    unifyComparisonTypes,
 } from './utils'
 
 export function execSync(bytecode: any[], options?: ExecOptions): any {
@@ -280,22 +281,28 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 pushStack(Number(popStack()) % Number(popStack()))
                 break
             case Operation.EQ:
-                pushStack(popStack() === popStack())
+                ;[temp, temp2] = unifyComparisonTypes(popStack(), popStack())
+                pushStack(temp === temp2)
                 break
             case Operation.NOT_EQ:
-                pushStack(popStack() !== popStack())
+                ;[temp, temp2] = unifyComparisonTypes(popStack(), popStack())
+                pushStack(temp !== temp2)
                 break
             case Operation.GT:
-                pushStack(popStack() > popStack())
+                ;[temp, temp2] = unifyComparisonTypes(popStack(), popStack())
+                pushStack(temp > temp2)
                 break
             case Operation.GT_EQ:
-                pushStack(popStack() >= popStack())
+                ;[temp, temp2] = unifyComparisonTypes(popStack(), popStack())
+                pushStack(temp >= temp2)
                 break
             case Operation.LT:
-                pushStack(popStack() < popStack())
+                ;[temp, temp2] = unifyComparisonTypes(popStack(), popStack())
+                pushStack(temp < temp2)
                 break
             case Operation.LT_EQ:
-                pushStack(popStack() <= popStack())
+                ;[temp, temp2] = unifyComparisonTypes(popStack(), popStack())
+                pushStack(temp <= temp2)
                 break
             case Operation.LIKE:
                 pushStack(like(popStack(), popStack()))

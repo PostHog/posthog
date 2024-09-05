@@ -294,6 +294,28 @@ export const STL: Record<string, STLFunction> = {
         minArgs: 3,
         maxArgs: 3,
     },
+    position: {
+        fn: ([str, elem]) => {
+            if (typeof str === 'string') {
+                return str.indexOf(String(elem)) + 1
+            } else {
+                return 0
+            }
+        },
+        minArgs: 2,
+        maxArgs: 2,
+    },
+    positionCaseInsensitive: {
+        fn: ([str, elem]) => {
+            if (typeof str === 'string') {
+                return str.toLowerCase().indexOf(String(elem).toLowerCase()) + 1
+            } else {
+                return 0
+            }
+        },
+        minArgs: 2,
+        maxArgs: 2,
+    },
     trim: {
         fn: ([str, char]) => {
             if (char === null || char === undefined) {
@@ -417,6 +439,17 @@ export const STL: Record<string, STLFunction> = {
         },
         minArgs: 1,
         maxArgs: 1,
+    },
+    indexOf: {
+        fn: ([arrOrString, elem]) => {
+            if (Array.isArray(arrOrString)) {
+                return arrOrString.indexOf(elem) + 1
+            } else {
+                return 0
+            }
+        },
+        minArgs: 2,
+        maxArgs: 2,
     },
     arrayPushBack: {
         fn: ([arr, item]) => {
@@ -590,6 +623,37 @@ export const STL: Record<string, STLFunction> = {
         fn: (args, name) => newHogError(name, args[0], args[1]),
         minArgs: 0,
         maxArgs: 2,
+    },
+    typeof: {
+        fn: (args) => {
+            if (args[0] === null || args[0] === undefined) {
+                return 'null'
+            } else if (isHogDateTime(args[0])) {
+                return 'datetime'
+            } else if (isHogDate(args[0])) {
+                return 'date'
+            } else if (isHogError(args[0])) {
+                return 'error'
+            } else if (isHogCallable(args[0]) || isHogClosure(args[0])) {
+                return 'function'
+            } else if (Array.isArray(args[0])) {
+                if ((args[0] as any).__isHogTuple) {
+                    return 'tuple'
+                }
+                return 'array'
+            } else if (typeof args[0] === 'object') {
+                return 'object'
+            } else if (typeof args[0] === 'number') {
+                return Number.isInteger(args[0]) ? 'integer' : 'float'
+            } else if (typeof args[0] === 'string') {
+                return 'string'
+            } else if (typeof args[0] === 'boolean') {
+                return 'boolean'
+            }
+            return 'unknown'
+        },
+        minArgs: 1,
+        maxArgs: 1,
     },
 }
 

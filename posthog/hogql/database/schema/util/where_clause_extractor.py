@@ -461,7 +461,8 @@ class IsTimeOrIntervalConstantVisitor(Visitor[bool]):
 
 
 def is_simple_timestamp_field_expression(expr: ast.Expr, context: HogQLContext, tombstone_string: str) -> bool:
-    return IsSimpleTimestampFieldExpressionVisitor(context, tombstone_string).visit(expr)
+    result = IsSimpleTimestampFieldExpressionVisitor(context, tombstone_string).visit(expr)
+    return result
 
 
 class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
@@ -538,6 +539,8 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
     def visit_alias(self, node: ast.Alias) -> bool:
         from posthog.hogql.database.schema.events import EventsTable
         from posthog.hogql.database.schema.sessions_v1 import SessionsTableV1
+        from posthog.hogql.database.schema.sessions_v2 import SessionsTableV2
+
         from posthog.hogql.database.schema.session_replay_events import RawSessionReplayEventsTable
 
         if node.type and isinstance(node.type, ast.FieldAliasType):
@@ -560,6 +563,11 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
                 or (
                     isinstance(table_type, ast.LazyTableType)
                     and isinstance(table_type.table, SessionsTableV1)
+                    and resolved_field.name == "$start_timestamp"
+                )
+                or (
+                    isinstance(table_type, ast.LazyTableType)
+                    and isinstance(table_type.table, SessionsTableV2)
                     and resolved_field.name == "$start_timestamp"
                 )
                 or (
