@@ -1,5 +1,5 @@
 import { IconArrowRight } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonSkeleton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { IframedToolbarBrowser } from 'lib/components/IframedToolbarBrowser/IframedToolbarBrowser'
@@ -110,7 +110,11 @@ export const OnboardingDashboardTemplateConfigureStep = ({
                         <div className="col-span-2">
                             <p>
                                 For each action below, select an element on your site that indicates when that action is
-                                taken, or enter a custom event name that you'll send from your backend.
+                                taken, or enter a custom event name that you'll send using{' '}
+                                <Link to="https://posthog.com/docs/product-analytics/capture-events">
+                                    <code>posthog.capture()</code>
+                                </Link>{' '}
+                                (no need to send it now) .
                             </p>
                             <DashboardTemplateVariables hasSelectedSite={!!browserUrl} />
                             <LemonButton
