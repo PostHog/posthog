@@ -703,16 +703,17 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             },
         )
 
-        log_activity(
-            organization_id=self.organization.id,
-            team_id=self.team.id,
-            user=user,
-            was_impersonated=is_impersonated_session(self.request),
-            item_id=instance.pk,
-            scope="Person",
-            activity="updated",
-            detail=Detail(changes=[Change(type="Person", action="changed", field="properties")]),
-        )
+        if self.organization.id:  # should always be true, but mypy...
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team.id,
+                user=user,
+                was_impersonated=is_impersonated_session(self.request),
+                item_id=instance.pk,
+                scope="Person",
+                activity="updated",
+                detail=Detail(changes=[Change(type="Person", action="changed", field="properties")]),
+            )
 
     # PRAGMA: Methods for getting Persons via clickhouse queries
     def _respond_with_cached_results(
