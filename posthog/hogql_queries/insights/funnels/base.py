@@ -299,7 +299,9 @@ class FunnelBase(ABC):
             action_id = step.event
             type = "events"
         elif isinstance(step, DataWarehouseNode):
-            raise NotImplementedError("DataWarehouseNode is not supported in funnels")
+            raise ValidationError(
+                "Data warehouse tables are not supported in funnels just yet. For now, please try this funnel without the data warehouse-based step."
+            )
         else:
             action = Action.objects.get(pk=step.id)
             name = action.name
@@ -584,7 +586,9 @@ class FunnelBase(ABC):
             action = Action.objects.get(pk=int(entity.id), team=self.context.team)
             event_expr = action_to_expr(action)
         elif isinstance(entity, DataWarehouseNode):
-            raise NotImplementedError("DataWarehouseNode is not supported in funnels")
+            raise ValidationError(
+                "Data warehouse tables are not supported in funnels just yet. For now, please try this funnel without the data warehouse-based step."
+            )
         elif entity.event is None:
             # all events
             event_expr = ast.Constant(value=1)

@@ -7,7 +7,13 @@ from posthog.hogql_queries.insights.utils.properties import Properties
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.action.action import Action
 from posthog.models.property.property import PropertyName
-from posthog.schema import ActionsNode, EventsNode, FunnelExclusionActionsNode, FunnelExclusionEventsNode
+from posthog.schema import (
+    ActionsNode,
+    DataWarehouseNode,
+    EventsNode,
+    FunnelExclusionActionsNode,
+    FunnelExclusionEventsNode,
+)
 from rest_framework.exceptions import ValidationError
 
 
@@ -143,6 +149,8 @@ class FunnelEventQuery:
                     events.update(action.get_step_events())
                 except Action.DoesNotExist:
                     raise ValidationError(f"Action ID {node.id} does not exist!")
+            elif isinstance(node, DataWarehouseNode):
+                continue  # Data warehouse nodes aren't based on events
             else:
                 raise ValidationError("Series and exclusions must be compose of action and event nodes")
 
