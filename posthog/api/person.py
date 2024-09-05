@@ -417,7 +417,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["POST"], detail=False, required_scopes=["person:write"])
     def bulk_delete(self, request: request.Request, pk=None, **kwargs):
         """
-        This endpoint allows you to bulk delete persons, either by the PostHog persons ID or by distinct IDs. You can pass through a maximum of 100 ids per call.
+        This endpoint allows you to bulk delete persons, either by the PostHog person IDs or by distinct IDs. You can pass in a maximum of 100 IDs per call.
         """
         if request.data.get("distinct_ids"):
             if len(request.data["distinct_ids"]) > 100:
