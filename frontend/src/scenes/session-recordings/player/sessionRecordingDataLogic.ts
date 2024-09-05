@@ -487,38 +487,33 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         return values.sessionEventsData
                     }
 
-                    const { person } = values.sessionPlayerData
+                    if (!event.id) {
+                        captureMessage('event id not available for matching', {
+                            tags: { feature: 'session-recording-load-full-event-data' },
+                            extra: { event },
+                        })
+                        return values.sessionEventsData
+                    }
 
                     let loadedProperties: Record<string, any> = existingEvent.properties
 
                     try {
                         const query: HogQLQuery = {
                             kind: NodeKind.HogQLQuery,
-                            query: hogql`SELECT properties, timestamp, uuid 
+                            query: hogql`SELECT properties, uuid 
                                 FROM events
                                 WHERE timestamp > ${dayjs(event.timestamp).subtract(1000, 'ms')}
                                 AND timestamp < ${dayjs(event.timestamp).add(1000, 'ms')}
-                                ${person?.id ? `AND person.id = ${person.id}` : ''}
                                 AND event = ${event.event}
-                                ORDER BY timestamp ASC`,
+                                AND uuid = ${event.id}`,
                         }
                         const response = await api.query(query)
                         if (response.error) {
                             throw new Error(response.error)
                         }
 
-                        // historically we compared timestamps here when finding properties for a particular event
-                        // it's nicer to use the event id
-                        // but since we were using timestamps, we might not be guaranteed to have the id?
-                        // TODO - check if we can remove the timestamp comparison
                         const result = response.results.find((x: any) => {
-                            if (event.id) {
-                                return x[2] === event.id
-                            }
-                            captureMessage('event id not available for matching', {
-                                tags: { feature: 'session-recording-load-full-event-data' },
-                            })
-                            return x[1] === event.timestamp
+                            return x[1] === event.id
                         })
 
                         if (result) {
