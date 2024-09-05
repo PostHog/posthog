@@ -69,9 +69,9 @@ class TestQuotaLimiting(BaseTest):
         quota_limited_orgs, quota_limiting_suspended_orgs = update_all_org_billing_quotas()
         patch_feature_enabled.assert_called_with(
             QUOTA_LIMIT_DATA_RETENTION_FLAG,
-            self.organization.id,
+            str(self.organization.id),
             groups={"organization": org_id},
-            group_properties={"organization": {"id": org_id}},
+            group_properties={"organization": {"id": str(org_id)}},
         )
         patch_capture.assert_called_once_with(
             org_id,
@@ -101,7 +101,7 @@ class TestQuotaLimiting(BaseTest):
         quota_limited_orgs, quota_limiting_suspended_orgs = update_all_org_billing_quotas()
         patch_feature_enabled.assert_called_with(
             QUOTA_LIMIT_DATA_RETENTION_FLAG,
-            self.organization.id,
+            str(self.organization.id),
             groups={"organization": org_id},
             group_properties={"organization": {"id": org_id}},
         )
