@@ -490,7 +490,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     const { person } = values.sessionPlayerData
 
                     let loadedProperties: Record<string, any> = existingEvent.properties
-                    // TODO: Move this to an optimised HogQL query when available...
+
                     try {
                         const query: HogQLQuery = {
                             kind: NodeKind.HogQLQuery,
