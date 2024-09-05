@@ -368,8 +368,6 @@ abstract class CdpConsumerBase {
     }
 
     public isHealthy() {
-        // TODO: Check either kafka consumer or cyclotron worker exists
-        // and that whatever exists is healthy
         return this.batchConsumer?.isHealthy()
     }
 }
@@ -801,7 +799,6 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
 
             const parsedState = job.vmState as HogFunctionInvocationSerialized
 
-            // TODO: Should ID come from the job or the state?
             invocations.push({
                 id: job.id,
                 globals: parsedState.globals,

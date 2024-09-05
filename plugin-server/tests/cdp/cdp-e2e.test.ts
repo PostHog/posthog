@@ -100,7 +100,7 @@ describe('CDP E2E', () => {
                 kafkaObserver?.stop(),
                 cyclotronWorker?.stop(),
                 cyclotronFetchWorker?.stop(),
-            ])
+            ]).catch(console.error)
             await closeHub(hub)
         })
 

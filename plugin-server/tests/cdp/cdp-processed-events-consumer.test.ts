@@ -258,8 +258,6 @@ describe('CDP Processed Events Consumer', () => {
                 expect(invocations).toMatchObject([matchInvocation(fnFetchNoFilters, globals)])
                 expect(mockProducer.produce).toHaveBeenCalledTimes(4)
 
-                console.log(decodeAllKafkaMessages())
-
                 expect(decodeAllKafkaMessages()).toMatchObject([
                     {
                         key: expect.any(String),
