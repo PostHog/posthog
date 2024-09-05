@@ -221,10 +221,13 @@ abstract class CdpConsumerBase {
     }
 
     protected async queueInvocationToKafka(invocation: HogFunctionInvocation) {
-        // TODO: Add cyclotron check here and enqueue that way
-        // For now we just enqueue to kafka
-        // For kafka style this is overkill to enqueue this way but it simplifies migrating to the new system
-        const serializedInvocation = serializeHogFunctionInvocation(invocation)
+        // NOTE: WE keep the queueParams args as kafka land still needs them
+        const serializedInvocation: HogFunctionInvocationSerialized = {
+            ...invocation,
+            hogFunctionId: invocation.hogFunction.id,
+        }
+
+        delete (serializedInvocation as any).hogFunction
 
         const request: HogFunctionInvocationSerializedCompressed = {
             state: await gzipObject(serializedInvocation),
