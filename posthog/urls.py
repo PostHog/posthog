@@ -28,6 +28,7 @@ from posthog.api import (
     authentication,
     capture,
     decide,
+    hog_function_template,
     organizations_router,
     project_dashboards_router,
     project_feature_flags_router,
@@ -236,6 +237,10 @@ urlpatterns = [
     path("year_in_posthog/2022/<str:user_uuid>/", year_in_posthog.render_2022),
     path("year_in_posthog/2023/<str:user_uuid>", year_in_posthog.render_2023),
     path("year_in_posthog/2023/<str:user_uuid>/", year_in_posthog.render_2023),
+    opt_slash_path(
+        "api/public_hog_function_templates",
+        hog_function_template.PublicHogFunctionTemplateViewSet.as_view({"get": "list"}),
+    ),
 ]
 
 if settings.DEBUG:

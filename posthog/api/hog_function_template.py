@@ -1,15 +1,12 @@
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework import viewsets
+from rest_framework import viewsets, permissions
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.exceptions import NotFound
 
-from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, HogFunctionSubTemplate
-from posthog.models.hog_functions.hog_function import HogFunction
-from posthog.permissions import PostHogFeatureFlagPermission
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 
@@ -28,15 +25,11 @@ class HogFunctionTemplateSerializer(DataclassSerializer):
         dataclass = HogFunctionTemplate
 
 
-class HogFunctionTemplateViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    scope_object = "INTERNAL"  # Keep internal until we are happy to release this GA
-    queryset = HogFunction.objects.none()
+# NOTE: There is nothing currently private about these values
+class PublicHogFunctionTemplateViewSet(viewsets.GenericViewSet):
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["id", "team", "created_by", "enabled"]
-
-    permission_classes = [PostHogFeatureFlagPermission]
-    posthog_feature_flag = {"hog-functions": ["create", "partial_update", "update"]}
-
+    permission_classes = [permissions.AllowAny]
     serializer_class = HogFunctionTemplateSerializer
 
     def _get_templates(self):

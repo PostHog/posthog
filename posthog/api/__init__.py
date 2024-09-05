@@ -326,9 +326,7 @@ router.register(r"dead_letter_queue", dead_letter_queue.DeadLetterQueueViewSet, 
 router.register(r"async_migrations", async_migration.AsyncMigrationsViewset, "async_migrations")
 router.register(r"instance_settings", instance_settings.InstanceSettingsViewset, "instance_settings")
 router.register(r"kafka_inspector", kafka_inspector.KafkaInspectorViewSet, "kafka_inspector")
-
 router.register("debug_ch_queries/", debug_ch_queries.DebugCHQueries, "debug_ch_queries")
-
 
 from posthog.api.action import ActionViewSet  # noqa: E402
 from posthog.api.cohort import CohortViewSet, LegacyCohortViewSet  # noqa: E402
@@ -449,7 +447,7 @@ projects_router.register(
 
 projects_router.register(
     r"hog_function_templates",
-    hog_function_template.HogFunctionTemplateViewSet,
+    hog_function_template.PublicHogFunctionTemplateViewSet,
     "project_hog_function_templates",
     ["project_id"],
 )
