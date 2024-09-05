@@ -181,17 +181,9 @@ CLICKHOUSE_TABLES = [
     "log_entries",
 ]
 
-HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC = {
-    "heartbeat": "ingestion",
-    "heartbeat_buffer": "ingestion_buffer",
-    "heartbeat_api": "ingestion_api",
-}
-
 
 @shared_task(ignore_result=True)
 def ingestion_lag() -> None:
-    from statshog.defaults.django import statsd
-
     from posthog.client import sync_execute
     from posthog.models.team.team import Team
 
@@ -212,7 +204,7 @@ def ingestion_lag() -> None:
             query,
             {
                 "team_ids": team_ids,
-                "events": list(HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC.keys()),
+                "events": ["$heartbeat"],
             },
         )
         with pushed_metrics_registry("celery_ingestion_lag") as registry:
@@ -222,10 +214,8 @@ def ingestion_lag() -> None:
                 labelnames=["scenario"],
                 registry=registry,
             )
-            for event, lag in results:
-                metric = HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC[event]
-                statsd.gauge(f"posthog_celery_{metric}_lag_seconds_rough_minute_precision", lag)
-                lag_gauge.labels(scenario=metric).set(lag)
+            for _, lag in results:
+                lag_gauge.labels(scenario="ingestion").set(lag)
     except:
         pass
 
