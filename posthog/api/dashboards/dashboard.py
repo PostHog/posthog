@@ -513,7 +513,10 @@ class DashboardsViewSet(
         parser_classes=[DashboardTemplateCreationJSONSchemaParser],
     )
     def create_from_template_json(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        dashboard = Dashboard.objects.create(team_id=self.team_id)
+        dashboard = Dashboard.objects.create(
+            team_id=self.team_id,
+            created_by=request.user,
+        )
 
         try:
             dashboard_template = DashboardTemplate(**request.data["template"])
