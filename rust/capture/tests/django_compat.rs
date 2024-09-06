@@ -6,6 +6,7 @@ use base64::engine::general_purpose;
 use base64::Engine;
 use capture::api::{CaptureError, CaptureResponse, CaptureResponseCode, DataType, ProcessedEvent};
 use capture::config::CaptureMode;
+use capture::limiters::redis::QuotaResource;
 use capture::limiters::redis::RedisLimiter;
 use capture::redis::MockRedisClient;
 use capture::router::router;
@@ -101,8 +102,13 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
         let timesource = FixedTime { time: case.now };
 
         let redis = Arc::new(MockRedisClient::new());
-        let billing_limiter = RedisLimiter::new(Duration::weeks(1), redis.clone(), None)
-            .expect("failed to create billing limiter");
+        let billing_limiter = RedisLimiter::new(
+            Duration::weeks(1),
+            redis.clone(),
+            None,
+            QuotaResource::Events,
+        )
+        .expect("failed to create billing limiter");
 
         let app = router(
             timesource,
