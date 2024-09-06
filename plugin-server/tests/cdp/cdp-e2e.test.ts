@@ -104,15 +104,10 @@ describe('CDP E2E', () => {
 
             const stoppers = [
                 processedEventsConsumer?.stop().then(() => console.log('Stopped processedEventsConsumer')),
-                ,
                 functionProcessor?.stop().then(() => console.log('Stopped functionProcessor')),
-                ,
                 kafkaObserver?.stop().then(() => console.log('Stopped kafkaObserver')),
-                ,
                 cyclotronWorker?.stop().then(() => console.log('Stopped cyclotronWorker')),
-                ,
                 cyclotronFetchWorker?.stop().then(() => console.log('Stopped cyclotronFetchWorker')),
-                ,
             ]
 
             await Promise.all(stoppers)
