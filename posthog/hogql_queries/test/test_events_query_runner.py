@@ -182,5 +182,5 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
             runner = EventsQueryRunner(query=query, team=self.team)
             response = runner.run()
-
+            assert isinstance(response, CachedEventsQueryResponse)
             assert response.results[0][0]["properties"]["bigInt"] == float(BIG_INT)

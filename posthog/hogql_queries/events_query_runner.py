@@ -4,7 +4,7 @@ from typing import Optional
 from dateutil.parser import isoparse
 from django.db.models import Prefetch
 from django.utils.timezone import now
-from orjson import orjson
+import orjson
 
 from posthog.api.element import ElementSerializer
 from posthog.api.utils import get_pk_or_uuid
