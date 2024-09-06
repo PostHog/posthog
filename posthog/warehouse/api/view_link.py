@@ -79,7 +79,7 @@ class ViewLinkSerializer(serializers.ModelSerializer):
 
         return
 
-    def _validate_join_key(self, group_type_index: Optional[int], source_table: Optional[str]) -> None:
+    def _validate_group_type_index(self, group_type_index: Optional[int], source_table: Optional[str]) -> None:
         if group_type_index is None:
             return
         if source_table != "groups":

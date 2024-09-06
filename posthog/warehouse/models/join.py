@@ -72,7 +72,7 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
                 raise ResolutionError("Data Warehouse Join HogQL expression should be a Field node")
             right.chain = [join_to_add.to_table, *right.chain]
 
-            constraint = ast.CompareOperation(
+            constraint: ast.And | ast.CompareOperation = ast.CompareOperation(
                 op=ast.CompareOperationOp.Eq,
                 left=left,
                 right=right,
