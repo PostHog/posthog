@@ -495,6 +495,21 @@ class EventsQueryPersonColumn(BaseModel):
     uuid: str
 
 
+class ExperimentVariantFunnelResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    failure_count: float
+    success_count: float
+
+
+class ExperimentVariantTrendResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count: float
+
+
 class FilterLogicalOperator(StrEnum):
     AND_ = "AND"
     OR_ = "OR"
@@ -802,6 +817,7 @@ class NodeKind(StrEnum):
     RECORDINGS_QUERY = "RecordingsQuery"
     SESSION_ATTRIBUTION_EXPLORER_QUERY = "SessionAttributionExplorerQuery"
     ERROR_TRACKING_QUERY = "ErrorTrackingQuery"
+    EXPERIMENT_RESULT_QUERY = "ExperimentResultQuery"
     DATA_TABLE_NODE = "DataTableNode"
     DATA_VISUALIZATION_NODE = "DataVisualizationNode"
     SAVED_INSIGHT_NODE = "SavedInsightNode"
@@ -961,6 +977,22 @@ class QueryResponseAlternative7(BaseModel):
     notices: list[HogQLNotice]
     query: Optional[str] = None
     warnings: list[HogQLNotice]
+
+
+class QueryResponseAlternative24(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    insight: Literal["TRENDS"] = "TRENDS"
+    results: dict[str, ExperimentVariantTrendResult]
+
+
+class QueryResponseAlternative25(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    insight: Literal["FUNNELS"] = "FUNNELS"
+    results: dict[str, ExperimentVariantFunnelResult]
 
 
 class QueryStatus(BaseModel):
@@ -2347,6 +2379,22 @@ class Response8(BaseModel):
     )
 
 
+class Response9(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    insight: Literal["TRENDS"] = "TRENDS"
+    results: dict[str, ExperimentVariantTrendResult]
+
+
+class Response10(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    insight: Literal["FUNNELS"] = "FUNNELS"
+    results: dict[str, ExperimentVariantFunnelResult]
+
+
 class DataWarehousePersonPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2473,6 +2521,22 @@ class EventsQueryResponse(BaseModel):
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: list[str]
+
+
+class ExperimentResultFunnelQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    insight: Literal["FUNNELS"] = "FUNNELS"
+    results: dict[str, ExperimentVariantFunnelResult]
+
+
+class ExperimentResultTrendQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    insight: Literal["TRENDS"] = "TRENDS"
+    results: dict[str, ExperimentVariantTrendResult]
 
 
 class BreakdownFilter1(BaseModel):
@@ -3300,7 +3364,7 @@ class QueryResponseAlternative23(BaseModel):
     )
 
 
-class QueryResponseAlternative24(BaseModel):
+class QueryResponseAlternative26(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3322,7 +3386,7 @@ class QueryResponseAlternative24(BaseModel):
     )
 
 
-class QueryResponseAlternative25(BaseModel):
+class QueryResponseAlternative27(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3344,7 +3408,7 @@ class QueryResponseAlternative25(BaseModel):
     )
 
 
-class QueryResponseAlternative27(BaseModel):
+class QueryResponseAlternative29(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3365,7 +3429,7 @@ class QueryResponseAlternative27(BaseModel):
     )
 
 
-class QueryResponseAlternative30(BaseModel):
+class QueryResponseAlternative32(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4364,7 +4428,7 @@ class PropertyGroupFilterValue(BaseModel):
     ]
 
 
-class QueryResponseAlternative26(BaseModel):
+class QueryResponseAlternative28(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5177,7 +5241,7 @@ class LifecycleQuery(BaseModel):
     )
 
 
-class QueryResponseAlternative31(BaseModel):
+class QueryResponseAlternative33(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5210,6 +5274,8 @@ class QueryResponseAlternative(
             QueryResponseAlternative12,
             QueryResponseAlternative13,
             QueryResponseAlternative14,
+            ExperimentResultTrendQueryResponse,
+            ExperimentResultFunnelQueryResponse,
             Any,
             QueryResponseAlternative15,
             QueryResponseAlternative16,
@@ -5224,8 +5290,10 @@ class QueryResponseAlternative(
             QueryResponseAlternative25,
             QueryResponseAlternative26,
             QueryResponseAlternative27,
-            QueryResponseAlternative30,
-            QueryResponseAlternative31,
+            QueryResponseAlternative28,
+            QueryResponseAlternative29,
+            QueryResponseAlternative32,
+            QueryResponseAlternative33,
         ]
     ]
 ):
@@ -5245,6 +5313,8 @@ class QueryResponseAlternative(
         QueryResponseAlternative12,
         QueryResponseAlternative13,
         QueryResponseAlternative14,
+        ExperimentResultTrendQueryResponse,
+        ExperimentResultFunnelQueryResponse,
         Any,
         QueryResponseAlternative15,
         QueryResponseAlternative16,
@@ -5259,8 +5329,10 @@ class QueryResponseAlternative(
         QueryResponseAlternative25,
         QueryResponseAlternative26,
         QueryResponseAlternative27,
-        QueryResponseAlternative30,
-        QueryResponseAlternative31,
+        QueryResponseAlternative28,
+        QueryResponseAlternative29,
+        QueryResponseAlternative32,
+        QueryResponseAlternative33,
     ]
 
 
@@ -5277,6 +5349,19 @@ class DatabaseSchemaQueryResponse(BaseModel):
             DatabaseSchemaBatchExportTable,
         ],
     ]
+
+
+class ExperimentResultQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["ExperimentResultQuery"] = "ExperimentResultQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    response: Optional[Union[ExperimentResultTrendQueryResponse, ExperimentResultFunnelQueryResponse]] = None
+    source: Union[TrendsQuery, FunnelsQuery]
+    variants: list[str]
 
 
 class FunnelPathsFilter(BaseModel):
@@ -5552,6 +5637,8 @@ class DataTableNode(BaseModel):
             Response6,
             Response7,
             Response8,
+            Response9,
+            Response10,
         ]
     ] = None
     showActions: Optional[bool] = Field(default=None, description="Show the kebab menu at the end of the row")
@@ -5592,6 +5679,7 @@ class DataTableNode(BaseModel):
         WebGoalsQuery,
         SessionAttributionExplorerQuery,
         ErrorTrackingQuery,
+        ExperimentResultQuery,
     ] = Field(..., description="Source of the events")
 
 
@@ -5629,6 +5717,7 @@ class HogQLAutocomplete(BaseModel):
             WebGoalsQuery,
             SessionAttributionExplorerQuery,
             ErrorTrackingQuery,
+            ExperimentResultQuery,
         ]
     ] = Field(default=None, description="Query in whose context to validate.")
     startPosition: int = Field(..., description="Start position of the editor word")
@@ -5670,6 +5759,7 @@ class HogQLMetadata(BaseModel):
             WebGoalsQuery,
             SessionAttributionExplorerQuery,
             ErrorTrackingQuery,
+            ExperimentResultQuery,
         ]
     ] = Field(
         default=None,
@@ -5713,6 +5803,7 @@ class QueryRequest(BaseModel):
         WebGoalsQuery,
         SessionAttributionExplorerQuery,
         ErrorTrackingQuery,
+        ExperimentResultQuery,
         DataVisualizationNode,
         DataTableNode,
         SavedInsightNode,
@@ -5760,6 +5851,7 @@ class QuerySchemaRoot(
             WebGoalsQuery,
             SessionAttributionExplorerQuery,
             ErrorTrackingQuery,
+            ExperimentResultQuery,
             DataVisualizationNode,
             DataTableNode,
             SavedInsightNode,
@@ -5795,6 +5887,7 @@ class QuerySchemaRoot(
         WebGoalsQuery,
         SessionAttributionExplorerQuery,
         ErrorTrackingQuery,
+        ExperimentResultQuery,
         DataVisualizationNode,
         DataTableNode,
         SavedInsightNode,
