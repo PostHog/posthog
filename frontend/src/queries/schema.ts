@@ -8,14 +8,17 @@ import {
     BreakdownType,
     ChartDisplayCategory,
     ChartDisplayType,
+    CohortPropertyFilter,
     CountPerActorMathType,
     DurationType,
     EventPropertyFilter,
     EventType,
+    FeaturePropertyFilter,
     FilterLogicalOperator,
     FilterType,
     FunnelsFilterType,
     GroupMathType,
+    GroupPropertyFilter,
     HogQLMathType,
     InsightShortId,
     InsightType,
@@ -826,6 +829,79 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     compareFilter?: CompareFilter
 }
 
+export type AIPropertyFilter =
+    | EventPropertyFilter
+    | PersonPropertyFilter
+    // | ElementPropertyFilter
+    | SessionPropertyFilter
+    | CohortPropertyFilter
+    // | RecordingPropertyFilter
+    // | LogEntryPropertyFilter
+    // | HogQLPropertyFilter
+    // | EmptyPropertyFilter
+    // | DataWarehousePropertyFilter
+    // | DataWarehousePersonPropertyFilter
+    | GroupPropertyFilter
+    | FeaturePropertyFilter
+
+export interface AIEventsNode
+    extends Omit<EventsNode, 'fixedProperties' | 'properties' | 'math_hogql' | 'limit' | 'groupBy'> {
+    properties?: AIPropertyFilter[]
+    fixedProperties?: AIPropertyFilter[]
+}
+
+export interface AIActionsNode
+    extends Omit<EventsNode, 'fixedProperties' | 'properties' | 'math_hogql' | 'limit' | 'groupBy'> {
+    properties?: AIPropertyFilter[]
+    fixedProperties?: AIPropertyFilter[]
+}
+
+export interface ExperimentalAITrendsQuery {
+    kind: NodeKind.TrendsQuery
+    /**
+     * Granularity of the response. Can be one of `hour`, `day`, `week` or `month`
+     *
+     * @default day
+     */
+    interval?: IntervalType
+    /** Events and actions to include */
+    series: (AIEventsNode | AIActionsNode)[]
+    /** Properties specific to the trends insight */
+    trendsFilter?: TrendsFilter
+    /** Breakdown of the events and actions */
+    breakdownFilter?: Omit<
+        BreakdownFilter,
+        | 'breakdown'
+        | 'breakdown_type'
+        | 'breakdown_normalize_url'
+        | 'histogram_bin_count'
+        | 'breakdown_group_type_index'
+    >
+    /** Compare to date range */
+    compareFilter?: CompareFilter
+    /** Date range for the query */
+    dateRange?: InsightDateRange
+    /**
+     * Exclude internal and test users by applying the respective filters
+     *
+     * @default false
+     */
+    filterTestAccounts?: boolean
+    /**
+     * Property filters for all series
+     *
+     * @default []
+     */
+    properties?: AIPropertyFilter[]
+
+    /**
+     * Groups aggregation
+     */
+    aggregation_group_type_index?: integer
+    /** Sampling rate */
+    samplingFactor?: number | null
+}
+
 /** `FunnelsFilterType` minus everything inherited from `FilterType` and persons modal related params */
 export type FunnelsFilterLegacy = Omit<
     FunnelsFilterType,
@@ -871,6 +947,7 @@ export type FunnelsFilter = {
     hiddenLegendBreakdowns?: string[]
     /** @default total */
     funnelStepReference?: FunnelsFilterLegacy['funnel_step_reference']
+    useUdf?: boolean
 }
 
 export interface FunnelsQuery extends InsightsQueryBase<FunnelsQueryResponse> {
@@ -897,7 +974,9 @@ export type FunnelTrendsResults = Record<string, any>[]
 export interface FunnelsQueryResponse
     extends AnalyticsQueryResponseBase<
         FunnelStepsResults | FunnelStepsBreakdownResults | FunnelTimeToConvertResults | FunnelTrendsResults
-    > {}
+    > {
+    isUdf?: boolean
+}
 
 export type CachedFunnelsQueryResponse = CachedQueryResponse<FunnelsQueryResponse>
 
@@ -1380,14 +1459,12 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     kind: NodeKind.ErrorTrackingQuery
     fingerprint?: string[]
     select?: HogQLExpression[]
-    eventColumns?: string[]
     order?: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
     dateRange: DateRange
     assignee?: integer | null
     filterGroup?: PropertyGroupFilter
     filterTestAccounts?: boolean
     limit?: integer
-    offset?: integer
 }
 
 export interface ErrorTrackingGroup {
@@ -1406,7 +1483,6 @@ export interface ErrorTrackingGroup {
     volume?: any
     assignee: number | null
     status: 'archived' | 'active' | 'resolved' | 'pending_release'
-    events?: Record<string, any>[]
 }
 
 export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<ErrorTrackingGroup[]> {

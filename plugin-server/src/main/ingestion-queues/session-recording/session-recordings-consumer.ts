@@ -13,7 +13,7 @@ import {
 import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars, createRdProducerConfigFromEnvVars } from '../../../kafka/config'
 import { createKafkaProducer } from '../../../kafka/producer'
-import { PluginsServerConfig, RedisPool, TeamId, ValueMatcher } from '../../../types'
+import { PluginServerService, PluginsServerConfig, RedisPool, TeamId, ValueMatcher } from '../../../types'
 import { BackgroundRefresher } from '../../../utils/background-refresher'
 import { KafkaProducerWrapper } from '../../../utils/db/kafka-producer-wrapper'
 import { PostgresRouter } from '../../../utils/db/postgres'
@@ -233,6 +233,15 @@ export class SessionRecordingIngester {
                 return acc
             }, {} as Record<number, number>)
         }, 10000)
+    }
+
+    public get service(): PluginServerService {
+        return {
+            id: 'session-recordings-blob-overflow',
+            onShutdown: async () => await this.stop(),
+            healthcheck: () => this.isHealthy() ?? false,
+            batchConsumer: this.batchConsumer,
+        }
     }
 
     private get connectedBatchConsumer(): KafkaConsumer | undefined {

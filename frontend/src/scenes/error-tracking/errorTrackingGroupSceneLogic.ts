@@ -1,7 +1,8 @@
-import { actions, afterMount, connect, kea, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { Dayjs, dayjs } from 'lib/dayjs'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -10,27 +11,27 @@ import { Breadcrumb } from '~/types'
 
 import type { errorTrackingGroupSceneLogicType } from './errorTrackingGroupSceneLogicType'
 import { errorTrackingLogic } from './errorTrackingLogic'
-import { errorTrackingGroupQuery } from './queries'
+import { errorTrackingGroupEventsQuery, errorTrackingGroupQuery } from './queries'
 
-export interface ErrorTrackingGroupSceneLogicProps {
-    fingerprint: string[]
-}
-
-export enum ErrorGroupTab {
-    Overview = 'overview',
-    Breakdowns = 'breakdowns',
-}
-
-export type ErrorTrackingGroupEvent = {
+export interface ErrorTrackingEvent {
     uuid: string
-    properties: string
-    timestamp: string
+    timestamp: Dayjs
+    properties: Record<string, any>
     person: {
         distinct_id: string
         uuid?: string
         created_at?: string
         properties?: Record<string, any>
     }
+}
+
+export interface ErrorTrackingGroupSceneLogicProps {
+    fingerprint: ErrorTrackingGroup['fingerprint']
+}
+
+export enum ErrorGroupTab {
+    Overview = 'overview',
+    Breakdowns = 'breakdowns',
 }
 
 export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType>([
@@ -43,6 +44,7 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
 
     actions({
         setErrorGroupTab: (tab: ErrorGroupTab) => ({ tab }),
+        setActiveEventUUID: (uuid: ErrorTrackingEvent['uuid']) => ({ uuid }),
     }),
 
     reducers(() => ({
@@ -50,6 +52,12 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
             ErrorGroupTab.Overview as ErrorGroupTab,
             {
                 setErrorGroupTab: (_, { tab }) => tab,
+            },
+        ],
+        activeEventUUID: [
+            undefined as ErrorTrackingEvent['uuid'] | undefined,
+            {
+                setActiveEventUUID: (_, { uuid }) => uuid,
             },
         ],
     })),
@@ -74,6 +82,43 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
                 },
             },
         ],
+        events: [
+            [] as ErrorTrackingEvent[],
+            {
+                loadEvents: async () => {
+                    const response = await api.query(
+                        errorTrackingGroupEventsQuery({
+                            select: ['uuid', 'properties', 'timestamp', 'person'],
+                            fingerprints: values.combinedFingerprints,
+                            dateRange: values.dateRange,
+                            filterTestAccounts: values.filterTestAccounts,
+                            filterGroup: values.filterGroup,
+                            offset: values.events.length,
+                        })
+                    )
+
+                    const newResults = response.results.map((r) => ({
+                        uuid: r[0],
+                        properties: JSON.parse(r[1]),
+                        timestamp: dayjs(r[2]),
+                        person: r[3],
+                    }))
+
+                    return [...values.events, ...newResults]
+                },
+            },
+        ],
+    })),
+
+    listeners(({ values, actions }) => ({
+        loadGroupSuccess: () => {
+            actions.loadEvents()
+        },
+        loadEventsSuccess: () => {
+            if (!values.activeEventUUID) {
+                actions.setActiveEventUUID(values.events[0]?.uuid)
+            }
+        },
     })),
 
     selectors({
@@ -95,7 +140,11 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
             },
         ],
 
-        events: [(s) => [s.group], (group) => (group?.events || []) as ErrorTrackingGroupEvent[]],
+        combinedFingerprints: [
+            (s) => [s.group],
+            (group): ErrorTrackingGroup['fingerprint'][] =>
+                group ? [group.fingerprint, ...group.merged_fingerprints] : [],
+        ],
     }),
 
     actionToUrl(({ values }) => ({

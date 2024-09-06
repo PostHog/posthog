@@ -14,7 +14,7 @@ def is_email_verification_disabled(user: User) -> bool:
     # using disabled here so that the default state (if no flag exists) is that verification defaults to ON.
     return user.organization is not None and posthoganalytics.feature_enabled(
         VERIFICATION_DISABLED_FLAG,
-        user.organization.id,
+        str(user.organization.id),
         groups={"organization": str(user.organization.id)},
         group_properties={"organization": {"id": str(user.organization.id)}},
     )

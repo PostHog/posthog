@@ -4,11 +4,10 @@ use sqlx::PgPool;
 
 use crate::{
     ops::{
-        janitor::{
-            delete_completed_jobs, delete_failed_jobs, detect_poison_pills, reset_stalled_jobs,
-        },
+        janitor::{delete_completed_and_failed_jobs, detect_poison_pills, reset_stalled_jobs},
         meta::{count_total_waiting_jobs, dead_letter, run_migrations},
     },
+    types::AggregatedDelete,
     PoolConfig, QueueError,
 };
 
@@ -31,12 +30,10 @@ impl Janitor {
         run_migrations(&self.pool).await;
     }
 
-    pub async fn delete_completed_jobs(&self) -> Result<u64, QueueError> {
-        delete_completed_jobs(&self.pool).await
-    }
-
-    pub async fn delete_failed_jobs(&self) -> Result<u64, QueueError> {
-        delete_failed_jobs(&self.pool).await
+    pub async fn delete_completed_and_failed_jobs(
+        &self,
+    ) -> Result<Vec<AggregatedDelete>, QueueError> {
+        delete_completed_and_failed_jobs(&self.pool).await
     }
 
     pub async fn reset_stalled_jobs(&self, timeout: Duration) -> Result<u64, QueueError> {

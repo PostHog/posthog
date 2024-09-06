@@ -176,13 +176,13 @@ class ClickhouseFunnelExperimentResult:
 
         if len(test_variants) >= 10:
             raise ValidationError(
-                "Can't calculate A/B test results for more than 10 variants",
+                "Can't calculate experiment results for more than 10 variants",
                 code="too_much_data",
             )
 
         if len(test_variants) < 1:
             raise ValidationError(
-                "Can't calculate A/B test results for less than 2 variants",
+                "Can't calculate experiment results for less than 2 variants",
                 code="no_data",
             )
 
@@ -311,7 +311,7 @@ def calculate_probability_of_winning_for_each(variants: list[Variant]) -> list[P
     """
     if len(variants) > 10:
         raise ValidationError(
-            "Can't calculate A/B test results for more than 10 variants",
+            "Can't calculate experiment results for more than 10 variants",
             code="too_much_data",
         )
 
