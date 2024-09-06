@@ -321,7 +321,10 @@ async def saved_queries(ateam):
 
 
 async def test_build_dag_activity_select_all_ancestors(activity_environment, ateam, saved_queries):
-    """Test the build dag activity with a sample set of models."""
+    """Test the build dag activity with a sample set of models.
+
+    In this test we attempt to select all ancestors of a model using a single '+' prefix.
+    """
     parent_saved_query, child_saved_query, _, grand_child_saved_query = saved_queries
 
     select = [f"+{child_saved_query.id.hex}"]
@@ -337,15 +340,18 @@ async def test_build_dag_activity_select_all_ancestors(activity_environment, ate
     assert dag[child_saved_query.id.hex].children == {grand_child_saved_query.id.hex}
     assert dag[child_saved_query.id.hex].selected is True
 
-    selected = {
+    selected = (
         child_saved_query.id.hex,
         parent_saved_query.id.hex,
-    }
+    )
     assert all(dag[other].selected is False for other in dag.keys() if other not in selected)
 
 
 async def test_build_dag_activity_select_all_descendants(activity_environment, ateam, saved_queries):
-    """Test the build dag activity with a sample set of models."""
+    """Test the build dag activity with a sample set of models.
+
+    In this test we attempt to select all descendants of a model using a single '+' suffix.
+    """
     parent_saved_query, child_saved_query, child_2_saved_query, grand_child_saved_query = saved_queries
 
     select = [f"{parent_saved_query.id.hex}+"]
@@ -369,17 +375,23 @@ async def test_build_dag_activity_select_all_descendants(activity_environment, a
     assert not dag[grand_child_saved_query.id.hex].children
     assert dag[grand_child_saved_query.id.hex].selected is True
 
-    selected = {
+    selected = (
         grand_child_saved_query.id.hex,
         child_2_saved_query.id.hex,
         child_saved_query.id.hex,
         parent_saved_query.id.hex,
-    }
+    )
     assert all(dag[other].selected is False for other in dag.keys() if other not in selected)
 
 
 async def test_build_dag_activity_select_multiple_individual_models(activity_environment, ateam, saved_queries):
-    """Test the build dag activity with a sample set of models."""
+    """Test the build dag activity with a sample set of models.
+
+    In this test we select multiple individual models to assert that:
+    * All selected models are marked as selected to run.
+    * Additional models are included to account for paths connecting models.
+    * These additional models are not marked as selected.
+    """
     parent_saved_query, child_saved_query, child_2_saved_query, _ = saved_queries
 
     select = [parent_saved_query.id.hex, child_saved_query.id.hex, child_2_saved_query.id.hex]
@@ -388,6 +400,7 @@ async def test_build_dag_activity_select_multiple_individual_models(activity_env
     async with asyncio.timeout(10):
         dag = await activity_environment.run(build_dag_activity, inputs)
 
+    assert len(dag) == 5
     assert dag[parent_saved_query.id.hex].children == {child_saved_query.id.hex, child_2_saved_query.id.hex}
 
     assert dag[child_saved_query.id.hex].parents == {parent_saved_query.id.hex}
@@ -395,3 +408,82 @@ async def test_build_dag_activity_select_multiple_individual_models(activity_env
 
     assert all(dag[selected].selected is True for selected in select)
     assert all(dag[other].selected is False for other in dag.keys() if other not in select)
+
+
+async def test_build_dag_activity_select_first_parents(activity_environment, ateam, saved_queries):
+    """Test the build dag activity with a sample set of models.
+
+    In this test we attempt to select first parents of a model using a '1+' prefix.
+    """
+    _, child_saved_query, child_2_saved_query, grand_child_saved_query = saved_queries
+
+    select = [f"1+{grand_child_saved_query.id.hex}"]
+    inputs = BuildDagActivityInputs(team_id=ateam.pk, select=select)
+
+    async with asyncio.timeout(10):
+        dag = await activity_environment.run(build_dag_activity, inputs)
+
+    assert dag[child_2_saved_query.id.hex].children == {grand_child_saved_query.id.hex}
+    assert dag[child_saved_query.id.hex].children == {grand_child_saved_query.id.hex}
+    assert dag[grand_child_saved_query.id.hex].parents == {child_2_saved_query.id.hex, child_saved_query.id.hex}
+
+    selected = (
+        child_saved_query.id.hex,
+        child_2_saved_query.id.hex,
+        grand_child_saved_query.id.hex,
+    )
+    assert all(dag[selected].selected is True for selected in selected)
+    assert all(dag[other].selected is False for other in dag.keys() if other not in selected)
+
+
+async def test_build_dag_activity_select_first_children(activity_environment, ateam, saved_queries):
+    """Test the build dag activity with a sample set of models.
+
+    In this test we attempt to select first children of a model using a '+1' suffix.
+    """
+    parent_saved_query, child_saved_query, child_2_saved_query, _ = saved_queries
+
+    select = [f"{parent_saved_query.id.hex}+1"]
+    inputs = BuildDagActivityInputs(team_id=ateam.pk, select=select)
+
+    async with asyncio.timeout(10):
+        dag = await activity_environment.run(build_dag_activity, inputs)
+
+    assert dag[child_2_saved_query.id.hex].parents == {parent_saved_query.id.hex}
+    assert dag[child_saved_query.id.hex].parents == {parent_saved_query.id.hex}
+    assert dag[parent_saved_query.id.hex].children == {child_2_saved_query.id.hex, child_saved_query.id.hex}
+
+    selected = (
+        child_saved_query.id.hex,
+        child_2_saved_query.id.hex,
+        parent_saved_query.id.hex,
+    )
+    assert all(dag[selected].selected is True for selected in selected)
+    assert all(dag[other].selected is False for other in dag.keys() if other not in selected)
+
+
+async def test_build_dag_activity_select_first_family(activity_environment, ateam, saved_queries):
+    """Test the build dag activity with a sample set of models.
+
+    In this test we attempt to select first children and first parents of a model using a
+    both a'+1' suffix and a '1+' prefix.
+    """
+    parent_saved_query, child_saved_query, _, grand_child_saved_query = saved_queries
+
+    select = [f"1+{child_saved_query.id.hex}+1"]
+    inputs = BuildDagActivityInputs(team_id=ateam.pk, select=select)
+
+    async with asyncio.timeout(10):
+        dag = await activity_environment.run(build_dag_activity, inputs)
+
+    assert dag[child_saved_query.id.hex].parents == {parent_saved_query.id.hex}
+    assert dag[grand_child_saved_query.id.hex].parents == {child_saved_query.id.hex}
+    assert dag[parent_saved_query.id.hex].children == {child_saved_query.id.hex}
+
+    selected = (
+        child_saved_query.id.hex,
+        parent_saved_query.id.hex,
+        grand_child_saved_query.id.hex,
+    )
+    assert all(dag[selected].selected is True for selected in selected)
+    assert all(dag[other].selected is False for other in dag.keys() if other not in selected)

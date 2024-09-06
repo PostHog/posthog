@@ -495,7 +495,7 @@ async def build_dag_from_selectors(selectors: collections.abc.Iterable[Selector]
                 node = dag[label]
 
                 if (
-                    (index == label_index or end > index > start)
+                    (index == label_index or end >= index >= start)
                     and label not in posthog_tables
                     and node.selected is False
                 ):
