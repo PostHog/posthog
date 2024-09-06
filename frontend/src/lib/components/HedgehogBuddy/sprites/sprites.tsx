@@ -222,7 +222,6 @@ export const skins: Record<HedgehogSkin, { [key: string]: SpriteInfo }> = {
         stop: standardAnimations.stop,
         fall: standardAnimations.fall,
         jump: standardAnimations.jump,
-        // spinning: standardAnimations.,
         walk: standardAnimations.walk,
         wave: standardAnimations.wave,
     },
