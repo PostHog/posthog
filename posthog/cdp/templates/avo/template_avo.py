@@ -8,14 +8,15 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Send events to Avo",
     icon_url="/static/services/avo.png",
     hog="""
-let apiKey := inputs.avoApiKey
-let environment := inputs.environment
-let appName := inputs.appName
+if (empty(inputs.apiKey) or empty(inputs.environment)) {
+    print('API Key and environment has to be set. Skipping...')
+    return
+}
 
 let avoEvent := {
-    'apiKey': apiKey,
-    'env': environment,
-    'appName': appName,
+    'apiKey': inputs.apiKey,
+    'env': inputs.environment,
+    'appName': inputs.appName,
     'sessionId': '6210349f-a6f2-4082-84f4-9696f95c7e10', // Generate Session ID
     'createdAt': '2024-08-30T11:48:18.853Z', // Generate timestamp
     'avoFunction': false,
@@ -32,43 +33,38 @@ let avoEvent := {
     'eventProperties': []
 }
 
-for (let key, value in event.properties) {
-    if (not key like '$%') {
-        print(key)
-        avoEvent.eventProperties.push({ 'propertyName': key, 'propertyValue': 'string' })
+fn getPropValueType(propValue) {
+    let propType := typeof(propValue)
+    if (propValue == null) {
+        return 'null'
+    } else if (propType == 'string') {
+        return 'string'
+    } else if (propType == 'integer') {
+        return 'int'
+    } else if (propType == 'float') {
+        return 'float'
+    } else if (propType == 'boolean') {
+        return 'boolean'
+    } else if (propType == 'object') {
+        return 'object'
+    } else if (propType == 'array') {
+        return 'list'
+    } else {
+        return propType
     }
 }
 
-// fn getPropValueType(propValue) {
-//     let propType = typeof propValue
-//     if (propValue == null) {
-//         return 'null'
-//     } else if (propType === 'string') {
-//         return 'string'
-//     } else if (propType === 'number' || propType === 'bigint') {
-//         if ((propValue + '').indexOf('.') >= 0) {
-//             return 'float'
-//         } else {
-//             return 'int'
-//         }
-//     } else if (propType === 'boolean') {
-//         return 'boolean'
-//     } else if (propType === 'object') {
-//         if (Array.isArray(propValue)) {
-//             return 'list'
-//         } else {
-//             return 'object'
-//         }
-//     } else {
-//         return propType
-//     }
-// }
+for (let key, value in event.properties) {
+    if (not key like '$%') {
+        avoEvent.eventProperties := arrayPushBack(avoEvent.eventProperties, { 'propertyName': key, 'propertyType': getPropValueType(value) })
+    }
+}
 
-fetch('https://webhook.site/c10b5336-709a-4fe9-96f0-b62edb5f7f5b', {
+fetch('https://api.avo.app/inspector/posthog/v1/track', {
     'method': 'POST',
     'headers': {
-        'env': environment,
-        'api-key': apiKey,
+        'env': inputs.environment,
+        'api-key': inputs.apiKey,
         'content-type': 'application/json',
         'accept': 'application/json',
     },
@@ -77,7 +73,7 @@ fetch('https://webhook.site/c10b5336-709a-4fe9-96f0-b62edb5f7f5b', {
 """.strip(),
     inputs_schema=[
         {
-            "key": "avoApiKey",
+            "key": "apiKey",
             "type": "string",
             "label": "Avo API Key",
             "description": "Avo source API key",
@@ -90,7 +86,7 @@ fetch('https://webhook.site/c10b5336-709a-4fe9-96f0-b62edb5f7f5b', {
             "type": "string",
             "label": "Environment",
             "description": "Environment name",
-            "default": "",
+            "default": "dev",
             "secret": False,
             "required": False,
         },
