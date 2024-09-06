@@ -13,7 +13,7 @@ export type GroupsConfigurationLogicProps = {
 }
 
 export const groupsConfigurationLogic = kea<groupsConfigurationLogicType>([
-    props({} as groupsConfigurationLogicType),
+    props({} as GroupsConfigurationLogicProps),
     key((props) => `${props.groupTypeIndex}`),
     path((key) => ['scenes', 'groups', 'groupsConfigurationLogic', key]),
     connect({

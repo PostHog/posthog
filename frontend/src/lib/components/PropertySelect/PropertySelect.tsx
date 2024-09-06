@@ -16,7 +16,7 @@ export interface PropertySelectProps {
     onChange: (names: string[]) => void
     selectedProperties: string[]
     sortable?: boolean
-    taxonomicFilterGroup: TaxonomicFilterGroupType.PersonProperties | TaxonomicFilterGroupType.EventProperties
+    taxonomicFilterGroup: TaxonomicFilterGroupType
 }
 
 const SortableProperty = ({

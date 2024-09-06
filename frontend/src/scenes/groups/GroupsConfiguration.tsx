@@ -109,7 +109,9 @@ export function GroupJoinModal({
                                                             : []
                                                     }
                                                     addText="select property"
-                                                    taxonomicFilterGroup={`${TaxonomicFilterGroupType.GroupsPrefix}_${groupTypeIndex}`}
+                                                    taxonomicFilterGroup={
+                                                        `${TaxonomicFilterGroupType.GroupsPrefix}_${groupTypeIndex}` as TaxonomicFilterGroupType
+                                                    }
                                                 />
                                             ),
                                         },
@@ -179,6 +181,10 @@ export function GroupJoinModal({
 
 function JoinTable({ groupTypeIndex }: { groupTypeIndex: number }): JSX.Element {
     const logic = groupsConfigurationLogic({ groupTypeIndex })
+
+    const {
+        groupTypeName: { singular },
+    } = useValues(groupsListLogic({ groupTypeIndex }))
     const { joins } = useValues(logic)
 
     const { loadJoins } = useActions(dataWarehouseJoinsLogic)
