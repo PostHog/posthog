@@ -1,4 +1,4 @@
-import { IconCheckCircle, IconCursorClick, IconInfo, IconTrash } from '@posthog/icons'
+import { IconCheckCircle, IconInfo, IconTarget, IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCollapse, LemonInput, LemonLabel } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { iframedToolbarBrowserLogic } from 'lib/components/IframedToolbarBrowser/iframedToolbarBrowserLogic'
@@ -45,13 +45,22 @@ function VariableSelector({
             {variable.touched && !customEventName && (
                 <div className="flex justify-between items-center bg-bg-3000-light p-2 pl-3 rounded mb-4">
                     <div>
-                        <IconCheckCircle className="text-success font-bold" />{' '}
-                        <span className="text-success font-bold">Selected</span>
-                        <p className="italic text-muted mb-0">
-                            <IconCursorClick /> {variable.default.selector}
+                        <p className="mb-2">
+                            <IconCheckCircle className="text-success font-bold" />{' '}
+                            <span className="text-success font-bold">Selected</span>
                         </p>
-                        <p className="italic text-muted mb-0">{variable.default.href}</p>
-                        <p className="italic text-muted mb-0">{variable.default.url}</p>
+                        <div className="ml-4">
+                            <p className="text-muted mb-0 text-xs">
+                                <span className="font-bold">CSS selector:</span>{' '}
+                                {variable.default.selector || 'not set'}
+                            </p>
+                            <p className="text-muted mb-0 text-xs">
+                                <span className="font-bold">Element href:</span> {variable.default.href || 'not set'}
+                            </p>
+                            <p className="text-muted mb-1 text-xs">
+                                <span className="font-bold">Page URL:</span> {variable.default.url || 'any url'}
+                            </p>
+                        </div>
                     </div>
                     <div>
                         <LemonButton
@@ -145,6 +154,7 @@ function VariableSelector({
                                     enableElementSelector()
                                     setNewActionName(variable.name)
                                 }}
+                                icon={<IconTarget />}
                             >
                                 Select from site
                             </LemonButton>
