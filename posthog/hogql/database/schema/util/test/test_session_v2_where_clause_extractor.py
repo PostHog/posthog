@@ -363,7 +363,25 @@ class TestSessionsV2QueriesHogQLToClickhouse(ClickhouseTestMixin, APIBaseTest):
 
     def test_select_with_timestamp(self):
         actual = self.print_query("SELECT session_id FROM sessions WHERE $start_timestamp > '2021-01-01'")
-        assert actual == snapshot()
+        assert actual == snapshot("""\
+SELECT
+    sessions.session_id AS session_id
+FROM
+    (SELECT
+        toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
+        min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_0)s)) AS `$start_timestamp`,
+        raw_sessions.session_id_v7 AS session_id_v7
+    FROM
+        raw_sessions
+    WHERE
+        and(equals(raw_sessions.team_id, <team_id>), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), %(hogql_val_1)s), 0))
+    GROUP BY
+        raw_sessions.session_id_v7,
+        raw_sessions.session_id_v7) AS sessions
+WHERE
+    ifNull(greater(sessions.`$start_timestamp`, %(hogql_val_2)s), 0)
+LIMIT 50000\
+""")
 
     def test_join_with_events(self):
         actual = self.print_query(
@@ -378,7 +396,28 @@ WHERE events.timestamp > '2021-01-01'
 GROUP BY sessions.session_id
 """
         )
-        assert actual == snapshot()
+        assert actual == snapshot("""\
+SELECT
+    sessions.session_id AS session_id,
+    uniq(events.uuid)
+FROM
+    events
+    JOIN (SELECT
+        toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
+        raw_sessions.session_id_v7 AS session_id_v7
+    FROM
+        raw_sessions
+    WHERE
+        and(equals(raw_sessions.team_id, <team_id>), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), %(hogql_val_0)s), 0))
+    GROUP BY
+        raw_sessions.session_id_v7,
+        raw_sessions.session_id_v7) AS sessions ON equals(events.`$session_id`, sessions.session_id)
+WHERE
+    and(equals(events.team_id, <team_id>), greater(toTimeZone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s))
+GROUP BY
+    sessions.session_id
+LIMIT 50000\
+""")
 
     def test_union(self):
         actual = self.print_query(
@@ -390,7 +429,29 @@ FROM events
 WHERE events.timestamp < today()
             """
         )
-        assert actual == snapshot()
+        assert actual == snapshot("""\
+SELECT
+    0 AS duration
+LIMIT 50000
+UNION ALL
+SELECT
+    events__session.`$session_duration` AS duration
+FROM
+    events
+    LEFT JOIN (SELECT
+        dateDiff(%(hogql_val_0)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_1)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_2)s))) AS `$session_duration`,
+        raw_sessions.session_id_v7 AS session_id_v7
+    FROM
+        raw_sessions
+    WHERE
+        and(equals(raw_sessions.team_id, <team_id>), ifNull(lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), today()), 0))
+    GROUP BY
+        raw_sessions.session_id_v7,
+        raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, %(hogql_val_3)s)), events__session.session_id_v7)
+WHERE
+    and(equals(events.team_id, <team_id>), less(toTimeZone(events.timestamp, %(hogql_val_4)s), today()))
+LIMIT 50000\
+""")
 
     def test_session_breakdown(self):
         actual = self.print_query(
@@ -487,7 +548,28 @@ WHERE s.session.$entry_pathname = '/home' AND min_first_timestamp >= '2021-01-01
 GROUP BY session_id
         """
         )
-        assert actual == snapshot()
+        assert actual == snapshot("""\
+SELECT
+    s.session_id AS session_id,
+    min(toTimeZone(s.min_first_timestamp, %(hogql_val_5)s)) AS start_time
+FROM
+    session_replay_events AS s
+    LEFT JOIN (SELECT
+        path(nullIf(nullIf(argMinMerge(raw_sessions.entry_url), %(hogql_val_0)s), %(hogql_val_1)s)) AS `$entry_pathname`,
+        raw_sessions.session_id_v7 AS session_id_v7
+    FROM
+        raw_sessions
+    WHERE
+        and(equals(raw_sessions.team_id, <team_id>), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), %(hogql_val_2)s), 0), ifNull(lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), now64(6, %(hogql_val_3)s)), 0))
+    GROUP BY
+        raw_sessions.session_id_v7,
+        raw_sessions.session_id_v7) AS s__session ON equals(toUInt128(accurateCastOrNull(s.session_id, %(hogql_val_4)s)), s__session.session_id_v7)
+WHERE
+    and(equals(s.team_id, <team_id>), ifNull(equals(s__session.`$entry_pathname`, %(hogql_val_6)s), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, %(hogql_val_7)s), %(hogql_val_8)s), 0), ifNull(less(toTimeZone(s.min_first_timestamp, %(hogql_val_9)s), now64(6, %(hogql_val_10)s)), 0))
+GROUP BY
+    s.session_id
+LIMIT 50000\
+""")
 
     def test_urls_in_sessions_in_timestamp_query(self):
         actual = self.print_query(
@@ -500,4 +582,25 @@ from sessions
 where `$start_timestamp` >= now() - toIntervalDay(7)
 """
         )
-        assert actual == snapshot()
+        assert actual == snapshot("""\
+SELECT
+    sessions.session_id AS session_id,
+    sessions.`$urls` AS `$urls`,
+    sessions.`$start_timestamp` AS `$start_timestamp`
+FROM
+    (SELECT
+        toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
+        arrayDistinct(arrayFlatten(groupArray(raw_sessions.urls))) AS `$urls`,
+        min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_0)s)) AS `$start_timestamp`,
+        raw_sessions.session_id_v7 AS session_id_v7
+    FROM
+        raw_sessions
+    WHERE
+        and(equals(raw_sessions.team_id, <team_id>), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), minus(now64(6, %(hogql_val_1)s), toIntervalDay(7))), 0))
+    GROUP BY
+        raw_sessions.session_id_v7,
+        raw_sessions.session_id_v7) AS sessions
+WHERE
+    ifNull(greaterOrEquals(sessions.`$start_timestamp`, minus(now64(6, %(hogql_val_2)s), toIntervalDay(7))), 0)
+LIMIT 50000\
+""")

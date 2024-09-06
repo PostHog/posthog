@@ -75,7 +75,6 @@ class TestClickhouseSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBas
                 False,
                 False,
                 PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
-                True,
             ],
             [
                 "test_poe_being_unavailable_we_fall_back_to_person_id_overrides",
@@ -83,7 +82,6 @@ class TestClickhouseSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBas
                 False,
                 False,
                 PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
-                True,
             ],
             [
                 "test_poe_being_unavailable_we_fall_back_to_person_subquery_but_still_use_mat_props",
@@ -91,7 +89,6 @@ class TestClickhouseSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBas
                 False,
                 False,
                 PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
-                False,
             ],
             [
                 "test_allow_denormalised_props_fix_does_not_stop_all_poe_processing",
@@ -99,7 +96,6 @@ class TestClickhouseSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBas
                 True,
                 False,
                 PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
-                False,
             ],
             [
                 "test_poe_v2_available_person_properties_are_used_in_replay_listing",
@@ -107,7 +103,6 @@ class TestClickhouseSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBas
                 True,
                 True,
                 PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
-                False,
             ],
         ]
     )
@@ -118,7 +113,6 @@ class TestClickhouseSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBas
         poe_v2: bool,
         allow_denormalized_props: bool,
         expected_poe_mode: PersonsOnEventsMode,
-        unmaterialized_person_column_used: bool,
     ) -> None:
         with self.settings(
             PERSON_ON_EVENTS_OVERRIDE=poe_v1,
@@ -150,29 +144,19 @@ class TestClickhouseSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBas
 
             person_filtering_expr = self._matching_person_filter_expr_from(hogql_parsed_select)
 
-            if poe_v1 or poe_v2:
-                # when poe is off we will join to events, so we can get person properties directly off them
-                self._assert_is_events_person_filter(person_filtering_expr)
+            self._assert_is_events_person_filter(person_filtering_expr)
 
+            if poe_v1 or poe_v2:
+                # Property used directly from event (from materialized column)
                 assert "ifNull(equals(nullIf(nullIf(mat_pp_rgInternal, ''), 'null')" in printed_query
             else:
-                # when poe is off we join to person_distinct_ids, so we can get persons, so we can query their properties
-                self._assert_is_pdi_filter(person_filtering_expr)
-
-                if unmaterialized_person_column_used:
-                    assert (
-                        "argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_6)s), ''), 'null'), '^\"|\"$', ''), person.version) AS properties___rgInternal"
-                        in printed_query
-                    )
-                else:
-                    # we should use materialized column
-                    # assert (
-                    #     "argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_6)s), ''), 'null'), '^\"|\"$', ''), person.version) AS properties___rgInternal"
-                    #     not in printed_query
-                    # )
-                    # TODO frustratingly this doesn't pass - but since we're migrating to PoE maybe we can ignore it
-                    pass
-
+                # We get the person property value from the persons JOIN
+                assert (
+                    "argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_6)s), ''), 'null'), '^\"|\"$', ''), person.version) AS properties___rgInternal"
+                    in printed_query
+                )
+                # Then we actually filter on that property value
+                assert "ifNull(equals(events__person.properties___rgInternal, %(hogql_val_14)s), 0)" in printed_query
             self.assertQueryMatchesSnapshot(printed_query)
 
     def _assert_is_pdi_filter(self, person_filtering_expr: list[Expr]) -> None:

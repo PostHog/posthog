@@ -116,6 +116,8 @@ def produce_replay_summary(
     console_error_count: Optional[int] = None,
     log_messages: dict[str, list[str]] | None = None,
     snapshot_source: str | None = None,
+    *,
+    ensure_analytics_event_in_session: bool = True,
 ):
     if log_messages is None:
         log_messages = {}
@@ -147,14 +149,15 @@ def produce_replay_summary(
         sql=INSERT_SINGLE_SESSION_REPLAY,
         data=data,
     )
-    # We also need to create a random analytics event, since sessions querying joins with events in
-    # any person-ID-on-events mode - sessions without an analytics event are excluded
-    _create_event(
-        distinct_id=data["distinct_id"],
-        event="foobarino",
-        properties={"$session_id": data["session_id"]},
-        team_id=team_id,
-    )
+    if ensure_analytics_event_in_session:
+        # It's best to also create a random analytics event, since sessions querying does a JOIN with events in
+        # any person-ID-on-events mode - sessions without an analytics event are excluded
+        _create_event(
+            distinct_id=data["distinct_id"],
+            event="foobarino",
+            properties={"$session_id": data["session_id"]},
+            team_id=team_id,
+        )
 
     for level, messages in log_messages.items():
         for message in messages:

@@ -37,6 +37,7 @@
                           elements_chain_ids: {},
                           elements_chain_texts: {},
                           event: {},
+                          event_person_id: {},
                           goe_0: {},
                           goe_1: {},
                           goe_2: {},
@@ -47,6 +48,7 @@
                           group_2: {},
                           group_3: {},
                           group_4: {},
+                          override: {},
                           pdi: {},
                           person: {},
                           person_id: {},
@@ -157,6 +159,37 @@
                   type: {
                     name: "event"
                     table_type: <recursion ...>
+                  }
+                },
+                event_person_id: {
+                  alias: "event_person_id"
+                  type: {
+                    name: "event_person_id"
+                    table_type: <recursion ...>
+                  }
+                },
+                person_id: {
+                  alias: "person_id"
+                  type: {
+                    arg_types: [
+                      {
+                        data_type: "unknown"
+                        nullable: True
+                      },
+                      {
+                        data_type: "str"
+                        nullable: False
+                      },
+                      {
+                        data_type: "str"
+                        nullable: False
+                      }
+                    ]
+                    name: "if"
+                    return_type: {
+                      data_type: "unknown"
+                      nullable: True
+                    }
                   }
                 },
                 properties: {
@@ -331,6 +364,23 @@
         }
       },
       {
+        alias: "person_id"
+        expr: {
+          chain: [
+            "person_id"
+          ]
+          type: {
+            name: "person_id"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "person_id"
+          type: <recursion ...>
+        }
+      },
+      {
         alias: "$group_0"
         expr: {
           chain: [
@@ -482,6 +532,23 @@
           alias: "elements_chain_elements"
           type: <recursion ...>
         }
+      },
+      {
+        alias: "event_person_id"
+        expr: {
+          chain: [
+            "event_person_id"
+          ]
+          type: {
+            name: "event_person_id"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "event_person_id"
+          type: <recursion ...>
+        }
       }
     ]
     select_from: {
@@ -587,6 +654,139 @@
             type: <recursion ...>
           },
           {
+            alias: "person_id"
+            expr: {
+              args: [
+                {
+                  args: [
+                    {
+                      args: [
+                        {
+                          alias: "distinct_id"
+                          expr: {
+                            chain: [
+                              "override",
+                              "distinct_id"
+                            ]
+                            type: {
+                              name: "distinct_id"
+                              table_type: {
+                                field: "override"
+                                lazy_join: {
+                                  from_field: [
+                                    "distinct_id"
+                                  ],
+                                  join_function: <function>,
+                                  join_table: {
+                                    fields: {
+                                      distinct_id: {},
+                                      person: {},
+                                      person_id: {},
+                                      team_id: {}
+                                    }
+                                  },
+                                  to_field: None
+                                }
+                                table_type: <recursion ...>
+                              }
+                            }
+                          }
+                          hidden: True
+                          type: {
+                            alias: "distinct_id"
+                            type: <recursion ...>
+                          }
+                        }
+                      ]
+                      distinct: False
+                      name: "empty"
+                      type: {
+                        arg_types: [
+                          {
+                            data_type: "str"
+                            nullable: False
+                          }
+                        ]
+                        name: "empty"
+                        return_type: {
+                          data_type: "unknown"
+                          nullable: True
+                        }
+                      }
+                    }
+                  ]
+                  distinct: False
+                  name: "not"
+                  type: {
+                    arg_types: [
+                      <recursion ...>
+                    ]
+                    name: "not"
+                    return_type: <recursion ...>
+                  }
+                },
+                {
+                  alias: "person_id"
+                  expr: {
+                    chain: [
+                      "override",
+                      "person_id"
+                    ]
+                    type: {
+                      name: "person_id"
+                      table_type: {
+                        field: "override"
+                        lazy_join: {
+                          from_field: [
+                            "distinct_id"
+                          ],
+                          join_function: <function>,
+                          join_table: {
+                            fields: {
+                              distinct_id: {},
+                              person: {},
+                              person_id: {},
+                              team_id: {}
+                            }
+                          },
+                          to_field: None
+                        }
+                        table_type: <recursion ...>
+                      }
+                    }
+                  }
+                  hidden: True
+                  type: {
+                    alias: "person_id"
+                    type: <recursion ...>
+                  }
+                },
+                {
+                  alias: "event_person_id"
+                  expr: {
+                    chain: [
+                      "event_person_id"
+                    ]
+                    type: {
+                      name: "event_person_id"
+                      table_type: <recursion ...>
+                    }
+                  }
+                  hidden: True
+                  type: {
+                    alias: "event_person_id"
+                    type: <recursion ...>
+                  }
+                }
+              ]
+              distinct: False
+              name: "if"
+              type: <recursion ...>
+            }
+            hidden: True
+            type: <recursion ...>
+          },
+          {
             alias: "$group_0"
             expr: {
               chain: [
@@ -684,6 +884,17 @@
             }
             hidden: True
             type: <recursion ...>
+          },
+          {
+            alias: "event_person_id"
+            expr: {
+              chain: [
+                "event_person_id"
+              ]
+              type: <recursion ...>
+            }
+            hidden: True
+            type: <recursion ...>
           }
         ]
         select_from: {
@@ -720,6 +931,8 @@
         elements_chain_ids: <recursion ...>,
         elements_chain_texts: <recursion ...>,
         event: <recursion ...>,
+        event_person_id: <recursion ...>,
+        person_id: <recursion ...>,
         properties: <recursion ...>,
         timestamp: <recursion ...>,
         uuid: <recursion ...>
@@ -760,6 +973,7 @@
                   elements_chain_ids: {},
                   elements_chain_texts: {},
                   event: {},
+                  event_person_id: {},
                   goe_0: {},
                   goe_1: {},
                   goe_2: {},
@@ -771,6 +985,7 @@
                   group_3: {},
                   group_4: {},
                   hidden_field: {},
+                  override: {},
                   pdi: {},
                   person: {},
                   person_id: {},
@@ -928,6 +1143,162 @@
         }
       },
       {
+        alias: "person_id"
+        expr: {
+          args: [
+            {
+              args: [
+                {
+                  args: [
+                    {
+                      alias: "distinct_id"
+                      expr: {
+                        chain: [
+                          "override",
+                          "distinct_id"
+                        ]
+                        type: {
+                          name: "distinct_id"
+                          table_type: {
+                            field: "override"
+                            lazy_join: {
+                              from_field: [
+                                "distinct_id"
+                              ],
+                              join_function: <function>,
+                              join_table: {
+                                fields: {
+                                  distinct_id: {},
+                                  person: {},
+                                  person_id: {},
+                                  team_id: {}
+                                }
+                              },
+                              to_field: None
+                            }
+                            table_type: <recursion ...>
+                          }
+                        }
+                      }
+                      hidden: True
+                      type: {
+                        alias: "distinct_id"
+                        type: <recursion ...>
+                      }
+                    }
+                  ]
+                  distinct: False
+                  name: "empty"
+                  type: {
+                    arg_types: [
+                      {
+                        data_type: "str"
+                        nullable: False
+                      }
+                    ]
+                    name: "empty"
+                    return_type: {
+                      data_type: "unknown"
+                      nullable: True
+                    }
+                  }
+                }
+              ]
+              distinct: False
+              name: "not"
+              type: {
+                arg_types: [
+                  <recursion ...>
+                ]
+                name: "not"
+                return_type: {
+                  data_type: "unknown"
+                  nullable: True
+                }
+              }
+            },
+            {
+              alias: "person_id"
+              expr: {
+                chain: [
+                  "override",
+                  "person_id"
+                ]
+                type: {
+                  name: "person_id"
+                  table_type: {
+                    field: "override"
+                    lazy_join: {
+                      from_field: [
+                        "distinct_id"
+                      ],
+                      join_function: <function>,
+                      join_table: {
+                        fields: {
+                          distinct_id: {},
+                          person: {},
+                          person_id: {},
+                          team_id: {}
+                        }
+                      },
+                      to_field: None
+                    }
+                    table_type: <recursion ...>
+                  }
+                }
+              }
+              hidden: True
+              type: {
+                alias: "person_id"
+                type: <recursion ...>
+              }
+            },
+            {
+              alias: "event_person_id"
+              expr: {
+                chain: [
+                  "event_person_id"
+                ]
+                type: {
+                  name: "event_person_id"
+                  table_type: <recursion ...>
+                }
+              }
+              hidden: True
+              type: {
+                alias: "event_person_id"
+                type: <recursion ...>
+              }
+            }
+          ]
+          distinct: False
+          name: "if"
+          type: {
+            arg_types: [
+              <recursion ...>,
+              {
+                data_type: "str"
+                nullable: False
+              },
+              {
+                data_type: "str"
+                nullable: False
+              }
+            ]
+            name: "if"
+            return_type: {
+              data_type: "unknown"
+              nullable: True
+            }
+          }
+        }
+        hidden: True
+        type: {
+          alias: "person_id"
+          type: <recursion ...>
+        }
+      },
+      {
         alias: "$group_0"
         expr: {
           chain: [
@@ -1079,6 +1450,23 @@
           alias: "elements_chain_elements"
           type: <recursion ...>
         }
+      },
+      {
+        alias: "event_person_id"
+        expr: {
+          chain: [
+            "event_person_id"
+          ]
+          type: {
+            name: "event_person_id"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "event_person_id"
+          type: <recursion ...>
+        }
       }
     ]
     select_from: {
@@ -1109,6 +1497,8 @@
         elements_chain_ids: <recursion ...>,
         elements_chain_texts: <recursion ...>,
         event: <recursion ...>,
+        event_person_id: <recursion ...>,
+        person_id: <recursion ...>,
         properties: <recursion ...>,
         timestamp: <recursion ...>,
         uuid: <recursion ...>
@@ -1159,6 +1549,7 @@
                           elements_chain_ids: {},
                           elements_chain_texts: {},
                           event: {},
+                          event_person_id: {},
                           goe_0: {},
                           goe_1: {},
                           goe_2: {},
@@ -1169,6 +1560,7 @@
                           group_2: {},
                           group_3: {},
                           group_4: {},
+                          override: {},
                           pdi: {},
                           person: {},
                           person_id: {},
@@ -1279,6 +1671,37 @@
                   type: {
                     name: "event"
                     table_type: <recursion ...>
+                  }
+                },
+                event_person_id: {
+                  alias: "event_person_id"
+                  type: {
+                    name: "event_person_id"
+                    table_type: <recursion ...>
+                  }
+                },
+                person_id: {
+                  alias: "person_id"
+                  type: {
+                    arg_types: [
+                      {
+                        data_type: "unknown"
+                        nullable: True
+                      },
+                      {
+                        data_type: "str"
+                        nullable: False
+                      },
+                      {
+                        data_type: "str"
+                        nullable: False
+                      }
+                    ]
+                    name: "if"
+                    return_type: {
+                      data_type: "unknown"
+                      nullable: True
+                    }
                   }
                 },
                 properties: {
@@ -1453,6 +1876,23 @@
         }
       },
       {
+        alias: "person_id"
+        expr: {
+          chain: [
+            "person_id"
+          ]
+          type: {
+            name: "person_id"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "person_id"
+          type: <recursion ...>
+        }
+      },
+      {
         alias: "$group_0"
         expr: {
           chain: [
@@ -1604,6 +2044,23 @@
           alias: "elements_chain_elements"
           type: <recursion ...>
         }
+      },
+      {
+        alias: "event_person_id"
+        expr: {
+          chain: [
+            "event_person_id"
+          ]
+          type: {
+            name: "event_person_id"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "event_person_id"
+          type: <recursion ...>
+        }
       }
     ]
     select_from: {
@@ -1711,6 +2168,139 @@
                 type: <recursion ...>
               },
               {
+                alias: "person_id"
+                expr: {
+                  args: [
+                    {
+                      args: [
+                        {
+                          args: [
+                            {
+                              alias: "distinct_id"
+                              expr: {
+                                chain: [
+                                  "override",
+                                  "distinct_id"
+                                ]
+                                type: {
+                                  name: "distinct_id"
+                                  table_type: {
+                                    field: "override"
+                                    lazy_join: {
+                                      from_field: [
+                                        "distinct_id"
+                                      ],
+                                      join_function: <function>,
+                                      join_table: {
+                                        fields: {
+                                          distinct_id: {},
+                                          person: {},
+                                          person_id: {},
+                                          team_id: {}
+                                        }
+                                      },
+                                      to_field: None
+                                    }
+                                    table_type: <recursion ...>
+                                  }
+                                }
+                              }
+                              hidden: True
+                              type: {
+                                alias: "distinct_id"
+                                type: <recursion ...>
+                              }
+                            }
+                          ]
+                          distinct: False
+                          name: "empty"
+                          type: {
+                            arg_types: [
+                              {
+                                data_type: "str"
+                                nullable: False
+                              }
+                            ]
+                            name: "empty"
+                            return_type: {
+                              data_type: "unknown"
+                              nullable: True
+                            }
+                          }
+                        }
+                      ]
+                      distinct: False
+                      name: "not"
+                      type: {
+                        arg_types: [
+                          <recursion ...>
+                        ]
+                        name: "not"
+                        return_type: <recursion ...>
+                      }
+                    },
+                    {
+                      alias: "person_id"
+                      expr: {
+                        chain: [
+                          "override",
+                          "person_id"
+                        ]
+                        type: {
+                          name: "person_id"
+                          table_type: {
+                            field: "override"
+                            lazy_join: {
+                              from_field: [
+                                "distinct_id"
+                              ],
+                              join_function: <function>,
+                              join_table: {
+                                fields: {
+                                  distinct_id: {},
+                                  person: {},
+                                  person_id: {},
+                                  team_id: {}
+                                }
+                              },
+                              to_field: None
+                            }
+                            table_type: <recursion ...>
+                          }
+                        }
+                      }
+                      hidden: True
+                      type: {
+                        alias: "person_id"
+                        type: <recursion ...>
+                      }
+                    },
+                    {
+                      alias: "event_person_id"
+                      expr: {
+                        chain: [
+                          "event_person_id"
+                        ]
+                        type: {
+                          name: "event_person_id"
+                          table_type: <recursion ...>
+                        }
+                      }
+                      hidden: True
+                      type: {
+                        alias: "event_person_id"
+                        type: <recursion ...>
+                      }
+                    }
+                  ]
+                  distinct: False
+                  name: "if"
+                  type: <recursion ...>
+                }
+                hidden: True
+                type: <recursion ...>
+              },
+              {
                 alias: "$group_0"
                 expr: {
                   chain: [
@@ -1808,6 +2398,17 @@
                 }
                 hidden: True
                 type: <recursion ...>
+              },
+              {
+                alias: "event_person_id"
+                expr: {
+                  chain: [
+                    "event_person_id"
+                  ]
+                  type: <recursion ...>
+                }
+                hidden: True
+                type: <recursion ...>
               }
             ]
             select_from: {
@@ -1849,6 +2450,7 @@
                           elements_chain_ids: {},
                           elements_chain_texts: {},
                           event: {},
+                          event_person_id: {},
                           goe_0: {},
                           goe_1: {},
                           goe_2: {},
@@ -1859,6 +2461,7 @@
                           group_2: {},
                           group_3: {},
                           group_4: {},
+                          override: {},
                           pdi: {},
                           person: {},
                           person_id: {},
@@ -2016,6 +2619,162 @@
                 }
               },
               {
+                alias: "person_id"
+                expr: {
+                  args: [
+                    {
+                      args: [
+                        {
+                          args: [
+                            {
+                              alias: "distinct_id"
+                              expr: {
+                                chain: [
+                                  "override",
+                                  "distinct_id"
+                                ]
+                                type: {
+                                  name: "distinct_id"
+                                  table_type: {
+                                    field: "override"
+                                    lazy_join: {
+                                      from_field: [
+                                        "distinct_id"
+                                      ],
+                                      join_function: <function>,
+                                      join_table: {
+                                        fields: {
+                                          distinct_id: {},
+                                          person: {},
+                                          person_id: {},
+                                          team_id: {}
+                                        }
+                                      },
+                                      to_field: None
+                                    }
+                                    table_type: <recursion ...>
+                                  }
+                                }
+                              }
+                              hidden: True
+                              type: {
+                                alias: "distinct_id"
+                                type: <recursion ...>
+                              }
+                            }
+                          ]
+                          distinct: False
+                          name: "empty"
+                          type: {
+                            arg_types: [
+                              {
+                                data_type: "str"
+                                nullable: False
+                              }
+                            ]
+                            name: "empty"
+                            return_type: {
+                              data_type: "unknown"
+                              nullable: True
+                            }
+                          }
+                        }
+                      ]
+                      distinct: False
+                      name: "not"
+                      type: {
+                        arg_types: [
+                          <recursion ...>
+                        ]
+                        name: "not"
+                        return_type: {
+                          data_type: "unknown"
+                          nullable: True
+                        }
+                      }
+                    },
+                    {
+                      alias: "person_id"
+                      expr: {
+                        chain: [
+                          "override",
+                          "person_id"
+                        ]
+                        type: {
+                          name: "person_id"
+                          table_type: {
+                            field: "override"
+                            lazy_join: {
+                              from_field: [
+                                "distinct_id"
+                              ],
+                              join_function: <function>,
+                              join_table: {
+                                fields: {
+                                  distinct_id: {},
+                                  person: {},
+                                  person_id: {},
+                                  team_id: {}
+                                }
+                              },
+                              to_field: None
+                            }
+                            table_type: <recursion ...>
+                          }
+                        }
+                      }
+                      hidden: True
+                      type: {
+                        alias: "person_id"
+                        type: <recursion ...>
+                      }
+                    },
+                    {
+                      alias: "event_person_id"
+                      expr: {
+                        chain: [
+                          "event_person_id"
+                        ]
+                        type: {
+                          name: "event_person_id"
+                          table_type: <recursion ...>
+                        }
+                      }
+                      hidden: True
+                      type: {
+                        alias: "event_person_id"
+                        type: <recursion ...>
+                      }
+                    }
+                  ]
+                  distinct: False
+                  name: "if"
+                  type: {
+                    arg_types: [
+                      <recursion ...>,
+                      {
+                        data_type: "str"
+                        nullable: False
+                      },
+                      {
+                        data_type: "str"
+                        nullable: False
+                      }
+                    ]
+                    name: "if"
+                    return_type: {
+                      data_type: "unknown"
+                      nullable: True
+                    }
+                  }
+                }
+                hidden: True
+                type: {
+                  alias: "person_id"
+                  type: <recursion ...>
+                }
+              },
+              {
                 alias: "$group_0"
                 expr: {
                   chain: [
@@ -2167,6 +2926,23 @@
                   alias: "elements_chain_elements"
                   type: <recursion ...>
                 }
+              },
+              {
+                alias: "event_person_id"
+                expr: {
+                  chain: [
+                    "event_person_id"
+                  ]
+                  type: {
+                    name: "event_person_id"
+                    table_type: <recursion ...>
+                  }
+                }
+                hidden: True
+                type: {
+                  alias: "event_person_id"
+                  type: <recursion ...>
+                }
               }
             ]
             select_from: {
@@ -2197,6 +2973,8 @@
                 elements_chain_ids: <recursion ...>,
                 elements_chain_texts: <recursion ...>,
                 event: <recursion ...>,
+                event_person_id: <recursion ...>,
+                person_id: <recursion ...>,
                 properties: <recursion ...>,
                 timestamp: <recursion ...>,
                 uuid: <recursion ...>
@@ -2238,6 +3016,8 @@
         elements_chain_ids: <recursion ...>,
         elements_chain_texts: <recursion ...>,
         event: <recursion ...>,
+        event_person_id: <recursion ...>,
+        person_id: <recursion ...>,
         properties: <recursion ...>,
         timestamp: <recursion ...>,
         uuid: <recursion ...>
@@ -2490,6 +3270,7 @@
                   elements_chain_ids: {},
                   elements_chain_texts: {},
                   event: {},
+                  event_person_id: {},
                   goe_0: {},
                   goe_1: {},
                   goe_2: {},
@@ -2500,6 +3281,7 @@
                   group_2: {},
                   group_3: {},
                   group_4: {},
+                  override: {},
                   pdi: {},
                   person: {},
                   person_id: {},
@@ -2657,6 +3439,162 @@
         }
       },
       {
+        alias: "person_id"
+        expr: {
+          args: [
+            {
+              args: [
+                {
+                  args: [
+                    {
+                      alias: "distinct_id"
+                      expr: {
+                        chain: [
+                          "override",
+                          "distinct_id"
+                        ]
+                        type: {
+                          name: "distinct_id"
+                          table_type: {
+                            field: "override"
+                            lazy_join: {
+                              from_field: [
+                                "distinct_id"
+                              ],
+                              join_function: <function>,
+                              join_table: {
+                                fields: {
+                                  distinct_id: {},
+                                  person: {},
+                                  person_id: {},
+                                  team_id: {}
+                                }
+                              },
+                              to_field: None
+                            }
+                            table_type: <recursion ...>
+                          }
+                        }
+                      }
+                      hidden: True
+                      type: {
+                        alias: "distinct_id"
+                        type: <recursion ...>
+                      }
+                    }
+                  ]
+                  distinct: False
+                  name: "empty"
+                  type: {
+                    arg_types: [
+                      {
+                        data_type: "str"
+                        nullable: False
+                      }
+                    ]
+                    name: "empty"
+                    return_type: {
+                      data_type: "unknown"
+                      nullable: True
+                    }
+                  }
+                }
+              ]
+              distinct: False
+              name: "not"
+              type: {
+                arg_types: [
+                  <recursion ...>
+                ]
+                name: "not"
+                return_type: {
+                  data_type: "unknown"
+                  nullable: True
+                }
+              }
+            },
+            {
+              alias: "person_id"
+              expr: {
+                chain: [
+                  "override",
+                  "person_id"
+                ]
+                type: {
+                  name: "person_id"
+                  table_type: {
+                    field: "override"
+                    lazy_join: {
+                      from_field: [
+                        "distinct_id"
+                      ],
+                      join_function: <function>,
+                      join_table: {
+                        fields: {
+                          distinct_id: {},
+                          person: {},
+                          person_id: {},
+                          team_id: {}
+                        }
+                      },
+                      to_field: None
+                    }
+                    table_type: <recursion ...>
+                  }
+                }
+              }
+              hidden: True
+              type: {
+                alias: "person_id"
+                type: <recursion ...>
+              }
+            },
+            {
+              alias: "event_person_id"
+              expr: {
+                chain: [
+                  "event_person_id"
+                ]
+                type: {
+                  name: "event_person_id"
+                  table_type: <recursion ...>
+                }
+              }
+              hidden: True
+              type: {
+                alias: "event_person_id"
+                type: <recursion ...>
+              }
+            }
+          ]
+          distinct: False
+          name: "if"
+          type: {
+            arg_types: [
+              <recursion ...>,
+              {
+                data_type: "str"
+                nullable: False
+              },
+              {
+                data_type: "str"
+                nullable: False
+              }
+            ]
+            name: "if"
+            return_type: {
+              data_type: "unknown"
+              nullable: True
+            }
+          }
+        }
+        hidden: True
+        type: {
+          alias: "person_id"
+          type: <recursion ...>
+        }
+      },
+      {
         alias: "$group_0"
         expr: {
           chain: [
@@ -2808,6 +3746,23 @@
           alias: "elements_chain_elements"
           type: <recursion ...>
         }
+      },
+      {
+        alias: "event_person_id"
+        expr: {
+          chain: [
+            "event_person_id"
+          ]
+          type: {
+            name: "event_person_id"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "event_person_id"
+          type: <recursion ...>
+        }
       }
     ]
     select_from: {
@@ -2838,6 +3793,8 @@
         elements_chain_ids: <recursion ...>,
         elements_chain_texts: <recursion ...>,
         event: <recursion ...>,
+        event_person_id: <recursion ...>,
+        person_id: <recursion ...>,
         properties: <recursion ...>,
         timestamp: <recursion ...>,
         uuid: <recursion ...>
@@ -2882,6 +3839,7 @@
                     elements_chain_ids: {},
                     elements_chain_texts: {},
                     event: {},
+                    event_person_id: {},
                     goe_0: {},
                     goe_1: {},
                     goe_2: {},
@@ -2892,6 +3850,7 @@
                     group_2: {},
                     group_3: {},
                     group_4: {},
+                    override: {},
                     pdi: {},
                     person: {},
                     person_id: {},
@@ -3050,6 +4009,162 @@
         }
       },
       {
+        alias: "person_id"
+        expr: {
+          args: [
+            {
+              args: [
+                {
+                  args: [
+                    {
+                      alias: "distinct_id"
+                      expr: {
+                        chain: [
+                          "override",
+                          "distinct_id"
+                        ]
+                        type: {
+                          name: "distinct_id"
+                          table_type: {
+                            field: "override"
+                            lazy_join: {
+                              from_field: [
+                                "distinct_id"
+                              ],
+                              join_function: <function>,
+                              join_table: {
+                                fields: {
+                                  distinct_id: {},
+                                  person: {},
+                                  person_id: {},
+                                  team_id: {}
+                                }
+                              },
+                              to_field: None
+                            }
+                            table_type: <recursion ...>
+                          }
+                        }
+                      }
+                      hidden: True
+                      type: {
+                        alias: "distinct_id"
+                        type: <recursion ...>
+                      }
+                    }
+                  ]
+                  distinct: False
+                  name: "empty"
+                  type: {
+                    arg_types: [
+                      {
+                        data_type: "str"
+                        nullable: False
+                      }
+                    ]
+                    name: "empty"
+                    return_type: {
+                      data_type: "unknown"
+                      nullable: True
+                    }
+                  }
+                }
+              ]
+              distinct: False
+              name: "not"
+              type: {
+                arg_types: [
+                  <recursion ...>
+                ]
+                name: "not"
+                return_type: {
+                  data_type: "unknown"
+                  nullable: True
+                }
+              }
+            },
+            {
+              alias: "person_id"
+              expr: {
+                chain: [
+                  "override",
+                  "person_id"
+                ]
+                type: {
+                  name: "person_id"
+                  table_type: {
+                    field: "override"
+                    lazy_join: {
+                      from_field: [
+                        "distinct_id"
+                      ],
+                      join_function: <function>,
+                      join_table: {
+                        fields: {
+                          distinct_id: {},
+                          person: {},
+                          person_id: {},
+                          team_id: {}
+                        }
+                      },
+                      to_field: None
+                    }
+                    table_type: <recursion ...>
+                  }
+                }
+              }
+              hidden: True
+              type: {
+                alias: "person_id"
+                type: <recursion ...>
+              }
+            },
+            {
+              alias: "event_person_id"
+              expr: {
+                chain: [
+                  "event_person_id"
+                ]
+                type: {
+                  name: "event_person_id"
+                  table_type: <recursion ...>
+                }
+              }
+              hidden: True
+              type: {
+                alias: "event_person_id"
+                type: <recursion ...>
+              }
+            }
+          ]
+          distinct: False
+          name: "if"
+          type: {
+            arg_types: [
+              <recursion ...>,
+              {
+                data_type: "str"
+                nullable: False
+              },
+              {
+                data_type: "str"
+                nullable: False
+              }
+            ]
+            name: "if"
+            return_type: {
+              data_type: "unknown"
+              nullable: True
+            }
+          }
+        }
+        hidden: True
+        type: {
+          alias: "person_id"
+          type: <recursion ...>
+        }
+      },
+      {
         alias: "$group_0"
         expr: {
           chain: [
@@ -3201,6 +4316,23 @@
           alias: "elements_chain_elements"
           type: <recursion ...>
         }
+      },
+      {
+        alias: "event_person_id"
+        expr: {
+          chain: [
+            "event_person_id"
+          ]
+          type: {
+            name: "event_person_id"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "event_person_id"
+          type: <recursion ...>
+        }
       }
     ]
     select_from: {
@@ -3232,6 +4364,8 @@
         elements_chain_ids: <recursion ...>,
         elements_chain_texts: <recursion ...>,
         event: <recursion ...>,
+        event_person_id: <recursion ...>,
+        person_id: <recursion ...>,
         properties: <recursion ...>,
         timestamp: <recursion ...>,
         uuid: <recursion ...>
@@ -3276,6 +4410,7 @@
                       elements_chain_ids: {},
                       elements_chain_texts: {},
                       event: {},
+                      event_person_id: {},
                       goe_0: {},
                       goe_1: {},
                       goe_2: {},
@@ -3286,6 +4421,7 @@
                       group_2: {},
                       group_3: {},
                       group_4: {},
+                      override: {},
                       pdi: {},
                       person: {},
                       person_id: {},
@@ -3379,6 +4515,7 @@
                       elements_chain_ids: {},
                       elements_chain_texts: {},
                       event: {},
+                      event_person_id: {},
                       goe_0: {},
                       goe_1: {},
                       goe_2: {},
@@ -3389,6 +4526,7 @@
                       group_2: {},
                       group_3: {},
                       group_4: {},
+                      override: {},
                       pdi: {},
                       person: {},
                       person_id: {},
@@ -3762,6 +4900,7 @@
                   elements_chain_ids: {},
                   elements_chain_texts: {},
                   event: {},
+                  event_person_id: {},
                   goe_0: {},
                   goe_1: {},
                   goe_2: {},
@@ -3772,6 +4911,7 @@
                   group_2: {},
                   group_3: {},
                   group_4: {},
+                  override: {},
                   pdi: {},
                   person: {},
                   person_id: {},
@@ -3899,6 +5039,7 @@
                     elements_chain_ids: {},
                     elements_chain_texts: {},
                     event: {},
+                    event_person_id: {},
                     goe_0: {},
                     goe_1: {},
                     goe_2: {},
@@ -3909,6 +5050,7 @@
                     group_2: {},
                     group_3: {},
                     group_4: {},
+                    override: {},
                     pdi: {},
                     person: {},
                     person_id: {},
@@ -4040,6 +5182,7 @@
                       elements_chain_ids: {},
                       elements_chain_texts: {},
                       event: {},
+                      event_person_id: {},
                       goe_0: {},
                       goe_1: {},
                       goe_2: {},
@@ -4050,6 +5193,7 @@
                       group_2: {},
                       group_3: {},
                       group_4: {},
+                      override: {},
                       pdi: {},
                       person: {},
                       person_id: {},
@@ -4217,6 +5361,7 @@
                               elements_chain_ids: {},
                               elements_chain_texts: {},
                               event: {},
+                              event_person_id: {},
                               goe_0: {},
                               goe_1: {},
                               goe_2: {},
@@ -4227,6 +5372,7 @@
                               group_2: {},
                               group_3: {},
                               group_4: {},
+                              override: {},
                               pdi: {},
                               person: {},
                               person_id: {},
@@ -4399,6 +5545,7 @@
                   elements_chain_ids: {},
                   elements_chain_texts: {},
                   event: {},
+                  event_person_id: {},
                   goe_0: {},
                   goe_1: {},
                   goe_2: {},
@@ -4409,6 +5556,7 @@
                   group_2: {},
                   group_3: {},
                   group_4: {},
+                  override: {},
                   pdi: {},
                   person: {},
                   person_id: {},
@@ -4534,6 +5682,7 @@
                     elements_chain_ids: {},
                     elements_chain_texts: {},
                     event: {},
+                    event_person_id: {},
                     goe_0: {},
                     goe_1: {},
                     goe_2: {},
@@ -4544,6 +5693,7 @@
                     group_2: {},
                     group_3: {},
                     group_4: {},
+                    override: {},
                     pdi: {},
                     person: {},
                     person_id: {},
@@ -4670,6 +5820,7 @@
                   elements_chain_ids: {},
                   elements_chain_texts: {},
                   event: {},
+                  event_person_id: {},
                   goe_0: {},
                   goe_1: {},
                   goe_2: {},
@@ -4680,6 +5831,7 @@
                   group_2: {},
                   group_3: {},
                   group_4: {},
+                  override: {},
                   pdi: {},
                   person: {},
                   person_id: {},
@@ -4793,6 +5945,7 @@
                     elements_chain_ids: {},
                     elements_chain_texts: {},
                     event: {},
+                    event_person_id: {},
                     goe_0: {},
                     goe_1: {},
                     goe_2: {},
@@ -4803,6 +5956,7 @@
                     group_2: {},
                     group_3: {},
                     group_4: {},
+                    override: {},
                     pdi: {},
                     person: {},
                     person_id: {},
@@ -5003,6 +6157,7 @@
                       elements_chain_ids: {},
                       elements_chain_texts: {},
                       event: {},
+                      event_person_id: {},
                       goe_0: {},
                       goe_1: {},
                       goe_2: {},
@@ -5013,6 +6168,7 @@
                       group_2: {},
                       group_3: {},
                       group_4: {},
+                      override: {},
                       pdi: {},
                       person: {},
                       person_id: {},
@@ -5101,6 +6257,7 @@
                       elements_chain_ids: {},
                       elements_chain_texts: {},
                       event: {},
+                      event_person_id: {},
                       goe_0: {},
                       goe_1: {},
                       goe_2: {},
@@ -5111,6 +6268,7 @@
                       group_2: {},
                       group_3: {},
                       group_4: {},
+                      override: {},
                       pdi: {},
                       person: {},
                       person_id: {},
@@ -5211,6 +6369,7 @@
                   elements_chain_ids: {},
                   elements_chain_texts: {},
                   event: {},
+                  event_person_id: {},
                   goe_0: {},
                   goe_1: {},
                   goe_2: {},
@@ -5221,6 +6380,7 @@
                   group_2: {},
                   group_3: {},
                   group_4: {},
+                  override: {},
                   pdi: {},
                   person: {},
                   person_id: {},
