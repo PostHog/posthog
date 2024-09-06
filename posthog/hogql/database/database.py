@@ -7,6 +7,7 @@ from django.db.models import Q
 from pydantic import ConfigDict, BaseModel
 from sentry_sdk import capture_exception
 
+from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
@@ -277,6 +278,16 @@ def create_hogql_database(
         )
         raw_replay_events.fields["events"].join_table = events
 
+    person_display_name_properties = team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
+    database.persons.fields["display_name"] = ast.Or(
+        exprs=[
+            *(ast.Field(chain=["properties", prop]) for prop in person_display_name_properties),
+            ast.Call(
+                "arrayFirst",
+                args=[ast.Lambda(args=["x"], expr=parse_expr("toUUID(x) ? null : x")), ast.Field(chain="distinct_id")],
+            ),
+        ]
+    )
     database.persons.fields["$virt_initial_referring_domain_type"] = create_initial_domain_type(
         "$virt_initial_referring_domain_type"
     )
