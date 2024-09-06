@@ -147,7 +147,7 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
         automaticActionCreationEnabled: [
             false as boolean,
             {
-                setAutomaticActionCreationEnabled: (_, { enabled }) => enabled,
+                setAutomaticActionCreationEnabled: (_, { enabled, name }) => (enabled && !!name) || false,
             },
         ],
         newActionName: [

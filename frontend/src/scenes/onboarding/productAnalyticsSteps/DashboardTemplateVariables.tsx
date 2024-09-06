@@ -101,6 +101,8 @@ function VariableSelector({
                                 type="tertiary"
                                 size="small"
                                 onClick={() => {
+                                    disableElementSelector()
+                                    setNewActionName(null)
                                     resetVariable(variable.id)
                                     setCustomEventName(null)
                                     setShowCustomEventField(false)
@@ -177,6 +179,9 @@ export function DashboardTemplateVariables({
     })
     const { variables, activeVariableIndex } = useValues(theDashboardTemplateVariablesLogic)
     const { setVariables, setActiveVariableIndex } = useActions(theDashboardTemplateVariablesLogic)
+    const { setNewActionName, disableElementSelector } = useActions(
+        iframedToolbarBrowserLogic({ iframeRef, clearBrowserUrlOnUnmount: true })
+    )
 
     // TODO: onboarding-dashboard-templates: this is a hack, I'm not sure why it's not set properly initially.
     useEffect(() => {
@@ -206,6 +211,8 @@ export function DashboardTemplateVariables({
                     className: 'p-4 bg-white',
                     onHeaderClick: () => {
                         setActiveVariableIndex(i)
+                        disableElementSelector()
+                        setNewActionName(null)
                     },
                 }))}
                 embedded

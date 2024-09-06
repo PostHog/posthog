@@ -455,6 +455,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
                         actions.enableInspect()
                     } else {
                         actions.disableInspect()
+                        actions.hideButtonActions()
                     }
                     return
                 case PostHogAppToolbarEvent.PH_NEW_ACTION_NAME:

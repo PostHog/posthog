@@ -29,7 +29,7 @@ export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLog
     path(['scenes', 'dashboard', 'DashboardTemplateVariablesLogic']),
     props({ variables: [] } as DashboardTemplateVariablesLogicProps),
     connect({
-        actions: [iframedToolbarBrowserLogic, ['toolbarMessageReceived']],
+        actions: [iframedToolbarBrowserLogic, ['toolbarMessageReceived', 'disableElementSelector']],
     }),
     actions({
         setVariables: (variables: DashboardTemplateVariableType[]) => ({ variables }),
@@ -131,6 +131,7 @@ export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLog
             actions.setActiveVariableIndex(nextIndex)
         },
         setVariableFromAction: ({ variableName, action }) => {
+            const originalVariableName = variableName.replace(/\s-\s\d+/g, '')
             const filterGroup: FilterType = {
                 actions: [
                     // TODO: This needs a type
@@ -146,11 +147,12 @@ export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLog
                     },
                 ],
             }
-            actions.setVariable(variableName, filterGroup)
+            actions.setVariable(originalVariableName, filterGroup)
         },
         toolbarMessageReceived: ({ type, payload }) => {
             if (type === PostHogAppToolbarEvent.PH_NEW_ACTION_CREATED) {
                 actions.setVariableFromAction(payload.action.name, payload.action as ActionType)
+                actions.disableElementSelector()
             }
         },
     })),
