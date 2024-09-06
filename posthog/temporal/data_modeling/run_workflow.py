@@ -340,7 +340,7 @@ def hogql_table(query: str, team: Team, table_name: str, table_columns):
         name="hogql_table",
         table_name=table_name,
         table_format="delta",
-        write_disposition="merge",
+        write_disposition="replace",
         columns=table_columns,
     )
 
