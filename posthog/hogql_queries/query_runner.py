@@ -89,14 +89,17 @@ class ExecutionMode(StrEnum):
     """Do not initiate calculation."""
 
 
-_REFRESH_TO_EXECUTION_MODE = {
-    **ExecutionMode._value2member_map_,
+_REFRESH_TO_EXECUTION_MODE: dict[str | bool, ExecutionMode] = {
+    **ExecutionMode._value2member_map_,  # type: ignore
     True: ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
 }
 
 
 def execution_mode_from_refresh(refresh_requested: bool | str | None) -> ExecutionMode:
-    return _REFRESH_TO_EXECUTION_MODE.get(refresh_requested, ExecutionMode.CACHE_ONLY_NEVER_CALCULATE)
+    if refresh_requested:
+        if execution_mode := _REFRESH_TO_EXECUTION_MODE.get(refresh_requested):
+            return execution_mode
+    return ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
 
 
 _SHARED_MODE_WHITELIST = {

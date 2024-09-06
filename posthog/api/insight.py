@@ -636,7 +636,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
         parameters=[
             OpenApiParameter(
                 name="refresh",
-                enum=ExecutionMode,
+                enum=list(ExecutionMode),
                 default=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
                 description="""
 Whether to refresh the retrieved insights and how aggressively. (The default `force_cache` value never refreshes.)
@@ -802,7 +802,7 @@ class InsightViewSet(
         parameters=[
             OpenApiParameter(
                 name="refresh",
-                enum=ExecutionMode,
+                enum=list(ExecutionMode),
                 default=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
                 description="""
 Whether to refresh the insight and how aggressively. (The default `force_cache` value never refreshes.)
