@@ -220,14 +220,17 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
                     case PostHogAppToolbarEvent.PH_TOOLBAR_INIT:
                         return init()
                     case PostHogAppToolbarEvent.PH_TOOLBAR_READY:
-                        posthog.capture('in-app heatmap frame loaded', {
-                            inapp_heatmap_page_url_visited: values.browserUrl,
-                            inapp_heatmap_filters: values.heatmapFilters,
-                            inapp_heatmap_color_palette: values.heatmapColorPalette,
-                            inapp_heatmap_fixed_position_mode: values.heatmapFixedPositionMode,
-                        })
-                        // reset loading tracking - if we're e.g. slow this will avoid a flash of warning message
-                        return actions.startTrackingLoading()
+                        if (props.userIntent === 'heatmaps') {
+                            posthog.capture('in-app heatmap frame loaded', {
+                                inapp_heatmap_page_url_visited: values.browserUrl,
+                                inapp_heatmap_filters: values.heatmapFilters,
+                                inapp_heatmap_color_palette: values.heatmapColorPalette,
+                                inapp_heatmap_fixed_position_mode: values.heatmapFixedPositionMode,
+                            })
+                            // reset loading tracking - if we're e.g. slow this will avoid a flash of warning message
+                            return actions.startTrackingLoading()
+                        }
+                        return
                     case PostHogAppToolbarEvent.PH_TOOLBAR_HEATMAP_LOADING:
                         return actions.startTrackingLoading()
                     case PostHogAppToolbarEvent.PH_TOOLBAR_HEATMAP_LOADED:
