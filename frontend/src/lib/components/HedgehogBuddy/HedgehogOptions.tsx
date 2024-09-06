@@ -141,10 +141,27 @@ function HedgehogColor(): JSX.Element {
 
     return (
         <>
-            <h4>Colors</h4>
+            <h4>Skins and colors</h4>
 
             <div className="flex items-center gap-2 flex-wrap">
-                {[null, ...Object.keys(COLOR_TO_FILTER_MAP)].map((option) => (
+                {(['default', 'spiderhog'] as const).map((option) => (
+                    <LemonButton
+                        key={option}
+                        className={clsx(
+                            'border-2',
+                            !hedgehogConfig.color && hedgehogConfig.skin === option
+                                ? 'border-primary'
+                                : 'border-transparent'
+                        )}
+                        size="small"
+                        onClick={() => patchHedgehogConfig({ skin: option as any, color: null })}
+                        noPadding
+                        tooltip={<>{capitalizeFirstLetter(option ?? 'default')}</>}
+                    >
+                        <HedgehogBuddyStatic skin={option} />
+                    </LemonButton>
+                ))}
+                {[...Object.keys(COLOR_TO_FILTER_MAP)].map((option) => (
                     <LemonButton
                         key={option}
                         className={clsx(
@@ -152,7 +169,7 @@ function HedgehogColor(): JSX.Element {
                             hedgehogConfig.color === option ? 'border-primary' : 'border-transparent'
                         )}
                         size="small"
-                        onClick={() => patchHedgehogConfig({ color: option as any })}
+                        onClick={() => patchHedgehogConfig({ color: option as any, skin: 'default' })}
                         noPadding
                         tooltip={<>{capitalizeFirstLetter(option ?? 'default')}</>}
                     >
@@ -163,3 +180,32 @@ function HedgehogColor(): JSX.Element {
         </>
     )
 }
+
+// function HedgehogSkins(): JSX.Element {
+//     const { hedgehogConfig } = useValues(hedgehogBuddyLogic)
+//     const { patchHedgehogConfig } = useActions(hedgehogBuddyLogic)
+
+//     return (
+//         <>
+//             <h4>Skins</h4>
+
+//             <div className="flex items-center gap-2 flex-wrap">
+//                 {(['default', 'spiderhog'] as const).map((option) => (
+//                     <LemonButton
+//                         key={option}
+//                         className={clsx(
+//                             'border-2',
+//                             hedgehogConfig.skin === option ? 'border-primary' : 'border-transparent'
+//                         )}
+//                         size="small"
+//                         onClick={() => patchHedgehogConfig({ skin: option as any })}
+//                         noPadding
+//                         tooltip={<>{capitalizeFirstLetter(option ?? 'default')}</>}
+//                     >
+//                         <HedgehogBuddyStatic skin={option} />
+//                     </LemonButton>
+//                 ))}
+//             </div>
+//         </>
+//     )
+// }

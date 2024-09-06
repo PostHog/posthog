@@ -1,10 +1,11 @@
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { HedgehogSkin } from '~/types'
 
 export const SPRITE_SIZE = 80
 export const SHADOW_HEIGHT = SPRITE_SIZE / 8
 export const SPRITE_SHEET_WIDTH = SPRITE_SIZE * 8
 
-type SpriteInfo = {
+export type SpriteInfo = {
     /** Number of frames in this sprite sheet */
     frames: number
     /** Path to the sprite sheet */
@@ -28,7 +29,7 @@ export type AccessoryInfo = {
 
 // If loaded via the toolbar the root domain won't be app.posthog.com and so the assets won't load
 // Simple workaround is we detect if the domain is localhost and if not we just use https://us.posthog.com
-export const baseSpritePath = (): string => {
+const baseSpritePath = (): string => {
     let path = `/static/hedgehog/sprites`
     const toolbarAPIUrl = toolbarConfigLogic.findMounted()?.values.apiURL
 
@@ -40,9 +41,32 @@ export const baseSpritePath = (): string => {
 
     return path
 }
-export const baseSpriteAccessoriesPath = (): string => `${baseSpritePath()}/accessories`
+const baseSpriteAccessoriesPath = (): string => `${baseSpritePath()}/accessories`
 
-export const standardAnimations: { [key: string]: SpriteInfo } = {
+export const spriteUrl = (skin: HedgehogSkin, img: string): string => {
+    return `${baseSpritePath()}/skins/${skin}/${img}.png`
+}
+
+export const spriteAccessoryUrl = (img: string): string => {
+    return `${baseSpriteAccessoriesPath()}/${img}.png`
+}
+
+const animationsNames = [
+    'stop',
+    'fall',
+    'jump',
+    'sign',
+    'walk',
+    'wave',
+    'heatmaps',
+    'flag',
+    'inspect',
+    'phone',
+    'action',
+]
+type AnimationNames = (typeof animationsNames)[number]
+
+const standardAnimations: Record<AnimationNames, SpriteInfo> = {
     stop: {
         img: 'wave',
         frames: 1,
@@ -189,5 +213,17 @@ export const standardAccessories: { [key: string]: AccessoryInfo } = {
     xmas_scarf: {
         img: 'xmas-scarf',
         group: 'other',
+    },
+}
+
+export const skins: Record<HedgehogSkin, { [key: string]: SpriteInfo }> = {
+    default: standardAnimations,
+    spiderhog: {
+        stop: standardAnimations.stop,
+        fall: standardAnimations.fall,
+        jump: standardAnimations.jump,
+        // spinning: standardAnimations.,
+        walk: standardAnimations.walk,
+        wave: standardAnimations.wave,
     },
 }

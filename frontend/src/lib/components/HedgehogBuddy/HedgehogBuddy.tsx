@@ -18,23 +18,20 @@ import { COLOR_TO_FILTER_MAP, hedgehogBuddyLogic } from './hedgehogBuddyLogic'
 import { HedgehogOptions } from './HedgehogOptions'
 import {
     AccessoryInfo,
-    baseSpriteAccessoriesPath,
-    baseSpritePath,
     SHADOW_HEIGHT,
+    skins,
     SPRITE_SHEET_WIDTH,
     SPRITE_SIZE,
+    spriteAccessoryUrl,
+    SpriteInfo,
+    spriteUrl,
     standardAccessories,
-    standardAnimations,
 } from './sprites/sprites'
 
 export const X_FRAMES = SPRITE_SHEET_WIDTH / SPRITE_SIZE
 export const FPS = 24
 const GRAVITY_PIXELS = 10
 const MAX_JUMP_COUNT = 2
-
-const randomChoiceList: string[] = Object.keys(standardAnimations).reduce((acc: string[], key: string) => {
-    return [...acc, ...range(standardAnimations[key].randomChance || 0).map(() => key)]
-}, [])
 
 export type HedgehogBuddyProps = {
     onActorLoaded?: (actor: HedgehogActor) => void
@@ -75,7 +72,7 @@ const elementToBox = (element: Element): Box => {
 
 export class HedgehogActor {
     element?: HTMLDivElement | null
-    animations = standardAnimations
+    // animations = standardAnimations
     direction: 'left' | 'right' = 'right'
     startX = Math.min(Math.max(0, Math.floor(Math.random() * window.innerWidth)), window.innerWidth - SPRITE_SIZE)
     startY = Math.min(Math.max(0, Math.floor(Math.random() * window.innerHeight)), window.innerHeight - SPRITE_SIZE)
@@ -90,7 +87,6 @@ export class HedgehogActor {
     ground: Element | null = null
     jumpCount = 0
     animationName: string = 'fall'
-    animation = this.animations[this.animationName]
     animationFrame = 0
     animationIterations: number | null = null
     animationCompletionHandler?: () => boolean | void
@@ -106,11 +102,24 @@ export class HedgehogActor {
         this.setAnimation('fall')
     }
 
+    get animation(): SpriteInfo {
+        return this.animations[this.animationName]
+    }
+
+    get animations(): { [key: string]: SpriteInfo } {
+        const animations = skins[this.hedgehogConfig.skin || 'default']
+        return animations
+    }
+
     private accessories(): AccessoryInfo[] {
         return this.hedgehogConfig.accessories?.map((acc) => standardAccessories[acc]) ?? []
     }
 
     private getAnimationOptions(): string[] {
+        const randomChoiceList: string[] = Object.keys(this.animations).reduce((acc: string[], key: string) => {
+            return [...acc, ...range(this.animations[key].randomChance || 0).map(() => key)]
+        }, [])
+
         if (!this.hedgehogConfig.walking_enabled) {
             return randomChoiceList.filter((x) => x !== 'walk')
         }
@@ -200,7 +209,7 @@ export class HedgehogActor {
         }
 
         const onMouseDown = (e: MouseEvent): void => {
-            if (!this.hedgehogConfig.controls_enabled) {
+            if (!this.hedgehogConfig.controls_enabled || this.hedgehogConfig.skin !== 'spiderhog') {
                 return
             }
 
@@ -253,7 +262,6 @@ export class HedgehogActor {
         }
     ): void {
         this.animationName = animationName
-        this.animation = this.animations[animationName]
         this.animationFrame = 0
         this.animationCompletionHandler = () => {
             this.animationCompletionHandler = undefined
@@ -559,11 +567,11 @@ export class HedgehogActor {
         const accessoryPosition = this.animation.accessoryPositions?.[this.animationFrame]
         const preloadContent =
             Object.values(this.animations)
-                .map((x) => `url(${baseSpritePath()}/${x.img}.png)`)
+                .map((x) => `url(${spriteUrl(this.hedgehogConfig.skin ?? 'default', x.img)})`)
                 .join(' ') +
             ' ' +
             this.accessories()
-                .map((accessory) => `url(${baseSpriteAccessoriesPath}/${accessory.img}.png)`)
+                .map((accessory) => `url(${spriteAccessoryUrl(accessory.img)})`)
                 .join(' ')
 
         const imageFilter = this.hedgehogConfig.color ? COLOR_TO_FILTER_MAP[this.hedgehogConfig.color] : undefined
@@ -689,7 +697,10 @@ export class HedgehogActor {
                                 imageRendering: 'pixelated',
                                 width: SPRITE_SIZE,
                                 height: SPRITE_SIZE,
-                                backgroundImage: `url(${baseSpritePath()}/${this.animation.img}.png)`,
+                                backgroundImage: `url(${spriteUrl(
+                                    this.hedgehogConfig.skin ?? 'default',
+                                    this.animation.img
+                                )})`,
                                 backgroundPosition: `-${(this.animationFrame % X_FRAMES) * SPRITE_SIZE}px -${
                                     Math.floor(this.animationFrame / X_FRAMES) * SPRITE_SIZE
                                 }px`,
@@ -707,7 +718,7 @@ export class HedgehogActor {
                                     imageRendering: 'pixelated',
                                     width: SPRITE_SIZE,
                                     height: SPRITE_SIZE,
-                                    backgroundImage: `url(${baseSpriteAccessoriesPath()}/${accessory.img}.png)`,
+                                    backgroundImage: `url(${spriteAccessoryUrl(accessory.img)})`,
                                     transform: accessoryPosition
                                         ? `translate3d(${accessoryPosition[0]}px, ${accessoryPosition[1]}px, 0)`
                                         : undefined,
