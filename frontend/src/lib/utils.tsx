@@ -219,6 +219,11 @@ export const selectorOperatorMap: Record<string, string> = {
     is_not: "≠ doesn't equal",
 }
 
+export const cohortOperatorMap: Record<string, string> = {
+    in: 'in',
+    not_in: 'not in',
+}
+
 export const allOperatorsMapping: Record<string, string> = {
     ...dateTimeOperatorMap,
     ...stringOperatorMap,
@@ -227,6 +232,7 @@ export const allOperatorsMapping: Record<string, string> = {
     ...booleanOperatorMap,
     ...durationOperatorMap,
     ...selectorOperatorMap,
+    ...cohortOperatorMap,
     // slight overkill to spread all of these into the map
     // but gives freedom for them to diverge more over time
 }
@@ -238,6 +244,7 @@ const operatorMappingChoice: Record<keyof typeof PropertyType, Record<string, st
     Boolean: booleanOperatorMap,
     Duration: durationOperatorMap,
     Selector: selectorOperatorMap,
+    Cohort: cohortOperatorMap,
 }
 
 export function chooseOperatorMap(propertyType: PropertyType | undefined): Record<string, string> {

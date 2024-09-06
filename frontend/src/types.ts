@@ -629,6 +629,8 @@ export enum PropertyOperator {
     NotBetween = 'not_between',
     Minimum = 'min',
     Maximum = 'max',
+    In = 'in',
+    NotIn = 'not_in',
 }
 
 export enum SavedInsightsTabs {
@@ -3061,6 +3063,7 @@ export enum PropertyType {
     Boolean = 'Boolean',
     Duration = 'Duration',
     Selector = 'Selector',
+    Cohort = 'Cohort',
 }
 
 export enum PropertyDefinitionType {
