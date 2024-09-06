@@ -33,6 +33,7 @@ exports[`snapshot parsing handles mobile data with no meta event 1`] = `
     },
     "timestamp": 1725607643113,
     "type": 4,
+    "windowId": "0191C63B-03FF-73B5-96BE-40BE2761621C",
   },
   {
     "data": {
