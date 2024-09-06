@@ -15,6 +15,7 @@ from django.conf import settings
 from django.test import override_settings
 from dlt.common.configuration.specs.aws_credentials import AwsCredentials
 from dlt.common.libs.deltalake import get_delta_tables
+from freezegun.api import freeze_time
 
 from posthog import constants
 from posthog.hogql.database.database import create_hogql_database
@@ -38,6 +39,8 @@ from posthog.warehouse.models.modeling import DataWarehouseModelPath
 from posthog.warehouse.util import database_sync_to_async
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
+
+TEST_TIME = dt.datetime.now(dt.UTC)
 
 
 @pytest_asyncio.fixture
@@ -568,6 +571,7 @@ async def test_run_workflow_with_minio_bucket(
         unittest.mock.patch.object(
             AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials
         ),
+        freeze_time(TEST_TIME),
     ):
         async with temporalio.worker.Worker(
             temporal_client,
@@ -622,4 +626,5 @@ async def test_run_workflow_with_minio_bucket(
             assert table.column_names == ["event", "distinct_id", "timestamp"]
             assert key == query.name
             assert sorted(table.to_pylist(), key=lambda d: (d["distinct_id"], d["timestamp"])) == expected_data
-            assert query.last_run_status == DataWarehouseSavedQuery.Status.COMPLETED
+            assert query.status == DataWarehouseSavedQuery.Status.COMPLETED
+            assert query.last_run_at == TEST_TIME

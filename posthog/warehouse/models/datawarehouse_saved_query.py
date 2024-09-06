@@ -59,9 +59,9 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
     status = models.CharField(
         null=True, choices=Status.choices, max_length=64, help_text="The status of when this SavedQuery last ran."
     )
-    at = models.DateTimeField(
+    last_run_at = models.DateTimeField(
         null=True,
-        help_text="The timestamp at which this SavedQuery was last ran.",
+        help_text="The timestamp of this SavedQuery's last run (if any).",
     )
 
     class Meta:

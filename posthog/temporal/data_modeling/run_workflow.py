@@ -611,7 +611,7 @@ async def update_saved_query_status(
 
     saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.filter(**filter_params).get)()
     saved_query.last_run_at = run_at
-    saved_query.last_run_status = status
+    saved_query.status = status
 
     await database_sync_to_async(saved_query.save)()
 

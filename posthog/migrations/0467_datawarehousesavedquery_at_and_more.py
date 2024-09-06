@@ -11,8 +11,8 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="datawarehousesavedquery",
-            name="at",
-            field=models.DateTimeField(help_text="The timestamp at which this SavedQuery was last ran.", null=True),
+            name="last_run_at",
+            field=models.DateTimeField(help_text="The timestamp of this SavedQuery's last run (if any).", null=True),
         ),
         migrations.AddField(
             model_name="datawarehousesavedquery",
