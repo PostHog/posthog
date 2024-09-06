@@ -69,7 +69,7 @@ function isRecordingSnapshot(x: unknown): x is RecordingSnapshot {
  rrweb player hides itself until it has seen the meta event 🤷
  but we can patch a meta event into the recording data to make it work
 */
-function patchMetaEventIntoMobileData(parsedLines: eventWithTime[]): any[] {
+function patchMetaEventIntoMobileData(parsedLines: eventWithTime[]): eventWithTime[] {
     let fullSnapshotIndex: number = -1
     let metaIndex: number = -1
     try {
