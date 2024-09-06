@@ -15,8 +15,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 ingestionOverflow: true,
                 ingestionHistorical: true,
                 eventsIngestionPipelines: true, // with null PluginServerMode we run all of them
-                pluginScheduledTasks: true,
-                processPluginJobs: true,
                 processAsyncOnEventHandlers: true,
                 processAsyncWebhooksHandlers: true,
                 sessionRecordingBlobIngestion: true,
@@ -81,14 +79,8 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 processAsyncWebhooksHandlers: true,
                 ...sharedCapabilities,
             }
-        case PluginServerMode.jobs:
+        case PluginServerMode.admin:
             return {
-                processPluginJobs: true,
-                ...sharedCapabilities,
-            }
-        case PluginServerMode.scheduler:
-            return {
-                pluginScheduledTasks: true,
                 appManagementSingleton: true,
                 syncInlinePlugins: true,
                 ...sharedCapabilities,
@@ -116,8 +108,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 ingestion: true,
                 ingestionHistorical: true,
                 eventsIngestionPipelines: true,
-                pluginScheduledTasks: true,
-                processPluginJobs: true,
                 processAsyncOnEventHandlers: true,
                 processAsyncWebhooksHandlers: true,
                 sessionRecordingBlobIngestion: true,

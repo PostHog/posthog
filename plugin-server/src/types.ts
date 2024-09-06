@@ -74,10 +74,9 @@ export enum PluginServerMode {
     ingestion_overflow = 'ingestion-overflow',
     ingestion_historical = 'ingestion-historical',
     events_ingestion = 'events-ingestion',
+    admin = 'admin',
     async_onevent = 'async-onevent',
     async_webhooks = 'async-webhooks',
-    jobs = 'jobs',
-    scheduler = 'scheduler',
     analytics_ingestion = 'analytics-ingestion',
     recordings_blob_ingestion = 'recordings-blob-ingestion',
     recordings_blob_ingestion_overflow = 'recordings-blob-ingestion-overflow',
@@ -334,8 +333,6 @@ export interface PluginServerCapabilities {
     ingestionOverflow?: boolean
     ingestionHistorical?: boolean
     eventsIngestionPipelines?: boolean
-    pluginScheduledTasks?: boolean
-    processPluginJobs?: boolean
     processAsyncOnEventHandlers?: boolean
     processAsyncWebhooksHandlers?: boolean
     sessionRecordingBlobIngestion?: boolean

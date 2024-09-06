@@ -29,19 +29,15 @@ import { TeamManager } from '../worker/ingestion/team-manager'
 import Piscina, { makePiscina as defaultMakePiscina } from '../worker/piscina'
 import { RustyHook } from '../worker/rusty-hook'
 import { syncInlinePlugins } from '../worker/vm/inline/inline'
-import { GraphileWorker } from './graphile-worker/graphile-worker'
 import { loadPluginSchedule } from './graphile-worker/schedule'
-import { startGraphileWorker } from './graphile-worker/worker-setup'
 import { startAnalyticsEventsIngestionConsumer } from './ingestion-queues/analytics-events-ingestion-consumer'
 import { startAnalyticsEventsIngestionHistoricalConsumer } from './ingestion-queues/analytics-events-ingestion-historical-consumer'
 import { startAnalyticsEventsIngestionOverflowConsumer } from './ingestion-queues/analytics-events-ingestion-overflow-consumer'
 import { PIPELINES, startEventsIngestionPipelineConsumer } from './ingestion-queues/events-ingestion-consumer'
-import { startJobsConsumer } from './ingestion-queues/jobs-consumer'
 import {
     startAsyncOnEventHandlerConsumer,
     startAsyncWebhooksHandlerConsumer,
 } from './ingestion-queues/on-event-handler-consumer'
-import { startScheduledTasksConsumer } from './ingestion-queues/scheduled-tasks-consumer'
 import { SessionRecordingIngester } from './ingestion-queues/session-recording/session-recordings-consumer'
 import { expressApp, setupCommonRoutes } from './services/http-server'
 import { getObjectStorage } from './services/object_storage'
@@ -89,7 +85,6 @@ export async function startPluginsServer(
     // (default 60 seconds) to allow for the person to be created in the
     // meantime.
     let httpServer: Server | undefined // server
-    let graphileWorker: GraphileWorker | undefined
     let lastActivityCheck: NodeJS.Timeout | undefined
     let stopEventLoopMetrics: (() => void) | undefined
 
@@ -112,7 +107,6 @@ export async function startPluginsServer(
         stopEventLoopMetrics?.()
         await Promise.allSettled([
             pubSub?.stop(),
-            graphileWorker?.stop(),
             ...services.map((service) => service.onShutdown()),
             posthog.shutdownAsync(),
         ])
@@ -205,58 +199,6 @@ export async function startPluginsServer(
         : undefined
 
     try {
-        // Based on the mode the plugin server was started, we start a number of
-        // different services. Mostly this is reasonably obvious from the name.
-        // There is however the `queue` which is a little more complicated.
-        // Depending on the capabilities we start with, it will either consume
-        // from:
-        //
-        // 1. plugin_events_ingestion
-        // 2. clickhouse_events_json
-        // 3. clickhouse_events_json and plugin_events_ingestion
-        // 4. conversion_events_buffer
-        //
-        if (capabilities.processPluginJobs || capabilities.pluginScheduledTasks) {
-            const hub = await setupHub()
-
-            graphileWorker = new GraphileWorker(hub)
-            // `connectProducer` just runs the PostgreSQL migrations. Ideally it
-            // would be great to move the migration to bin/migrate and ensure we
-            // have a way for the pods to wait for the migrations to complete as
-            // we do with other migrations. However, I couldn't find a
-            // `graphile-worker` supported way to do this, and I don't think
-            // it's that heavy so it may be fine, but something to watch out
-            // for.
-            await graphileWorker.connectProducer()
-            piscina = piscina ?? (await makePiscina(serverConfig, hub))
-            status.info('👷', 'Starting graphile worker...')
-            await startGraphileWorker(hub, graphileWorker, piscina)
-            status.info('👷', 'Graphile worker is ready!')
-
-            if (capabilities.pluginScheduledTasks) {
-                services.push(
-                    await startScheduledTasksConsumer({
-                        piscina: piscina,
-                        producer: hub.kafkaProducer,
-                        kafka: hub.kafka,
-                        serverConfig,
-                        partitionConcurrency: serverConfig.KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY,
-                    })
-                )
-            }
-
-            if (capabilities.processPluginJobs) {
-                services.push(
-                    await startJobsConsumer({
-                        kafka: hub.kafka,
-                        producer: hub.kafkaProducer,
-                        graphileWorker: graphileWorker,
-                        serverConfig,
-                    })
-                )
-            }
-        }
-
         if (capabilities.ingestion) {
             const hub = await setupHub()
             piscina = piscina ?? (await makePiscina(serverConfig, hub))
@@ -369,11 +311,6 @@ export async function startPluginsServer(
                 [hub.PLUGINS_RELOAD_PUBSUB_CHANNEL]: async () => {
                     status.info('⚡', 'Reloading plugins!')
                     await piscina?.broadcastTask({ task: 'reloadPlugins' })
-
-                    if (hub?.capabilities.pluginScheduledTasks && piscina) {
-                        await piscina.broadcastTask({ task: 'reloadSchedule' })
-                        hub.pluginSchedule = await loadPluginSchedule(piscina)
-                    }
                 },
                 'reset-available-product-features-cache': async (message) => {
                     await piscina?.broadcastTask({
