@@ -51,7 +51,6 @@ export class ServerTaskManager {
 
         await this.pubSub.start()
 
-        // TODO: Only setup if plugins are enabled / required
         if (this.needsPlugins) {
             await setupMmdb(this.hub)
             await setupPlugins(this.hub)

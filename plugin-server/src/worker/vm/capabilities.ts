@@ -40,12 +40,6 @@ function shouldSetupPlugin(serverCapability: keyof PluginServerCapabilities, plu
     if (PROCESS_EVENT_CAPABILITIES.has(serverCapability)) {
         return pluginCapabilities.methods?.includes('processEvent')
     }
-    if (serverCapability === 'pluginScheduledTasks') {
-        return (pluginCapabilities.scheduled_tasks || []).length > 0
-    }
-    if (serverCapability === 'processPluginJobs') {
-        return (pluginCapabilities.jobs || []).length > 0
-    }
     if (serverCapability === 'processAsyncOnEventHandlers') {
         return pluginCapabilities.methods?.some((method) => ['onEvent', 'composeWebhook'].includes(method))
     }
