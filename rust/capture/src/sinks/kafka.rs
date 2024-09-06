@@ -1,4 +1,4 @@
-use crate::limiters::redis::QuotaResource;
+use crate::limiters::redis::RedisLimiter;
 use async_trait::async_trait;
 use health::HealthHandle;
 use metrics::{counter, gauge, histogram};
@@ -233,11 +233,7 @@ impl KafkaSink {
                     .ok_or(CaptureError::MissingSessionId)?;
                 let is_overflowing = match &self.replay_overflow_limiter {
                     None => false,
-                    Some(limiter) => {
-                        limiter
-                            .is_limited(session_id)
-                            .await
-                    }
+                    Some(limiter) => limiter.is_limited(session_id).await,
                 };
 
                 if is_overflowing {
