@@ -121,13 +121,13 @@ jobs:
             - name: Install rust
               uses: dtolnay/rust-toolchain@1.77
 
-            - uses: actions/cache@v4
-              with:
-                  path: |
-                      ~/.cargo/registry
-                      ~/.cargo/git
-                      rust/target
-                  key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+            # - uses: actions/cache@v4
+            #   with:
+            #       path: |
+            #           ~/.cargo/registry
+            #           ~/.cargo/git
+            #           rust/target
+            #       key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
 
             - name: Install sqlx-cli
               working-directory: rust
