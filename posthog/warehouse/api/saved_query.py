@@ -172,7 +172,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         if not paths:
             return response.Response({"ancestors": []})
 
-        ancestors: set[str] = set()
+        ancestors: set[str | uuid.UUID] = set()
         for model_path in paths:
             if up_to_level is None:
                 start = 0
@@ -202,7 +202,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         if not paths:
             return response.Response({"descendants": []})
 
-        descendants: set[str] = set()
+        descendants: set[str | uuid.UUID] = set()
         for model_path in paths:
             start = model_path.path.index(saved_query_id) + 1
             if up_to_level is None:
