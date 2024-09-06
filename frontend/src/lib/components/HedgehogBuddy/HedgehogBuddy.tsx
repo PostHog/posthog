@@ -85,8 +85,8 @@ export class HedgehogActor {
     element?: HTMLDivElement | null
     // animations = standardAnimations
     direction: 'left' | 'right' = 'right'
-    startX = Math.min(Math.max(0, Math.floor(Math.random() * window.innerWidth)), window.innerWidth - SPRITE_SIZE)
-    startY = Math.min(Math.max(0, Math.floor(Math.random() * window.innerHeight)), window.innerHeight - SPRITE_SIZE)
+    startX = 0
+    startY = 0
     x = this.startX
     y = this.startY
     followMouse = false
@@ -111,6 +111,15 @@ export class HedgehogActor {
 
     constructor() {
         this.log('Created new HedgehogActor')
+
+        this.startX = Math.min(
+            Math.max(0, Math.floor(Math.random() * window.innerWidth)),
+            window.innerWidth - SPRITE_SIZE
+        )
+        this.startY = Math.min(
+            Math.max(0, Math.floor(Math.random() * window.innerHeight)),
+            window.innerHeight - SPRITE_SIZE
+        )
         this.setAnimation('fall')
     }
 
@@ -234,10 +243,8 @@ export class HedgehogActor {
             }
 
             // Whilst the mouse is down we will move the hedgehog towards it
-
             // First check that we haven't clicked the hedgehog
             const elementBounds = this.element?.getBoundingClientRect()
-
             if (
                 elementBounds &&
                 e.clientX >= elementBounds.left &&
@@ -785,6 +792,7 @@ export class HedgehogActor {
                                     backgroundPosition: `-${(this.mainAnimation.frame % X_FRAMES) * SPRITE_SIZE}px -${
                                         Math.floor(this.mainAnimation.frame / X_FRAMES) * SPRITE_SIZE
                                     }px`,
+                                    backgroundSize: (SPRITE_SIZE / SPRITE_SIZE) * X_FRAMES * 100 + '%',
                                     filter: imageFilter as any,
                                     ...(this.mainAnimation.spriteInfo.style ?? {}),
                                 }}
