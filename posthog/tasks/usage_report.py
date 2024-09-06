@@ -484,7 +484,6 @@ def get_teams_with_event_count_from_helicone_in_period(begin: datetime, end: dat
         SELECT team_id, count(1) as count
         FROM events
         WHERE timestamp between %(begin)s AND %(end)s
-        AND ($group_0 != '' OR $group_1 != '' OR $group_2 != '' OR $group_3 != '' OR $group_4 != '')
         AND event LIKE 'helicone%%'
         GROUP BY team_id
     """,
@@ -503,7 +502,6 @@ def get_teams_with_event_count_from_langfuse_in_period(begin: datetime, end: dat
         SELECT team_id, count(1) as count
         FROM events
         WHERE timestamp between %(begin)s AND %(end)s
-        AND ($group_0 != '' OR $group_1 != '' OR $group_2 != '' OR $group_3 != '' OR $group_4 != '')
         AND event LIKE 'langfuse%%'
         GROUP BY team_id
     """,
@@ -522,7 +520,6 @@ def get_teams_with_event_count_from_keywords_ai_in_period(begin: datetime, end: 
         SELECT team_id, count(1) as count
         FROM events
         WHERE timestamp between %(begin)s AND %(end)s
-        AND ($group_0 != '' OR $group_1 != '' OR $group_2 != '' OR $group_3 != '' OR $group_4 != '')
         AND event LIKE 'keywords_ai%%'
         GROUP BY team_id
     """,
@@ -541,7 +538,6 @@ def get_teams_with_event_count_from_traceloop_in_period(begin: datetime, end: da
         SELECT team_id, count(1) as count
         FROM events
         WHERE timestamp between %(begin)s AND %(end)s
-        AND ($group_0 != '' OR $group_1 != '' OR $group_2 != '' OR $group_3 != '' OR $group_4 != '')
         AND event LIKE 'traceloop%%'
         GROUP BY team_id
     """,

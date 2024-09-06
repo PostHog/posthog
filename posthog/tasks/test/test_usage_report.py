@@ -459,8 +459,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     },
                     "plugins_enabled": {"Installed and enabled": 1},
                     "instance_tag": "none",
-                    "event_count_in_period": 25,
-                    "enhanced_persons_event_count_in_period": 24,
+                    "event_count_in_period": 29,
+                    "enhanced_persons_event_count_in_period": 28,
                     "anonymous_personful_event_count_in_period": 1,
                     "event_count_with_groups_in_period": 2,
                     "event_count_from_keywords_ai_in_period": 1,
@@ -501,8 +501,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "team_count": 2,
                     "teams": {
                         str(self.org_1_team_1.id): {
-                            "event_count_in_period": 14,
-                            "enhanced_persons_event_count_in_period": 13,
+                            "event_count_in_period": 18,
+                            "enhanced_persons_event_count_in_period": 17,
                             "anonymous_personful_event_count_in_period": 0,
                             "event_count_with_groups_in_period": 2,
                             "event_count_from_keywords_ai_in_period": 1,
