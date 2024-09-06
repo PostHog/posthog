@@ -26,7 +26,7 @@ export const createKafkaObserver = async (hub: Hub, topics: string[]): Promise<T
     await Promise.all(topics.map((topic) => ensureTopicExists(adminClient, topic, 1000)))
     adminClient.disconnect()
 
-    consumer.connect()
+    await new Promise<void>((res, rej) => consumer.connect({}, (err) => (err ? rej(err) : res())))
     consumer.subscribe(topics)
     const messages: {
         topic: string

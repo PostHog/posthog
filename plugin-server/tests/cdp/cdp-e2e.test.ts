@@ -29,6 +29,7 @@ jest.mock('../../src/utils/fetch', () => {
 const mockFetch: jest.Mock = require('../../src/utils/fetch').trackedFetch
 
 describe('CDP E2E', () => {
+    jest.setTimeout(10000)
     describe.each(['kafka', 'cyclotron'])('e2e fetch call: %s', (mode) => {
         let processedEventsConsumer: CdpProcessedEventsConsumer
         let functionProcessor: CdpFunctionCallbackConsumer
