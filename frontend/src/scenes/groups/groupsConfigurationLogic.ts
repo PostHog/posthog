@@ -43,7 +43,7 @@ export const groupsConfigurationLogic = kea<groupsConfigurationLogicType>([
             },
         ],
     }),
-    selectors((props) => ({
+    selectors(({ props }) => ({
         logicProps: [() => [(_, props) => props], (props): GroupsConfigurationLogicProps => props],
 
         groupJoins: [
