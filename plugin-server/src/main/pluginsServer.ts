@@ -11,22 +11,13 @@ import v8Profiler from 'v8-profiler-next'
 import { getPluginServerCapabilities } from '../capabilities'
 import { CdpApi } from '../cdp/cdp-api'
 import { CdpFunctionCallbackConsumer, CdpProcessedEventsConsumer } from '../cdp/cdp-consumers'
-import { defaultConfig, sessionRecordingConsumerConfig } from '../config/config'
+import { defaultConfig } from '../config/config'
 import { Hub, PluginServerCapabilities, PluginServerService, PluginsServerConfig } from '../types'
-import { closeHub, createHub, createKafkaClient, createKafkaProducerWrapper } from '../utils/db/hub'
-import { PostgresRouter } from '../utils/db/postgres'
+import { closeHub, createHub } from '../utils/db/hub'
 import { cancelAllScheduledJobs } from '../utils/node-schedule'
 import { posthog } from '../utils/posthog'
-import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
 import { createRedisClient } from '../utils/utils'
-import { ActionManager } from '../worker/ingestion/action-manager'
-import { ActionMatcher } from '../worker/ingestion/action-matcher'
-import { AppMetrics } from '../worker/ingestion/app-metrics'
-import { GroupTypeManager } from '../worker/ingestion/group-type-manager'
-import { OrganizationManager } from '../worker/ingestion/organization-manager'
-import { TeamManager } from '../worker/ingestion/team-manager'
-import { RustyHook } from '../worker/rusty-hook'
 import { ServerTaskManager } from '../worker/server-tasks'
 import { syncInlinePlugins } from '../worker/vm/inline/inline'
 import { startAnalyticsEventsIngestionConsumer } from './ingestion-queues/analytics-events-ingestion-consumer'
@@ -39,14 +30,20 @@ import {
 } from './ingestion-queues/on-event-handler-consumer'
 import { SessionRecordingIngester } from './ingestion-queues/session-recording/session-recordings-consumer'
 import { expressApp, setupCommonRoutes } from './services/http-server'
-import { getObjectStorage } from './services/object_storage'
 
 CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
 
 const { version } = require('../../package.json')
 
+// Code list in httpsl://kafka.apache.org/0100/protocol.html
+const kafkaJSIgnorableCodes = new Set([
+    22, // ILLEGAL_GENERATION
+    25, // UNKNOWN_MEMBER_ID
+    27, // REBALANCE_IN_PROGRESS
+])
+
 export type ServerInstance = {
-    hub?: Hub
+    hub: Hub
     stop: () => Promise<void>
 }
 
@@ -59,8 +56,7 @@ export async function startPluginsServer(
     config: Partial<PluginsServerConfig>,
     capabilities?: PluginServerCapabilities
 ): Promise<ServerInstance> {
-    const timer = new Date()
-
+    const startupTimer = new Date()
     const serverConfig: PluginsServerConfig = {
         ...defaultConfig,
         ...config,
@@ -70,9 +66,6 @@ export async function startPluginsServer(
     status.info('ℹ️', `${serverConfig.WORKER_CONCURRENCY} workers, ${serverConfig.TASKS_PER_WORKER} tasks per worker`)
     runStartupProfiles(serverConfig)
 
-    // Used to trigger reloads of plugin code/config
-    let pubSub: PubSub | undefined
-
     const services: PluginServerService[] = []
 
     // Kafka consumer. Handles events that we couldn't find an existing person
@@ -80,35 +73,22 @@ export async function startPluginsServer(
     // (default 60 seconds) to allow for the person to be created in the
     // meantime.
     let httpServer: Server | undefined // server
-    let lastActivityCheck: NodeJS.Timeout | undefined
-    let stopEventLoopMetrics: (() => void) | undefined
-
     let shuttingDown = false
+    // eslint-disable-next-line prefer-const
+    let hub: Hub | undefined
+    let serverTaskManager: ServerTaskManager | undefined
 
     async function shutdown(): Promise<void> {
         shuttingDown = true
         status.info('💤', ' Shutting down gracefully...')
-        lastActivityCheck && clearInterval(lastActivityCheck)
 
-        // HACKY: Stop all consumers and the graphile worker, as well as the
-        // http server. Note that we close the http server before the others to
-        // ensure that e.g. if something goes wrong and we deadlock, then if
-        // we're running in k8s, the liveness check will fail, and thus k8s will
-        // kill the pod.
-        //
-        // I say hacky because we've got a weak dependency on the liveness check
-        // configuration.
         httpServer?.close()
         cancelAllScheduledJobs()
-        stopEventLoopMetrics?.()
-        await Promise.allSettled([
-            pubSub?.stop(),
-            ...services.map((service) => service.onShutdown()),
-            posthog.shutdownAsync(),
-        ])
+        await Promise.allSettled([...services.map((service) => service.onShutdown()), posthog.shutdownAsync()])
+        await serverTaskManager?.shutdown()
 
-        if (serverInstance.hub) {
-            await closeHub(serverInstance.hub)
+        if (hub) {
+            await closeHub(hub)
         }
     }
 
@@ -123,13 +103,6 @@ export async function startPluginsServer(
         status.info('👋', 'Over and out!')
         process.exit(0)
     })
-
-    // Code list in https://kafka.apache.org/0100/protocol.html
-    const kafkaJSIgnorableCodes = new Set([
-        22, // ILLEGAL_GENERATION
-        25, // UNKNOWN_MEMBER_ID
-        27, // REBALANCE_IN_PROGRESS
-    ])
 
     process.on('unhandledRejection', (error: Error | any, promise: Promise<any>) => {
         status.error('🤮', `Unhandled Promise Rejection`, { error, promise })
@@ -172,16 +145,11 @@ export async function startPluginsServer(
     })
 
     capabilities = capabilities ?? getPluginServerCapabilities(serverConfig)
+    hub = await createHub(serverConfig, capabilities)
+
     const serverInstance: ServerInstance = {
         stop: shutdown,
-    }
-
-    const setupHub = async (): Promise<Hub> => {
-        if (!serverInstance.hub) {
-            serverInstance.hub = await createHub(serverConfig, capabilities)
-        }
-
-        return serverInstance.hub
+        hub,
     }
 
     // Creating a dedicated single-connection redis client to this Redis, as it's not relevant for hobby
@@ -192,19 +160,17 @@ export async function startPluginsServer(
 
     try {
         if (capabilities.ingestion) {
-            const hub = await setupHub()
             services.push(
                 await startAnalyticsEventsIngestionConsumer({
-                    hub: hub,
+                    hub,
                 })
             )
         }
 
         if (capabilities.ingestionHistorical) {
-            const hub = await setupHub()
             services.push(
                 await startAnalyticsEventsIngestionHistoricalConsumer({
-                    hub: hub,
+                    hub,
                 })
             )
         }
@@ -220,10 +186,9 @@ export async function startPluginsServer(
                     throw new Error(`Invalid events ingestion pipeline: ${pipelineKey}`)
                 }
 
-                const hub = await setupHub()
                 services.push(
                     await startEventsIngestionPipelineConsumer({
-                        hub: hub,
+                        hub,
                         pipelineKey: pipelineKey,
                     })
                 )
@@ -231,88 +196,35 @@ export async function startPluginsServer(
         }
 
         if (capabilities.ingestionOverflow) {
-            const hub = await setupHub()
             services.push(
                 await startAnalyticsEventsIngestionOverflowConsumer({
-                    hub: hub,
+                    hub,
                 })
             )
         }
 
         if (capabilities.processAsyncOnEventHandlers) {
-            const hub = await setupHub()
             services.push(
                 await startAsyncOnEventHandlerConsumer({
-                    hub: hub,
+                    hub,
                 })
             )
         }
 
         if (capabilities.processAsyncWebhooksHandlers) {
-            const hub = serverInstance.hub
-            // If we have a hub, then reuse some of it's attributes, otherwise
-            // we need to create them. We only initialize the ones we need.
-            const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
-            const kafka = hub?.kafka ?? createKafkaClient(serverConfig)
-            const teamManager = hub?.teamManager ?? new TeamManager(postgres, serverConfig)
-            const organizationManager = hub?.organizationManager ?? new OrganizationManager(postgres, teamManager)
-            const KafkaProducerWrapper = hub?.kafkaProducer ?? (await createKafkaProducerWrapper(serverConfig))
-            const rustyHook = hub?.rustyHook ?? new RustyHook(serverConfig)
-            const appMetrics =
-                hub?.appMetrics ??
-                new AppMetrics(
-                    KafkaProducerWrapper,
-                    serverConfig.APP_METRICS_FLUSH_FREQUENCY_MS,
-                    serverConfig.APP_METRICS_FLUSH_MAX_QUEUE_SIZE
-                )
-
-            const actionManager = hub?.actionManager ?? new ActionManager(postgres, serverConfig)
-            const actionMatcher = hub?.actionMatcher ?? new ActionMatcher(postgres, actionManager, teamManager)
-            const groupTypeManager = new GroupTypeManager(postgres, teamManager, serverConfig.SITE_URL)
-
-            services.push(
-                await startAsyncWebhooksHandlerConsumer({
-                    postgres,
-                    kafka,
-                    teamManager,
-                    organizationManager,
-                    serverConfig,
-                    rustyHook,
-                    appMetrics,
-                    actionMatcher,
-                    actionManager,
-                    groupTypeManager,
-                })
-            )
+            services.push(await startAsyncWebhooksHandlerConsumer(hub))
         }
 
         if (capabilities.syncInlinePlugins) {
-            const hub = await setupHub()
-
             await syncInlinePlugins(hub)
         }
 
-        if (serverInstance.hub) {
-            const hub = serverInstance.hub
-            const serverTaskManager = new ServerTaskManager(hub)
-            await serverTaskManager.start()
-
-            if (capabilities.preflightSchedules) {
-                startPreflightSchedules(hub)
-            }
-        }
-
         if (capabilities.sessionRecordingBlobIngestion) {
-            const hub = serverInstance.hub
-            const recordingConsumerConfig = sessionRecordingConsumerConfig(serverConfig)
-            const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
-            const s3 = hub?.objectStorage ?? getObjectStorage(recordingConsumerConfig)
-
-            if (!s3) {
+            if (!hub.objectStorage) {
                 throw new Error("Can't start session recording blob ingestion without object storage")
             }
             // NOTE: We intentionally pass in the original serverConfig as the ingester uses both kafkas
-            const ingester = new SessionRecordingIngester(serverConfig, postgres, s3, false, captureRedis)
+            const ingester = new SessionRecordingIngester(hub, hub.postgres, hub.objectStorage, false, captureRedis)
             await ingester.start()
 
             services.push({
@@ -324,30 +236,29 @@ export async function startPluginsServer(
         }
 
         if (capabilities.sessionRecordingBlobOverflowIngestion) {
-            const hub = serverInstance.hub
-            const recordingConsumerConfig = sessionRecordingConsumerConfig(serverConfig)
-            const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
-            const s3 = hub?.objectStorage ?? getObjectStorage(recordingConsumerConfig)
-
-            if (!s3) {
+            if (!hub?.objectStorage) {
                 throw new Error("Can't start session recording blob ingestion without object storage")
             }
             // NOTE: We intentionally pass in the original serverConfig as the ingester uses both kafkas
             // NOTE: We don't pass captureRedis to disable overflow computation on the overflow topic
-            const ingester = new SessionRecordingIngester(serverConfig, postgres, s3, true, undefined)
+            const ingester = new SessionRecordingIngester(
+                serverConfig,
+                hub.postgres,
+                hub.objectStorage,
+                true,
+                undefined
+            )
             await ingester.start()
             services.push(ingester.service)
         }
 
         if (capabilities.cdpProcessedEvents) {
-            const hub = await setupHub()
             const consumer = new CdpProcessedEventsConsumer(hub)
             await consumer.start()
             services.push(consumer.service)
         }
 
         if (capabilities.cdpFunctionCallbacks) {
-            const hub = await setupHub()
             const consumer = new CdpFunctionCallbackConsumer(hub)
             await consumer.start()
             services.push(consumer.service)
@@ -392,7 +303,14 @@ export async function startPluginsServer(
             })
         })
 
-        pluginServerStartupTimeMs.inc(Date.now() - timer.valueOf())
+        serverTaskManager = new ServerTaskManager(hub)
+        await serverTaskManager.start()
+
+        if (capabilities.preflightSchedules) {
+            startPreflightSchedules(hub)
+        }
+
+        pluginServerStartupTimeMs.inc(Date.now() - startupTimer.valueOf())
         status.info('🚀', 'All systems go')
 
         return serverInstance
