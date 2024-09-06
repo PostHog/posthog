@@ -69,9 +69,10 @@ export const parseEncodedSnapshots = async (
     // this is only kept so that we can export the untransformed data for debugging
     withMobileTransformer: boolean = true
 ): Promise<RecordingSnapshot[]> => {
-    if (!postHogEEModule) {
+    if (!postHogEEModule && withMobileTransformer) {
         postHogEEModule = await posthogEE()
     }
+
     const lineCount = items.length
     const unparseableLines: string[] = []
     const parsedLines = items.flatMap((l) => {
