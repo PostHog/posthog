@@ -365,8 +365,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         try:
             person = self.get_object()
             person_id = person.id
-            delete_person(person=person)
             self.perform_destroy(person)
+            delete_person(person=person)
             log_activity(
                 organization_id=self.organization.id,
                 team_id=self.team_id,
@@ -431,8 +431,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise ValidationError("You need to specify either distinct_ids or ids")
 
         for person in persons:
-            delete_person(person=person)
             self.perform_destroy(person)
+            delete_person(person=person)
             log_activity(
                 organization_id=self.organization.id,
                 team_id=self.team_id,
