@@ -2,7 +2,7 @@ use crate::config::KafkaConfig;
 
 use futures::future::join_all;
 use health::HealthHandle;
-use rdkafka::error::{KafkaError, KafkaResult};
+use rdkafka::error::KafkaError;
 use rdkafka::producer::{FutureProducer, FutureRecord, Producer};
 use rdkafka::ClientConfig;
 use serde::Serialize;
