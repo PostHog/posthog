@@ -5,6 +5,7 @@ import dataclasses
 import datetime as dt
 import enum
 import itertools
+import json
 import re
 import typing
 import uuid
@@ -415,6 +416,19 @@ async def build_dag_activity(inputs: BuildDagActivityInputs) -> DAG:
     async with Heartbeater():
         selectors = []
 
+        if not inputs.select:
+            matching_paths = await database_sync_to_async(list)(
+                DataWarehouseModelPath.objects.filter(team_id=inputs.team_id).values_list("path", flat=True)
+            )
+            selectors.append(
+                Selector(
+                    label="*",
+                    ancestors="ALL",
+                    descendants="ALL",
+                    paths=matching_paths,
+                )
+            )
+
         for selector_input in inputs.select:
             selector_match = re.match(SelectorPattern, selector_input)
 
@@ -476,17 +490,23 @@ async def build_dag_from_selectors(selectors: collections.abc.Iterable[Selector]
         descendants_offset = selector.descendants
 
         for path in selector.paths:
-            label_index = path.index(selector.label)
-
-            if ancestors_offset == "ALL":
+            if selector.label == "*":
+                label_index = -1
                 start = 0
-            else:
-                start = max(label_index - ancestors_offset, 0)
-
-            if descendants_offset == "ALL":
                 end = len(path)
+
             else:
-                end = min(label_index + descendants_offset, len(path) - 1)
+                label_index = path.index(selector.label)
+
+                if ancestors_offset == "ALL":
+                    start = 0
+                else:
+                    start = max(label_index - ancestors_offset, 0)
+
+                if descendants_offset == "ALL":
+                    end = len(path)
+                else:
+                    end = min(label_index + descendants_offset, len(path) - 1)
 
             for index, label in enumerate(path):
                 if label not in dag:
@@ -531,16 +551,24 @@ async def start_run_activity(inputs: StartRunActivityInputs) -> None:
     """Activity that starts a run by updating statuses of associated models."""
     run_at = dt.datetime.fromisoformat(inputs.run_at)
 
-    async with asyncio.TaskGroup() as tg:
-        for label in inputs.dag.keys():
-            tg.create_task(
-                update_saved_query_status(label, DataWarehouseSavedQuery.Status.RUNNING, run_at, inputs.team_id)
-            )
+    try:
+        async with asyncio.TaskGroup() as tg:
+            for label, model in inputs.dag.items():
+                if model.selected is False:
+                    continue
+
+                tg.create_task(
+                    update_saved_query_status(label, DataWarehouseSavedQuery.Status.RUNNING, run_at, inputs.team_id)
+                )
+    except* Exception:
+        await logger.aexception("Failed to update saved query status when starting run")
+        raise
 
 
 @dataclasses.dataclass
 class FinishRunActivityInputs:
-    results: Results
+    completed: list[str]
+    failed: list[str]
     run_at: str
     team_id: int
 
@@ -550,16 +578,20 @@ async def finish_run_activity(inputs: FinishRunActivityInputs) -> None:
     """Activity that finishes a run by updating statuses of associated models."""
     run_at = dt.datetime.fromisoformat(inputs.run_at)
 
-    async with asyncio.TaskGroup() as tg:
-        for label in inputs.results.completed:
-            tg.create_task(
-                update_saved_query_status(label, DataWarehouseSavedQuery.Status.COMPLETED, run_at, inputs.team_id)
-            )
+    try:
+        async with asyncio.TaskGroup() as tg:
+            for label in inputs.completed:
+                tg.create_task(
+                    update_saved_query_status(label, DataWarehouseSavedQuery.Status.COMPLETED, run_at, inputs.team_id)
+                )
 
-        for label in itertools.chain(inputs.results.failed, inputs.results.ancestor_failed):
-            tg.create_task(
-                update_saved_query_status(label, DataWarehouseSavedQuery.Status.FAILED, run_at, inputs.team_id)
-            )
+            for label in inputs.failed:
+                tg.create_task(
+                    update_saved_query_status(label, DataWarehouseSavedQuery.Status.FAILED, run_at, inputs.team_id)
+                )
+    except* Exception:
+        await logger.aexception("Failed to update saved query status when finishing run")
+        raise
 
 
 async def update_saved_query_status(
@@ -575,7 +607,7 @@ async def update_saved_query_status(
 
     saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.filter(**filter_params).get)()
     saved_query.last_run_at = run_at
-    saved_query.status = status
+    saved_query.last_run_status = status
 
     await database_sync_to_async(saved_query.save)()
 
@@ -600,6 +632,12 @@ class RunWorkflow(PostHogWorkflow):
     A model is defined by a label, a saved query that dictates how to select the data that
     makes up the model, and the path or paths to the model through all of its ancestors.
     """
+
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> RunWorkflowInputs:
+        """Parse inputs from the management command CLI."""
+        loaded = json.loads(inputs[0])
+        return RunWorkflowInputs(**loaded)
 
     @temporalio.workflow.run
     async def run(self, inputs: RunWorkflowInputs) -> Results:
@@ -638,8 +676,14 @@ class RunWorkflow(PostHogWorkflow):
                 maximum_attempts=0,
             ),
         )
+        completed, failed, ancestor_failed = results
 
-        finish_run_activity_inputs = FinishRunActivityInputs(results=results, run_at=run_at, team_id=inputs.team_id)
+        finish_run_activity_inputs = FinishRunActivityInputs(
+            completed=[label for label in completed if dag[label].selected is True],
+            failed=[label for label in itertools.chain(failed, ancestor_failed) if dag[label].selected is True],
+            run_at=run_at,
+            team_id=inputs.team_id,
+        )
         await temporalio.workflow.execute_activity(
             finish_run_activity,
             finish_run_activity_inputs,

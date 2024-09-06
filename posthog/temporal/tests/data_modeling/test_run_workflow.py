@@ -5,21 +5,32 @@ import unittest.mock
 import uuid
 
 import aioboto3
+import dlt
 import pytest
 import pytest_asyncio
+import temporalio.common
+import temporalio.testing
+import temporalio.worker
 from django.conf import settings
 from django.test import override_settings
 from dlt.common.configuration.specs.aws_credentials import AwsCredentials
+from dlt.common.libs.deltalake import get_delta_tables
 
+from posthog import constants
 from posthog.hogql.database.database import create_hogql_database
 from posthog.models import Team
 from posthog.temporal.data_modeling.run_workflow import (
     BuildDagActivityInputs,
     ModelNode,
     RunDagActivityInputs,
+    RunWorkflow,
+    RunWorkflowInputs,
     build_dag_activity,
+    finish_run_activity,
+    get_dlt_destination,
     materialize_model,
     run_dag_activity,
+    start_run_activity,
 )
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -222,7 +233,14 @@ def mock_to_object_store_rs_credentials(class_self):
 async def pageview_events(clickhouse_client, ateam):
     start_time, end_time = dt.datetime.now(dt.UTC) - dt.timedelta(days=1), dt.datetime.now(dt.UTC)
     events, _, events_from_other_team = await generate_test_events_in_clickhouse(
-        clickhouse_client, ateam.pk, start_time, end_time, event_name="$pageview", count=50, count_outside_range=0
+        clickhouse_client,
+        ateam.pk,
+        start_time,
+        end_time,
+        event_name="$pageview",
+        count=50,
+        count_outside_range=0,
+        distinct_ids=["a", "b"],
     )
     return (events, events_from_other_team)
 
@@ -487,3 +505,121 @@ async def test_build_dag_activity_select_first_family(activity_environment, atea
     )
     assert all(dag[selected].selected is True for selected in selected)
     assert all(dag[other].selected is False for other in dag.keys() if other not in selected)
+
+
+async def test_build_dag_activity_select_all(activity_environment, ateam, saved_queries):
+    """Test the build dag activity with a sample set of models.
+
+    In this test we attempt to select all models by not passing any selectors.
+    """
+    parent_saved_query, child_saved_query, child_2_saved_query, grand_child_saved_query = saved_queries
+
+    inputs = BuildDagActivityInputs(team_id=ateam.pk)
+
+    async with asyncio.timeout(10):
+        dag = await activity_environment.run(build_dag_activity, inputs)
+
+    assert dag[child_saved_query.id.hex].parents == {parent_saved_query.id.hex}
+    assert dag[child_saved_query.id.hex].children == {grand_child_saved_query.id.hex}
+    assert dag[child_2_saved_query.id.hex].parents == {parent_saved_query.id.hex}
+    assert dag[child_2_saved_query.id.hex].children == {grand_child_saved_query.id.hex}
+    assert dag[grand_child_saved_query.id.hex].parents == {child_saved_query.id.hex, child_2_saved_query.id.hex}
+    assert dag[parent_saved_query.id.hex].children == {child_saved_query.id.hex, child_2_saved_query.id.hex}
+
+    assert all(dag[selected].selected is True for selected in dag.keys() if selected not in {"events", "persons"})
+
+
+async def test_run_workflow_with_minio_bucket(
+    minio_client,
+    ateam,
+    bucket_name,
+    pageview_events,
+    saved_queries,
+    temporal_client,
+):
+    """Test run workflow end-to-end using a local MinIO bucket."""
+    events, _ = pageview_events
+    all_expected_events = sorted(
+        [
+            {
+                k: dt.datetime.fromisoformat(v).replace(tzinfo=dt.UTC) if k == "timestamp" else v
+                for k, v in event.items()
+                if k in ("event", "distinct_id", "timestamp")
+            }
+            for event in events
+        ],
+        key=lambda d: (d["distinct_id"], d["timestamp"]),
+    )
+    expected_events_a = [event for event in all_expected_events if event["distinct_id"] == "a"]
+    expected_events_b = [event for event in all_expected_events if event["distinct_id"] == "b"]
+
+    workflow_id = str(uuid.uuid4())
+    inputs = RunWorkflowInputs(team_id=ateam.pk)
+
+    with (
+        override_settings(
+            BUCKET_URL=f"s3://{bucket_name}",
+            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            AIRBYTE_BUCKET_REGION="us-east-1",
+            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        ),
+        unittest.mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
+        unittest.mock.patch.object(
+            AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials
+        ),
+    ):
+        async with temporalio.worker.Worker(
+            temporal_client,
+            task_queue=constants.DATA_WAREHOUSE_TASK_QUEUE,
+            workflows=[RunWorkflow],
+            activities=[
+                start_run_activity,
+                build_dag_activity,
+                run_dag_activity,
+                finish_run_activity,
+            ],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            await temporal_client.execute_workflow(
+                RunWorkflow.run,
+                inputs,
+                id=workflow_id,
+                task_queue=constants.DATA_WAREHOUSE_TASK_QUEUE,
+                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
+                execution_timeout=dt.timedelta(seconds=30),
+            )
+        destination = get_dlt_destination()
+        tables_and_queries = {}
+
+        for query in saved_queries:
+            await database_sync_to_async(query.refresh_from_db)()
+
+            pipeline = dlt.pipeline(
+                pipeline_name=f"materialize_model_{query.id.hex}",
+                destination=destination,
+                dataset_name=f"team_{ateam.pk}_model_{query.id.hex}",
+            )
+
+            tables = get_delta_tables(pipeline)
+            key, delta_table = tables.popitem()
+            # All test tables have the same columns, which is a limitation of our test
+            table = delta_table.to_pyarrow_table(columns=["event", "distinct_id", "timestamp"])
+            tables_and_queries[key] = (table, query)
+
+        for key, table_and_query in tables_and_queries.items():
+            table, query = table_and_query
+
+            if "distinct_id = 'a'" in query.query["query"]:
+                expected_data = expected_events_a
+            elif "distinct_id = 'b'" in query.query["query"]:
+                expected_data = expected_events_b
+            else:
+                expected_data = all_expected_events
+
+            assert table.num_rows == len(expected_data)
+            assert table.num_columns == 3
+            assert table.column_names == ["event", "distinct_id", "timestamp"]
+            assert key == query.name
+            assert sorted(table.to_pylist(), key=lambda d: (d["distinct_id"], d["timestamp"])) == expected_data
+            assert query.last_run_status == DataWarehouseSavedQuery.Status.COMPLETED
