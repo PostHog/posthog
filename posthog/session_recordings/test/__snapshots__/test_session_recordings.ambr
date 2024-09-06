@@ -638,7 +638,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."group_type_index"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 2
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -760,7 +761,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."group_type_index"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 2
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -1404,7 +1406,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."group_type_index"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 2
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -1526,7 +1529,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."group_type_index"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 2
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -1676,7 +1680,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."group_type_index"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 2
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -1944,7 +1949,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."group_type_index"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 2
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -2074,7 +2080,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."group_type_index"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 2
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -2538,7 +2545,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."group_type_index"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 2
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -2660,7 +2668,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."group_type_index"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 2
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -3095,7 +3104,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."group_type_index"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 2
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -3273,7 +3283,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."group_type_index"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 2
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -3710,7 +3721,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."group_type_index"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 2
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -3832,7 +3844,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."group_type_index"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 2
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -4088,7 +4101,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."group_type_index"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 2
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -4210,7 +4224,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."group_type_index"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 2
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -4625,7 +4640,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."group_type_index"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 2
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -4759,7 +4775,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."group_type_index"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 2
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -5223,7 +5240,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."group_type_index"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 2
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -5345,7 +5363,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."group_type_index"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 2
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -5756,7 +5775,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."group_type_index"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 2
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -5775,7 +5795,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."group_type_index"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 2
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -5897,7 +5918,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."group_type_index"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 2
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -6304,7 +6326,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."group_type_index"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 2
          AND NOT ("posthog_datawarehousejoin"."deleted"
@@ -6426,7 +6449,8 @@
          "posthog_datawarehousejoin"."source_table_key",
          "posthog_datawarehousejoin"."joining_table_name",
          "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name"
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."group_type_index"
   FROM "posthog_datawarehousejoin"
   WHERE ("posthog_datawarehousejoin"."team_id" = 2
          AND NOT ("posthog_datawarehousejoin"."deleted"
