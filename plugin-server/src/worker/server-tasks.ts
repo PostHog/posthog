@@ -3,6 +3,7 @@ import { PubSub } from '../utils/pubsub'
 import { retryIfRetriable } from '../utils/retries'
 import { status } from '../utils/status'
 import { delay, sleep } from '../utils/utils'
+import { setupMmdb } from './plugins/mmdb'
 import { setupPlugins } from './plugins/setup'
 import { teardownPlugins } from './plugins/teardown'
 import { populatePluginCapabilities } from './vm/lazy'
@@ -22,6 +23,19 @@ export class ServerTaskManager {
     private pubSub?: PubSub
     constructor(private hub: Hub) {}
 
+    private get needsPlugins() {
+        const capabilities = this.hub.capabilities
+
+        return (
+            capabilities.eventsIngestionPipelines ||
+            capabilities.ingestion ||
+            capabilities.ingestionHistorical ||
+            capabilities.ingestionOverflow ||
+            capabilities.processAsyncOnEventHandlers ||
+            capabilities.syncInlinePlugins
+        )
+    }
+
     async start() {
         this.pubSub = new PubSub(this.hub, {
             [this.hub.PLUGINS_RELOAD_PUBSUB_CHANNEL]: async () => {
@@ -36,9 +50,18 @@ export class ServerTaskManager {
         })
 
         await this.pubSub.start()
+
+        // TODO: Only setup if plugins are enabled / required
+        if (this.needsPlugins) {
+            await setupMmdb(this.hub)
+            await setupPlugins(this.hub)
+        }
     }
 
     async reloadPlugins() {
+        if (!this.needsPlugins) {
+            return
+        }
         if (RELOAD_PLUGINS_PROMISE && !RELOAD_PLUGINS_PROMISE_STARTED) {
             // A reload is already scheduled and hasn't started yet. When it starts it will load the
             // state of plugins after this reload request was issued, so we're done here.
