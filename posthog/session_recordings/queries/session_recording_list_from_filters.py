@@ -173,12 +173,7 @@ class SessionRecordingListFromFilters:
         ]
 
     def _order_by_clause(self) -> ast.OrderExpr:
-        expr = (
-            ast.Call(name="sipHash64", args=[ast.Field(chain=["session_id"])])
-            if self._filter.order == "random_sample"
-            else ast.Field(chain=[self._filter.order])
-        )
-        return ast.OrderExpr(expr=expr, order="DESC")
+        return ast.OrderExpr(expr=ast.Field(chain=[self._filter.order]), order="DESC")
 
     def _where_predicates(self) -> Union[ast.And, ast.Or]:
         exprs: list[ast.Expr] = [

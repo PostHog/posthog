@@ -8876,10 +8876,6 @@
                         {
                             "const": "mouse_activity_count",
                             "type": "string"
-                        },
-                        {
-                            "const": "random_sample",
-                            "type": "string"
                         }
                     ]
                 },

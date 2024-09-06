@@ -3754,9 +3754,9 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
     @freeze_time("2021-01-21T20:00:00.000Z")
     @snapshot_clickhouse_queries
     def test_ordering(self):
-        session_id_one = f"test_ordering-{str(uuid4())}"
-        session_id_two = f"test_ordering-{str(uuid4())}"
-        session_id_three = f"test_ordering-{str(uuid4())}"
+        session_id_one = f"test_ordering-one"
+        session_id_two = f"test_ordering-two"
+        session_id_three = f"test_ordering-three"
 
         produce_replay_summary(
             session_id=session_id_one,

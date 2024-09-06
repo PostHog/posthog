@@ -243,7 +243,7 @@ function sortRecordings(recordings: SessionRecordingType[], order: RecordingsQue
         | 'click_count'
         | 'keypress_count'
         | 'mouse_activity_count'
-        | 'start_time' = order === 'duration' ? 'recording_duration' : order === 'random_sample' ? 'start_time' : order
+        | 'start_time' = order === 'duration' ? 'recording_duration' : order
 
     return recordings.sort((a, b) => {
         const orderA = a[orderKey]
@@ -296,8 +296,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         setFilters: (filters: Partial<RecordingUniversalFilters>) => ({ filters }),
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
         setShowSettings: (showSettings: boolean) => ({ showSettings }),
-        setOrderBy: (orderBy: Omit<RecordingsQuery['order'], 'random_sample'>) => ({ orderBy }),
-        setRandomSample: (sample: boolean) => ({ sample }),
+        setOrderBy: (orderBy: RecordingsQuery['order']) => ({ orderBy }),
         resetFilters: true,
         setSelectedRecordingId: (id: SessionRecordingType['id'] | null) => ({
             id,
@@ -360,7 +359,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     const params: RecordingsQuery = {
                         ...convertUniversalFiltersToRecordingsQuery(values.filters),
                         person_uuid: props.personUUID ?? '',
-                        order: values.queryOrder,
+                        order: values.orderBy,
                         limit: RECORDINGS_LIMIT,
                     }
 
@@ -388,7 +387,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                                 ? values.sessionRecordingsResponse?.has_next ?? true
                                 : response.has_next,
                         results: response.results,
-                        order: values.queryOrder,
+                        order: values.orderBy,
                     }
                 },
             },
@@ -429,14 +428,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             'start_time' as RecordingsQuery['order'],
             { persist: true },
             {
-                setOrderBy: (_, { orderBy }) => orderBy as RecordingsQuery['order'],
-            },
-        ],
-        randomSample: [
-            false as boolean,
-            { persist: true },
-            {
-                setRandomSample: (_, { sample }) => sample,
+                setOrderBy: (_, { orderBy }) => orderBy,
             },
         ],
         sessionBeingSummarized: [
@@ -572,10 +564,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             props.onFiltersChange?.(values.filters)
             capturePartialFilters(filters)
             actions.loadEventsHaveSessionId()
-        },
-
-        setRandomSample: () => {
-            actions.loadSessionRecordings()
         },
 
         setOrderBy: () => {
@@ -732,13 +720,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             (s) => [s.pinnedRecordings, s.otherRecordings],
             (pinnedRecordings, otherRecordings): SessionRecordingType[] => {
                 return [...pinnedRecordings, ...otherRecordings]
-            },
-        ],
-
-        queryOrder: [
-            (s) => [s.orderBy, s.randomSample],
-            (orderBy, randomSample): RecordingsQuery['order'] => {
-                return randomSample ? 'random_sample' : (orderBy as RecordingsQuery['order'])
             },
         ],
 

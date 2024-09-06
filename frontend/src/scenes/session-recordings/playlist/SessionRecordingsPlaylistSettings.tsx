@@ -7,8 +7,8 @@ import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic
 export function SessionRecordingsPlaylistSettings(): JSX.Element {
     const { hideViewedRecordings } = useValues(playerSettingsLogic)
     const { setHideViewedRecordings } = useActions(playerSettingsLogic)
-    const { orderBy, randomSample } = useValues(sessionRecordingsPlaylistLogic)
-    const { setOrderBy, setRandomSample } = useActions(sessionRecordingsPlaylistLogic)
+    const { orderBy } = useValues(sessionRecordingsPlaylistLogic)
+    const { setOrderBy } = useActions(sessionRecordingsPlaylistLogic)
 
     return (
         <div className="relative flex flex-col gap-2 p-3 border-b">
@@ -18,15 +18,6 @@ export function SessionRecordingsPlaylistSettings(): JSX.Element {
                     aria-label="Autoplay next recording"
                     checked={hideViewedRecordings}
                     onChange={() => setHideViewedRecordings(!hideViewedRecordings)}
-                />
-            </div>
-            <div className="flex flex-row items-center justify-between space-x-2">
-                <span className="text-black font-medium">Random sample</span>
-                <LemonSwitch
-                    aria-label="Random sample"
-                    checked={randomSample}
-                    onChange={() => setRandomSample(!randomSample)}
-                    tooltip="Chooses a random sample of recordings matching the filters"
                 />
             </div>
             <div className="flex flex-row items-center justify-between space-x-2">
@@ -75,13 +66,9 @@ export function SessionRecordingsPlaylistSettings(): JSX.Element {
                             value: 'console_error_count',
                             label: 'Most errors',
                         },
-                        {
-                            value: 'random_sample',
-                            label: 'Random sample',
-                        },
                     ]}
                     size="small"
-                    value={orderBy as string}
+                    value={orderBy}
                     onChange={setOrderBy}
                 />
             </div>
