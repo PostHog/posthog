@@ -53,8 +53,8 @@ dependencies:
     specifier: 4.6.0
     version: 4.6.0(monaco-editor@0.49.0)(react-dom@18.2.0)(react@18.2.0)
   '@posthog/hogvm':
-    specifier: ^1.0.46
-    version: 1.0.46(luxon@3.5.0)
+    specifier: ^1.0.47
+    version: 1.0.47(luxon@3.5.0)
   '@posthog/icons':
     specifier: 0.8.1
     version: 0.8.1(react-dom@18.2.0)(react@18.2.0)
@@ -5414,8 +5414,8 @@ packages:
     resolution: {integrity: sha512-50/17A98tWUfQ176raKiOGXuYpLyyVMkxxG6oylzL3BPOlA6ADGdK7EYunSa4I064xerltq9TGXs8HmOk5E+vw==}
     dev: false
 
-  /@posthog/hogvm@1.0.46(luxon@3.5.0):
-    resolution: {integrity: sha512-oTXytxHImxcAUYvK+QVI5nRc3YnVSbn01rFlOrpeTYjW5oqYKMR8nYsjhHGLt5p0pnfeBhmQjBM5mJtVs5bA2Q==}
+  /@posthog/hogvm@1.0.47(luxon@3.5.0):
+    resolution: {integrity: sha512-6zoMKH6fmO9evuhpd9dtkVi2GFk+dGsxcHe6l6mMo7yXd0Kwssmiwr8aLndYTsjdhRkVMi7iaoi/GLrh8F9ayQ==}
     peerDependencies:
       luxon: ^3.4.4
     dependencies:
@@ -18298,7 +18298,7 @@ packages:
       react: '>=15'
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.75.0
+      unlayer-types: 1.77.0
     dev: false
 
   /react-error-boundary@3.1.4(react@18.2.0):
@@ -20832,8 +20832,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  /unlayer-types@1.75.0:
-    resolution: {integrity: sha512-yB4TeimlZPKkAGIIE3Acs9e5YHjCpeGcoybq/E8w4lzNTI5EybI9Z9rwIBXhNK0miNarxEIO7rJUWB+Yeve80g==}
+  /unlayer-types@1.77.0:
+    resolution: {integrity: sha512-/eIyHiGWO/EFb3GuD7FqD+jV9sXAj2FMhwn3QTVaio2FUz30RRAh8kQS+qNwPKIcLEZWKzfH41SBi3afudEVAA==}
     dev: false
 
   /unpipe@1.0.0:
