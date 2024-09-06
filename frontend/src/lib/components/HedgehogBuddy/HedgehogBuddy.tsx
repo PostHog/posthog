@@ -104,11 +104,11 @@ export class HedgehogActor {
         this.setAnimation('fall')
     }
 
-    get animation(): SpriteInfo {
-        return this.animations[this.animationName]
+    animation(): SpriteInfo {
+        return this.animations()[this.animationName]
     }
 
-    get animations(): { [key: string]: SpriteInfo } {
+    animations(): { [key: string]: SpriteInfo } {
         const animations = skins[this.hedgehogConfig.skin || 'default']
         return animations
     }
@@ -118,8 +118,8 @@ export class HedgehogActor {
     }
 
     private getAnimationOptions(): string[] {
-        const randomChoiceList: string[] = Object.keys(this.animations).reduce((acc: string[], key: string) => {
-            return [...acc, ...range(this.animations[key].randomChance || 0).map(() => key)]
+        const randomChoiceList: string[] = Object.keys(this.animations()).reduce((acc: string[], key: string) => {
+            return [...acc, ...range(this.animations()[key].randomChance || 0).map(() => key)]
         }, [])
 
         if (!this.hedgehogConfig.walking_enabled) {
@@ -274,13 +274,12 @@ export class HedgehogActor {
             return options?.onComplete()
         }
         if (this.animationName !== 'stop') {
-            this.direction = this.animation.forceDirection || sampleOne(['left', 'right'])
+            this.direction = this.animation().forceDirection || sampleOne(['left', 'right'])
         }
 
+        const maxIteration = this.animation().maxIteration
         // Set a random number of iterations or infinite for certain situations
-        this.animationIterations = this.animation.maxIteration
-            ? Math.max(1, Math.floor(Math.random() * this.animation.maxIteration))
-            : null
+        this.animationIterations = maxIteration ? Math.max(1, Math.floor(Math.random() * maxIteration)) : null
 
         if (animationName === 'walk') {
             this.xVelocity = this.direction === 'left' ? -1 : 1
@@ -290,7 +289,7 @@ export class HedgehogActor {
 
         if ((window as any)._posthogDebugHedgehog) {
             const duration = this.animationIterations
-                ? this.animationIterations * this.animation.frames * (1000 / FPS)
+                ? this.animationIterations * this.animation().frames * (1000 / FPS)
                 : '∞'
 
             this.log(`Will '${this.animationName}' for ${duration}ms`)
@@ -357,7 +356,7 @@ export class HedgehogActor {
 
         this.animationFrame++
 
-        if (this.animationFrame >= this.animation.frames) {
+        if (this.animationFrame >= this.animation().frames) {
             // End of the animation
             if (this.animationIterations !== null) {
                 this.animationIterations -= 1
@@ -576,9 +575,9 @@ export class HedgehogActor {
     }
 
     render({ onClick, ref }: { onClick: () => void; ref: ForwardedRef<HTMLDivElement> }): JSX.Element {
-        const accessoryPosition = this.animation.accessoryPositions?.[this.animationFrame]
+        const accessoryPosition = this.animation().accessoryPositions?.[this.animationFrame]
         const preloadContent =
-            Object.values(this.animations)
+            Object.values(this.animations())
                 .map((x) => `url(${spriteUrl(this.hedgehogConfig.skin ?? 'default', x.img)})`)
                 .join(' ') +
             ' ' +
@@ -712,7 +711,7 @@ export class HedgehogActor {
                                 height: SPRITE_SIZE,
                                 backgroundImage: `url(${spriteUrl(
                                     this.hedgehogConfig.skin ?? 'default',
-                                    this.animation.img
+                                    this.animation().img
                                 )})`,
                                 backgroundPosition: `-${(this.animationFrame % X_FRAMES) * SPRITE_SIZE}px -${
                                     Math.floor(this.animationFrame / X_FRAMES) * SPRITE_SIZE
@@ -868,8 +867,12 @@ export function MyHedgehogBuddy({
     }
     const disappear = (): void => {
         setPopoverVisible(false)
-        actor?.setAnimation('wave')
-        setTimeout(() => onClose?.(actor!), (actor!.animations.wave.frames * 1000) / FPS)
+        actor?.setAnimation('wave', {
+            onComplete() {
+                onClose?.(actor)
+                return true
+            },
+        })
     }
 
     return (
