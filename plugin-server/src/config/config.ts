@@ -108,10 +108,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: '',
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: KAFKA_EVENTS_JSON,
         CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
-        CONVERSION_BUFFER_ENABLED: false,
-        CONVERSION_BUFFER_ENABLED_TEAMS: '',
-        CONVERSION_BUFFER_TOPIC_ENABLED_TEAMS: '',
-        BUFFER_CONVERSION_SECONDS: isDevEnv() ? 2 : 60, // KEEP IN SYNC WITH posthog/settings/ingestion.py
         PERSON_INFO_CACHE_TTL: 5 * 60, // 5 min
         KAFKA_HEALTHCHECK_SECONDS: 20,
         OBJECT_STORAGE_ENABLED: true,
@@ -131,6 +127,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         EXTERNAL_REQUEST_TIMEOUT_MS: 10 * 1000, // 10 seconds
         DROP_EVENTS_BY_TOKEN_DISTINCT_ID: '',
         DROP_EVENTS_BY_TOKEN: '',
+        SKIP_DEFINITIONS_FOR_TEAM_IDS: '',
         PIPELINE_STEP_STALLED_LOG_TIMEOUT: 30,
         RELOAD_PLUGIN_JITTER_MAX_MS: 60000,
         RUSTY_HOOK_FOR_TEAMS: '',
@@ -187,6 +184,14 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_WATCHER_REFILL_RATE: 10,
         CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT: 3,
         CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS: '',
+        CDP_ASYNC_FUNCTIONS_CYCLOTRON_TEAMS: '',
+        CDP_REDIS_PASSWORD: '',
+        CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: true,
+        CDP_REDIS_HOST: '',
+        CDP_REDIS_PORT: 6479,
+
+        // Cyclotron
+        CYCLOTRON_DATABASE_URL: '',
     }
 }
 

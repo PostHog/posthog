@@ -294,7 +294,18 @@ export function LemonTable<T extends Record<string, any>>({
                                                 style={{ textAlign: column.align }}
                                                 onClick={
                                                     column.sorter && !column.more
-                                                        ? () => {
+                                                        ? (event) => {
+                                                              const target = event.target as HTMLElement
+
+                                                              // Check if the click happened on the checkbox input, label, or its specific SVG (LemonCheckbox__box)
+                                                              if (
+                                                                  target.classList.contains('LemonCheckbox__box') ||
+                                                                  target.tagName.toLowerCase() === 'label' ||
+                                                                  target.tagName.toLowerCase() === 'input'
+                                                              ) {
+                                                                  return // Do nothing if the click is on the checkbox
+                                                              }
+
                                                               const nextSorting = getNextSorting(
                                                                   currentSorting,
                                                                   determineColumnKey(column, 'sorting'),

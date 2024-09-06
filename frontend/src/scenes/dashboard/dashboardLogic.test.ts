@@ -11,27 +11,21 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
-import { DashboardFilter } from '~/queries/schema'
+import { examples } from '~/queries/examples'
+import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
+import { DashboardFilter, InsightVizNode, TrendsQuery } from '~/queries/schema'
 import { initKeaTests } from '~/test/init'
-import {
-    DashboardTile,
-    DashboardType,
-    InsightColor,
-    InsightModel,
-    InsightShortId,
-    InsightType,
-    TileLayout,
-} from '~/types'
+import { DashboardTile, DashboardType, InsightColor, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import _dashboardJson from './__mocks__/dashboard.json'
 
-const dashboardJson = _dashboardJson as any as DashboardType
+const dashboardJson = getQueryBasedDashboard(_dashboardJson as any as DashboardType)!
 
 export function insightOnDashboard(
     insightId: number,
     dashboardsRelation: number[],
-    insight: Partial<InsightModel> = {}
-): InsightModel {
+    insight: Partial<QueryBasedInsightModel> = {}
+): QueryBasedInsightModel {
     const tiles = dashboardJson.tiles.filter((tile) => !!tile.insight && tile.insight?.id === insightId)
     let tile = dashboardJson.tiles[0]
     if (tiles.length) {
@@ -44,11 +38,11 @@ export function insightOnDashboard(
         ...tile.insight,
         dashboards: dashboardsRelation,
         dashboard_tiles: dashboardsRelation.map((dashboardId) => ({ id: insight.id!, dashboard_id: dashboardId })),
-        filters: { ...tile.insight.filters, ...insight.filters },
+        query: { ...tile.insight.query, ...insight.query, kind: (tile.insight.query?.kind || insight.query?.kind)! },
     }
 }
 
-const TEXT_TILE: DashboardTile = {
+const TEXT_TILE: DashboardTile<QueryBasedInsightModel> = {
     id: 4,
     text: { body: 'I AM A TEXT', last_modified_at: '2021-01-01T00:00:00Z' },
     layouts: {},
@@ -56,7 +50,10 @@ const TEXT_TILE: DashboardTile = {
 }
 
 let tileId = 0
-export const tileFromInsight = (insight: InsightModel, id: number = tileId++): DashboardTile => ({
+export const tileFromInsight = (
+    insight: QueryBasedInsightModel,
+    id: number = tileId++
+): DashboardTile<QueryBasedInsightModel> => ({
     id: id,
     layouts: {},
     color: null,
@@ -65,9 +62,9 @@ export const tileFromInsight = (insight: InsightModel, id: number = tileId++): D
 
 export const dashboardResult = (
     dashboardId: number,
-    tiles: DashboardTile[],
+    tiles: DashboardTile<QueryBasedInsightModel>[],
     filters: Partial<DashboardFilter> = {}
-): DashboardType => {
+): DashboardType<QueryBasedInsightModel> => {
     return {
         ...dashboardJson,
         filters: { ...dashboardJson.filters, ...filters },
@@ -76,7 +73,11 @@ export const dashboardResult = (
     }
 }
 
-const uncached = (insight: InsightModel): InsightModel => ({ ...insight, result: null, last_refresh: null })
+const uncached = (insight: QueryBasedInsightModel): QueryBasedInsightModel => ({
+    ...insight,
+    result: null,
+    last_refresh: null,
+})
 
 export const boxToString = (param: string | readonly string[]): string => {
     //path params from msw can be a string or an array
@@ -86,7 +87,7 @@ export const boxToString = (param: string | readonly string[]): string => {
     throw new Error("this shouldn't be an array")
 }
 
-const insight800 = (): InsightModel => ({
+const insight800 = (): QueryBasedInsightModel => ({
     ...insightOnDashboard(800, [9, 10]),
     id: 800,
     short_id: '800' as InsightShortId,
@@ -114,15 +115,15 @@ describe('dashboardLogic', () => {
      *               /     \
      *             i666    i999
      */
-    let dashboards: Record<number, DashboardType> = {}
+    let dashboards: Record<number, DashboardType<QueryBasedInsightModel>> = {}
 
     beforeEach(() => {
         jest.spyOn(api, 'update')
 
-        const insights: Record<number, InsightModel> = {
+        const insights: Record<number, QueryBasedInsightModel> = {
             172: {
                 ...insightOnDashboard(172, [5, 6], {
-                    filters: { insight: InsightType.RETENTION },
+                    query: examples.InsightRetention,
                 }),
                 short_id: '172' as InsightShortId,
                 query_status: {
@@ -148,7 +149,7 @@ describe('dashboardLogic', () => {
                 short_id: '999' as InsightShortId,
                 last_refresh: now().toISOString(),
             },
-            1001: { id: 1001, short_id: '1001' as InsightShortId } as unknown as InsightModel,
+            1001: { id: 1001, short_id: '1001' as InsightShortId } as unknown as QueryBasedInsightModel,
             800: insight800(),
         }
         dashboards = {
@@ -263,7 +264,7 @@ describe('dashboardLogic', () => {
                         }
                         const insightId = boxToString(req.params.id)
 
-                        const starting: InsightModel = insights[insightId]
+                        const starting: QueryBasedInsightModel = insights[insightId]
                         insights[insightId] = {
                             ...starting,
                             ...updates,
@@ -299,11 +300,13 @@ describe('dashboardLogic', () => {
             logic.mount()
         })
 
-        it('saving layouts with no provided tiles updates all tiles', async () => {
+        it('saving layouts creates api call with all tiles', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
             jest.spyOn(api, 'update')
 
             await expectLogic(logic, () => {
-                logic.actions.saveLayouts()
+                logic.actions.updateFiltersAndLayouts()
             }).toFinishAllListeners()
 
             expect(api.update).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}/dashboards/5`, {
@@ -321,23 +324,11 @@ describe('dashboardLogic', () => {
                         layouts: {},
                     },
                 ],
-            })
-        })
-
-        it('saving layouts with provided tiles updates only those tiles', async () => {
-            jest.spyOn(api, 'update')
-
-            await expectLogic(logic, () => {
-                logic.actions.saveLayouts([{ id: 1, layouts: { sm: {} as TileLayout, xs: {} as TileLayout } }])
-            }).toFinishAllListeners()
-
-            expect(api.update).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}/dashboards/5`, {
-                tiles: [
-                    {
-                        id: 1,
-                        layouts: { sm: {} as TileLayout, xs: {} as TileLayout },
-                    },
-                ],
+                filters: {
+                    date_from: null,
+                    date_to: null,
+                    properties: [],
+                },
             })
         })
     })
@@ -420,7 +411,7 @@ describe('dashboardLogic', () => {
                 })
 
             await expectLogic(dashboardEightlogic, () => {
-                dashboardsModel.actions.tileMovedToDashboard({} as DashboardTile, 8)
+                dashboardsModel.actions.tileMovedToDashboard({} as DashboardTile<QueryBasedInsightModel>, 8)
             }).toMatchValues({
                 dashboard: truth(({ tiles }) => {
                     return tiles.length === 2
@@ -441,7 +432,7 @@ describe('dashboardLogic', () => {
                 })
 
             await expectLogic(dashboardEightlogic, () => {
-                dashboardsModel.actions.tileMovedToDashboard({} as DashboardTile, 10)
+                dashboardsModel.actions.tileMovedToDashboard({} as DashboardTile<QueryBasedInsightModel>, 10)
             }).toMatchValues({
                 dashboard: truth(({ tiles }) => {
                     return tiles.length === 1
@@ -583,26 +574,37 @@ describe('dashboardLogic', () => {
             logic = dashboardLogic({ id: 9 })
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
+            const insight = logic.values.insightTiles[0].insight!
             expect(logic.values.dashboard?.tiles).toHaveLength(2)
-            expect(logic.values.insightTiles[0].insight!.short_id).toEqual('800')
-            expect(logic.values.insightTiles[0].insight!.filters.date_from).toBeUndefined()
-            expect(logic.values.insightTiles[0].insight!.filters.interval).toEqual('day')
-            expect(logic.values.insightTiles[0].insight!.name).toEqual('donut')
+            expect(insight.short_id).toEqual('800')
+            const query = insight.query as InsightVizNode<TrendsQuery> | undefined
+            expect(query?.source?.dateRange?.date_from).toBeUndefined()
+            expect(query?.source?.interval).toEqual('day')
+            expect(insight.name).toEqual('donut')
             expect(logic.values.textTiles[0].text!.body).toEqual('I AM A TEXT')
         })
 
         it('can respond to external update of an insight on the dashboard', async () => {
             const copiedInsight = insight800()
+            const insightQuery = copiedInsight.query as InsightVizNode<TrendsQuery> | undefined
             dashboardsModel.actions.updateDashboardInsight({
                 ...copiedInsight,
-                filters: { ...copiedInsight.filters, date_from: '-1d', interval: 'hour' },
+                query: {
+                    ...insightQuery,
+                    source: {
+                        ...insightQuery?.source,
+                        dateRange: { ...insightQuery?.source?.dateRange, date_from: '-1d' },
+                        interval: 'hour',
+                    },
+                } as InsightVizNode<TrendsQuery>,
                 last_refresh: '2012-04-01T00:00:00Z',
             })
 
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.dashboard?.tiles).toHaveLength(2)
-            expect(logic.values.insightTiles[0].insight!.filters.date_from).toEqual('-1d')
-            expect(logic.values.insightTiles[0].insight!.filters.interval).toEqual('hour')
+            const query = logic.values.insightTiles[0].insight?.query as InsightVizNode<TrendsQuery> | undefined
+            expect(query?.source?.dateRange?.date_from).toEqual('-1d')
+            expect(query?.source?.interval).toEqual('hour')
             expect(logic.values.textTiles[0].text!.body).toEqual('I AM A TEXT')
         })
 
@@ -629,7 +631,7 @@ describe('dashboardLogic', () => {
             await expectLogic(logic, () => {
                 dashboardsModel.actions.updateDashboardInsight({
                     short_id: 'not_already_on_the_dashboard' as InsightShortId,
-                } as InsightModel)
+                } as QueryBasedInsightModel)
             })
                 .toFinishAllListeners()
                 .toDispatchActions(['loadDashboard'])
@@ -706,7 +708,7 @@ describe('dashboardLogic', () => {
             }))
         ).toEqual([{ dashboards: [9, 10], short_id: '800' }])
 
-        const changedInsight: InsightModel = { ...insight800(), dashboards: [10, 5] } // Moved from to 9 to 5
+        const changedInsight: QueryBasedInsightModel = { ...insight800(), dashboards: [10, 5] } // Moved from to 9 to 5
         dashboardsModel.actions.updateDashboardInsight(changedInsight, [9])
 
         expect(

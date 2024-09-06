@@ -4,7 +4,7 @@ from posthog.models import Organization, OrganizationMembership
 from sentry_sdk import capture_message
 
 
-@shared_task(ignore_result=True)
+@shared_task(ignore_result=True, rate_limit="4/s")
 def sync_to_billing(organization_id: str) -> None:
     organization = Organization.objects.get(id=organization_id)
 

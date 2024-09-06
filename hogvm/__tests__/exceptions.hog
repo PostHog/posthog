@@ -35,22 +35,22 @@ try {
 
 print('------------------')
 
-fn third() {
+fun third() {
   print('Throwing in third')
   throw Error('Threw in third')
 }
 
-fn second() {
+fun second() {
   print('second')
   third()
 }
 
-fn first() {
+fun first() {
   print('first')
   second()
 }
 
-fn base() {
+fun base() {
   print('base')
   try {
     first()

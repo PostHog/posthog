@@ -24,7 +24,8 @@ const TABS_TO_CONTENT: Record<SideBarTab, TabContent> = {
     [SideBarTab.Display]: {
         label: 'Display',
         content: <DisplayTab />,
-        shouldShow: (displayType: ChartDisplayType): boolean => displayType !== ChartDisplayType.ActionsTable,
+        shouldShow: (displayType: ChartDisplayType): boolean =>
+            displayType !== ChartDisplayType.ActionsTable && displayType !== ChartDisplayType.BoldNumber,
     },
 }
 

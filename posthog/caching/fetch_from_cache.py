@@ -20,6 +20,7 @@ class InsightResult:
     cache_key: Optional[str]
     is_cached: bool
     timezone: Optional[str]
+    has_more: Optional[bool] = None
     next_allowed_client_refresh: Optional[datetime] = None
     cache_target_age: Optional[datetime] = None
     timings: Optional[list[QueryTiming]] = None

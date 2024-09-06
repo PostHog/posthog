@@ -13,8 +13,8 @@ import type { sessionReplaySceneLogicType } from './sessionReplaySceneLogicType'
 
 export const humanFriendlyTabName = (tab: ReplayTabs): string => {
     switch (tab) {
-        case ReplayTabs.Recent:
-            return 'Recent recordings'
+        case ReplayTabs.Home:
+            return 'Recordings'
         case ReplayTabs.Playlists:
             return 'Playlists'
         default:
@@ -30,11 +30,11 @@ export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
         values: [featureFlagLogic, ['featureFlags']],
     }),
     actions({
-        setTab: (tab: ReplayTabs = ReplayTabs.Recent) => ({ tab }),
+        setTab: (tab: ReplayTabs = ReplayTabs.Home) => ({ tab }),
     }),
     reducers(() => ({
         tab: [
-            ReplayTabs.Recent as ReplayTabs,
+            ReplayTabs.Home as ReplayTabs,
             {
                 setTab: (_, { tab }) => tab,
             },
@@ -59,7 +59,7 @@ export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
             (s) => [s.tab],
             (tab): Breadcrumb[] => {
                 const breadcrumbs: Breadcrumb[] = []
-                if (tab !== ReplayTabs.Recent) {
+                if (tab !== ReplayTabs.Home) {
                     breadcrumbs.push({
                         key: Scene.Replay,
                         name: 'Replay',

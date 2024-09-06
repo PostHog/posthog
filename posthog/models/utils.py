@@ -139,22 +139,23 @@ def uuid7(unix_ms_time: Optional[Union[int, str]] = None, random: Optional[Union
 
 
 class CreatedMetaFields(models.Model):
-    created_by: models.ForeignKey = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
-    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         abstract = True
 
 
 class UpdatedMetaFields(models.Model):
-    updated_at: models.DateTimeField = models.DateTimeField(auto_now=True, null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True, null=True, blank=True)
 
     class Meta:
         abstract = True
 
 
 class DeletedMetaFields(models.Model):
-    deleted: models.BooleanField = models.BooleanField(null=True, blank=True)
+    deleted = models.BooleanField(null=True, blank=True, default=False)
+    deleted_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         abstract = True
@@ -163,19 +164,19 @@ class DeletedMetaFields(models.Model):
 class UUIDModel(models.Model):
     """Base Django Model with default autoincremented ID field replaced with UUIDT."""
 
+    id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
+
     class Meta:
         abstract = True
-
-    id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 
 
 class UUIDClassicModel(models.Model):
     """Base Django Model with default autoincremented ID field kept and a UUIDT field added."""
 
+    uuid = models.UUIDField(unique=True, default=UUIDT, editable=False)
+
     class Meta:
         abstract = True
-
-    uuid: models.UUIDField = models.UUIDField(unique=True, default=UUIDT, editable=False)
 
 
 def sane_repr(*attrs: str, include_id=True) -> Callable[[object], str]:

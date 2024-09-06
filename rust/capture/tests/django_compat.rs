@@ -5,7 +5,9 @@ use axum_test_helper::TestClient;
 use base64::engine::general_purpose;
 use base64::Engine;
 use capture::api::{CaptureError, CaptureResponse, CaptureResponseCode, DataType, ProcessedEvent};
-use capture::limiters::billing::BillingLimiter;
+use capture::config::CaptureMode;
+use capture::limiters::redis::QuotaResource;
+use capture::limiters::redis::RedisLimiter;
 use capture::redis::MockRedisClient;
 use capture::router::router;
 use capture::sinks::Event;
@@ -100,16 +102,24 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
         let timesource = FixedTime { time: case.now };
 
         let redis = Arc::new(MockRedisClient::new());
-        let billing = BillingLimiter::new(Duration::weeks(1), redis.clone(), None)
-            .expect("failed to create billing limiter");
+        let billing_limiter = RedisLimiter::new(
+            Duration::weeks(1),
+            redis.clone(),
+            None,
+            QuotaResource::Events,
+        )
+        .expect("failed to create billing limiter");
 
         let app = router(
             timesource,
             liveness.clone(),
             sink.clone(),
             redis,
-            billing,
+            billing_limiter,
             false,
+            CaptureMode::Events,
+            None,
+            25 * 1024 * 1024,
         );
 
         let client = TestClient::new(app);
@@ -134,7 +144,8 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
         );
         assert_eq!(
             Some(CaptureResponse {
-                status: CaptureResponseCode::Ok
+                status: CaptureResponseCode::Ok,
+                quota_limited: None,
             }),
             res.json().await
         );

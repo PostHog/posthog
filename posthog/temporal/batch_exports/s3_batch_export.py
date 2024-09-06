@@ -1,3 +1,4 @@
+import asyncio
 import contextlib
 import dataclasses
 import datetime as dt
@@ -130,12 +131,12 @@ class IntermittentUploadPartTimeoutError(Exception):
         super().__init__(f"An intermittent `RequestTimeout` was raised while attempting to upload part {part_number}")
 
 
+Part = dict[str, str | int]
+
+
 class S3MultiPartUploadState(typing.NamedTuple):
     upload_id: str
-    parts: list[dict[str, str | int]]
-
-
-Part = dict[str, str | int]
+    parts: list[Part]
 
 
 class S3MultiPartUpload:
@@ -274,7 +275,15 @@ class S3MultiPartUpload:
         self.upload_id = None
         self.parts = []
 
-    async def upload_part(self, body: BatchExportTemporaryFile, rewind: bool = True):
+    async def upload_part(
+        self,
+        body: BatchExportTemporaryFile,
+        rewind: bool = True,
+        max_attempts: int = 5,
+        initial_retry_delay: float | int = 2,
+        max_retry_delay: float | int = 32,
+        exponential_backoff_coefficient: int = 2,
+    ):
         """Upload a part of this multi-part upload."""
         next_part_number = self.part_number + 1
 
@@ -286,26 +295,64 @@ class S3MultiPartUpload:
         # So we tell mypy to be nice with us.
         reader = io.BufferedReader(body)  # type: ignore
 
+        try:
+            etag = await self.upload_part_retryable(
+                reader,
+                next_part_number,
+                max_attempts=max_attempts,
+                initial_retry_delay=initial_retry_delay,
+                max_retry_delay=max_retry_delay,
+                exponential_backoff_coefficient=exponential_backoff_coefficient,
+            )
+        except Exception:
+            raise
+
+        finally:
+            reader.detach()  # BufferedReader closes the file otherwise.
+
+        self.parts.append({"PartNumber": next_part_number, "ETag": etag})
+
+    async def upload_part_retryable(
+        self,
+        reader: io.BufferedReader,
+        next_part_number: int,
+        max_attempts: int = 5,
+        initial_retry_delay: float | int = 2,
+        max_retry_delay: float | int = 32,
+        exponential_backoff_coefficient: int = 2,
+    ) -> str:
+        """Attempt to upload a part for this multi-part upload retrying on transient errors."""
+        response: dict[str, str] | None = None
+        attempt = 0
+
         async with self.s3_client() as s3_client:
-            try:
-                response = await s3_client.upload_part(
-                    Bucket=self.bucket_name,
-                    Key=self.key,
-                    PartNumber=next_part_number,
-                    UploadId=self.upload_id,
-                    Body=reader,
-                )
-            except botocore.exceptions.ClientError as err:
-                error_code = err.response.get("Error", {}).get("Code", None)
+            while response is None:
+                try:
+                    response = await s3_client.upload_part(
+                        Bucket=self.bucket_name,
+                        Key=self.key,
+                        PartNumber=next_part_number,
+                        UploadId=self.upload_id,
+                        Body=reader,
+                    )
 
-                if error_code is not None and error_code == "RequestTimeout":
-                    raise IntermittentUploadPartTimeoutError(part_number=next_part_number) from err
-                else:
-                    raise
+                except botocore.exceptions.ClientError as err:
+                    error_code = err.response.get("Error", {}).get("Code", None)
+                    attempt += 1
 
-        reader.detach()  # BufferedReader closes the file otherwise.
+                    if error_code is not None and error_code == "RequestTimeout":
+                        if attempt >= max_attempts:
+                            raise IntermittentUploadPartTimeoutError(part_number=next_part_number) from err
 
-        self.parts.append({"PartNumber": next_part_number, "ETag": response["ETag"]})
+                        await asyncio.sleep(
+                            min(max_retry_delay, initial_retry_delay * (attempt**exponential_backoff_coefficient))
+                        )
+
+                        continue
+                    else:
+                        raise
+
+        return response["ETag"]
 
     async def __aenter__(self):
         """Asynchronous context manager protocol enter."""
@@ -394,20 +441,20 @@ async def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tupl
     except IndexError:
         # This is the error we expect when no details as the sequence will be empty.
         interval_start = inputs.data_interval_start
-        logger.debug(
-            "Did not receive details from previous activity Excecution. Export will start from the beginning %s",
+        await logger.adebug(
+            "Did not receive details from previous activity Execution. Export will start from the beginning %s",
             interval_start,
         )
     except Exception:
         # We still start from the beginning, but we make a point to log unexpected errors.
         # Ideally, any new exceptions should be added to the previous block after the first time and we will never land here.
         interval_start = inputs.data_interval_start
-        logger.warning(
-            "Did not receive details from previous activity Excecution due to an unexpected error. Export will start from the beginning %s",
+        await logger.awarning(
+            "Did not receive details from previous activity Execution due to an unexpected error. Export will start from the beginning %s",
             interval_start,
         )
     else:
-        logger.info(
+        await logger.ainfo(
             "Received details from previous activity. Export will attempt to resume from %s",
             interval_start,
         )
@@ -417,7 +464,7 @@ async def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tupl
             # Even if we receive details we cannot resume a brotli compressed upload as we have lost the compressor state.
             interval_start = inputs.data_interval_start
 
-            logger.info(
+            await logger.ainfo(
                 f"Export will start from the beginning as we are using brotli compression: %s",
                 interval_start,
             )
@@ -455,7 +502,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
     files.
     """
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="S3")
-    logger.info(
+    await logger.ainfo(
         "Batch exporting range %s - %s to S3: %s",
         inputs.data_interval_start,
         inputs.data_interval_end,
@@ -510,14 +557,14 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
                 error: Exception | None,
             ):
                 if error is not None:
-                    logger.debug("Error while writing part %d", s3_upload.part_number + 1, exc_info=error)
-                    logger.warn(
+                    await logger.adebug("Error while writing part %d", s3_upload.part_number + 1, exc_info=error)
+                    await logger.awarn(
                         "An error was detected while writing part %d. Partial part will not be uploaded in case it can be retried.",
                         s3_upload.part_number + 1,
                     )
                     return
 
-                logger.debug(
+                await logger.adebug(
                     "Uploading %s part %s containing %s records with size %s bytes",
                     "last " if last else "",
                     s3_upload.part_number + 1,
@@ -526,6 +573,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
                 )
 
                 await s3_upload.upload_part(local_results_file)
+
                 rows_exported.add(records_since_last_flush)
                 bytes_exported.add(bytes_since_last_flush)
 
@@ -585,7 +633,7 @@ def get_batch_export_writer(
         )
     elif inputs.file_format == "JSONLines":
         writer = JSONLBatchExportWriter(
-            max_bytes=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
+            max_bytes=max_bytes,
             flush_callable=flush_callable,
             compression=inputs.compression,
         )
@@ -677,6 +725,8 @@ class S3BatchExportWorkflow(PostHogWorkflow):
                 "ClientError",
                 # An S3 bucket doesn't exist.
                 "NoSuchBucket",
+                # Couldn't connect to custom S3 endpoint
+                "EndpointConnectionError",
             ],
             finish_inputs=finish_inputs,
         )

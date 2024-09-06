@@ -26,7 +26,6 @@ jobs:
     changes:
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        if: github.repository == 'PostHog/posthog'
         name: Determine need to run plugin server checks
         outputs:
             plugin-server: ${{ steps.filter.outputs.plugin-server }}

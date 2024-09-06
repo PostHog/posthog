@@ -52,6 +52,7 @@ from posthog.schema import (
     GenericCachedQueryResponse,
     QueryStatus,
     SessionAttributionExplorerQuery,
+    WebGoalsQuery,
 )
 from posthog.schema_helpers import to_dict, to_json
 from posthog.utils import generate_cache_key, get_from_dict_or_attr
@@ -136,6 +137,7 @@ RunnableQueryNode = Union[
     WebOverviewQuery,
     WebStatsTableQuery,
     WebTopClicksQuery,
+    WebGoalsQuery,
     SessionAttributionExplorerQuery,
 ]
 
@@ -310,6 +312,17 @@ def get_query_runner(
         from .web_analytics.stats_table import WebStatsTableQueryRunner
 
         return WebStatsTableQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "WebGoalsQuery":
+        from .web_analytics.web_goals import WebGoalsQueryRunner
+
+        return WebGoalsQueryRunner(
             query=query,
             team=team,
             timings=timings,
@@ -542,6 +555,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         tag_queries(cache_key=cache_key)
         tag_queries(sentry_trace=get_traceparent())
         set_tag("cache_key", cache_key)
+        set_tag("query_type", getattr(self.query, "kind", "Other"))
         if insight_id:
             tag_queries(insight_id=insight_id)
             set_tag("insight_id", str(insight_id))
@@ -596,10 +610,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 # This would be a possible place to decide to not ever keep this cache warm
                 # Example: Not for super quickly calculated insights
                 # Set target_age to None in that case
-                target_age=self.cache_target_age(
-                    last_refresh=last_refresh,
-                    lazy=True,  # Attention: Currently using extended/lazy cache age as warming target
-                ),
+                target_age=target_age,
             )
             QUERY_CACHE_WRITE_COUNTER.labels(team_id=self.team.pk).inc()
 

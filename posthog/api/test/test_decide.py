@@ -160,7 +160,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         assert response["sessionRecording"] == {
             "endpoint": "/s/",
             "recorderVersion": "v2",
-            "consoleLogRecordingEnabled": False,
+            "consoleLogRecordingEnabled": True,
             "sampleRate": None,
             "linkedFlag": None,
             "minimumDurationMilliseconds": None,
@@ -189,12 +189,12 @@ class TestDecide(BaseTest, QueryMatchingTest):
     def test_user_performance_opt_in(self, *args):
         # :TRICKY: Test for regression around caching
         response = self._post_decide().json()
-        self.assertEqual(response["capturePerformance"], False)
+        self.assertEqual(response["capturePerformance"], {"network_timing": True, "web_vitals": False})
 
-        self._update_team({"capture_performance_opt_in": True})
+        self._update_team({"capture_performance_opt_in": False})
 
         response = self._post_decide().json()
-        self.assertEqual(response["capturePerformance"], {"network_timing": True, "web_vitals": False})
+        self.assertEqual(response["capturePerformance"], False)
 
     def test_session_recording_sample_rate(self, *args):
         # :TRICKY: Test for regression around caching
@@ -376,14 +376,14 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
     def test_web_vitals_autocapture_opt_in(self, *args):
         response = self._post_decide().json()
-        self.assertEqual(response["capturePerformance"], False)
+        self.assertEqual(response["capturePerformance"], {"web_vitals": False, "network_timing": True})
 
         self._update_team({"autocapture_web_vitals_opt_in": True})
 
         response = self._post_decide().json()
         self.assertEqual(
             response["capturePerformance"],
-            {"web_vitals": True, "network_timing": False},
+            {"web_vitals": True, "network_timing": True},
         )
 
     def test_user_session_recording_opt_in_wildcard_domain(self, *args):
@@ -402,7 +402,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         assert response["sessionRecording"] == {
             "endpoint": "/s/",
             "recorderVersion": "v2",
-            "consoleLogRecordingEnabled": False,
+            "consoleLogRecordingEnabled": True,
             "sampleRate": None,
             "linkedFlag": None,
             "minimumDurationMilliseconds": None,
@@ -429,7 +429,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         assert response["sessionRecording"] == {
             "endpoint": "/s/",
             "recorderVersion": "v2",
-            "consoleLogRecordingEnabled": False,
+            "consoleLogRecordingEnabled": True,
             "sampleRate": None,
             "linkedFlag": None,
             "minimumDurationMilliseconds": None,
@@ -463,7 +463,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         assert response["sessionRecording"] == {
             "endpoint": "/s/",
             "recorderVersion": "v2",
-            "consoleLogRecordingEnabled": False,
+            "consoleLogRecordingEnabled": True,
             "sampleRate": None,
             "linkedFlag": None,
             "minimumDurationMilliseconds": None,
@@ -477,7 +477,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         assert response["sessionRecording"] == {
             "endpoint": "/s/",
             "recorderVersion": "v2",
-            "consoleLogRecordingEnabled": False,
+            "consoleLogRecordingEnabled": True,
             "sampleRate": None,
             "linkedFlag": None,
             "minimumDurationMilliseconds": None,
@@ -491,7 +491,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         assert response["sessionRecording"] == {
             "endpoint": "/s/",
             "recorderVersion": "v2",
-            "consoleLogRecordingEnabled": False,
+            "consoleLogRecordingEnabled": True,
             "sampleRate": None,
             "linkedFlag": None,
             "minimumDurationMilliseconds": None,
@@ -510,7 +510,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         assert response["sessionRecording"] == {
             "endpoint": "/s/",
             "recorderVersion": "v2",
-            "consoleLogRecordingEnabled": False,
+            "consoleLogRecordingEnabled": True,
             "sampleRate": None,
             "linkedFlag": None,
             "minimumDurationMilliseconds": None,
@@ -3153,6 +3153,48 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
             response = self._post_decide(api_version=3, data={"token": new_token, "distinct_id": "other id"})
             self.assertEqual(response.status_code, 429)
+
+    @patch("ee.billing.quota_limiting.list_limited_team_attributes")
+    def test_quota_limited_recordings_disabled(self, _fake_token_limiting, *args):
+        from ee.billing.quota_limiting import QuotaResource
+
+        with self.settings(DECIDE_SESSION_REPLAY_QUOTA_CHECK=True):
+
+            def fake_limiter(*args, **kwargs):
+                return [self.team.api_token] if args[0] == QuotaResource.RECORDINGS else []
+
+            _fake_token_limiting.side_effect = fake_limiter
+
+            self._update_team(
+                {
+                    "session_recording_opt_in": True,
+                }
+            )
+
+            response = self._post_decide().json()
+            assert response["sessionRecording"] is False
+            assert response["quotaLimited"] == ["recordings"]
+
+    @patch("ee.billing.quota_limiting.list_limited_team_attributes")
+    def test_quota_limited_recordings_other_token(self, _fake_token_limiting, *args):
+        from ee.billing.quota_limiting import QuotaResource
+
+        with self.settings(DECIDE_SESSION_REPLAY_QUOTA_CHECK=True):
+
+            def fake_limiter(*args, **kwargs):
+                return [self.team.api_token + "a"] if args[0] == QuotaResource.RECORDINGS else []
+
+            _fake_token_limiting.side_effect = fake_limiter
+
+            self._update_team(
+                {
+                    "session_recording_opt_in": True,
+                }
+            )
+
+            response = self._post_decide().json()
+            assert response["sessionRecording"] is not False
+            assert not response.get("quotaLimited")
 
     @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_decide_analytics_only_fires_when_enabled(self, *args):

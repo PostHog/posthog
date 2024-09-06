@@ -8,7 +8,7 @@ import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/t
 import { sessionRecordingDataLogic } from '../player/sessionRecordingDataLogic'
 import {
     convertLegacyFiltersToUniversalFilters,
-    convertUniversalFiltersToLegacyFilters,
+    convertUniversalFiltersToRecordingsQuery,
     DEFAULT_RECORDING_FILTERS,
     sessionRecordingsPlaylistLogic,
 } from './sessionRecordingsPlaylistLogic'
@@ -67,7 +67,10 @@ describe('sessionRecordingsPlaylistLogic', () => {
                                 results: ['Recordings filtered by date'],
                             },
                         ]
-                    } else if (JSON.parse(searchParams.get('session_recording_duration') ?? '{}')['value'] === 600) {
+                    } else if (
+                        (searchParams.get('having_predicates')?.length || 0) > 0 &&
+                        JSON.parse(searchParams.get('having_predicates') || '[]')[0]['value'] === 600
+                    ) {
                         return [
                             200,
                             {
@@ -611,8 +614,8 @@ describe('sessionRecordingsPlaylistLogic', () => {
                                 type: FilterLogicalOperator.And,
                                 values: [
                                     {
-                                        type: PropertyFilterType.Recording,
-                                        key: 'console_log_level',
+                                        type: PropertyFilterType.LogEntry,
+                                        key: 'level',
                                         operator: PropertyOperator.IContains,
                                         value: ['warn', 'error'],
                                     },
@@ -634,8 +637,8 @@ describe('sessionRecordingsPlaylistLogic', () => {
                                 type: FilterLogicalOperator.And,
                                 values: [
                                     {
-                                        type: PropertyFilterType.Recording,
-                                        key: 'console_log_query',
+                                        type: PropertyFilterType.LogEntry,
+                                        key: 'message',
                                         operator: PropertyOperator.Exact,
                                         value: 'this is a test',
                                     },
@@ -668,8 +671,8 @@ describe('sessionRecordingsPlaylistLogic', () => {
                                 type: FilterLogicalOperator.And,
                                 values: [
                                     {
-                                        type: PropertyFilterType.Recording,
-                                        key: 'console_log_level',
+                                        type: PropertyFilterType.LogEntry,
+                                        key: 'level',
                                         operator: PropertyOperator.IContains,
                                         value: ['warn', 'error'],
                                     },
@@ -707,9 +710,9 @@ describe('sessionRecordingsPlaylistLogic', () => {
         })
     })
 
-    describe('convertUniversalFiltersToLegacyFilters', () => {
+    describe('convertUniversalFiltersToRecordingsQuery', () => {
         it('expands the visited_page filter to a pageview with $current_url property', () => {
-            const result = convertUniversalFiltersToLegacyFilters({
+            const result = convertUniversalFiltersToRecordingsQuery({
                 ...DEFAULT_RECORDING_FILTERS,
                 filter_group: {
                     type: FilterLogicalOperator.And,
@@ -808,15 +811,15 @@ describe('sessionRecordingsPlaylistLogic', () => {
                                 { key: 'email', value: ['email@posthog.com'], operator: 'exact', type: 'person' },
                                 { key: 'email', value: ['test@posthog.com'], operator: 'exact', type: 'person' },
                                 {
-                                    key: 'console_log_level',
+                                    key: 'level',
                                     operator: 'exact',
-                                    type: 'recording',
+                                    type: 'log_entry',
                                     value: ['info', 'warn'],
                                 },
                                 {
-                                    key: 'console_log_query',
+                                    key: 'message',
                                     operator: 'exact',
-                                    type: 'recording',
+                                    type: 'log_entry',
                                     value: ['this is a query log'],
                                 },
                             ],

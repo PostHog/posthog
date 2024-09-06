@@ -21,6 +21,7 @@ import {
 
 import { OnboardingStepKey } from './onboarding/onboardingLogic'
 import { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
+import { SurveysTabs } from './surveys/surveysLogic'
 
 /**
  * To add a new URL to the front end:
@@ -97,8 +98,11 @@ export const urls = {
     savedInsights: (tab?: string): string => `/insights${tab ? `?tab=${tab}` : ''}`,
     webAnalytics: (): string => `/web`,
 
-    replay: (tab?: ReplayTabs, filters?: Partial<RecordingUniversalFilters>): string =>
-        combineUrl(tab ? `/replay/${tab}` : '/replay/recent', filters ? { filters } : {}).url,
+    replay: (tab?: ReplayTabs, filters?: Partial<RecordingUniversalFilters>, sessionRecordingId?: string): string =>
+        combineUrl(tab ? `/replay/${tab}` : '/replay/home', {
+            ...(filters ? { filters } : {}),
+            ...(sessionRecordingId ? { sessionRecordingId } : {}),
+        }).url,
     replayPlaylist: (id: string): string => `/replay/playlists/${id}`,
     replaySingle: (id: string): string => `/replay/${id}`,
     replayFilePlayback: (): string => '/replay/file-playback',
@@ -118,7 +122,9 @@ export const urls = {
         id: string | number,
         nodeTab?: PipelineNodeTab | ':nodeTab'
     ): string =>
-        `/pipeline/${!stage.startsWith(':') ? `${stage}s` : stage}/${id}/${nodeTab ?? PipelineNodeTab.Configuration}`,
+        `/pipeline/${!stage.startsWith(':') && !stage?.endsWith('s') ? `${stage}s` : stage}/${id}${
+            nodeTab ? `/${nodeTab}` : ''
+        }`,
     groups: (groupTypeIndex: string | number): string => `/groups/${groupTypeIndex}`,
     // :TRICKY: Note that groupKey is provided by user. We need to override urlPatternOptions for kea-router.
     group: (groupTypeIndex: string | number, groupKey: string, encode: boolean = true, tab?: string | null): string =>
@@ -135,7 +141,7 @@ export const urls = {
     errorTracking: (): string => '/error_tracking',
     errorTrackingGroup: (fingerprint: string): string =>
         `/error_tracking/${fingerprint === ':fingerprint' ? fingerprint : encodeURIComponent(fingerprint)}`,
-    surveys: (): string => '/surveys',
+    surveys: (tab?: SurveysTabs): string => `/surveys${tab ? `?tab=${tab}` : ''}`,
     /** @param id A UUID or 'new'. ':id' for routing. */
     survey: (id: string): string => `/surveys/${id}`,
     surveyTemplates: (): string => '/survey_templates',
@@ -150,6 +156,7 @@ export const urls = {
     organizationCreateFirst: (): string => '/create-organization',
     projectCreateFirst: (): string => '/organization/create-project',
     projectHomepage: (): string => '/',
+    max: (): string => '/max',
     settings: (section: SettingSectionId | SettingLevelId = 'project', setting?: SettingId): string =>
         combineUrl(`/settings/${section}`, undefined, setting).url,
     organizationCreationConfirm: (): string => '/organization/confirm-creation',

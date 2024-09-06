@@ -37,6 +37,7 @@ from posthog.schema import (
     SessionPropertyFilter,
     CohortPropertyFilter,
     RecordingPropertyFilter,
+    LogEntryPropertyFilter,
     GroupPropertyFilter,
     FeaturePropertyFilter,
     HogQLPropertyFilter,
@@ -78,7 +79,7 @@ class AggregationFinder(TraversingVisitor):
                 self.visit(arg)
 
 
-def _handle_bool_values(value: ValueT, field: ast.Field, property: Property, team: Team) -> ValueT | bool:
+def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team: Team) -> ValueT | bool:
     if value != "true" and value != "false":
         return value
     if property.type == "person":
@@ -95,7 +96,10 @@ def _handle_bool_values(value: ValueT, field: ast.Field, property: Property, tea
             group_type_index=property.group_type_index,
         )
     elif property.type == "data_warehouse_person_property":
-        key = field.chain[-2]
+        if not isinstance(expr, ast.Field):
+            raise Exception(f"Requires a Field expression")
+
+        key = expr.chain[-2]
 
         # TODO: pass id of table item being filtered on instead of searching through joins
         current_join: DataWarehouseJoin | None = (
@@ -156,54 +160,57 @@ def _handle_bool_values(value: ValueT, field: ast.Field, property: Property, tea
     return value
 
 
-def _field_to_compare_op(
-    field: ast.Field, value: ValueT, operator: PropertyOperator, property: Property, is_json_field: bool, team: Team
+def _expr_to_compare_op(
+    expr: ast.Expr, value: ValueT, operator: PropertyOperator, property: Property, is_json_field: bool, team: Team
 ) -> ast.Expr:
     if operator == PropertyOperator.IS_SET:
         return ast.CompareOperation(
             op=ast.CompareOperationOp.NotEq,
-            left=field,
+            left=expr,
             right=ast.Constant(value=None),
         )
     elif operator == PropertyOperator.IS_NOT_SET:
-        return ast.Or(
-            exprs=[
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq,
-                    left=field,
-                    right=ast.Constant(value=None),
-                )
-            ]
-            + (
-                [
-                    ast.Not(
-                        expr=ast.Call(
-                            name="JSONHas",
-                            args=[ast.Field(chain=field.chain[:-1]), ast.Constant(value=property.key)],
-                        )
-                    )
-                ]
-                if is_json_field
-                else []
+        exprs: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=expr,
+                right=ast.Constant(value=None),
             )
-        )
+        ]
+
+        if is_json_field:
+            if not isinstance(expr, ast.Field):
+                raise Exception(f"Requires a Field expression")
+
+            field = ast.Field(chain=expr.chain[:-1])
+
+            exprs.append(
+                ast.Not(
+                    expr=ast.Call(
+                        name="JSONHas",
+                        args=[field, ast.Constant(value=property.key)],
+                    )
+                )
+            )
+
+        return ast.Or(exprs=exprs)
     elif operator == PropertyOperator.ICONTAINS:
         return ast.CompareOperation(
             op=ast.CompareOperationOp.ILike,
-            left=field,
+            left=expr,
             right=ast.Constant(value=f"%{value}%"),
         )
     elif operator == PropertyOperator.NOT_ICONTAINS:
         return ast.CompareOperation(
             op=ast.CompareOperationOp.NotILike,
-            left=field,
+            left=expr,
             right=ast.Constant(value=f"%{value}%"),
         )
     elif operator == PropertyOperator.REGEX:
         return ast.Call(
             name="ifNull",
             args=[
-                ast.Call(name="match", args=[ast.Call(name="toString", args=[field]), ast.Constant(value=value)]),
+                ast.Call(name="match", args=[ast.Call(name="toString", args=[expr]), ast.Constant(value=value)]),
                 ast.Constant(value=0),
             ],
         )
@@ -214,9 +221,7 @@ def _field_to_compare_op(
                 ast.Call(
                     name="not",
                     args=[
-                        ast.Call(
-                            name="match", args=[ast.Call(name="toString", args=[field]), ast.Constant(value=value)]
-                        )
+                        ast.Call(name="match", args=[ast.Call(name="toString", args=[expr]), ast.Constant(value=value)])
                     ],
                 ),
                 ast.Constant(value=1),
@@ -225,49 +230,52 @@ def _field_to_compare_op(
     elif operator == PropertyOperator.EXACT or operator == PropertyOperator.IS_DATE_EXACT:
         return ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
-            left=field,
-            right=ast.Constant(value=_handle_bool_values(value, field, property, team)),
+            left=expr,
+            right=ast.Constant(value=_handle_bool_values(value, expr, property, team)),
         )
     elif operator == PropertyOperator.IS_NOT:
         return ast.CompareOperation(
             op=ast.CompareOperationOp.NotEq,
-            left=field,
-            right=ast.Constant(value=_handle_bool_values(value, field, property, team)),
+            left=expr,
+            right=ast.Constant(value=_handle_bool_values(value, expr, property, team)),
         )
     elif operator == PropertyOperator.LT or operator == PropertyOperator.IS_DATE_BEFORE:
-        return ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=field, right=ast.Constant(value=value))
+        return ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=expr, right=ast.Constant(value=value))
     elif operator == PropertyOperator.GT or operator == PropertyOperator.IS_DATE_AFTER:
-        return ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=field, right=ast.Constant(value=value))
+        return ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=expr, right=ast.Constant(value=value))
     elif operator == PropertyOperator.LTE:
-        return ast.CompareOperation(op=ast.CompareOperationOp.LtEq, left=field, right=ast.Constant(value=value))
+        return ast.CompareOperation(op=ast.CompareOperationOp.LtEq, left=expr, right=ast.Constant(value=value))
     elif operator == PropertyOperator.GTE:
-        return ast.CompareOperation(op=ast.CompareOperationOp.GtEq, left=field, right=ast.Constant(value=value))
+        return ast.CompareOperation(op=ast.CompareOperationOp.GtEq, left=expr, right=ast.Constant(value=value))
     else:
         raise NotImplementedError(f"PropertyOperator {operator} not implemented")
 
 
 def property_to_expr(
-    property: list
-    | dict
-    | PropertyGroup
-    | PropertyGroupFilter
-    | PropertyGroupFilterValue
-    | Property
-    | ast.Expr
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | ElementPropertyFilter
-    | SessionPropertyFilter
-    | CohortPropertyFilter
-    | RecordingPropertyFilter
-    | GroupPropertyFilter
-    | FeaturePropertyFilter
-    | HogQLPropertyFilter
-    | EmptyPropertyFilter
-    | DataWarehousePropertyFilter
-    | DataWarehousePersonPropertyFilter,
+    property: (
+        list
+        | dict
+        | PropertyGroup
+        | PropertyGroupFilter
+        | PropertyGroupFilterValue
+        | Property
+        | ast.Expr
+        | EventPropertyFilter
+        | PersonPropertyFilter
+        | ElementPropertyFilter
+        | SessionPropertyFilter
+        | CohortPropertyFilter
+        | RecordingPropertyFilter
+        | LogEntryPropertyFilter
+        | GroupPropertyFilter
+        | FeaturePropertyFilter
+        | HogQLPropertyFilter
+        | EmptyPropertyFilter
+        | DataWarehousePropertyFilter
+        | DataWarehousePersonPropertyFilter
+    ),
     team: Team,
-    scope: Literal["event", "person", "session", "replay", "replay_entity", "replay_pdi"] = "event",
+    scope: Literal["event", "person", "session", "replay", "replay_entity"] = "event",
 ) -> ast.Expr:
     if isinstance(property, dict):
         try:
@@ -337,6 +345,8 @@ def property_to_expr(
         or property.type == "data_warehouse"
         or property.type == "data_warehouse_person_property"
         or property.type == "session"
+        or property.type == "recording"
+        or property.type == "log_entry"
     ):
         if (scope == "person" and property.type != "person") or (scope == "session" and property.type != "session"):
             raise QueryError(f"The '{property.type}' property filter does not work in '{scope}' scope")
@@ -358,7 +368,7 @@ def property_to_expr(
                 raise QueryError("Data warehouse person property filter value must be a string")
         elif property.type == "group":
             chain = [f"group_{property.group_type_index}", "properties"]
-        elif property.type == "data_warehouse":
+        elif property.type in ["recording", "data_warehouse", "log_entry"]:
             chain = []
         elif property.type == "session" and scope in ["event", "replay"]:
             chain = ["session"]
@@ -368,6 +378,10 @@ def property_to_expr(
             chain = ["properties"]
 
         field = ast.Field(chain=[*chain, property.key])
+        expr: ast.Expr = field
+
+        if property.type == "recording" and property.key == "snapshot_source":
+            expr = ast.Call(name="argMinMerge", args=[field])
 
         if isinstance(value, list):
             if len(value) == 0:
@@ -398,8 +412,8 @@ def property_to_expr(
                     return ast.And(exprs=exprs)
                 return ast.Or(exprs=exprs)
 
-        return _field_to_compare_op(
-            field=field,
+        return _expr_to_compare_op(
+            expr=expr,
             value=value,
             operator=operator,
             team=team,
@@ -449,8 +463,8 @@ def property_to_expr(
             return expr
 
         if property.key == "href":
-            return _field_to_compare_op(
-                field=ast.Field(chain=["elements_chain_href"]),
+            return _expr_to_compare_op(
+                expr=ast.Field(chain=["elements_chain_href"]),
                 value=value,
                 operator=operator,
                 team=team,
@@ -462,8 +476,8 @@ def property_to_expr(
             return parse_expr(
                 "arrayExists(text -> {compare}, elements_chain_texts)",
                 {
-                    "compare": _field_to_compare_op(
-                        field=ast.Field(chain=["text"]),
+                    "compare": _expr_to_compare_op(
+                        expr=ast.Field(chain=["text"]),
                         value=value,
                         operator=operator,
                         team=team,
@@ -536,23 +550,26 @@ def action_to_expr(action: Action) -> ast.Expr:
             if step.text is not None:
                 value = step.text
                 if step.text_matching == "regex":
-                    match = ast.CompareOperationOp.Regex
-                elif step.text_matching == "contains":
-                    match = ast.CompareOperationOp.ILike
-                    value = f"%{value}%"
-                else:
-                    match = ast.CompareOperationOp.Eq
-
-                exprs.append(
-                    parse_expr(
-                        "arrayExists(x -> {match}, elements_chain_texts)",
-                        {
-                            "match": ast.CompareOperation(
-                                op=match, left=ast.Field(chain=["x"]), right=ast.Constant(value=value)
-                            )
-                        },
+                    exprs.append(
+                        parse_expr(
+                            "arrayExists(x -> x =~ {value}, elements_chain_texts)",
+                            {"value": ast.Constant(value=value)},
+                        )
                     )
-                )
+                elif step.text_matching == "contains":
+                    exprs.append(
+                        parse_expr(
+                            "arrayExists(x -> x ilike {value}, elements_chain_texts)",
+                            {"value": ast.Constant(value=f"%{value}%")},
+                        )
+                    )
+                else:
+                    exprs.append(
+                        parse_expr(
+                            "arrayExists(x -> x = {value}, elements_chain_texts)",
+                            {"value": ast.Constant(value=value)},
+                        )
+                    )
         if step.url:
             if step.url_matching == "exact":
                 expr = parse_expr(

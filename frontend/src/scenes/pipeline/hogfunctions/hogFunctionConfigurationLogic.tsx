@@ -24,19 +24,19 @@ import {
     BaseMathType,
     ChartDisplayType,
     FilterLogicalOperator,
-    FilterType,
     HogFunctionConfigurationType,
     HogFunctionInputType,
     HogFunctionInvocationGlobals,
+    HogFunctionSubTemplateIdType,
+    HogFunctionSubTemplateType,
     HogFunctionTemplateType,
     HogFunctionType,
     PipelineNodeTab,
     PipelineStage,
     PipelineTab,
-    PluginConfigFilters,
-    PluginConfigTypeNew,
     PropertyFilterType,
     PropertyGroupFilter,
+    PropertyGroupFilterValue,
 } from '~/types'
 
 import { EmailTemplate } from './email-templater/emailTemplaterLogic'
@@ -44,6 +44,7 @@ import type { hogFunctionConfigurationLogicType } from './hogFunctionConfigurati
 
 export interface HogFunctionConfigurationLogicProps {
     templateId?: string
+    subTemplateId?: string
     id?: string
 }
 
@@ -56,39 +57,6 @@ const NEW_FUNCTION_TEMPLATE: HogFunctionTemplateType = {
     inputs_schema: [],
     hog: "print('Hello, world!');",
     status: 'stable',
-}
-
-function sanitizeFilters(filters?: FilterType): PluginConfigTypeNew['filters'] {
-    if (!filters) {
-        return null
-    }
-    const sanitized: PluginConfigFilters = {}
-
-    if (filters.events) {
-        sanitized.events = filters.events.map((f) => ({
-            id: f.id,
-            type: 'events',
-            name: f.name,
-            order: f.order,
-            properties: f.properties,
-        }))
-    }
-
-    if (filters.actions) {
-        sanitized.actions = filters.actions.map((f) => ({
-            id: f.id,
-            type: 'actions',
-            name: f.name,
-            order: f.order,
-            properties: f.properties,
-        }))
-    }
-
-    if (filters.filter_test_accounts) {
-        sanitized.filter_test_accounts = filters.filter_test_accounts
-    }
-
-    return Object.keys(sanitized).length > 0 ? sanitized : undefined
 }
 
 export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFunctionConfigurationType {
@@ -123,12 +91,39 @@ export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFu
 
     const payload: HogFunctionConfigurationType = {
         ...data,
-        filters: data.filters ? sanitizeFilters(data.filters) : null,
+        filters: data.filters,
         inputs: sanitizedInputs,
-        icon_url: data.icon_url?.replace('&temp=true', ''), // Remove temp=true so it doesn't try and suggest new options next time
+        masking: data.masking?.hash ? data.masking : null,
+        icon_url: data.icon_url,
     }
 
     return payload
+}
+
+const templateToConfiguration = (
+    template: HogFunctionTemplateType,
+    subTemplate?: HogFunctionSubTemplateType | null
+): HogFunctionConfigurationType => {
+    const inputs: Record<string, HogFunctionInputType> = {}
+
+    template.inputs_schema?.forEach((schema) => {
+        if (typeof subTemplate?.inputs?.[schema.key] !== 'undefined') {
+            inputs[schema.key] = { value: subTemplate.inputs[schema.key] }
+        } else if (schema.default) {
+            inputs[schema.key] = { value: schema.default }
+        }
+    })
+
+    return {
+        name: subTemplate?.name ?? template.name,
+        description: subTemplate?.name ?? template.description,
+        inputs_schema: template.inputs_schema,
+        filters: subTemplate?.filters ?? template.filters,
+        hog: template.hog,
+        icon_url: template.icon_url,
+        inputs,
+        enabled: false,
+    }
 }
 
 export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicType>([
@@ -142,13 +137,14 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
     path((id) => ['scenes', 'pipeline', 'hogFunctionConfigurationLogic', id]),
     actions({
         setShowSource: (showSource: boolean) => ({ showSource }),
-        resetForm: (configuration?: HogFunctionConfigurationType) => ({ configuration }),
+        resetForm: true,
         upsertHogFunction: (configuration: HogFunctionConfigurationType) => ({ configuration }),
         duplicate: true,
         duplicateFromTemplate: true,
-        resetToTemplate: (keepInputs = true) => ({ keepInputs }),
+        resetToTemplate: true,
         deleteHogFunction: true,
         sparklineQueryChanged: (sparklineQuery: TrendsQuery) => ({ sparklineQuery } as { sparklineQuery: TrendsQuery }),
+        setSubTemplateId: (subTemplateId: HogFunctionSubTemplateIdType | null) => ({ subTemplateId }),
     }),
     reducers({
         showSource: [
@@ -162,6 +158,12 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             false,
             {
                 upsertHogFunctionFailure: () => true,
+            },
+        ],
+        subTemplateId: [
+            null as HogFunctionSubTemplateIdType | null,
+            {
+                setSubTemplateId: (_, { subTemplateId }) => subTemplateId,
             },
         ],
     }),
@@ -306,27 +308,12 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
         defaultFormState: [
-            (s) => [s.template, s.hogFunction],
-            (template, hogFunction): HogFunctionConfigurationType => {
+            (s) => [s.template, s.hogFunction, s.subTemplate],
+            (template, hogFunction, subTemplate): HogFunctionConfigurationType | null => {
                 if (template) {
-                    // Fill defaults from template
-                    const inputs: Record<string, HogFunctionInputType> = {}
-
-                    template.inputs_schema?.forEach((schema) => {
-                        if (schema.default) {
-                            inputs[schema.key] = { value: schema.default }
-                        }
-                    })
-
-                    return {
-                        ...template,
-                        inputs,
-                        enabled: false,
-                    }
-                } else if (hogFunction) {
-                    return hogFunction
+                    return templateToConfiguration(template, subTemplate)
                 }
-                return {} as HogFunctionConfigurationType
+                return hogFunction ?? null
             },
         ],
 
@@ -462,9 +449,13 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         sparklineQuery: [
             (s) => [s.configuration],
             (configuration): TrendsQuery => {
-                const properties: PropertyGroupFilter = {
+                const seriesProperties: PropertyGroupFilterValue = {
                     type: FilterLogicalOperator.Or,
                     values: [],
+                }
+                const properties: PropertyGroupFilter = {
+                    type: FilterLogicalOperator.And,
+                    values: [seriesProperties],
                 }
                 for (const event of configuration.filters?.events ?? []) {
                     const eventProperties: AnyPropertyFilter[] = [...(event.properties ?? [])]
@@ -480,7 +471,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                             key: 'true',
                         })
                     }
-                    properties.values.push({
+                    seriesProperties.values.push({
                         type: FilterLogicalOperator.And,
                         values: eventProperties,
                     })
@@ -493,10 +484,20 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                             key: hogql`matchesAction(${parseInt(action.id)})`,
                         })
                     }
-                    properties.values.push({
+                    seriesProperties.values.push({
                         type: FilterLogicalOperator.And,
                         values: actionProperties,
                     })
+                }
+                if ((configuration.filters?.properties?.length ?? 0) > 0) {
+                    const globalProperties: PropertyGroupFilterValue = {
+                        type: FilterLogicalOperator.And,
+                        values: [],
+                    }
+                    for (const property of configuration.filters?.properties ?? []) {
+                        globalProperties.values.push(property as AnyPropertyFilter)
+                    }
+                    properties.values.push(globalProperties)
                 }
 
                 return {
@@ -522,6 +523,27 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
             { resultEqualityCheck: equal },
         ],
+
+        templateHasChanged: [
+            (s) => [s.hogFunction, s.configuration],
+            (hogFunction, configuration) => {
+                return hogFunction?.template?.hog && hogFunction.template.hog !== configuration.hog
+            },
+        ],
+
+        subTemplate: [
+            (s) => [s.template, s.subTemplateId],
+            (template, subTemplateId) => {
+                if (!template || !subTemplateId) {
+                    return null
+                }
+
+                const subTemplate = template.sub_templates?.find((st) => st.id === subTemplateId)
+                return subTemplate
+            },
+        ],
+
+        forcedSubTemplateId: [() => [router.selectors.searchParams], ({ sub_template }) => !!sub_template],
     })),
 
     listeners(({ actions, values, cache }) => ({
@@ -554,17 +576,25 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         },
 
         resetForm: () => {
-            const config = {
-                ...values.defaultFormState,
-                ...(cache.configFromUrl || {}),
+            const baseConfig = values.defaultFormState
+            if (!baseConfig) {
+                return
+            }
+
+            const config: HogFunctionConfigurationType = {
+                ...baseConfig,
+                ...(cache.configFromUrl ?? {}),
             }
 
             const paramsFromUrl = cache.paramsFromUrl ?? {}
             if (paramsFromUrl.integration_target && paramsFromUrl.integration_id) {
+                config.inputs = config.inputs ?? {}
                 config.inputs[paramsFromUrl.integration_target] = {
                     value: paramsFromUrl.integration_id,
                 }
             }
+
+            // TODO: Pull out sub template info
 
             actions.resetConfiguration(config)
         },
@@ -599,27 +629,27 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 )
             }
         },
-        resetToTemplate: async ({ keepInputs }) => {
-            if (values.hogFunction?.template) {
-                const template = values.hogFunction.template
-                // Fill defaults from template
-                const inputs: Record<string, HogFunctionInputType> = {}
+        resetToTemplate: async () => {
+            const template = values.hogFunction?.template ?? values.template
+            if (template) {
+                const config = templateToConfiguration(template, values.subTemplate)
 
-                template.inputs_schema?.forEach((schema) => {
-                    inputs[schema.key] = (keepInputs ? values.configuration.inputs?.[schema.key] : undefined) ?? {
-                        value: schema.default,
-                    }
+                const inputs = config.inputs ?? {}
+
+                // Keep any non-default values
+                Object.entries(values.configuration.inputs ?? {}).forEach(([key, value]) => {
+                    inputs[key] = inputs[key] ?? value
                 })
 
                 actions.setConfigurationValues({
-                    ...values.hogFunction.template,
-                    filters: values.configuration.filters ?? template.filters,
-                    // Keep some existing things
+                    ...config,
+                    filters: config.filters ?? values.configuration.filters,
+                    // Keep some existing things when manually resetting the template
                     name: values.configuration.name,
                     description: values.configuration.description,
-                    inputs,
-                    enabled: false,
                 })
+
+                lemonToast.success('Template updates applied but not saved.')
             }
         },
         setConfigurationValue: () => {
@@ -651,6 +681,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
 
             router.actions.replace(urls.pipeline(PipelineTab.Destinations))
         },
+
+        setSubTemplateId: () => {
+            actions.resetToTemplate()
+        },
     })),
     afterMount(({ props, actions, cache }) => {
         cache.paramsFromUrl = {
@@ -660,14 +694,20 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
 
         if (props.templateId) {
             cache.configFromUrl = router.values.hashParams.configuration
+            if (router.values.searchParams.sub_template) {
+                actions.setSubTemplateId(router.values.searchParams.sub_template)
+            }
             actions.loadTemplate() // comes with plugin info
         } else if (props.id) {
             actions.loadHogFunction()
         }
 
         if (router.values.searchParams.integration_target) {
+            const searchParams = router.values.searchParams
+            delete searchParams.integration_id
+            delete searchParams.integration_target
             // Clear query params so we don't keep trying to set the integration
-            router.actions.replace(router.values.location.pathname, undefined, router.values.hashParams)
+            router.actions.replace(router.values.location.pathname, searchParams, router.values.hashParams)
         }
     }),
 
@@ -680,7 +720,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             if (props.templateId) {
                 // Sync state to the URL bar if new
                 cache.ignoreUrlChange = true
-                router.actions.replace(router.values.location.pathname, undefined, {
+                router.actions.replace(router.values.location.pathname, router.values.searchParams, {
                     configuration,
                 })
             }

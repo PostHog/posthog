@@ -7,10 +7,12 @@ import { router } from 'kea-router'
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useState } from 'react'
+import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -21,6 +23,7 @@ import {
     EarlyAccessFeatureTabs,
     EarlyAccessFeatureType,
     FilterLogicalOperator,
+    HogFunctionFiltersType,
     PersonPropertyFilter,
     PropertyFilterType,
     PropertyOperator,
@@ -58,6 +61,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
     } = useActions(earlyAccessFeatureLogic)
 
     const isNewEarlyAccessFeature = id === 'new' || id === undefined
+    const showLinkedHogFunctions = useFeatureFlag('HOG_FUNCTIONS_LINKED')
 
     if (earlyAccessFeatureMissing) {
         return <NotFound object="early access feature" />
@@ -66,6 +70,26 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
     if (earlyAccessFeatureLoading) {
         return <LemonSkeleton active />
     }
+
+    const destinationFilters: HogFunctionFiltersType | null =
+        !isEditingFeature && !isNewEarlyAccessFeature && 'id' in earlyAccessFeature && showLinkedHogFunctions
+            ? {
+                  events: [
+                      {
+                          id: '$feature_enrollment_update',
+                          type: 'events',
+                          properties: [
+                              {
+                                  key: '$feature_flag',
+                                  value: [earlyAccessFeature.feature_flag.key],
+                                  operator: PropertyOperator.Exact,
+                                  type: PropertyFilterType.Event,
+                              },
+                          ],
+                      },
+                  ],
+              }
+            : null
 
     return (
         <Form id="early-access-feature" formKey="earlyAccessFeature" logic={earlyAccessFeatureLogic}>
@@ -301,6 +325,17 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                         </div>
                     </div>
                 </div>
+                {destinationFilters && (
+                    <>
+                        <LemonDivider className="my-8" />
+                        <h3>Notifications</h3>
+                        <p>Get notified when people opt in or out of your feature.</p>
+                        <LinkedHogFunctions
+                            filters={destinationFilters}
+                            subTemplateId="early_access_feature_enrollment"
+                        />
+                    </>
+                )}
                 {!isEditingFeature && !isNewEarlyAccessFeature && 'id' in earlyAccessFeature && (
                     <>
                         <LemonDivider className="my-8" />
@@ -445,7 +480,7 @@ function PersonsTableByFilter({ recordingsFilters, properties }: PersonsTableByF
     const [query, setQuery] = useState<Node | QuerySchema>({
         kind: NodeKind.DataTableNode,
         source: {
-            kind: NodeKind.PersonsNode,
+            kind: NodeKind.ActorsQuery,
             fixedProperties: properties,
         },
         full: true,
@@ -458,7 +493,7 @@ function PersonsTableByFilter({ recordingsFilters, properties }: PersonsTableByF
             <div className="absolute top-0 right-0 z-10">
                 <LemonButton
                     key="view-opt-in-session-recordings"
-                    to={urls.replay(ReplayTabs.Recent, recordingsFilters)}
+                    to={urls.replay(ReplayTabs.Home, recordingsFilters)}
                     type="secondary"
                 >
                     View recordings

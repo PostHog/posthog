@@ -11,13 +11,18 @@ import asyncio
 from posthog.settings.base_variables import TEST
 from structlog.typing import FilteringBoundLogger
 from dlt.common.libs.deltalake import get_delta_tables
+from dlt.common.normalizers.naming.snake_case import NamingConvention
 from dlt.load.exceptions import LoadClientJobRetry
 from dlt.sources import DltSource
 from deltalake.exceptions import DeltaError
 from collections import Counter
 
 from posthog.warehouse.data_load.validate_schema import validate_schema_and_update_table
+from posthog.warehouse.models.external_data_job import ExternalDataJob, get_external_data_job
+from posthog.warehouse.models.external_data_schema import ExternalDataSchema, aget_schema_by_id
 from posthog.warehouse.models.external_data_source import ExternalDataSource
+from posthog.warehouse.models.table import DataWarehouseTable
+from posthog.warehouse.s3 import get_s3_client
 
 
 @dataclass
@@ -43,19 +48,22 @@ class DataImportPipeline:
     ):
         self.inputs = inputs
         self.logger = logger
-        if incremental:
-            # Incremental syncs: Assuming each page is 100 items for now so bound each run at 50_000 items
-            self.source = source.add_limit(500)
-        else:
-            self.source = source
 
         self._incremental = incremental
         self.refresh_dlt = reset_pipeline
         self.should_chunk_pipeline = (
             incremental
             and inputs.job_type != ExternalDataSource.Type.POSTGRES
+            and inputs.job_type != ExternalDataSource.Type.MYSQL
+            and inputs.job_type != ExternalDataSource.Type.MSSQL
             and inputs.job_type != ExternalDataSource.Type.SNOWFLAKE
         )
+
+        if self.should_chunk_pipeline:
+            # Incremental syncs: Assuming each page is 100 items for now so bound each run at 50_000 items
+            self.source = source.add_limit(500)
+        else:
+            self.source = source
 
     def _get_pipeline_name(self):
         return f"{self.inputs.job_type}_pipeline_{self.inputs.team_id}_run_{self.inputs.schema_id}"
@@ -92,6 +100,23 @@ class DataImportPipeline:
             destination=destination,
             dataset_name=self.inputs.dataset_name,
         )
+
+    async def _prepare_s3_files_for_querying(self, file_uris: list[str]):
+        s3 = get_s3_client()
+        job: ExternalDataJob = await get_external_data_job(job_id=self.inputs.run_id)
+        schema: ExternalDataSchema = await aget_schema_by_id(self.inputs.schema_id, self.inputs.team_id)
+
+        normalized_schema_name = NamingConvention().normalize_identifier(schema.name)
+        s3_folder_for_job = f"{settings.BUCKET_URL}/{job.folder_path()}"
+        s3_folder_for_schema = f"{s3_folder_for_job}/{normalized_schema_name}"
+        s3_folder_for_querying = f"{s3_folder_for_job}/{normalized_schema_name}__query"
+
+        if s3.exists(s3_folder_for_querying):
+            s3.delete(s3_folder_for_querying, recursive=True)
+
+        for file in file_uris:
+            file_name = file.replace(f"{s3_folder_for_schema}/", "")
+            s3.copy(file, f"{s3_folder_for_querying}/{file_name}")
 
     def _run(self) -> dict[str, int]:
         if self.refresh_dlt:
@@ -138,13 +163,24 @@ class DataImportPipeline:
 
                 if total_counts.total() > 0:
                     delta_tables = get_delta_tables(pipeline)
-                    file_len = 0
 
+                    table_format = DataWarehouseTable.TableFormat.DeltaS3Wrapper
+
+                    # Workaround while we fix msising table_format on DLT resource
+                    if len(delta_tables.values()) == 0:
+                        table_format = DataWarehouseTable.TableFormat.Delta
+
+                    # There should only ever be one table here
                     for table in delta_tables.values():
-                        # Compact doesn't work on single file tables, so we can't use the wrapper for these
-                        file_len = len(table.files())
+                        self.logger.info("Compacting delta table")
                         table.optimize.compact()
                         table.vacuum(retention_hours=24, enforce_retention_duration=False, dry_run=False)
+
+                        file_uris = table.file_uris()
+                        self.logger.info(f"Preparing S3 files - total parquet files: {len(file_uris)}")
+                        async_to_sync(self._prepare_s3_files_for_querying)(file_uris)
+
+                    self.logger.info(f"Table format: {table_format}")
 
                     async_to_sync(validate_schema_and_update_table)(
                         run_id=self.inputs.run_id,
@@ -152,8 +188,10 @@ class DataImportPipeline:
                         schema_id=self.inputs.schema_id,
                         table_schema=self.source.schema.tables,
                         row_count=total_counts.total(),
-                        use_delta_wrapper=file_len != 1,
+                        table_format=table_format,
                     )
+                else:
+                    self.logger.info("No table_counts, skipping validate_schema_and_update_table")
 
                 pipeline_runs = pipeline_runs + 1
         else:
@@ -186,13 +224,24 @@ class DataImportPipeline:
 
             if total_counts.total() > 0:
                 delta_tables = get_delta_tables(pipeline)
-                file_len = 0
 
+                table_format = DataWarehouseTable.TableFormat.DeltaS3Wrapper
+
+                # Workaround while we fix msising table_format on DLT resource
+                if len(delta_tables.values()) == 0:
+                    table_format = DataWarehouseTable.TableFormat.Delta
+
+                # There should only ever be one table here
                 for table in delta_tables.values():
-                    # Compact doesn't work on single file tables, so we can't use the wrapper for these
-                    file_len = len(table.files())
+                    self.logger.info("Compacting delta table")
                     table.optimize.compact()
                     table.vacuum(retention_hours=24, enforce_retention_duration=False, dry_run=False)
+
+                    file_uris = table.file_uris()
+                    self.logger.info(f"Preparing S3 files - total parquet files: {len(file_uris)}")
+                    async_to_sync(self._prepare_s3_files_for_querying)(file_uris)
+
+                self.logger.info(f"Table format: {table_format}")
 
                 async_to_sync(validate_schema_and_update_table)(
                     run_id=self.inputs.run_id,
@@ -200,8 +249,13 @@ class DataImportPipeline:
                     schema_id=self.inputs.schema_id,
                     table_schema=self.source.schema.tables,
                     row_count=total_counts.total(),
-                    use_delta_wrapper=file_len != 1,
+                    table_format=table_format,
                 )
+            else:
+                self.logger.info("No table_counts, skipping validate_schema_and_update_table")
+
+        # Delete local state from the file system
+        pipeline.drop()
 
         return dict(total_counts)
 

@@ -82,7 +82,6 @@ from posthog.schema import (
     PersonsOnEventsMode,
     SessionTableVersion,
 )
-from posthog.utils import get_instance_region
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.external_data_source import ExternalDataSource
@@ -249,8 +248,9 @@ def create_hogql_database(
             join_function=join_with_persons_table,
         )
 
-    if modifiers.sessionTableVersion == SessionTableVersion.V2 or (
-        get_instance_region() == "EU" and modifiers.sessionTableVersion == SessionTableVersion.AUTO
+    if (
+        modifiers.sessionTableVersion == SessionTableVersion.V2
+        or modifiers.sessionTableVersion == SessionTableVersion.AUTO
     ):
         raw_sessions = RawSessionsTableV2()
         database.raw_sessions = raw_sessions
@@ -370,9 +370,8 @@ def create_hogql_database(
             else:
                 warehouse_tables = define_mappings(
                     warehouse_tables,
-                    lambda team, warehouse_modifier: DataWarehouseTable.objects.filter(
-                        team_id=team.pk, name=warehouse_modifier.table_name
-                    )
+                    lambda team, warehouse_modifier: DataWarehouseTable.objects.exclude(deleted=True)
+                    .filter(team_id=team.pk, name=warehouse_modifier.table_name)
                     .select_related("credential", "external_data_source")
                     .latest("created_at"),
                 )
@@ -512,7 +511,11 @@ def serialize_database(
         else []
     )
     warehouse_schemas = (
-        list(ExternalDataSchema.objects.filter(table_id__in=[table.id for table in warehouse_tables]).all())
+        list(
+            ExternalDataSchema.objects.exclude(deleted=True)
+            .filter(table_id__in=[table.id for table in warehouse_tables])
+            .all()
+        )
         if len(warehouse_tables) > 0
         else []
     )

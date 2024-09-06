@@ -41,8 +41,8 @@ class ElementGroupManager(models.Manager):
 
 
 class ElementGroup(models.Model):
-    team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
-    hash: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    hash = models.CharField(max_length=400, null=True, blank=True)
 
     objects = ElementGroupManager()
 

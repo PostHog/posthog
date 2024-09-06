@@ -113,27 +113,7 @@ module.exports = {
                     {
                         name: 'dayjs',
                         message: 'Do not directly import dayjs. Only import the dayjs exported from lib/dayjs.',
-                    },
-                    {
-                        name: '@ant-design/icons',
-                        message: 'Please use icons from the @posthog/icons package instead',
-                    },
-                    {
-                        name: 'antd',
-                        importNames: [
-                            'Card',
-                            'Col',
-                            'Row',
-                            'Alert',
-                            'Tooltip',
-                            'Progress',
-                            'Radio',
-                            'Divider',
-                            'Popconfirm',
-                            'Table',
-                        ],
-                        message: 'please use the Lemon equivalent instead',
-                    },
+                    }
                 ],
             },
         ],

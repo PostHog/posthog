@@ -39,7 +39,6 @@ from posthog.utils import (
     get_machine_id,
     get_previous_day,
 )
-
 from posthog.warehouse.models import ExternalDataJob
 
 logger = structlog.get_logger(__name__)
@@ -277,7 +276,7 @@ def get_org_owner_or_first_user(organization_id: str) -> Optional[User]:
     return user
 
 
-@shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=3)
+@shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=3, rate_limit="10/s")
 def send_report_to_billing_service(org_id: str, report: dict[str, Any]) -> None:
     if not settings.EE_AVAILABLE:
         return
@@ -641,6 +640,7 @@ def has_non_zero_usage(report: FullUsageReport) -> bool:
         or report.decide_requests_count_in_period > 0
         or report.local_evaluation_requests_count_in_period > 0
         or report.survey_responses_count_in_period > 0
+        or report.rows_synced_in_period > 0
     )
 
 

@@ -8,7 +8,11 @@ import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect
 import { formatDate, isOperatorDate, isOperatorFlag, isOperatorMulti, toString } from 'lib/utils'
 import { useEffect } from 'react'
 
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import {
+    PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS,
+    PROPERTY_FILTER_TYPES_WITH_TEMPORAL_SUGGESTIONS,
+    propertyDefinitionsModel,
+} from '~/models/propertyDefinitionsModel'
 import { PropertyFilterType, PropertyOperator, PropertyType } from '~/types'
 
 export interface PropertyValueProps {
@@ -133,12 +137,13 @@ export function PropertyValue({
             onInputChange={onSearchTextChange}
             placeholder={placeholder}
             title={
-                !displayOptions.length
-                    ? undefined
-                    : type === PropertyFilterType.Event
+                PROPERTY_FILTER_TYPES_WITH_TEMPORAL_SUGGESTIONS.includes(type)
                     ? 'Suggested values (last 7 days)'
-                    : 'Suggested values'
+                    : PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS.includes(type)
+                    ? 'Suggested values'
+                    : undefined
             }
+            popoverClassName="max-w-200"
             options={displayOptions.map(({ name: _name }, index) => {
                 const name = toString(_name)
                 return {

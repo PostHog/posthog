@@ -40,6 +40,7 @@ from posthog.temporal.batch_exports.utils import (
     JsonType,
     apeek_first_and_rewind,
     cast_record_batch_json_columns,
+    make_retryable_with_exponential_backoff,
     set_status_to_running_task,
 )
 from posthog.temporal.common.clickhouse import get_client
@@ -110,7 +111,9 @@ class PostgreSQLClient:
         return self._connection
 
     @contextlib.asynccontextmanager
-    async def connect(self) -> typing.AsyncIterator[typing.Self]:
+    async def connect(
+        self,
+    ) -> typing.AsyncIterator[typing.Self]:
         """Manage a PostgreSQL connection.
 
         By using a context manager Pyscopg will take care of closing the connection.
@@ -120,7 +123,12 @@ class PostgreSQLClient:
             # Disable certificate verification for self-signed certificates.
             kwargs["sslrootcert"] = None
 
-        connection = await psycopg.AsyncConnection.connect(
+        connect = make_retryable_with_exponential_backoff(
+            psycopg.AsyncConnection.connect,
+            retryable_exceptions=(psycopg.OperationalError,),
+        )
+
+        connection: psycopg.AsyncConnection = await connect(
             user=self.user,
             password=self.password,
             dbname=self.database,
@@ -129,6 +137,7 @@ class PostgreSQLClient:
             sslmode="prefer" if settings.TEST else "require",
             **kwargs,
         )
+
         async with connection as connection:
             self._connection = connection
             yield self
@@ -425,7 +434,7 @@ def get_postgres_fields_from_record_schema(
 async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> RecordsCompleted:
     """Activity streams data from ClickHouse to Postgres."""
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="PostgreSQL")
-    logger.info(
+    await logger.ainfo(
         "Batch exporting range %s - %s to PostgreSQL: %s.%s.%s",
         inputs.data_interval_start,
         inputs.data_interval_end,
@@ -495,7 +504,10 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
         requires_merge = (
             isinstance(inputs.batch_export_model, BatchExportModel) and inputs.batch_export_model.name == "persons"
         )
-        stagle_table_name = f"stage_{inputs.table_name}" if requires_merge else inputs.table_name
+        data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
+        stagle_table_name = (
+            f"stage_{inputs.table_name}_{data_interval_end_str}" if requires_merge else inputs.table_name
+        )
 
         if requires_merge:
             primary_key: Fields | None = (("team_id", "INTEGER"), ("distinct_id", "VARCHAR(200)"))
@@ -526,7 +538,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
                     last: bool,
                     error: Exception | None,
                 ):
-                    logger.debug(
+                    await logger.adebug(
                         "Copying %s records of size %s bytes",
                         records_since_last_flush,
                         bytes_since_last_flush,
@@ -655,6 +667,9 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
                 "InsufficientPrivilege",
                 # Issue with exported data compared to schema, retrying won't help.
                 "NotNullViolation",
+                # A user added a unique constraint on their table, but batch exports (particularly events)
+                # can cause duplicates.
+                "UniqueViolation",
             ],
             finish_inputs=finish_inputs,
         )

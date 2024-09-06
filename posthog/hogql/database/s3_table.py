@@ -37,9 +37,9 @@ def build_function_call(
     # DeltaS3Wrapper format
     if format == "DeltaS3Wrapper":
         if url.endswith("/"):
-            escaped_url = add_param(f"{url}*.zstd.parquet")
+            escaped_url = add_param(f"{url[:len(url) - 1]}__query/*.parquet")
         else:
-            escaped_url = add_param(f"{url}/*.zstd.parquet")
+            escaped_url = add_param(f"{url}__query/*.parquet")
 
         if structure:
             escaped_structure = add_param(structure, False)

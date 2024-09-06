@@ -1,7 +1,7 @@
 from typing import Any
 
 from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
-from rest_framework.decorators import action
+from posthog.api.utils import action
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -13,7 +13,6 @@ from posthog.warehouse.models import (
     DataWarehouseCredential,
     DataWarehouseSavedQuery,
     DataWarehouseTable,
-    DataWarehouseJoin,
 )
 from posthog.warehouse.api.external_data_source import SimpleExternalDataSourceSerializers
 from posthog.warehouse.models.table import CLICKHOUSE_HOGQL_MAPPING, SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING
@@ -96,7 +95,11 @@ class TableSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         team_id = self.context["team_id"]
 
-        table_name_exists = DataWarehouseTable.objects.filter(team_id=team_id, name=validated_data["name"]).exists()
+        table_name_exists = (
+            DataWarehouseTable.objects.exclude(deleted=True)
+            .filter(team_id=team_id, name=validated_data["name"])
+            .exists()
+        )
         if table_name_exists:
             raise exceptions.ValidationError("Table name already exists.")
 
@@ -110,7 +113,7 @@ class TableSerializer(serializers.ModelSerializer):
             )
         table = DataWarehouseTable(**validated_data)
         try:
-            table.columns = table.get_columns()
+            table.columns = table.get_columns()  # type: ignore
         except Exception as err:
             raise serializers.ValidationError(str(err))
         table.save()
@@ -183,10 +186,9 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         instance: DataWarehouseTable = self.get_object()
-        DataWarehouseJoin.objects.filter(source_table_name=instance.name).delete()
-        DataWarehouseJoin.objects.filter(joining_table_name=instance.name).delete()
         DataWarehouseSavedQuery.objects.filter(external_tables__icontains=instance.name).delete()
-        self.perform_destroy(instance)
+
+        instance.soft_delete()
 
         return response.Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -235,6 +237,15 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             columns[key]["valid"] = table.validate_column_type(key)
 
         table.columns = columns
+        table.save()
+
+        return response.Response(status=status.HTTP_200_OK)
+
+    @action(methods=["POST"], detail=True)
+    def refresh_schema(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        table: DataWarehouseTable = self.get_object()
+
+        table.columns = table.get_columns()  # type: ignore
         table.save()
 
         return response.Response(status=status.HTTP_200_OK)

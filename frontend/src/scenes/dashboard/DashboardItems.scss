@@ -23,8 +23,10 @@
     will-change: width, height;
 }
 
-.react-grid-item.react-draggable {
+.react-grid-item.react-draggable .CardMeta {
+    // .CardMeta is the draggable handle
     cursor: move;
+    user-select: none; // Prevent accidental text selection while dragging
 }
 
 .react-grid-item.react-draggable-dragging {
@@ -83,9 +85,4 @@
         width: auto;
         cursor: ns-resize;
     }
-}
-
-// All dropdowns must be below top navigation
-.ant-dropdown {
-    z-index: 700;
 }

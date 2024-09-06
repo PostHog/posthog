@@ -1,4 +1,4 @@
-import { isHogDate, isHogDateTime, isHogError } from '../objects'
+import { isHogCallable, isHogClosure, isHogDate, isHogDateTime, isHogError } from '../objects'
 
 const escapeCharsMap: Record<string, string> = {
     '\b': '\\b',
@@ -45,8 +45,15 @@ export function printHogValue(obj: any, marked: Set<any> | undefined = undefined
     if (!marked) {
         marked = new Set()
     }
-    if (typeof obj === 'object' && obj !== null) {
-        if (marked.has(obj) && !isHogDateTime(obj) && !isHogDate(obj) && !isHogError(obj)) {
+    if (typeof obj === 'object' && obj !== null && obj !== undefined) {
+        if (
+            marked.has(obj) &&
+            !isHogDateTime(obj) &&
+            !isHogDate(obj) &&
+            !isHogError(obj) &&
+            !isHogClosure(obj) &&
+            !isHogCallable(obj)
+        ) {
             return 'null'
         }
         marked.add(obj)
@@ -72,6 +79,12 @@ export function printHogValue(obj: any, marked: Set<any> | undefined = undefined
                     obj.payload ? `, ${printHogValue(obj.payload, marked)}` : ''
                 })`
             }
+            if (isHogClosure(obj)) {
+                return printHogValue(obj.callable, marked)
+            }
+            if (isHogCallable(obj)) {
+                return `fn<${escapeIdentifier(obj.name ?? 'lambda')}(${printHogValue(obj.argCount)})>`
+            }
             if (obj instanceof Map) {
                 return `{${Array.from(obj.entries())
                     .map(([key, value]) => `${printHogValue(key, marked)}: ${printHogValue(value, marked)}`)
@@ -85,7 +98,7 @@ export function printHogValue(obj: any, marked: Set<any> | undefined = undefined
         }
     } else if (typeof obj === 'boolean') {
         return obj ? 'true' : 'false'
-    } else if (obj === null) {
+    } else if (obj === null || obj === undefined) {
         return 'null'
     } else if (typeof obj === 'string') {
         return escapeString(obj)

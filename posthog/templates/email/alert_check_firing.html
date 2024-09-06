@@ -1,0 +1,14 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% block section %}
+    <p>
+        The <a href="{% absolute_uri alert_url %}">{{ alert_name }}</a> alert is firing for <a
+            href="{% absolute_uri insight_url %}">{{ insight_name }}</a>:
+    </p>
+    <ul>
+        {% for item in match_descriptions %}
+            <li>{{ item }}</li>
+        {% endfor %}
+    </ul>
+    <div class="mb mt text-center">
+        <a class="button" href="{% absolute_uri alert_url %}">Manage alert</a>
+    </div>
+{% endblock %}{% load posthog_filters %}

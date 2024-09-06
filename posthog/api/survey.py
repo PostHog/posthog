@@ -9,7 +9,7 @@ from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
 from nanoid import generate
 from rest_framework import request, serializers, status, viewsets
-from rest_framework.decorators import action
+from posthog.api.utils import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -557,8 +557,8 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def responses_count(self, request: request.Request, **kwargs):
-        earliest_survey_creation_date = Survey.objects.filter(team_id=self.team_id).aggregate(Min("created_at"))[
-            "created_at__min"
+        earliest_survey_start_date = Survey.objects.filter(team_id=self.team_id).aggregate(Min("start_date"))[
+            "start_date__min"
         ]
         data = sync_execute(
             f"""
@@ -567,7 +567,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             WHERE event = 'survey sent' AND team_id = %(team_id)s AND timestamp >= %(timestamp)s
             GROUP BY survey_id
         """,
-            {"team_id": self.team_id, "timestamp": earliest_survey_creation_date},
+            {"team_id": self.team_id, "timestamp": earliest_survey_start_date},
         )
 
         counts = {}

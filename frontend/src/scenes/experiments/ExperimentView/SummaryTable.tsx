@@ -5,14 +5,22 @@ import { LemonTable, LemonTableColumns, Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
+import { humanFriendlyNumber } from 'lib/utils'
 
-import { _FunnelExperimentResults, FunnelExperimentVariant, InsightType, TrendExperimentVariant } from '~/types'
+import {
+    _FunnelExperimentResults,
+    _TrendsExperimentResults,
+    FunnelExperimentVariant,
+    InsightType,
+    TrendExperimentVariant,
+} from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import { VariantTag } from './components'
 
 export function SummaryTable(): JSX.Element {
     const {
+        experimentId,
         experimentResults,
         tabularExperimentResults,
         experimentInsightType,
@@ -20,7 +28,6 @@ export function SummaryTable(): JSX.Element {
         conversionRateForVariant,
         experimentMathAggregationForTrends,
         countDataForVariant,
-        areTrendResultsConfusing,
         getHighestProbabilityVariant,
     } = useValues(experimentLogic)
 
@@ -37,7 +44,7 @@ export function SummaryTable(): JSX.Element {
             render: function Key(_, item): JSX.Element {
                 return (
                     <div className="flex items-center">
-                        <VariantTag variantKey={item.key} />
+                        <VariantTag experimentId={experimentId} variantKey={item.key} />
                     </div>
                 )
             },
@@ -57,27 +64,119 @@ export function SummaryTable(): JSX.Element {
                     </span>
                 </div>
             ),
-            render: function Key(_, item, index): JSX.Element {
-                return (
-                    <div className="flex">
-                        {countDataForVariant(experimentResults, item.key)}{' '}
-                        {areTrendResultsConfusing && index === 0 && (
-                            <Tooltip
-                                placement="right"
-                                title="It might seem confusing that the best variant has lower absolute count, but this can happen when fewer people are exposed to this variant, so its relative count is higher."
-                            >
-                                <IconInfo className="py-1 px-0.5 text-lg" />
-                            </Tooltip>
-                        )}
-                    </div>
-                )
+            render: function Key(_, variant): JSX.Element {
+                const count = countDataForVariant(experimentResults, variant.key)
+                if (!count) {
+                    return <>—</>
+                }
+
+                return <div className="flex">{humanFriendlyNumber(count)}</div>
             },
         })
         columns.push({
             key: 'exposure',
             title: 'Exposure',
-            render: function Key(_, item): JSX.Element {
-                return <div>{exposureCountDataForVariant(experimentResults, item.key)}</div>
+            render: function Key(_, variant): JSX.Element {
+                const exposure = exposureCountDataForVariant(experimentResults, variant.key)
+                if (!exposure) {
+                    return <>—</>
+                }
+
+                return <div>{humanFriendlyNumber(exposure)}</div>
+            },
+        })
+        columns.push({
+            key: 'mean',
+            title: 'Mean',
+            render: function Key(_, v): JSX.Element {
+                const variant = v as TrendExperimentVariant
+                if (!variant.count || !variant.absolute_exposure) {
+                    return <div className="font-semibold">—</div>
+                }
+
+                return <div className="font-semibold">{(variant.count / variant.absolute_exposure).toFixed(2)}</div>
+            },
+        })
+        columns.push({
+            key: 'delta',
+            title: (
+                <div className="inline-flex items-center space-x-1">
+                    <div className="">Delta %</div>
+                    <Tooltip title="Delta % indicates the percentage change in the mean between the control and the test variant.">
+                        <IconInfo className="text-muted-alt text-base" />
+                    </Tooltip>
+                </div>
+            ),
+            render: function Key(_, v): JSX.Element {
+                const variant = v as TrendExperimentVariant
+
+                if (variant.key === 'control') {
+                    return <em>Baseline</em>
+                }
+
+                const controlVariant = (experimentResults.variants as TrendExperimentVariant[]).find(
+                    ({ key }) => key === 'control'
+                ) as TrendExperimentVariant
+
+                if (
+                    !variant.count ||
+                    !variant.absolute_exposure ||
+                    !controlVariant ||
+                    !controlVariant.count ||
+                    !controlVariant.absolute_exposure
+                ) {
+                    return <div className="font-semibold">—</div>
+                }
+
+                const controlMean = controlVariant.count / controlVariant.absolute_exposure
+                const variantMean = variant.count / variant.absolute_exposure
+                const delta = ((variantMean - controlMean) / controlMean) * 100
+
+                return (
+                    <div className={`font-semibold ${delta > 0 ? 'text-success' : delta < 0 ? 'text-danger' : ''}`}>{`${
+                        delta > 0 ? '+' : ''
+                    }${delta.toFixed(2)}%`}</div>
+                )
+            },
+        })
+        columns.push({
+            key: 'credibleInterval',
+            title: (
+                <div className="inline-flex items-center space-x-1">
+                    <div className="">Credible interval (95%)</div>
+                    <Tooltip title="A credible interval estimates the percentage change in the mean, indicating with 95% probability how much higher or lower the test variant's mean is compared to the control.">
+                        <IconInfo className="text-muted-alt text-base" />
+                    </Tooltip>
+                </div>
+            ),
+            render: function Key(_, v): JSX.Element {
+                const variant = v as TrendExperimentVariant
+                if (variant.key === 'control') {
+                    return <em>Baseline</em>
+                }
+
+                const credibleInterval = (experimentResults as _TrendsExperimentResults)?.credible_intervals?.[
+                    variant.key
+                ]
+                if (!credibleInterval) {
+                    return <>—</>
+                }
+
+                const controlVariant = (experimentResults.variants as TrendExperimentVariant[]).find(
+                    ({ key }) => key === 'control'
+                ) as TrendExperimentVariant
+                const controlMean = controlVariant.count / controlVariant.absolute_exposure
+
+                // Calculate the percentage difference between the credible interval bounds of the variant and the control's mean.
+                // This represents the range in which the true percentage change relative to the control is likely to fall.
+                const lowerBound = ((credibleInterval[0] - controlMean) / controlMean) * 100
+                const upperBound = ((credibleInterval[1] - controlMean) / controlMean) * 100
+
+                return (
+                    <div className="font-semibold">{`[${lowerBound > 0 ? '+' : ''}${lowerBound.toFixed(2)}%, ${
+                        upperBound > 0 ? '+' : ''
+                    }${upperBound.toFixed(2)}%]`}</div>
+                )
             },
         })
     }
@@ -117,7 +216,7 @@ export function SummaryTable(): JSX.Element {
                         return <>—</>
                     }
 
-                    const delta = variantConversionRate - controlConversionRate
+                    const delta = ((variantConversionRate - controlConversionRate) / controlConversionRate) * 100
 
                     return (
                         <div
@@ -131,12 +230,16 @@ export function SummaryTable(): JSX.Element {
                 title: (
                     <div className="inline-flex items-center space-x-1">
                         <div className="">Credible interval (95%)</div>
-                        <Tooltip title="A credible interval represents a range within which we believe the true parameter value lies with a certain probability (often 95%), based on the posterior distribution derived from the observed data and our prior beliefs.">
+                        <Tooltip title="A credible interval estimates the percentage change in the conversion rate, indicating with 95% probability how much higher or lower the test variant's conversion rate is compared to the control.">
                             <IconInfo className="text-muted-alt text-base" />
                         </Tooltip>
                     </div>
                 ),
                 render: function Key(_, item): JSX.Element {
+                    if (item.key === 'control') {
+                        return <em>Baseline</em>
+                    }
+
                     const credibleInterval = (experimentResults as _FunnelExperimentResults)?.credible_intervals?.[
                         item.key
                     ]
@@ -144,10 +247,26 @@ export function SummaryTable(): JSX.Element {
                         return <>—</>
                     }
 
-                    const lowerBound = (credibleInterval[0] * 100).toFixed(2)
-                    const upperBound = (credibleInterval[1] * 100).toFixed(2)
+                    const controlVariant = (experimentResults.variants as FunnelExperimentVariant[]).find(
+                        ({ key }) => key === 'control'
+                    ) as FunnelExperimentVariant
+                    const controlConversionRate =
+                        controlVariant.success_count / (controlVariant.success_count + controlVariant.failure_count)
 
-                    return <div className="font-semibold">{`[${lowerBound}%, ${upperBound}%]`}</div>
+                    if (!controlConversionRate) {
+                        return <>—</>
+                    }
+
+                    // Calculate the percentage difference between the credible interval bounds of the variant and the control's conversion rate.
+                    // This represents the range in which the true percentage change relative to the control is likely to fall.
+                    const lowerBound = ((credibleInterval[0] - controlConversionRate) / controlConversionRate) * 100
+                    const upperBound = ((credibleInterval[1] - controlConversionRate) / controlConversionRate) * 100
+
+                    return (
+                        <div className="font-semibold">{`[${lowerBound > 0 ? '+' : ''}${lowerBound.toFixed(2)}%, ${
+                            upperBound > 0 ? '+' : ''
+                        }${upperBound.toFixed(2)}%]`}</div>
+                    )
                 },
             })
     }

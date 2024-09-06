@@ -36,18 +36,18 @@ func TestStatsHandler(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer mock_token")
 
 	// Create a mock TeamStats
-	teamStats := &TeamStats{
+	stats := &Stats{
 		Store: make(map[string]*expirable.LRU[string, string]),
 	}
-	teamStats.Store["mock_token"] = expirable.NewLRU[string, string](100, nil, time.Minute)
-	teamStats.Store["mock_token"].Add("user1", "data1")
+	stats.Store["mock_token"] = expirable.NewLRU[string, string](100, nil, time.Minute)
+	stats.Store["mock_token"].Add("user1", "data1")
 
 	// Add the teamStats to the context
-	c.Set("teamStats", teamStats)
+	c.Set("teamStats", stats)
 
 	handler := func(c echo.Context) error {
 		return c.JSON(http.StatusOK, map[string]interface{}{
-			"users_on_product": teamStats.Store["mock_token"].Len(),
+			"users_on_product": stats.Store["mock_token"].Len(),
 		})
 	}
 

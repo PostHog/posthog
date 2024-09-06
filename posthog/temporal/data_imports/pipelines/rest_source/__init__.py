@@ -23,7 +23,6 @@ from dlt.sources.helpers.rest_client.client import RESTClient
 from dlt.sources.helpers.rest_client.paginators import BasePaginator
 from dlt.sources.helpers.rest_client.typing import HTTPMethodBasic
 
-from posthog.temporal.data_imports.pipelines.helpers import is_job_cancelled
 from .typing import (
     ClientConfig,
     ResolvedParam,
@@ -228,6 +227,7 @@ def create_resources(
         (
             incremental_object,
             incremental_param,
+            incremental_cursor_transform,
         ) = setup_incremental_object(request_params, endpoint_config.get("incremental"))
 
         client = RESTClient(
@@ -253,17 +253,18 @@ def create_resources(
                 hooks: Optional[dict[str, Any]],
                 client: RESTClient = client,
                 incremental_object: Optional[Incremental[Any]] = incremental_object,
-                incremental_param: IncrementalParam | None = incremental_param,
+                incremental_param: Optional[IncrementalParam] = incremental_param,
+                incremental_cursor_transform: Optional[Callable[..., Any]] = incremental_cursor_transform,
             ) -> AsyncGenerator[Iterator[Any], Any]:
                 yield dlt.mark.materialize_table_schema()  # type: ignore
 
-                if await is_job_cancelled(team_id=team_id, job_id=job_id):
-                    return
-
-                if incremental_object and incremental_param:
-                    params[incremental_param.start] = incremental_object.last_value
-                    if incremental_param.end:
-                        params[incremental_param.end] = incremental_object.end_value
+                if incremental_object:
+                    params = _set_incremental_params(
+                        params,
+                        incremental_object,
+                        incremental_param,
+                        incremental_cursor_transform,
+                    )
 
                 yield client.paginate(
                     method=method,
@@ -305,17 +306,18 @@ def create_resources(
                 resolved_param: ResolvedParam = resolved_param,
                 include_from_parent: list[str] = include_from_parent,
                 incremental_object: Optional[Incremental[Any]] = incremental_object,
-                incremental_param: IncrementalParam | None = incremental_param,
+                incremental_param: Optional[IncrementalParam] = incremental_param,
+                incremental_cursor_transform: Optional[Callable[..., Any]] = incremental_cursor_transform,
             ) -> AsyncGenerator[Any, Any]:
                 yield dlt.mark.materialize_table_schema()  # type: ignore
 
-                if await is_job_cancelled(team_id=team_id, job_id=job_id):
-                    return
-
-                if incremental_object and incremental_param:
-                    params[incremental_param.start] = incremental_object.last_value
-                    if incremental_param.end:
-                        params[incremental_param.end] = incremental_object.end_value
+                if incremental_object:
+                    params = _set_incremental_params(
+                        params,
+                        incremental_object,
+                        incremental_param,
+                        incremental_cursor_transform,
+                    )
 
                 for item in items:
                     formatted_path, parent_record = process_parent_data_item(
@@ -349,6 +351,27 @@ def create_resources(
             )
 
     return resources
+
+
+def _set_incremental_params(
+    params: dict[str, Any],
+    incremental_object: Incremental[Any],
+    incremental_param: Optional[IncrementalParam],
+    transform: Optional[Callable[..., Any]],
+) -> dict[str, Any]:
+    def identity_func(x: Any) -> Any:
+        return x
+
+    if transform is None:
+        transform = identity_func
+
+    if incremental_param is None:
+        return params
+
+    params[incremental_param.start] = transform(incremental_object.last_value)
+    if incremental_param.end:
+        params[incremental_param.end] = transform(incremental_object.end_value)
+    return params
 
 
 # XXX: This is a workaround pass test_dlt_init.py

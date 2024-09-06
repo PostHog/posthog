@@ -15,6 +15,7 @@ import {
     IconRewindPlay,
     IconRocket,
     IconServer,
+    IconSparkles,
     IconTestTube,
     IconToggle,
     IconWarning,
@@ -399,7 +400,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                           },
                           {
                               identifier: Scene.PersonsManagement,
-                              label: 'People',
+                              label: 'People and groups',
                               icon: <IconPeople />,
                               logic: isUsingSidebar ? personsAndGroupsSidebarLogic : undefined,
                               to: isUsingSidebar ? undefined : urls.persons(),
@@ -419,6 +420,15 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                               to: urls.products(),
                           },
                       ]
+
+                if (featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG]) {
+                    sectionOne.splice(1, 0, {
+                        identifier: Scene.Max,
+                        label: 'Max AI',
+                        icon: <IconSparkles />,
+                        to: urls.max(),
+                    })
+                }
 
                 return [
                     sectionOne,
@@ -441,7 +451,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             label: 'Web analytics',
                             icon: <IconPieChart />,
                             to: isUsingSidebar ? undefined : urls.webAnalytics(),
-                            tag: 'beta' as const,
                         },
                         {
                             identifier: Scene.Replay,
@@ -476,7 +485,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                         },
                         {
                             identifier: Scene.Experiments,
-                            label: 'A/B testing',
+                            label: 'Experiments',
                             icon: <IconTestTube />,
                             logic: isUsingSidebar ? experimentsSidebarLogic : undefined,
                             to: isUsingSidebar ? undefined : urls.experiments(),

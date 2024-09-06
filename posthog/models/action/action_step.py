@@ -8,26 +8,26 @@ class ActionStep(models.Model):
     EXACT = "exact"
     STRING_MATCHING = [(CONTAINS, CONTAINS), (REGEX, REGEX), (EXACT, EXACT)]
 
-    action: models.ForeignKey = models.ForeignKey("Action", related_name="action_steps", on_delete=models.CASCADE)
-    text: models.CharField = models.CharField(max_length=400, null=True, blank=True)
-    text_matching: models.CharField = models.CharField(
+    action = models.ForeignKey("Action", related_name="action_steps", on_delete=models.CASCADE)
+    text = models.CharField(max_length=400, null=True, blank=True)
+    text_matching = models.CharField(
         # The implicit default is EXACT - no explicit default to avoid migration woes
         max_length=400,
         choices=STRING_MATCHING,
         null=True,
         blank=True,
     )
-    href: models.CharField = models.CharField(max_length=65535, null=True, blank=True)
-    href_matching: models.CharField = models.CharField(
+    href = models.CharField(max_length=65535, null=True, blank=True)
+    href_matching = models.CharField(
         # The implicit default is EXACT - no explicit default to avoid migration woes
         max_length=400,
         choices=STRING_MATCHING,
         null=True,
         blank=True,
     )
-    selector: models.CharField = models.CharField(max_length=65535, null=True, blank=True)
-    url: models.CharField = models.CharField(max_length=65535, null=True, blank=True)
-    url_matching: models.CharField = models.CharField(
+    selector = models.CharField(max_length=65535, null=True, blank=True)
+    url = models.CharField(max_length=65535, null=True, blank=True)
+    url_matching = models.CharField(
         # This is from before text_matching and href_matching, which is why there's an explicit default of CONTAINS
         max_length=400,
         choices=STRING_MATCHING,
@@ -35,9 +35,9 @@ class ActionStep(models.Model):
         null=True,
         blank=True,
     )
-    event: models.CharField = models.CharField(max_length=400, null=True, blank=True)
-    properties: models.JSONField = models.JSONField(default=list, null=True, blank=True)
+    event = models.CharField(max_length=400, null=True, blank=True)
+    properties = models.JSONField(default=list, null=True, blank=True)
     # DEPRECATED, DISUSED
-    name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    name = models.CharField(max_length=400, null=True, blank=True)
     # DEPRECATED, don't store new data here
-    tag_name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    tag_name = models.CharField(max_length=400, null=True, blank=True)

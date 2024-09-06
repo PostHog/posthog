@@ -35,7 +35,7 @@ export function Experiments(): JSX.Element {
         useActions(experimentsLogic)
 
     const EXPERIMENTS_PRODUCT_DESCRIPTION =
-        'A/B testing help you test changes to your product to see which changes will lead to optimal results. Automatic statistical calculations let you see if the results are valid or if they are likely just a chance occurrence.'
+        'Experiments help you test changes to your product to see which changes will lead to optimal results. Automatic statistical calculations let you see if the results are valid or if they are likely just a chance occurrence.'
 
     const getExperimentDuration = (experiment: Experiment): number | undefined => {
         return experiment.end_date
@@ -213,7 +213,7 @@ export function Experiments(): JSX.Element {
             />
             {tab === ExperimentsTabs.Archived ? (
                 <ProductIntroduction
-                    productName="A/B testing"
+                    productName="Experiments"
                     productKey={ProductKey.EXPERIMENTS}
                     thingName="archived experiment"
                     description={EXPERIMENTS_PRODUCT_DESCRIPTION}
@@ -222,7 +222,7 @@ export function Experiments(): JSX.Element {
                 />
             ) : (
                 <ProductIntroduction
-                    productName="A/B testing"
+                    productName="Experiments"
                     productKey={ProductKey.EXPERIMENTS}
                     thingName="experiment"
                     description={EXPERIMENTS_PRODUCT_DESCRIPTION}

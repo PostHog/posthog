@@ -13,6 +13,7 @@ import {
     PropertyDefinition,
     PropertyDefinitionState,
     PropertyDefinitionType,
+    PropertyFilterType,
     PropertyFilterValue,
     PropertyType,
 } from '~/types'
@@ -20,6 +21,17 @@ import {
 import type { propertyDefinitionsModelType } from './propertyDefinitionsModelType'
 
 export type PropertyDefinitionStorage = Record<string, PropertyDefinition | PropertyDefinitionState>
+
+/** These property filter types get suggestions based on events – filter value suggestions look just a few days back. */
+export const PROPERTY_FILTER_TYPES_WITH_TEMPORAL_SUGGESTIONS = [PropertyFilterType.Event, PropertyFilterType.Feature]
+/** These property filter types get suggestions based on persons and groups – filter value suggestions ignore time. */
+export const PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS = [
+    PropertyFilterType.Person,
+    PropertyFilterType.Group,
+    // As of August 2024, session property values also aren't time-sensitive, but this may change
+    // (see RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER)
+    PropertyFilterType.Session,
+]
 
 // List of property definitions that are calculated on the backend. These
 // are valid properties that do not exist on events.
@@ -47,7 +59,7 @@ const localOptions: Record<string, PropValue[]> = {
         { id: 0, name: 'web' },
         { id: 1, name: 'mobile' },
     ],
-    'session/console_log_level': [
+    'log_entry/level': [
         { id: 0, name: 'info' },
         { id: 1, name: 'warn' },
         { id: 2, name: 'error' },

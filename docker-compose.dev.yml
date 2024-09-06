@@ -37,6 +37,12 @@ services:
             service: redis
         ports:
             - '6379:6379'
+    redis7:
+        extends:
+            file: docker-compose.base.yml
+            service: redis7
+        ports:
+            - '6479:6379'
 
     flower:
         extends:
@@ -55,10 +61,15 @@ services:
             - '9440:9440'
             - '9009:9009'
         volumes:
+            # this new entrypoint file is to fix a bug detailed here https://github.com/ClickHouse/ClickHouse/pull/59991
+            # revert this when we upgrade clickhouse
+            - ./docker/clickhouse/entrypoint.sh:/entrypoint.sh
             - ./posthog/idl:/idl
             - ./docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
             - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
             - ./docker/clickhouse/users-dev.xml:/etc/clickhouse-server/users.xml
+            - ./docker/clickhouse/user_defined_function.xml:/etc/clickhouse-server/user_defined_function.xml
+            - ./posthog/user_scripts:/var/lib/clickhouse/user_scripts
         extra_hosts:
             - 'host.docker.internal:host-gateway'
         depends_on:

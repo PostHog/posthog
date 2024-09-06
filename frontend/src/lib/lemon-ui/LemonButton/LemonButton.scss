@@ -76,7 +76,8 @@
     outline: none;
     transition: var(--lemon-button-transition);
 
-    .font-normal {
+    .font-normal,
+    &.font-normal {
         font-family: var(--font-sans);
     }
 
@@ -332,21 +333,6 @@
             &.LemonButton--active {
                 background-color: var(--danger-highlight);
             }
-        }
-    }
-
-    .ant-tooltip & {
-        // Buttons have an overriden style in tooltips, as they are always dark
-        &:hover {
-            background: rgb(255 255 255 / 15%) !important;
-        }
-
-        &:active {
-            background: rgb(255 255 255 / 20%) !important;
-        }
-
-        .LemonButton__icon {
-            color: #fff !important;
         }
     }
 

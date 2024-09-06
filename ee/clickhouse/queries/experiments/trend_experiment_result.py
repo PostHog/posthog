@@ -8,6 +8,8 @@ from zoneinfo import ZoneInfo
 
 from numpy.random import default_rng
 from rest_framework.exceptions import ValidationError
+import scipy.stats as stats
+from sentry_sdk import capture_exception
 
 from ee.clickhouse.queries.experiments import (
     CONTROL_VARIANT_KEY,
@@ -38,8 +40,11 @@ P_VALUE_SIGNIFICANCE_LEVEL = 0.05
 class Variant:
     key: str
     count: int
+    # a fractional value, representing the proportion of the variant's exposure events relative to *control* exposure events
+    # default: the proportion of unique users relative to the *control* unique users
     exposure: float
-    # count of total events exposed to variant
+    # count of total exposure events exposed for a variant
+    # default: total number of unique users exposed to the variant (via "Feature flag called" event)
     absolute_exposure: int
 
 
@@ -244,6 +249,7 @@ class ClickhouseTrendExperimentResult:
 
             significance_code, p_value = self.are_results_significant(control_variant, test_variants, probabilities)
 
+            credible_intervals = calculate_credible_intervals([control_variant, *test_variants])
         except ValidationError:
             if validate:
                 raise
@@ -257,6 +263,7 @@ class ClickhouseTrendExperimentResult:
             "significance_code": significance_code,
             "p_value": p_value,
             "variants": [asdict(variant) for variant in [control_variant, *test_variants]],
+            "credible_intervals": credible_intervals,
         }
 
     def get_variants(self, insight_results, exposure_results):
@@ -320,7 +327,7 @@ class ClickhouseTrendExperimentResult:
         """
         Calculates probability that A is better than B. First variant is control, rest are test variants.
 
-        Supports maximum 4 variants today
+        Supports maximum 10 variants today
 
         For each variant, we create a Gamma distribution of arrival rates,
         where alpha (shape parameter) = count of variant + 1
@@ -331,13 +338,13 @@ class ClickhouseTrendExperimentResult:
 
         if len(test_variants) >= 10:
             raise ValidationError(
-                "Can't calculate A/B test results for more than 10 variants",
+                "Can't calculate experiment results for more than 10 variants",
                 code="too_much_data",
             )
 
         if len(test_variants) < 1:
             raise ValidationError(
-                "Can't calculate A/B test results for less than 2 variants",
+                "Can't calculate experiment results for less than 2 variants",
                 code="no_data",
             )
 
@@ -406,7 +413,7 @@ def calculate_probability_of_winning_for_each(variants: list[Variant]) -> list[P
 
     if len(variants) > 10:
         raise ValidationError(
-            "Can't calculate A/B test results for more than 10 variants",
+            "Can't calculate experiment results for more than 10 variants",
             code="too_much_data",
         )
 
@@ -440,7 +447,7 @@ def intermediate_poisson_term(count: int, iterator: int, relative_exposure: floa
 
 def poisson_p_value(control_count, control_exposure, test_count, test_exposure):
     """
-    Calculates the p-value of the A/B test.
+    Calculates the p-value of the experiment.
     Calculations from: https://www.evanmiller.org/statistical-formulas-for-programmers.html#count_test
     """
     relative_exposure = test_exposure / (control_exposure + test_exposure)
@@ -467,6 +474,38 @@ def calculate_p_value(control_variant: Variant, test_variants: list[Variant]) ->
         best_test_variant.count,
         best_test_variant.exposure,
     )
+
+
+def calculate_credible_intervals(variants, lower_bound=0.025, upper_bound=0.975):
+    """
+    Calculate the Bayesian credible intervals for the mean (average events per unit)
+    for a list of variants in a Trend experiment.
+    If no lower/upper bound is provided, the function calculates the 95% credible interval.
+    """
+    intervals = {}
+
+    for variant in variants:
+        try:
+            # Alpha (shape parameter) is count + 1, assuming a Gamma distribution for counts
+            alpha = variant.count + 1
+
+            # Beta (scale parameter) is the inverse of absolute_exposure,
+            # representing the average rate of events per user
+            beta = 1 / variant.absolute_exposure
+
+            # Calculate the credible interval for the mean using Gamma distribution
+            credible_interval = stats.gamma.ppf([lower_bound, upper_bound], a=alpha, scale=beta)
+
+            intervals[variant.key] = (credible_interval[0], credible_interval[1])
+
+        except Exception as e:
+            capture_exception(
+                Exception(f"Error calculating credible interval for variant {variant.key}"),
+                {"error": str(e)},
+            )
+            return {}
+
+    return intervals
 
 
 def validate_event_variants(trend_results, variants):

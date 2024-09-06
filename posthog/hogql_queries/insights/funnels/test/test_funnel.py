@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime
 from typing import cast
+from unittest.mock import patch, Mock
 
 from django.test import override_settings
 from freezegun import freeze_time
@@ -9,6 +10,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.api.instance_settings import get_instance_setting
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType, FunnelVizType
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.insights.funnels import Funnel
@@ -41,7 +43,9 @@ from posthog.schema import (
     FunnelsActorsQuery,
     FunnelsFilter,
     FunnelsQuery,
+    HogQLQueryModifiers,
     InsightDateRange,
+    PersonsOnEventsMode,
     PropertyOperator,
 )
 from posthog.test.base import (
@@ -65,6 +69,7 @@ def _create_action(**kwargs):
     return action
 
 
+@patch("posthoganalytics.feature_enabled", new=Mock(return_value=False))
 class TestFunnelBreakdown(
     ClickhouseTestMixin,
     funnel_breakdown_test_factory(  # type: ignore
@@ -78,6 +83,7 @@ class TestFunnelBreakdown(
     pass
 
 
+@patch("posthoganalytics.feature_enabled", new=Mock(return_value=False))
 class TestFunnelGroupBreakdown(
     ClickhouseTestMixin,
     funnel_breakdown_group_test_factory(  # type: ignore
@@ -88,6 +94,7 @@ class TestFunnelGroupBreakdown(
     pass
 
 
+@patch("posthoganalytics.feature_enabled", new=Mock(return_value=False))
 class TestFunnelConversionTime(
     ClickhouseTestMixin,
     funnel_conversion_time_test_factory(FunnelOrderType.ORDERED, ClickhouseFunnelActors),  # type: ignore
@@ -808,6 +815,56 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             self.assertEqual(results[1]["name"], "paid")
             self.assertEqual(results[1]["count"], 1)
+
+        def test_basic_funnel_with_person_id_override_properties_joined_modifier_and_person_breakdown(self):
+            filters = {
+                "events": [
+                    {"id": "user signed up", "type": "events", "order": 0},
+                    {"id": "paid", "type": "events", "order": 1},
+                ],
+                "insight": INSIGHT_FUNNELS,
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-14",
+                "breakdown": "$browser",
+                "breakdown_type": "person",
+            }
+
+            # event
+            _create_person(distinct_ids=["user_1"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id="user_1",
+                timestamp="2020-01-02T14:00:00Z",
+            )
+            _create_event(
+                team=self.team,
+                event="paid",
+                distinct_id="user_1",
+                timestamp="2020-01-10T14:00:00Z",
+            )
+
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = (
+                FunnelsQueryRunner(
+                    query=query,
+                    team=self.team,
+                    modifiers=create_default_modifiers_for_team(
+                        self.team,
+                        HogQLQueryModifiers(
+                            personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED
+                        ),
+                    ),
+                )
+                .calculate()
+                .results
+            )
+
+            self.assertEqual(results[0][0]["name"], "user signed up")
+            self.assertEqual(results[0][0]["count"], 1)
+
+            self.assertEqual(results[0][1]["name"], "paid")
+            self.assertEqual(results[0][1]["count"], 1)
 
         def test_basic_funnel_with_repeat_steps(self):
             filters = {
@@ -2407,10 +2464,14 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-            self.assertEqual(results[0]["name"], "user signed up")
-            self.assertEqual(results[0]["count"], 0)
-
-            self.assertEqual(results[4]["count"], 0)
+            # There should be no events. UDF funnels returns an empty array and says "no events"
+            # Old style funnels returns a count of 0
+            try:
+                self.assertEqual([], results)
+            except AssertionError:
+                self.assertEqual(results[0]["name"], "user signed up")
+                self.assertEqual(results[0]["count"], 0)
+                self.assertEqual(results[4]["count"], 0)
 
             self.assertCountEqual(self._get_actor_ids_at_step(filters, 1), [])
 
@@ -3237,7 +3298,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             # event
             _create_person(distinct_ids=["user_1"], team_id=self.team.pk)
-            #  this event shouldn't appear as in US/Pacific this would be the previous day
+            # this event shouldn't appear as in US/Pacific this would be the previous day
             _create_event(
                 team=self.team,
                 event="user signed up",
@@ -3247,9 +3308,13 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-
-            self.assertEqual(results[0]["name"], "user signed up")
-            self.assertEqual(results[0]["count"], 0)
+            # There should be no events. UDF funnels returns an empty array and says "no events"
+            # Old style funnels returns a count of 0
+            try:
+                self.assertEqual([], results)
+            except AssertionError:
+                self.assertEqual(results[0]["name"], "user signed up")
+                self.assertEqual(results[0]["count"], 0)
 
         def test_funnel_with_sampling(self):
             action_play_movie = Action.objects.create(
@@ -4042,6 +4107,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
     return TestGetFunnel
 
 
+@patch("posthoganalytics.feature_enabled", new=Mock(return_value=False))
 class TestFOSSFunnel(funnel_test_factory(Funnel, _create_event, _create_person)):  # type: ignore
     maxDiff = None
 

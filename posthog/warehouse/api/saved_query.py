@@ -1,7 +1,10 @@
 from typing import Any
 
+import structlog
 from django.conf import settings
-from rest_framework import exceptions, filters, serializers, viewsets, response, request, status
+from django.db import transaction
+from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
+from rest_framework.decorators import action
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -11,7 +14,9 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.metadata import is_valid_view
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
-from posthog.warehouse.models import DataWarehouseSavedQuery, DataWarehouseJoin
+from posthog.warehouse.models import DataWarehouseJoin, DataWarehouseModelPath, DataWarehouseSavedQuery
+
+logger = structlog.get_logger(__name__)
 
 
 class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
@@ -61,25 +66,45 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         except Exception as err:
             raise serializers.ValidationError(str(err))
 
-        view.save()
+        with transaction.atomic():
+            view.save()
+
+            try:
+                DataWarehouseModelPath.objects.create_from_saved_query(view)
+            except Exception:
+                # For now, do not fail saved query creation if we cannot model-ize it.
+                # Later, after bugs and errors have been ironed out, we may tie these two
+                # closer together.
+                logger.exception("Failed to create model path when creating view %s", view.name)
+
         return view
 
     def update(self, instance: Any, validated_data: Any) -> Any:
-        view: DataWarehouseSavedQuery = super().update(instance, validated_data)
+        with transaction.atomic():
+            view: DataWarehouseSavedQuery = super().update(instance, validated_data)
 
-        try:
-            view.columns = view.get_columns()
-            view.external_tables = view.s3_tables
-        except Exception as err:
-            raise serializers.ValidationError(str(err))
-        view.save()
+            try:
+                view.columns = view.get_columns()
+                view.external_tables = view.s3_tables
+            except RecursionError:
+                raise serializers.ValidationError("Model contains a cycle")
+
+            except Exception as err:
+                raise serializers.ValidationError(str(err))
+
+            view.save()
+
+            try:
+                DataWarehouseModelPath.objects.update_from_saved_query(view)
+            except Exception:
+                logger.exception("Failed to update model path when updating view %s", view.name)
+
         return view
 
     def validate_query(self, query):
         team_id = self.context["team_id"]
 
         context = HogQLContext(team_id=team_id, enable_select_queries=True)
-        context.max_view_depth = 0
         select_ast = parse_select(query["query"])
         _is_valid_view = is_valid_view(select_ast)
         if not _is_valid_view:
@@ -126,3 +151,64 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         self.perform_destroy(instance)
 
         return response.Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(methods=["POST"], detail=True)
+    def ancestors(self, request: request.Request, *args, **kwargs) -> response.Response:
+        """Return the ancestors of this saved query.
+
+        By default, we return the immediate parents. The `level` parameter can be used to
+        look further back into the ancestor tree. If `level` overshoots (i.e. points to only
+        ancestors beyond the root), we return an empty list.
+        """
+        up_to_level = request.data.get("level", None)
+
+        saved_query = self.get_object()
+        saved_query_id = saved_query.id.hex
+        lquery = f"*{{1,}}.{saved_query_id}"
+
+        paths = DataWarehouseModelPath.objects.filter(team=saved_query.team, path__lquery=lquery)
+
+        if not paths:
+            return response.Response({"ancestors": []})
+
+        ancestors: set[str] = set()
+        for model_path in paths:
+            if up_to_level is None:
+                start = 0
+            else:
+                start = (int(up_to_level) * -1) - 1
+
+            ancestors = ancestors.union(model_path.path[start:-1])
+
+        return response.Response({"ancestors": ancestors})
+
+    @action(methods=["POST"], detail=True)
+    def descendants(self, request: request.Request, *args, **kwargs) -> response.Response:
+        """Return the descendants of this saved query.
+
+        By default, we return the immediate children. The `level` parameter can be used to
+        look further ahead into the descendants tree. If `level` overshoots (i.e. points to only
+        descendants further than a leaf), we return an empty list.
+        """
+        up_to_level = request.data.get("level", None)
+
+        saved_query = self.get_object()
+        saved_query_id = saved_query.id.hex
+
+        lquery = f"*.{saved_query_id}.*{{1,}}"
+        paths = DataWarehouseModelPath.objects.filter(team=saved_query.team, path__lquery=lquery)
+
+        if not paths:
+            return response.Response({"descendants": []})
+
+        descendants: set[str] = set()
+        for model_path in paths:
+            start = model_path.path.index(saved_query_id) + 1
+            if up_to_level is None:
+                end = len(model_path.path)
+            else:
+                end = start + up_to_level
+
+            descendants = descendants.union(model_path.path[start:end])
+
+        return response.Response({"descendants": descendants})

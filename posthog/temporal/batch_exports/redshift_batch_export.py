@@ -366,7 +366,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
             fields.
     """
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="Redshift")
-    logger.info(
+    await logger.ainfo(
         "Batch exporting range %s - %s to Redshift: %s.%s.%s",
         inputs.data_interval_start,
         inputs.data_interval_end,
@@ -438,7 +438,10 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
         requires_merge = (
             isinstance(inputs.batch_export_model, BatchExportModel) and inputs.batch_export_model.name == "persons"
         )
-        stagle_table_name = f"stage_{inputs.table_name}" if requires_merge else inputs.table_name
+        data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
+        stagle_table_name = (
+            f"stage_{inputs.table_name}_{data_interval_end_str}" if requires_merge else inputs.table_name
+        )
 
         if requires_merge:
             primary_key: Fields | None = (("team_id", "INTEGER"), ("distinct_id", "VARCHAR(200)"))

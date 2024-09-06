@@ -84,7 +84,6 @@ SELECT
 FROM
     events_batch_export_unbounded(
         team_id={team_id},
-        lookback_days={lookback_days},
         interval_start={interval_start},
         interval_end={interval_end},
         include_events={include_events}::Array(String),
@@ -174,31 +173,69 @@ async def iter_records_from_model_view(
     team_id: int,
     interval_start: str,
     interval_end: str,
+    fields: list[BatchExportField],
     **parameters,
 ) -> AsyncRecordsGenerator:
     if model_name == "persons":
         view = SELECT_FROM_PERSONS_VIEW
-    else:
+    elif str(team_id) not in settings.ASYNC_ARROW_STREAMING_TEAM_IDS:
         # TODO: Let this model be exported by `astream_query_as_arrow`.
         # Just to reduce risk, I don't want to change the function that runs 100% of the exports
         # without battle testing it first.
         # There are already changes going out to the queries themselves that will impact events in a
         # positive way. So, we can come back later and drop this block.
+        # UPDATE: Will start moving teams over to `astream_query_as_arrow` by setting their ids
+        # in `ASYNC_ARROW_STREAMING_TEAM_IDS`. If testing goes well, we'll remove this block.
         for record_batch in iter_records(
             client,
             team_id=team_id,
             is_backfill=is_backfill,
             interval_start=interval_start,
             interval_end=interval_end,
+            fields=fields,
             **parameters,
         ):
             yield record_batch
         return
+    else:
+        if parameters["exclude_events"]:
+            parameters["exclude_events"] = list(parameters["exclude_events"])
+        else:
+            parameters["exclude_events"] = []
+
+        if parameters["include_events"]:
+            parameters["include_events"] = list(parameters["include_events"])
+        else:
+            parameters["include_events"] = []
+
+        if str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
+            query_template = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
+        elif is_backfill:
+            query_template = SELECT_FROM_EVENTS_VIEW_BACKFILL
+        else:
+            query_template = SELECT_FROM_EVENTS_VIEW
+            lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS)
+            parameters["lookback_days"] = lookback_days
+
+        if "_inserted_at" not in [field["alias"] for field in fields]:
+            control_fields = [BatchExportField(expression="_inserted_at", alias="_inserted_at")]
+        else:
+            control_fields = []
+
+        query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields + control_fields)
+
+        view = query_template.substitute(fields=query_fields)
 
     parameters["team_id"] = team_id
     parameters["interval_start"] = dt.datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
     parameters["interval_end"] = dt.datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
-    async for record_batch in client.astream_query_as_arrow(view, query_parameters=parameters):
+    extra_query_parameters = parameters.pop("extra_query_parameters") or {}
+    parameters = {**parameters, **extra_query_parameters}
+
+    async for record_batch in client.astream_query_as_arrow(
+        query=view,
+        query_parameters=parameters,
+    ):
         yield record_batch
 
 
@@ -252,7 +289,13 @@ def iter_records(
 
         query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields + control_fields)
 
-    lookback_days = 4
+    base_query_parameters = {
+        "team_id": team_id,
+        "interval_start": data_interval_start_ch,
+        "interval_end": data_interval_end_ch,
+        "exclude_events": events_to_exclude_array,
+        "include_events": events_to_include_array,
+    }
     if str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
         query = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
     elif is_backfill:
@@ -260,16 +303,9 @@ def iter_records(
     else:
         query = SELECT_FROM_EVENTS_VIEW
         lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS)
+        base_query_parameters["lookback_days"] = lookback_days
 
     query_str = query.substitute(fields=query_fields)
-    base_query_parameters = {
-        "team_id": team_id,
-        "interval_start": data_interval_start_ch,
-        "interval_end": data_interval_end_ch,
-        "exclude_events": events_to_exclude_array,
-        "include_events": events_to_include_array,
-        "lookback_days": lookback_days,
-    }
 
     if extra_query_parameters is not None:
         query_parameters = base_query_parameters | extra_query_parameters
@@ -376,7 +412,7 @@ async def start_batch_export_run(inputs: StartBatchExportRunInputs) -> BatchExpo
     (i.e. without running the insert activity), as there will be nothing to export.
     """
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
-    logger.info(
+    await logger.ainfo(
         "Starting batch export for range %s - %s",
         inputs.data_interval_start,
         inputs.data_interval_end,
@@ -442,24 +478,24 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
     }
     batch_export_run = await database_sync_to_async(update_batch_export_run)(
         run_id=uuid.UUID(inputs.id),
-        finished_at=dt.datetime.now(),
+        finished_at=dt.datetime.now(dt.UTC),
         **update_params,
     )
 
     if batch_export_run.status == BatchExportRun.Status.FAILED_RETRYABLE:
-        logger.error("Batch export failed with error: %s", batch_export_run.latest_error)
+        await logger.aerror("Batch export failed with error: %s", batch_export_run.latest_error)
 
     elif batch_export_run.status == BatchExportRun.Status.FAILED:
-        logger.error("Batch export failed with non-recoverable error: %s", batch_export_run.latest_error)
+        await logger.aerror("Batch export failed with non-recoverable error: %s", batch_export_run.latest_error)
 
         from posthog.tasks.email import send_batch_export_run_failure
 
         try:
             await database_sync_to_async(send_batch_export_run_failure)(inputs.id)
         except Exception:
-            logger.exception("Failure email notification could not be sent")
+            await logger.aexception("Failure email notification could not be sent")
         else:
-            logger.info("Failure notification email for run %s has been sent", inputs.id)
+            await logger.ainfo("Failure notification email for run %s has been sent", inputs.id)
 
         is_over_failure_threshold = await check_if_over_failure_threshold(
             inputs.batch_export_id,
@@ -476,10 +512,10 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
             # Pausing could error if the underlying schedule is deleted.
             # Our application logic should prevent that, but I want to log it in case it ever happens
             # as that would indicate a bug.
-            logger.exception("Batch export could not be automatically paused")
+            await logger.aexception("Batch export could not be automatically paused")
         else:
             if was_paused:
-                logger.warning(
+                await logger.awarning(
                     "Batch export was automatically paused due to exceeding failure threshold and exhausting "
                     "all automated retries."
                     "The batch export can be unpaused after addressing any errors."
@@ -490,10 +526,10 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
                 inputs.batch_export_id,
             )
         except Exception:
-            logger.exception("Ongoing backfills could not be automatically cancelled")
+            await logger.aexception("Ongoing backfills could not be automatically cancelled")
         else:
             if total_cancelled > 0:
-                logger.warning(
+                await logger.awarning(
                     f"{total_cancelled} ongoing batch export backfill{'s' if total_cancelled > 1 else ''} "
                     f"{'were' if total_cancelled > 1 else 'was'} cancelled due to exceeding failure threshold "
                     " and exhausting all automated retries."
@@ -501,10 +537,10 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
                 )
 
     elif batch_export_run.status == BatchExportRun.Status.CANCELLED:
-        logger.warning("Batch export was cancelled")
+        await logger.awarning("Batch export was cancelled")
 
     else:
-        logger.info(
+        await logger.ainfo(
             "Successfully finished exporting batch %s - %s",
             batch_export_run.data_interval_start,
             batch_export_run.data_interval_end,
@@ -616,7 +652,7 @@ async def create_batch_export_backfill_model(inputs: CreateBatchExportBackfillIn
     model instance to represent them in our database.
     """
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
-    logger.info(
+    await logger.ainfo(
         "Creating historical export for batches in range %s - %s",
         inputs.start_at,
         inputs.end_at,
@@ -649,13 +685,13 @@ async def update_batch_export_backfill_model_status(inputs: UpdateBatchExportBac
     logger = await bind_temporal_worker_logger(team_id=backfill.team_id)
 
     if backfill.status in (BatchExportBackfill.Status.FAILED, BatchExportBackfill.Status.FAILED_RETRYABLE):
-        logger.error("Historical export failed")
+        await logger.aerror("Historical export failed")
 
     elif backfill.status == BatchExportBackfill.Status.CANCELLED:
-        logger.warning("Historical export was cancelled.")
+        await logger.awarning("Historical export was cancelled.")
 
     else:
-        logger.info(
+        await logger.ainfo(
             "Successfully finished exporting historical batches in %s - %s",
             backfill.start_at,
             backfill.end_at,
