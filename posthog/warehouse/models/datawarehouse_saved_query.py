@@ -39,7 +39,7 @@ def validate_saved_query_name(value):
 
 class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
     class Status(models.TextChoices):
-        """Possible states of the BatchExportRun."""
+        """Possible states of this SavedQuery."""
 
         CANCELLED = "Cancelled"
         COMPLETED = "Completed"
