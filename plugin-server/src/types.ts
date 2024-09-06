@@ -1047,20 +1047,6 @@ export enum Database {
     Postgres = 'postgres',
 }
 
-export interface PluginScheduleControl {
-    stopSchedule: () => Promise<void>
-    reloadSchedule: () => Promise<void>
-}
-
-export interface JobsConsumerControl {
-    stop: () => Promise<void>
-    resume: () => Promise<void>
-}
-
-export type IngestEventResponse =
-    | { success: true; actionMatches: Action[]; preIngestionEvent: PreIngestionEvent | null }
-    | { success: false; error: string }
-
 export interface EventDefinitionType {
     id: string
     name: string

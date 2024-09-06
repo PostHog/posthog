@@ -3,7 +3,6 @@ import { defaultConfig } from './config/config'
 import { initApp } from './init'
 import { startPluginsServer } from './main/pluginsServer'
 import { Status } from './utils/status'
-import { makePiscina } from './worker/piscina'
 
 const { version } = require('../package.json')
 const { argv } = process
@@ -37,6 +36,6 @@ switch (alternativeMode) {
         // void the returned promise
         initApp(defaultConfig)
         const capabilities = getPluginServerCapabilities(defaultConfig)
-        void startPluginsServer(defaultConfig, makePiscina, capabilities)
+        void startPluginsServer(defaultConfig, capabilities)
         break
 }
