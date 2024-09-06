@@ -2,9 +2,6 @@ from uuid import uuid4
 
 from posthog.models import Person, PersonDistinctId, Team
 from posthog.models.utils import UUIDT
-from posthog.session_recordings.queries.test.session_replay_sql import (
-    produce_replay_summary,
-)
 
 
 class DataGenerator:
@@ -69,6 +66,7 @@ class DataGenerator:
 
     def bulk_import_events(self):
         from posthog.models.event.util import create_event
+        from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
         for event_data in self.events:
             create_event(**event_data, team=self.team, event_uuid=uuid4())
