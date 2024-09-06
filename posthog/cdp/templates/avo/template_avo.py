@@ -17,8 +17,8 @@ let avoEvent := {
     'apiKey': inputs.apiKey,
     'env': inputs.environment,
     'appName': inputs.appName,
-    'sessionId': '6210349f-a6f2-4082-84f4-9696f95c7e10', // Generate Session ID
-    'createdAt': '2024-08-30T11:48:18.853Z', // Generate timestamp
+    'sessionId': generateUUIDv4(),
+    'createdAt': toString(toDateTime(toUnixTimestamp(now()))),
     'avoFunction': false,
     'eventId': null,
     'eventHash': null,
