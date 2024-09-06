@@ -954,6 +954,7 @@ export type FunnelsFilter = {
     hiddenLegendBreakdowns?: string[]
     /** @default total */
     funnelStepReference?: FunnelsFilterLegacy['funnel_step_reference']
+    useUdf?: boolean
 }
 
 export interface FunnelsQuery extends InsightsQueryBase<FunnelsQueryResponse> {
@@ -980,7 +981,9 @@ export type FunnelTrendsResults = Record<string, any>[]
 export interface FunnelsQueryResponse
     extends AnalyticsQueryResponseBase<
         FunnelStepsResults | FunnelStepsBreakdownResults | FunnelTimeToConvertResults | FunnelTrendsResults
-    > {}
+    > {
+    isUdf?: boolean
+}
 
 export type CachedFunnelsQueryResponse = CachedQueryResponse<FunnelsQueryResponse>
 

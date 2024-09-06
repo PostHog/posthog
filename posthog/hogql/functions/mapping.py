@@ -470,6 +470,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "timeStampSub": HogQLFunctionMeta("timeStampSub", 2, 2),
     "now": HogQLFunctionMeta("now64", 0, 1, tz_aware=True, case_sensitive=False),
     "nowInBlock": HogQLFunctionMeta("nowInBlock", 1, 1),
+    "rowNumberInBlock": HogQLFunctionMeta("rowNumberInBlock", 0, 0),
     "rowNumberInAllBlocks": HogQLFunctionMeta("rowNumberInAllBlocks", 0, 0),
     "today": HogQLFunctionMeta("today"),
     "yesterday": HogQLFunctionMeta("yesterday"),
@@ -835,6 +836,14 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "leadInFrame": HogQLFunctionMeta("leadInFrame", 1, 1),
     # table functions
     "generateSeries": HogQLFunctionMeta("generate_series", 3, 3),
+    ## UDFS
+    "aggregate_funnel": HogQLFunctionMeta("aggregate_funnel", 6, 6, aggregate=False),
+    "aggregate_funnel_array": HogQLFunctionMeta("aggregate_funnel_array", 6, 6, aggregate=False),
+    "aggregate_funnel_cohort": HogQLFunctionMeta("aggregate_funnel_cohort", 6, 6, aggregate=False),
+    "aggregate_funnel_trends": HogQLFunctionMeta("aggregate_funnel_trends", 7, 7, aggregate=False),
+    "aggregate_funnel_array_trends": HogQLFunctionMeta("aggregate_funnel_array_trends", 7, 7, aggregate=False),
+    "aggregate_funnel_cohort_trends": HogQLFunctionMeta("aggregate_funnel_cohort_trends", 7, 7, aggregate=False),
+    "aggregate_funnel_test": HogQLFunctionMeta("aggregate_funnel_test", 6, 6, aggregate=False),
 }
 # Permitted HogQL aggregations
 HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
@@ -886,7 +895,7 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     # "topKWeighted": HogQLFunctionMeta("topKWeighted", 1, 1, aggregate=True),
     # "topKWeightedIf": HogQLFunctionMeta("topKWeightedIf", 2, 2, aggregate=True),
     "groupArray": HogQLFunctionMeta("groupArray", 1, 1, aggregate=True),
-    # "groupArrayIf": HogQLFunctionMeta("groupArrayIf", 2, 2, aggregate=True),
+    "groupArrayIf": HogQLFunctionMeta("groupArrayIf", 2, 2, aggregate=True),
     # "groupArrayLast": HogQLFunctionMeta("groupArrayLast", 1, 1, aggregate=True),
     # "groupArrayLastIf": HogQLFunctionMeta("groupArrayLastIf", 2, 2, aggregate=True),
     "groupUniqArray": HogQLFunctionMeta("groupUniqArray", 1, 1, aggregate=True),

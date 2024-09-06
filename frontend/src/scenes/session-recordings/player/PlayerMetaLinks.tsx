@@ -170,7 +170,7 @@ const MenuActions = (): JSX.Element => {
         useActions(sessionRecordingPlayerLogic)
     const { fetchSimilarRecordings } = useActions(sessionRecordingDataLogic(logicProps))
 
-    const hasMobileExport = useFeatureFlag('SESSION_REPLAY_EXPORT_MOBILE_DATA')
+    const hasMobileExport = window.IMPERSONATED_SESSION || useFeatureFlag('SESSION_REPLAY_EXPORT_MOBILE_DATA')
     const hasSimilarRecordings = useFeatureFlag('REPLAY_SIMILAR_RECORDINGS')
 
     const onDelete = (): void => {
