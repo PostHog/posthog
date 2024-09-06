@@ -161,7 +161,6 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
     def run(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Run this saved query."""
         saved_query = self.get_object()
-        saved_query.status = DataWarehouseSavedQuery.Status.STARTING
 
         temporal = sync_connect()
         inputs = RunWorkflowInputs(team_id=saved_query.team_id, select=[saved_query.id.hex])
@@ -173,7 +172,6 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             task_queue=DATA_WAREHOUSE_TASK_QUEUE,
         )
 
-        saved_query.save()
         return response.Response(status=status.HTTP_200_OK)
 
     @action(methods=["POST"], detail=True)

@@ -45,7 +45,6 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         COMPLETED = "Completed"
         FAILED = "Failed"
         RUNNING = "Running"
-        STARTING = "Starting"
 
     name = models.CharField(max_length=128, validators=[validate_saved_query_name])
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
@@ -57,10 +56,10 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
     )
     external_tables = models.JSONField(default=list, null=True, blank=True, help_text="List of all external tables")
     query = models.JSONField(default=dict, null=True, blank=True, help_text="HogQL query")
-    last_run_status = models.CharField(
+    status = models.CharField(
         null=True, choices=Status.choices, max_length=64, help_text="The status of when this SavedQuery last ran."
     )
-    last_ran_at = models.DateTimeField(
+    at = models.DateTimeField(
         null=True,
         help_text="The timestamp at which this SavedQuery was last ran.",
     )
