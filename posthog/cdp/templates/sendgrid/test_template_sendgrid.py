@@ -1,6 +1,8 @@
 from inline_snapshot import snapshot
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-from posthog.cdp.templates.sendgrid.template_sendgrid import template as template_sendgrid
+from posthog.cdp.templates.sendgrid.template_sendgrid import template as template_sendgrid, TemplateSendGridMigrator
+from posthog.models import PluginConfig
+from posthog.test.base import BaseTest
 
 
 class TestTemplateSendgrid(BaseHogFunctionTemplateTest):
@@ -88,4 +90,97 @@ class TestTemplateSendgrid(BaseHogFunctionTemplateTest):
                     },
                 },
             )
+        )
+
+
+class TestTemplateMigration(BaseTest):
+    def get_plugin_config(self, config: dict):
+        _config = {
+            "sendgridApiKey": "SENDGRID_API_KEY",
+            "customFields": "",
+        }
+        _config.update(config)
+        return PluginConfig(enabled=True, order=0, config=_config)
+
+    def test_empty_fields(self):
+        obj = self.get_plugin_config({})
+
+        template = TemplateSendGridMigrator.migrate(obj)
+        assert template["inputs"] == snapshot(
+            {
+                "api_key": {"value": "SENDGRID_API_KEY"},
+                "email": {"value": "{person.properties.email}"},
+                "custom_fields": {"value": {}},
+                "properties": {"value": {}},
+            }
+        )
+        assert template["filters"] == snapshot(
+            {"events": [{"id": "$identify", "name": "$identify", "type": "events", "order": 0}]}
+        )
+
+    def test_default_properties(self):
+        obj = self.get_plugin_config({"customFields": "last_name,first_name"})
+
+        template = TemplateSendGridMigrator.migrate(obj)
+        assert template["inputs"] == snapshot(
+            {
+                "api_key": {"value": "SENDGRID_API_KEY"},
+                "email": {"value": "{person.properties.email}"},
+                "custom_fields": {"value": {}},
+                "properties": {
+                    "value": {
+                        "last_name": "{person.properties.last_name}",
+                        "first_name": "{person.properties.first_name}",
+                    }
+                },
+            }
+        )
+        assert template["filters"] == snapshot(
+            {"events": [{"id": "$identify", "name": "$identify", "type": "events", "order": 0}]}
+        )
+
+    def test_custom_fields(self):
+        obj = self.get_plugin_config({"customFields": "last_name,first_name,misc_name,banana"})
+
+        template = TemplateSendGridMigrator.migrate(obj)
+        assert template["inputs"] == snapshot(
+            {
+                "api_key": {"value": "SENDGRID_API_KEY"},
+                "email": {"value": "{person.properties.email}"},
+                "custom_fields": {
+                    "value": {"misc_name": "{person.properties.misc_name}", "banana": "{person.properties.banana}"}
+                },
+                "properties": {
+                    "value": {
+                        "last_name": "{person.properties.last_name}",
+                        "first_name": "{person.properties.first_name}",
+                    }
+                },
+            }
+        )
+        assert template["filters"] == snapshot(
+            {"events": [{"id": "$identify", "name": "$identify", "type": "events", "order": 0}]}
+        )
+
+    def test_property_rename(self):
+        obj = self.get_plugin_config({"customFields": "$lastName=last_name,first_name,misc_name,$pineapple=banana"})
+
+        template = TemplateSendGridMigrator.migrate(obj)
+        assert template["inputs"] == snapshot(
+            {
+                "api_key": {"value": "SENDGRID_API_KEY"},
+                "email": {"value": "{person.properties.email}"},
+                "custom_fields": {
+                    "value": {"misc_name": "{person.properties.misc_name}", "banana": "{person.properties.$pineapple}"}
+                },
+                "properties": {
+                    "value": {
+                        "last_name": "{person.properties.$lastName}",
+                        "first_name": "{person.properties.first_name}",
+                    }
+                },
+            }
+        )
+        assert template["filters"] == snapshot(
+            {"events": [{"id": "$identify", "name": "$identify", "type": "events", "order": 0}]}
         )

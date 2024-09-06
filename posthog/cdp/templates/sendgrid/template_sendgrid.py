@@ -146,16 +146,16 @@ class TemplateSendGridMigrator(HogFunctionTemplateMigrator):
             "properties": {"value": {}},
             "custom_fields": {"value": {}},
         }
-
-        for field in customFields.split(","):
-            if "=" in field:
-                posthog_prop, sendgrid_field = field.split("=")
-            else:
-                posthog_prop = sendgrid_field = field.strip()
-            posthog_prop = f"{{person.properties.{posthog_prop}}}"
-            if sendgrid_field in sendgrid_fields:
-                hf["inputs"]["properties"]["value"][sendgrid_field] = posthog_prop
-            else:
-                hf["inputs"]["custom_fields"]["value"][sendgrid_field] = posthog_prop
+        if customFields:
+            for field in customFields.split(","):
+                if "=" in field:
+                    posthog_prop, sendgrid_field = field.split("=")
+                else:
+                    posthog_prop = sendgrid_field = field.strip()
+                posthog_prop = f"{{person.properties.{posthog_prop}}}"
+                if sendgrid_field in sendgrid_fields:
+                    hf["inputs"]["properties"]["value"][sendgrid_field] = posthog_prop
+                else:
+                    hf["inputs"]["custom_fields"]["value"][sendgrid_field] = posthog_prop
 
         return hf
