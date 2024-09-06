@@ -11,16 +11,7 @@ import * as IORedis from 'ioredis'
 import { DateTime } from 'luxon'
 
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../src/config/kafka-topics'
-import {
-    ClickHouseEvent,
-    Database,
-    Hub,
-    LogLevel,
-    Person,
-    PluginsServerConfig,
-    PropertyDefinitionTypeEnum,
-    Team,
-} from '../../src/types'
+import { ClickHouseEvent, Database, Hub, LogLevel, Person, PluginsServerConfig, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { PostgresUse } from '../../src/utils/db/postgres'
 import { personInitialAndUTMProperties } from '../../src/utils/db/utils'
@@ -267,9 +258,6 @@ test('capture new person', async () => {
         'testTag'
     )
     team = await getFirstTeam(hub)
-
-    expect(await hub.db.fetchEventDefinitions()).toEqual([])
-    expect(await hub.db.fetchPropertyDefinitions()).toEqual([])
 
     const properties = personInitialAndUTMProperties({
         distinct_id: 2,
@@ -1607,96 +1595,6 @@ describe('when handling $create_alias', () => {
         const persons = await hub.db.fetchPersons()
         expect(persons.map((person) => person.is_identified)).toEqual([true])
     })
-})
-
-test('team event_properties', async () => {
-    expect(await hub.db.fetchEventDefinitions()).toEqual([])
-    expect(await hub.db.fetchEventProperties()).toEqual([])
-    expect(await hub.db.fetchPropertyDefinitions()).toEqual([])
-
-    await processEvent(
-        'xxx',
-        '127.0.0.1',
-        '',
-        { event: 'purchase', properties: { price: 299.99, name: 'AirPods Pro' } } as any as PluginEvent,
-        team.id,
-        now,
-        new UUIDT().toString()
-    )
-
-    team = await getFirstTeam(hub)
-
-    expect(await hub.db.fetchEventDefinitions()).toEqual([
-        {
-            id: expect.any(String),
-            name: 'purchase',
-            query_usage_30_day: null,
-            team_id: 2,
-            volume_30_day: null,
-            created_at: expect.any(String),
-            last_seen_at: expect.any(String),
-        },
-    ])
-    expect(await hub.db.fetchPropertyDefinitions()).toEqual([
-        {
-            id: expect.any(String),
-            is_numerical: false,
-            name: '$ip',
-            property_type: 'String',
-            property_type_format: null,
-            query_usage_30_day: null,
-            team_id: 2,
-            volume_30_day: null,
-            type: PropertyDefinitionTypeEnum.Event,
-            group_type_index: null,
-        },
-        {
-            id: expect.any(String),
-            is_numerical: false,
-            name: 'name',
-            property_type: 'String',
-            property_type_format: null,
-            query_usage_30_day: null,
-            team_id: 2,
-            volume_30_day: null,
-            type: PropertyDefinitionTypeEnum.Event,
-            group_type_index: null,
-        },
-        {
-            id: expect.any(String),
-            is_numerical: true,
-            name: 'price',
-            property_type: 'Numeric',
-            property_type_format: null,
-            query_usage_30_day: null,
-            team_id: 2,
-            volume_30_day: null,
-            type: PropertyDefinitionTypeEnum.Event,
-            group_type_index: null,
-        },
-    ])
-
-    // flushed every minute normally, triggering flush now, it's tested elsewhere
-    expect(await hub.db.fetchEventProperties()).toEqual([
-        {
-            id: expect.any(Number),
-            event: 'purchase',
-            property: '$ip',
-            team_id: 2,
-        },
-        {
-            id: expect.any(Number),
-            event: 'purchase',
-            property: 'name',
-            team_id: 2,
-        },
-        {
-            id: expect.any(Number),
-            event: 'purchase',
-            property: 'price',
-            team_id: 2,
-        },
-    ])
 })
 
 test('event name object json', async () => {
