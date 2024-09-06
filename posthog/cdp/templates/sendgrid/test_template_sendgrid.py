@@ -51,7 +51,7 @@ class TestTemplateSendgrid(BaseHogFunctionTemplateTest):
         )
 
     def test_function_adds_custom_fields(self):
-        self.mock_fetch_response = lambda *args: {
+        self.mock_fetch_response = lambda *args: {  # type: ignore
             "status": 200,
             "body": {"custom_fields": [{"id": "id7", "name": "custom_field"}]},
         }
