@@ -40,7 +40,7 @@ export type HedgehogBuddyProps = {
     onPositionChange?: (actor: HedgehogActor) => void
     hedgehogConfig?: HedgehogConfig
     tooltip?: JSX.Element
-    inline?: boolean
+    static?: boolean
 }
 
 type Box = {
@@ -369,7 +369,11 @@ export class HedgehogActor {
 
                 const preventNextAnimation = this.animationCompletionHandler?.()
                 if (!preventNextAnimation) {
-                    this.setRandomAnimation()
+                    if (!this.static) {
+                        this.setRandomAnimation()
+                    } else {
+                        this.setAnimation('stop')
+                    }
                 }
             }
 
@@ -663,10 +667,11 @@ export class HedgehogActor {
                     }}
                     className="HedgehogBuddy"
                     data-content={preloadContent}
-                    onTouchStart={() => onTouchOrMouseStart()}
-                    onMouseDown={() => onTouchOrMouseStart()}
+                    onTouchStart={this.static ? undefined : () => onTouchOrMouseStart()}
+                    onMouseDown={this.static ? undefined : () => onTouchOrMouseStart()}
                     onMouseOver={() => (this.showTooltip = true)}
                     onMouseOut={() => (this.showTooltip = false)}
+                    onClick={this.static ? onClick : undefined}
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
                         position: this.static ? 'relative' : 'fixed',
@@ -770,7 +775,7 @@ export class HedgehogActor {
 }
 
 export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps>(function HedgehogBuddy(
-    { onActorLoaded, onClick: _onClick, onPositionChange, hedgehogConfig, tooltip, inline },
+    { onActorLoaded, onClick: _onClick, onPositionChange, hedgehogConfig, tooltip, static: staticMode },
     ref
 ): JSX.Element {
     const actorRef = useRef<HedgehogActor>()
@@ -802,8 +807,8 @@ export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps
     }, [tooltip])
 
     useEffect(() => {
-        actor.static = inline ?? false
-    }, [inline])
+        actor.static = staticMode ?? false
+    }, [staticMode])
 
     useEffect(() => {
         let timer: any = null

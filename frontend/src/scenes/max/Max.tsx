@@ -118,15 +118,16 @@ export function Max(): JSX.Element | null {
                 )}
             </div>
             <div className="relative flex items-start px-4">
-                <div className="flex -ml-2.5 -mt-2">
+                <div className="flex -my-4 -ml-4">
                     <HedgehogBuddy
-                        inline
+                        static
                         hedgehogConfig={{
                             ...hedgehogConfig,
                             walking_enabled: false,
                             controls_enabled: false,
                         }}
                         onClick={(actor) => actor.setAnimation('wave')}
+                        onActorLoaded={(actor) => actor.setAnimation('wave')}
                     />
                 </div>
                 <LemonInput
