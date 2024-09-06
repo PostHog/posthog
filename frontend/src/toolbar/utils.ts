@@ -73,19 +73,6 @@ export function elementToActionStep(element: HTMLElement, dataAttributes: string
     }
 }
 
-export function elementToExperimentStep(element: HTMLElement, dataAttributes: string[]): ActionStepType {
-    const query = elementToQuery(element, dataAttributes)
-
-    return {
-        event: '$autocapture',
-        href: element.getAttribute('href') || '',
-        text: getSafeText(element) || '',
-        selector: query || '',
-        url: window.location.protocol + '//' + window.location.host + window.location.pathname,
-        url_matching: 'exact',
-    }
-}
-
 export function getToolbarRootElement(): HTMLElement | null {
     return window.document.getElementById(TOOLBAR_ID) || null
 }

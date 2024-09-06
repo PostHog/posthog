@@ -2,11 +2,9 @@ import { Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
-// import { actionsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
-import {Experiment} from '~/types'
-import {experimentsLogic} from "~/toolbar/experiments/experimentsLogic";
-import {experimentsTabLogic} from "~/toolbar/experiments/experimentsTabLogic";
-// import {experimentsTabLogic} from "~/toolbar/experiments/experimentsTabLogic";
+import { experimentsLogic } from '~/toolbar/experiments/experimentsLogic'
+import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
+import { Experiment } from '~/types'
 
 interface ExperimentsListViewProps {
     experiments: Experiment[]

@@ -4,9 +4,7 @@ import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import React from 'react'
 
-import { SelectorEditingModal } from '~/toolbar/actions/SelectorEditingModal'
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
 import { WebExperimentTransformField } from '~/toolbar/experiments/WebExperimentTransformField'
@@ -14,21 +12,13 @@ import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ExperimentForm, WebExperimentTransform } from '~/toolbar/types'
 
 export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
-    const {
-        selectedExperimentId,
-        inspectingElement,
-        editingSelector,
-        elementsChainBeingEdited,
-        editingSelectorValue,
-        experimentForm,
-    } = useValues(experimentsTabLogic)
+    const { selectedExperimentId, inspectingElement, experimentForm } = useValues(experimentsTabLogic)
     const {
         setExperimentFormValue,
         selectExperiment,
         selectVariant,
         inspectForElementWithIndex,
         deleteExperiment,
-        setElementSelector,
         editSelectorWithIndex,
     } = useActions(experimentsTabLogic)
 
@@ -44,20 +34,6 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
 
     return (
         <ToolbarMenu>
-            <SelectorEditingModal
-                isOpen={editingSelector !== null}
-                setIsOpen={() => editSelectorWithIndex('', null)}
-                activeElementChain={elementsChainBeingEdited}
-                startingSelector={editingSelectorValue}
-                onChange={(selector) => {
-                    if (selector && editingSelector !== null) {
-                        toolbarPosthogJS.capture('toolbar_manual_selector_applied', {
-                            chosenSelector: selector,
-                        })
-                        setElementSelector(selector, editingSelector)
-                    }
-                }}
-            />
             <Form
                 name="experiment"
                 logic={experimentsTabLogic}
@@ -74,16 +50,21 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                 <ToolbarMenu.Body>
                     <div>
                         <div className="flex">
-                            <EditableField
-                                onSave={(newName) => {
-                                    experimentForm.name = newName
-                                }}
-                                name="item-name-small"
-                                value={experimentForm.name}
-                            />
+                            {selectedExperimentId === 'new' ? (
+                                <EditableField
+                                    onSave={(newName) => {
+                                        experimentForm.name = newName
+                                    }}
+                                    name="item-name-small"
+                                    value={experimentForm.name}
+                                />
+                            ) : (
+                                <h4>{experimentForm.name}</h4>
+                            )}
                             <LemonButton
                                 type="secondary"
                                 size="small"
+                                className="ml-3"
                                 sideIcon={<IconPlus />}
                                 onClick={() => {
                                     if (experimentForm.variants) {
@@ -101,7 +82,7 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                     setExperimentFormValue('variants', experimentForm.variants)
                                 }}
                             >
-                                Variants
+                                Add Variant
                             </LemonButton>
                         </div>
                         <Group name="variants">
@@ -111,16 +92,28 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                 {Object.keys(experimentForm.variants!).map((variant, index) => (
                                     <Group key={variant} name={['variants', index]}>
                                         <div className="flex flex-col">
-                                            {selectedExperimentId === 'new' && (
+                                            {selectedExperimentId === 'new' ? (
                                                 <EditableField
                                                     onSave={(newName) => {
+                                                        if (experimentForm.variants) {
+                                                            const webVariant = experimentForm.variants[variant]
+                                                            if (webVariant) {
+                                                                experimentForm.variants[newName] = webVariant
+                                                                delete experimentForm.variants[variant]
+                                                                setExperimentFormValue(
+                                                                    'variants',
+                                                                    experimentForm.variants
+                                                                )
+                                                            }
+                                                        }
                                                         variant = newName
                                                     }}
                                                     name="item-name-small"
                                                     value={variant}
                                                 />
+                                            ) : (
+                                                <h3 className="mb-0">{variant}</h3>
                                             )}
-                                            {selectedExperimentId !== 'new' && <h3 className="mb-0">{variant}</h3>}
                                             <div className="flex p-1 flex-col-4">
                                                 <span>
                                                     (rollout percentage :{' '}
@@ -180,19 +173,24 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                                         <LemonButton
                                                             size="small"
                                                             type={
-                                                                inspectingElement === tIndex ? 'primary' : 'secondary'
+                                                                inspectingElement === tIndex + 1
+                                                                    ? 'primary'
+                                                                    : 'tertiary'
                                                             }
                                                             onClick={(e) => {
                                                                 e.stopPropagation()
                                                                 selectVariant(variant)
-                                                                inspectForElementWithIndex(variant, tIndex + 1)
+                                                                inspectForElementWithIndex(
+                                                                    variant,
+                                                                    inspectingElement === tIndex + 1 ? null : tIndex + 1
+                                                                )
                                                             }}
                                                             icon={<IconSearch />}
                                                         >
                                                             {transform.selector ? 'Change Element' : 'Select Element'}
                                                         </LemonButton>
                                                         <LemonButton
-                                                            type="secondary"
+                                                            type="tertiary"
                                                             size="small"
                                                             className="ml-2"
                                                             onClick={(e) => {
