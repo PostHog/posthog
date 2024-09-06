@@ -1,6 +1,6 @@
 import './HedgehogBuddy.scss'
 
-import { ProfilePicture } from '@posthog/lemon-ui'
+import { lemonToast, ProfilePicture } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -99,7 +99,7 @@ export class HedgehogActor {
     jumpCount = 0
     mainAnimation: AnimationState | null = null
     overlayAnimation: AnimationState | null = null
-
+    gravity = GRAVITY_PIXELS
     ignoreGroundAboveY?: number
     showTooltip = false
     lastScreenPosition = [window.screenX, window.screenY + window.innerHeight]
@@ -160,13 +160,48 @@ export class HedgehogActor {
     setupKeyboardListeners(): () => void {
         const lastKeys: string[] = []
 
-        const secretMap: Record<string, () => void> = {
-            fff: () => this.setOnFire(),
-            fire: () => this.setOnFire(),
-            spiderhog: () => {
-                this.hedgehogConfig.skin = 'spiderhog'
+        const secretMap: {
+            keys: string[]
+            action: () => void
+        }[] = [
+            {
+                keys: ['f', 'f', 'f'],
+                action: () => this.setOnFire(),
             },
-        }
+            {
+                keys: ['f', 'i', 'r', 'e'],
+                action: () => this.setOnFire(),
+            },
+            {
+                keys: ['s', 'p', 'i', 'd', 'e', 'r', 'h', 'o', 'g'],
+                action: () => {
+                    this.hedgehogConfig.skin = 'spiderhog'
+                },
+            },
+            {
+                keys: [
+                    'arrowup',
+                    'arrowup',
+                    'arrowdown',
+                    'arrowdown',
+                    'arrowleft',
+                    'arrowright',
+                    'arrowleft',
+                    'arrowright',
+                    'b',
+                    'a',
+                ],
+                action: () => {
+                    this.setOnFire()
+                    this.gravity = -2
+
+                    lemonToast.info('I must leave. My people need me!')
+                    setTimeout(() => {
+                        this.gravity = GRAVITY_PIXELS
+                    }, 2000)
+                },
+            },
+        ]
 
         const keyDownListener = (e: KeyboardEvent): void => {
             if (shouldIgnoreInput(e) || !this.hedgehogConfig.controls_enabled) {
@@ -184,10 +219,10 @@ export class HedgehogActor {
                 this.jump()
             }
 
-            Object.keys(secretMap).forEach((secret) => {
-                if (lastKeys.slice(-secret.length).join('') === secret) {
-                    secretMap[secret]()
-                    lastKeys.splice(-secret.length)
+            secretMap.forEach((secret) => {
+                if (lastKeys.slice(-secret.keys.length).join('') === secret.keys.join('')) {
+                    secret.action()
+                    lastKeys.splice(-secret.keys.length)
                 }
             })
 
@@ -366,7 +401,7 @@ export class HedgehogActor {
         }
         this.ground = null
         this.jumpCount += 1
-        this.yVelocity = GRAVITY_PIXELS * 5
+        this.yVelocity = this.gravity * 5
     }
 
     update(): void {
@@ -391,7 +426,7 @@ export class HedgehogActor {
 
             if (screenMoveY < 0) {
                 // If the ground has moved up relative to the hedgehog we need to make him jump
-                this.yVelocity = Math.max(this.yVelocity + screenMoveY * 10, -GRAVITY_PIXELS * 20)
+                this.yVelocity = Math.max(this.yVelocity + screenMoveY * 10, -this.gravity * 20)
             }
 
             if (screenMoveX !== 0) {
@@ -495,7 +530,7 @@ export class HedgehogActor {
             const ratio = speed / distance
 
             if (yDiff < 0) {
-                this.yVelocity -= GRAVITY_PIXELS
+                this.yVelocity -= this.gravity
             }
 
             this.yVelocity += yDiff * ratio
@@ -512,7 +547,7 @@ export class HedgehogActor {
         }
 
         this.ground = this.findGround()
-        this.yVelocity -= GRAVITY_PIXELS
+        this.yVelocity -= this.gravity
 
         // We decelerate the x velocity if the hedgehog is stopped
         if (!this.isControlledByUser && this.mainAnimation?.name !== 'walk' && this.onGround()) {
