@@ -144,6 +144,7 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
                 setShowActionsTooltip: (_, { showActionsTooltip }) => showActionsTooltip,
             },
         ],
+        // we automatically create actions for people from analytics onboarding. This flag controls that experience.
         automaticActionCreationEnabled: [
             false as boolean,
             {
@@ -202,12 +203,14 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
                 actions.selectAction(null)
                 actionsLogic.actions.updateAction({ action: response })
 
-                lemonToast.success('Action saved', {
-                    button: {
-                        label: 'Open in PostHog',
-                        action: () => window.open(`${apiURL}${urls.action(response.id)}`, '_blank'),
-                    },
-                })
+                if (!values.automaticActionCreationEnabled) {
+                    lemonToast.success('Action saved', {
+                        button: {
+                            label: 'Open in PostHog',
+                            action: () => window.open(`${apiURL}${urls.action(response.id)}`, '_blank'),
+                        },
+                    })
+                }
 
                 actions.actionCreatedSuccess(response)
             },
