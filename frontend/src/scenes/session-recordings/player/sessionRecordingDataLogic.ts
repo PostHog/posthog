@@ -76,8 +76,8 @@ function patchMetaEventIntoMobileData(parsedLines: eventWithTime[]): any[] {
         fullSnapshotIndex = parsedLines.findIndex((l) => l.type === EventType.FullSnapshot)
         metaIndex = parsedLines.findIndex((l) => l.type === EventType.Meta)
 
+        // then we need to patch the meta event into the snapshot data
         if (fullSnapshotIndex > -1 && metaIndex === -1) {
-            // need to patch the meta event into the snapshot data
             const fullSnapshot = parsedLines[fullSnapshotIndex] as fullSnapshotEvent & eventWithTime
             // a full snapshot (particularly from the mobile transformer) has a relatively fixed structure,
             // but the types exposed by rrweb don't quite cover what we need , so...
@@ -93,7 +93,7 @@ function patchMetaEventIntoMobileData(parsedLines: eventWithTime[]): any[] {
                     height,
                 },
             }
-            parsedLines.splice(fullSnapshotIndex, 0, metaEvent)
+            parsedLines.splice(fullSnapshotIndex, 0, metaEvent as eventWithTime)
         }
     } catch (e) {
         captureException(e, {
