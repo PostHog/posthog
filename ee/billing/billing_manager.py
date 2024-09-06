@@ -348,9 +348,9 @@ class BillingManager:
 
         return data
 
-    def credits_eligibility(self, organization: Organization) -> bool:
+    def credits_overview(self, organization: Organization) -> bool:
         res = requests.get(
-            f"{BILLING_SERVICE_URL}/api/credits/eligibility",
+            f"{BILLING_SERVICE_URL}/api/credits/overview",
             headers=self.get_auth_headers(organization),
         )
 

@@ -11,11 +11,11 @@ import { PurchaseCreditsModal } from './PurchaseCreditsModal'
 export const CreditCTAHero = (): JSX.Element | null => {
     const { width, ref: heroRef } = useResizeObserver()
 
-    const { selfServeCreditEligibility, isPurchaseCreditsModalOpen } = useValues(billingLogic)
+    const { selfServeCreditOverview, isPurchaseCreditsModalOpen } = useValues(billingLogic)
     const { showPurchaseCreditsModal } = useActions(billingLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    if (!selfServeCreditEligibility.eligible || selfServeCreditEligibility.status === 'paid') {
+    if (!selfServeCreditOverview.eligible || selfServeCreditOverview.status === 'paid') {
         return null
     }
     if (!featureFlags[FEATURE_FLAGS.PURCHASE_CREDITS]) {
@@ -25,22 +25,22 @@ export const CreditCTAHero = (): JSX.Element | null => {
     return (
         <div className="flex relative justify-between items-center rounded-lg bg-mark mb-6" ref={heroRef}>
             <div className="p-4">
-                {selfServeCreditEligibility.eligible && selfServeCreditEligibility.status === 'pending' && (
+                {selfServeCreditOverview.eligible && selfServeCreditOverview.status === 'pending' && (
                     <>
                         <h1 className="mb-0">Your credits are processing</h1>
                         <p className="mt-2 mb-0 max-w-xl">
                             You've initiated the process to purchase credits.{' '}
-                            {selfServeCreditEligibility.collection_method === 'send_invoice'
+                            {selfServeCreditOverview.collection_method === 'send_invoice'
                                 ? "You'll receive an email with a link to pay the invoice. Please make sure to pay that as soon as possible so we can apply the credits to your account."
                                 : "We'll will charge your card on file and we will notify if there are any issues."}{' '}
                             The credits should be applied ot your account within 24 hours of completing your payment.{' '}
                         </p>
-                        {selfServeCreditEligibility.invoice_url && (
+                        {selfServeCreditOverview.invoice_url && (
                             <LemonButton
                                 type="primary"
                                 onClick={() =>
-                                    selfServeCreditEligibility.invoice_url &&
-                                    window.open(selfServeCreditEligibility.invoice_url, '_blank')
+                                    selfServeCreditOverview.invoice_url &&
+                                    window.open(selfServeCreditOverview.invoice_url, '_blank')
                                 }
                                 className="mt-4"
                             >
@@ -49,7 +49,7 @@ export const CreditCTAHero = (): JSX.Element | null => {
                         )}
                     </>
                 )}
-                {selfServeCreditEligibility.eligible && selfServeCreditEligibility.status === 'none' && (
+                {selfServeCreditOverview.eligible && selfServeCreditOverview.status === 'none' && (
                     <>
                         <h1 className="mb-0">You're eligible to purchase credits</h1>
                         <p className="mt-2 mb-0 max-w-xl">

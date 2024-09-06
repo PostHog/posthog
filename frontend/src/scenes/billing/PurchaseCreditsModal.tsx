@@ -1,19 +1,22 @@
-import { LemonButton, LemonCheckbox, LemonDivider, LemonInput, LemonModal } from '@posthog/lemon-ui'
+import { IconCheckCircle } from '@posthog/icons'
+import { LemonButton, LemonCheckbox, LemonDivider, LemonInput, LemonModal, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
+import { BillingGauge } from './BillingGauge'
 import { billingLogic } from './billingLogic'
+import { BillingGaugeItemKind } from './types'
 
 export const PurchaseCreditsModal = (): JSX.Element | null => {
     const { showPurchaseCreditsModal, submitCreditForm } = useActions(billingLogic)
-    const { selfServeCreditEligibility, isCreditFormSubmitting, creditForm, creditDiscount } = useValues(billingLogic)
+    const { selfServeCreditOverview, isCreditFormSubmitting, creditForm, creditDiscount } = useValues(billingLogic)
 
     return (
         <LemonModal
             onClose={() => showPurchaseCreditsModal(false)}
             width="max(44vw)"
-            title="Wow, big spender!"
+            title="Level unlocked, you're eligible for a discount 🎉"
             footer={
                 <>
                     <LemonButton
@@ -31,55 +34,29 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
         >
             <Form formKey="creditForm" logic={billingLogic} enableFormOnSubmit>
                 <div className="flex flex-col gap-3.5">
-                    <p className="mb-0">
-                        You're using PostHog more and you're now eligible to purchase credits upfront for a discount.
-                        This can help make your spending more predictable. As a reward for purchasing upfront, you'll
-                        get a 10%-30% discount.
-                    </p>
+                    <p className="mb-0">Save up to 30% on your bill by purchasing credits up front.</p>
 
                     <p className="mb-0">
                         Based on your usage, we recommend purchasing{' '}
                         <b>
                             $
-                            {(selfServeCreditEligibility.estimated_credit_amount_usd * 12).toLocaleString('en-US', {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2,
-                            })}
+                            {(selfServeCreditOverview.estimated_monthly_credit_amount_usd * 12).toLocaleString(
+                                'en-US',
+                                {
+                                    minimumFractionDigits: 0,
+                                    maximumFractionDigits: 0,
+                                }
+                            )}
                         </b>{' '}
                         credits which equals $
-                        {selfServeCreditEligibility.estimated_credit_amount_usd.toLocaleString('en-US', {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
+                        {selfServeCreditOverview.estimated_monthly_credit_amount_usd.toLocaleString('en-US', {
+                            minimumFractionDigits: 0,
+                            maximumFractionDigits: 0,
                         })}{' '}
-                        per month. The minimum purchase size for credits is $6,000 per year.
+                        per month.
                     </p>
 
-                    <p className="mb-1 text-md font-semibold">Breakdown</p>
-                    <p>
-                        Due today: <b>${Math.round(+creditForm.creditInput).toLocaleString('en-US')}</b>
-                        <br />
-                        Discount: <b>{creditDiscount * 100}%</b>
-                        <br />
-                        Total credits:{' '}
-                        <b>
-                            $
-                            {(+creditForm.creditInput / (1 - creditDiscount)).toLocaleString('en-US', {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2,
-                            })}
-                        </b>
-                        <br />
-                        Monthly credits:{' '}
-                        <b>
-                            $
-                            {(+creditForm.creditInput / (1 - creditDiscount) / 12).toLocaleString('en-US', {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2,
-                            })}
-                        </b>
-                    </p>
-
-                    <LemonField name="creditInput">
+                    <LemonField name="creditInput" label="How many credits do you want to purchase?">
                         {({ value, onChange, error }) => (
                             <div className="max-w-40">
                                 <LemonInput
@@ -98,6 +75,114 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                             </div>
                         )}
                     </LemonField>
+
+                    <BillingGauge
+                        items={[
+                            {
+                                type: BillingGaugeItemKind.FreeTier,
+                                text:
+                                    +creditForm.creditInput >= 6000 && +creditForm.creditInput < 20000 ? (
+                                        <>
+                                            <IconCheckCircle className="text-success" /> 10% off
+                                        </>
+                                    ) : (
+                                        '10% off'
+                                    ),
+                                value: 6000,
+                                top: true,
+                            },
+                            {
+                                type: BillingGaugeItemKind.FreeTier,
+                                text:
+                                    +creditForm.creditInput >= 20000 && +creditForm.creditInput < 60000 ? (
+                                        <>
+                                            <IconCheckCircle className="text-success" /> 20% off
+                                        </>
+                                    ) : (
+                                        '20% off'
+                                    ),
+                                value: 20000,
+                                top: true,
+                            },
+                            {
+                                type: BillingGaugeItemKind.FreeTier,
+                                text:
+                                    +creditForm.creditInput >= 60000 && +creditForm.creditInput < 100000 ? (
+                                        <>
+                                            <IconCheckCircle className="text-success" /> 25% off
+                                        </>
+                                    ) : (
+                                        '25% off'
+                                    ),
+                                value: 60000,
+                                top: true,
+                            },
+                            {
+                                type: BillingGaugeItemKind.FreeTier,
+                                text:
+                                    +creditForm.creditInput >= 100000 ? (
+                                        <>
+                                            <IconCheckCircle className="text-success" /> 30% off
+                                        </>
+                                    ) : (
+                                        '30% off'
+                                    ),
+                                value: 100000,
+                                top: true,
+                            },
+                            {
+                                type: BillingGaugeItemKind.CurrentUsage,
+                                text: 'Your input',
+                                value: +creditForm.creditInput,
+                                top: false,
+                            },
+                        ]}
+                        // @ts-expect-error
+                        product={{
+                            percentage_usage: 0.3,
+                        }}
+                    />
+
+                    <LemonTable
+                        showHeader={false}
+                        columns={[
+                            {
+                                title: '',
+                                dataIndex: 'item',
+                            },
+                            {
+                                title: '',
+                                dataIndex: 'value',
+                            },
+                        ]}
+                        dataSource={[
+                            {
+                                item: 'Due today',
+                                value: `$${Math.round(+creditForm.creditInput).toLocaleString('en-US')}`,
+                            },
+                            {
+                                item: 'Discount',
+                                value: `${creditDiscount * 100}%`,
+                            },
+                            {
+                                item: 'Total credits',
+                                value: `$${(+creditForm.creditInput / (1 - creditDiscount)).toLocaleString('en-US', {
+                                    minimumFractionDigits: 0,
+                                    maximumFractionDigits: 0,
+                                })}`,
+                            },
+                            {
+                                item: 'Monthly credits',
+                                value: `$${(+creditForm.creditInput / (1 - creditDiscount) / 12).toLocaleString(
+                                    'en-US',
+                                    {
+                                        minimumFractionDigits: 0,
+                                        maximumFractionDigits: 0,
+                                    }
+                                )}`,
+                            },
+                        ]}
+                    />
 
                     <LemonDivider />
                     <p className="mb-1 text-md font-semibold">Invoice details</p>
