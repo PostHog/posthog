@@ -172,6 +172,19 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
                 const { apiURL, temporaryToken } = values
                 const { selectedActionId } = values
 
+                const findUniqueActionName = (baseName: string, index = 0): string => {
+                    const proposedName = index === 0 ? baseName : `${baseName} - ${index}`
+                    if (!values.allActions.find((action) => action.name === proposedName)) {
+                        return proposedName
+                    }
+                    return findUniqueActionName(baseName, index + 1)
+                }
+
+                if (values.newActionName) {
+                    // newActionName is programmatically set, but they may already have an existing action with that name. Append an index.
+                    actionToSave.name = findUniqueActionName(values.newActionName)
+                }
+
                 let response: ActionType
                 if (selectedActionId && selectedActionId !== 'new') {
                     response = await api.update(
