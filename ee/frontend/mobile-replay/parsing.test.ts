@@ -1,6 +1,3 @@
-// import {parseEncodedSnapshots} from "scenes/session-recordings/player/sessionRecordingDataLogic";
-// import {encodedWebSnapshotData} from "scenes/session-recordings/player/__mocks__/encoded-snapshot-data";
-
 import { parseEncodedSnapshots } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 
 import { encodedWebSnapshotData } from './__mocks__/encoded-snapshot-data'
