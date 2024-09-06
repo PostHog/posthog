@@ -69,7 +69,7 @@ function isRecordingSnapshot(x: unknown): x is RecordingSnapshot {
  rrweb player hides itself until it has seen the meta event 🤷
  but we can patch a meta event into the recording data to make it work
 */
-function patchMetaEventIntoMobileData(parsedLines: eventWithTime[]): eventWithTime[] {
+function patchMetaEventIntoMobileData(parsedLines: RecordingSnapshot[]): RecordingSnapshot[] {
     let fullSnapshotIndex: number = -1
     let metaIndex: number = -1
     try {
@@ -85,6 +85,7 @@ function patchMetaEventIntoMobileData(parsedLines: eventWithTime[]): eventWithTi
             const targetNode = mainNode.childNodes[1].childNodes[1].childNodes[0]
             const { width, height } = targetNode.attributes
             const metaEvent = {
+                windowId: fullSnapshot.windowId,
                 type: EventType.Meta,
                 timestamp: fullSnapshot.timestamp,
                 data: {
@@ -93,7 +94,7 @@ function patchMetaEventIntoMobileData(parsedLines: eventWithTime[]): eventWithTi
                     height,
                 },
             }
-            parsedLines.splice(fullSnapshotIndex, 0, metaEvent as eventWithTime)
+            parsedLines.splice(fullSnapshotIndex, 0, metaEvent as RecordingSnapshot)
         }
     } catch (e) {
         captureException(e, {
@@ -125,7 +126,7 @@ export const parseEncodedSnapshots = async (
     const unparseableLines: string[] = []
     let isMobileSnapshots = false
 
-    const parsedLines: eventWithTime[] = items.flatMap((l) => {
+    const parsedLines: RecordingSnapshot[] = items.flatMap((l) => {
         if (!l) {
             // blob files have an empty line at the end
             return []
