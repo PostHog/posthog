@@ -64,6 +64,11 @@ function isRecordingSnapshot(x: unknown): x is RecordingSnapshot {
     return typeof x === 'object' && x !== null && 'type' in x && 'timestamp' in x
 }
 
+/*
+ there was a bug in mobile SDK that didn't consistently send a meta event with a full snapshot.
+ rrweb player hides itself until it has seen the meta event 🤷
+ but we can patch a meta event into the recording data to make it work
+*/
 function patchMetaEventIntoMobileData(parsedLines: any[], withMobileTransformer: boolean): any[] {
     if (!withMobileTransformer) {
         return parsedLines
@@ -72,12 +77,11 @@ function patchMetaEventIntoMobileData(parsedLines: any[], withMobileTransformer:
     const fullSnapshotIndex = parsedLines.findIndex((l) => l.type === EventType.FullSnapshot)
     const metaIndex = parsedLines.findIndex((l) => l.type === EventType.Meta)
 
-    // there was a bug in mobile SDK that didn't consistently send a meta event with a full snapshot. rrweb player hides itself until it has seen the meta event 🤷
     if (fullSnapshotIndex > -1 && metaIndex === -1) {
         // need to patch the meta event into the snapshot data
         const fullSnapshot = parsedLines[fullSnapshotIndex] as fullSnapshotEvent & eventWithTime
-        // a mobile full snapshot has a relatively fixed structure, so...
-        const mainNode = fullSnapshot.data.node as { childNodes: any[] }
+        // a full snapshot (particularly from the parser) has a relatively fixed structure, so...
+        const mainNode = fullSnapshot.data.node as any
         const targetNode = mainNode.childNodes[1].childNodes[1].childNodes[0]
         const { width, height } = targetNode.attributes
         const metaEvent = {
@@ -101,7 +105,7 @@ export const parseEncodedSnapshots = async (
     // this is only kept so that we can export the untransformed data for debugging
     withMobileTransformer: boolean = true
 ): Promise<RecordingSnapshot[]> => {
-    if (!postHogEEModule && withMobileTransformer) {
+    if (!postHogEEModule) {
         postHogEEModule = await posthogEE()
     }
 
