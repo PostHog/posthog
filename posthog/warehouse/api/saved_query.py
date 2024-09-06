@@ -179,19 +179,9 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             else:
                 start = (int(up_to_level) * -1) - 1
 
-            ancestors = ancestors.union(model_path.path[start:-1])
+            ancestors = ancestors.union(map(try_convert_to_uuid, model_path.path[start:-1]))
 
-        # Optimistically convert ancestor strings to UUIDs
-        ancestor_ids = set()
-        for ancestor in ancestors:
-            try:
-                ancestor_uuid = uuid.UUID(ancestor)
-                ancestor_ids.add(str(ancestor_uuid))
-            except ValueError:
-                ancestor_ids.add(ancestor)
-                continue
-
-        return response.Response({"ancestors": ancestor_ids})
+        return response.Response({"ancestors": ancestors})
 
     @action(methods=["POST"], detail=True)
     def descendants(self, request: request.Request, *args, **kwargs) -> response.Response:
@@ -220,15 +210,13 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             else:
                 end = start + up_to_level
 
-            descendants = descendants.union(model_path.path[start:end])
+            descendants = descendants.union(map(try_convert_to_uuid, model_path.path[start:end]))
 
-        descendant_ids = set()
-        for descendant in descendants:
-            try:
-                descendant_uuid = uuid.UUID(descendant)
-                descendant_ids.add(str(descendant_uuid))
-            except ValueError:
-                descendant_ids.add(descendant)
-                continue
+        return response.Response({"descendants": descendants})
 
-        return response.Response({"descendants": descendant_ids})
+
+def try_convert_to_uuid(s: str) -> uuid.UUID | str:
+    try:
+        return str(uuid.UUID(s))
+    except ValueError:
+        return s
