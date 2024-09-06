@@ -94,13 +94,29 @@ describe('CDP E2E', () => {
         })
 
         afterEach(async () => {
-            await Promise.all([
-                processedEventsConsumer?.stop(),
-                functionProcessor?.stop(),
-                kafkaObserver?.stop(),
-                cyclotronWorker?.stop(),
-                cyclotronFetchWorker?.stop(),
-            ]).catch(console.error)
+            console.log('AfterEach', {
+                processedEventsConsumer,
+                functionProcessor,
+                kafkaObserver,
+                cyclotronWorker,
+                cyclotronFetchWorker,
+            })
+
+            const stoppers = [
+                processedEventsConsumer?.stop().then(() => console.log('Stopped processedEventsConsumer')),
+                ,
+                functionProcessor?.stop().then(() => console.log('Stopped functionProcessor')),
+                ,
+                kafkaObserver?.stop().then(() => console.log('Stopped kafkaObserver')),
+                ,
+                cyclotronWorker?.stop().then(() => console.log('Stopped cyclotronWorker')),
+                ,
+                cyclotronFetchWorker?.stop().then(() => console.log('Stopped cyclotronFetchWorker')),
+                ,
+            ]
+
+            await Promise.all(stoppers)
+
             await closeHub(hub)
         })
 
