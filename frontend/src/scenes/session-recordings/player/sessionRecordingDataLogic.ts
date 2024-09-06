@@ -69,11 +69,7 @@ function isRecordingSnapshot(x: unknown): x is RecordingSnapshot {
  rrweb player hides itself until it has seen the meta event 🤷
  but we can patch a meta event into the recording data to make it work
 */
-function patchMetaEventIntoMobileData(parsedLines: any[], withMobileTransformer: boolean): any[] {
-    if (!withMobileTransformer) {
-        return parsedLines
-    }
-
+function patchMetaEventIntoMobileData(parsedLines: any[]): any[] {
     const fullSnapshotIndex = parsedLines.findIndex((l) => l.type === EventType.FullSnapshot)
     const metaIndex = parsedLines.findIndex((l) => l.type === EventType.Meta)
 
@@ -99,6 +95,12 @@ function patchMetaEventIntoMobileData(parsedLines: any[], withMobileTransformer:
     return parsedLines
 }
 
+function hasAnyWireframes(snapshotData: Record<string, any>[]): boolean {
+    return snapshotData.some((d) => {
+        return isObject(d.data) && 'wireframes' in d.data
+    })
+}
+
 export const parseEncodedSnapshots = async (
     items: (RecordingSnapshot | EncodedRecordingSnapshot | string)[],
     sessionId: string,
@@ -111,6 +113,8 @@ export const parseEncodedSnapshots = async (
 
     const lineCount = items.length
     const unparseableLines: string[] = []
+    let isMobileSnapshots = false
+
     const parsedLines = items.flatMap((l) => {
         if (!l) {
             // blob files have an empty line at the end
@@ -119,6 +123,10 @@ export const parseEncodedSnapshots = async (
         try {
             const snapshotLine = typeof l === 'string' ? (JSON.parse(l) as EncodedRecordingSnapshot) : l
             const snapshotData = isRecordingSnapshot(snapshotLine) ? [snapshotLine] : snapshotLine['data']
+
+            if (!isMobileSnapshots) {
+                isMobileSnapshots = hasAnyWireframes(snapshotData)
+            }
 
             return snapshotData.map((d: unknown) => {
                 const snap = withMobileTransformer
@@ -155,7 +163,7 @@ export const parseEncodedSnapshots = async (
         })
     }
 
-    return patchMetaEventIntoMobileData(parsedLines, withMobileTransformer)
+    return isMobileSnapshots ? patchMetaEventIntoMobileData(parsedLines) : parsedLines
 }
 
 const getHrefFromSnapshot = (snapshot: unknown): string | undefined => {
