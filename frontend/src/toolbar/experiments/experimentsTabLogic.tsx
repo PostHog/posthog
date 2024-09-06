@@ -169,12 +169,12 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                 let response: Experiment
                 if (selectedExperimentId && selectedExperimentId !== 'new') {
                     response = await api.update(
-                        `${apiURL}/api/projects/@current/toolbar_experiments/${selectedExperimentId}/?temporary_token=${temporaryToken}`,
+                        `${apiURL}/api/projects/@current/web_experiments/${selectedExperimentId}/?temporary_token=${temporaryToken}`,
                         experimentToSave
                     )
                 } else {
                     response = await api.create(
-                        `${apiURL}/api/projects/@current/toolbar_experiments/?temporary_token=${temporaryToken}`,
+                        `${apiURL}/api/projects/@current/web_experiments/?temporary_token=${temporaryToken}`,
                         experimentToSave
                     )
                 }
@@ -295,7 +295,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
             const { selectedExperimentId, apiURL, temporaryToken } = values
             if (selectedExperimentId && selectedExperimentId !== 'new') {
                 await api.delete(
-                    `${apiURL}/api/projects/@current/toolbar_experiments/${selectedExperimentId}/?temporary_token=${temporaryToken}`
+                    `${apiURL}/api/projects/@current/web_experiments/${selectedExperimentId}/?temporary_token=${temporaryToken}`
                 )
                 experimentsLogic.actions.deleteExperiment({ id: selectedExperimentId })
                 actions.selectExperiment(null)
