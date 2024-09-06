@@ -1,4 +1,4 @@
-import { IconCheckCircle, IconInfo, IconTrash } from '@posthog/icons'
+import { IconCheckCircle, IconCursorClick, IconInfo, IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCollapse, LemonInput, LemonLabel } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { iframedToolbarBrowserLogic } from 'lib/components/IframedToolbarBrowser/iframedToolbarBrowserLogic'
@@ -9,11 +9,11 @@ import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { DashboardTemplateVariableType } from '~/types'
 
 function VariableSelector({
-    variable,
+    variableName,
     hasSelectedSite,
     iframeRef,
 }: {
-    variable: DashboardTemplateVariableType
+    variableName: string
     hasSelectedSite: boolean
     iframeRef: React.RefObject<HTMLIFrameElement>
 }): JSX.Element {
@@ -30,10 +30,9 @@ function VariableSelector({
         iframedToolbarBrowserLogic({ iframeRef, clearBrowserUrlOnUnmount: true })
     )
 
-    const FALLBACK_EVENT = {
-        id: '$other_event',
-        math: 'dau',
-        type: 'events',
+    const variable: DashboardTemplateVariableType | undefined = variables.find((v) => v.name === variableName)
+    if (!variable) {
+        return <></>
     }
 
     return (
@@ -48,7 +47,11 @@ function VariableSelector({
                     <div>
                         <IconCheckCircle className="text-success font-bold" />{' '}
                         <span className="text-success font-bold">Selected</span>
-                        <p className="italic text-muted mb-0">.md-invite-button</p>
+                        <p className="italic text-muted mb-0">
+                            <IconCursorClick /> {variable.default.selector}
+                        </p>
+                        <p className="italic text-muted mb-0">{variable.default.href}</p>
+                        <p className="italic text-muted mb-0">{variable.default.url}</p>
                     </div>
                     <div>
                         <LemonButton
@@ -139,7 +142,6 @@ function VariableSelector({
                                     setShowCustomEventField(false)
                                     enableElementSelector()
                                     setNewActionName(variable.name)
-                                    setVariable(variable.name, { events: [FALLBACK_EVENT] })
                                 }}
                             >
                                 Select from site
@@ -194,7 +196,12 @@ export function DashboardTemplateVariables({
                         </div>
                     ),
                     content: (
-                        <VariableSelector variable={v} {...v} hasSelectedSite={hasSelectedSite} iframeRef={iframeRef} />
+                        <VariableSelector
+                            variableName={v.name}
+                            {...v}
+                            hasSelectedSite={hasSelectedSite}
+                            iframeRef={iframeRef}
+                        />
                     ),
                     className: 'p-4 bg-white',
                     onHeaderClick: () => {

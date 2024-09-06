@@ -16,6 +16,7 @@ export enum PostHogAppToolbarEvent {
     PH_TOOLBAR_HEATMAP_FAILED = 'ph-toolbar-heatmap-failed',
     PH_ELEMENT_SELECTOR = 'ph-element-selector',
     PH_NEW_ACTION_NAME = 'ph-new-action-name',
+    PH_NEW_ACTION_CREATED = 'ph-new-action-created',
 }
 
 export const DEFAULT_HEATMAP_FILTERS: HeatmapFilters = {

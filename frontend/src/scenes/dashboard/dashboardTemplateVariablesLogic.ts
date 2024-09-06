@@ -1,7 +1,17 @@
-import { actions, kea, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { iframedToolbarBrowserLogic } from 'lib/components/IframedToolbarBrowser/iframedToolbarBrowserLogic'
+import { PostHogAppToolbarEvent } from 'lib/components/IframedToolbarBrowser/utils'
 import { isEmptyObject } from 'lib/utils'
 
-import { DashboardTemplateVariableType, EntityType, FilterType, Optional } from '~/types'
+import {
+    ActionType,
+    BaseMathType,
+    DashboardTemplateVariableType,
+    EntityType,
+    EntityTypes,
+    FilterType,
+    Optional,
+} from '~/types'
 
 import type { dashboardTemplateVariablesLogicType } from './dashboardTemplateVariablesLogicType'
 
@@ -18,12 +28,16 @@ const FALLBACK_EVENT = {
 export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLogicType>([
     path(['scenes', 'dashboard', 'DashboardTemplateVariablesLogic']),
     props({ variables: [] } as DashboardTemplateVariablesLogicProps),
+    connect({
+        actions: [iframedToolbarBrowserLogic, ['toolbarMessageReceived']],
+    }),
     actions({
         setVariables: (variables: DashboardTemplateVariableType[]) => ({ variables }),
         setVariable: (variableName: string, filterGroup: Optional<FilterType, 'type'>) => ({
             variable_name: variableName,
             filterGroup,
         }),
+        setVariableFromAction: (variableName: string, action: ActionType) => ({ variableName, action }),
         setActiveVariableIndex: (index: number) => ({ index }),
         incrementActiveVariableIndex: true,
         possiblyIncrementActiveVariableIndex: true,
@@ -115,6 +129,29 @@ export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLog
                 }
             }
             actions.setActiveVariableIndex(nextIndex)
+        },
+        setVariableFromAction: ({ variableName, action }) => {
+            const filterGroup: FilterType = {
+                actions: [
+                    // TODO: This needs a type
+                    {
+                        id: action.id,
+                        math: BaseMathType.UniqueUsers,
+                        name: action.name,
+                        order: 0,
+                        type: EntityTypes.ACTIONS,
+                        selector: action.steps?.[0]?.selector,
+                        href: action.steps?.[0]?.href,
+                        url: action.steps?.[0]?.url,
+                    },
+                ],
+            }
+            actions.setVariable(variableName, filterGroup)
+        },
+        toolbarMessageReceived: ({ type, payload }) => {
+            if (type === PostHogAppToolbarEvent.PH_NEW_ACTION_CREATED) {
+                actions.setVariableFromAction(payload.action.name, payload.action as ActionType)
+            }
         },
     })),
     propsChanged(({ actions, props }, oldProps) => {

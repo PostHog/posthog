@@ -68,6 +68,7 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
         setShowActionsTooltip: (showActionsTooltip: boolean) => ({ showActionsTooltip }),
         setElementSelector: (selector: string, index: number) => ({ selector, index }),
         setAutomaticActionCreationEnabled: (enabled: boolean, name?: string) => ({ enabled, name }),
+        actionCreatedSuccess: (action: ActionType) => ({ action }),
     }),
 
     connect(() => ({
@@ -194,6 +195,8 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
                         action: () => window.open(`${apiURL}${urls.action(response.id)}`, '_blank'),
                     },
                 })
+
+                actions.actionCreatedSuccess(response)
             },
 
             // whether we show errors after touch (true) or submit (false)

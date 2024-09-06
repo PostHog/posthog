@@ -31,7 +31,13 @@ export const toolbarLogic = kea<toolbarLogicType>([
     connect(() => ({
         actions: [
             actionsTabLogic,
-            ['showButtonActions', 'hideButtonActions', 'selectAction', 'setAutomaticActionCreationEnabled'],
+            [
+                'showButtonActions',
+                'hideButtonActions',
+                'selectAction',
+                'setAutomaticActionCreationEnabled',
+                'actionCreatedSuccess',
+            ],
             elementsLogic,
             ['enableInspect', 'disableInspect', 'createAction'],
             heatmapLogic,
@@ -392,6 +398,10 @@ export const toolbarLogic = kea<toolbarLogicType>([
         loadHeatmapFailure: () => {
             // if embedded we need to signal start and finish of heatmap loading to the parent
             window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_HEATMAP_FAILED }, '*')
+        },
+        actionCreatedSuccess: (action) => {
+            // if embedded, we need to tell the parent window that a new action was created
+            window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_NEW_ACTION_CREATED, payload: action }, '*')
         },
     })),
     afterMount(({ actions, values, cache }) => {

@@ -1801,6 +1801,9 @@ export interface DashboardTemplateVariableType {
     default: Record<string, JsonType>
     required: boolean
     touched?: boolean
+    selector?: string
+    href?: string
+    url?: string
 }
 
 export type DashboardLayoutSize = 'sm' | 'xs'

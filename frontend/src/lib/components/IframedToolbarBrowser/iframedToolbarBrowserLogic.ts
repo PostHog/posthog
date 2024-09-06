@@ -56,6 +56,7 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
         enableElementSelector: true,
         disableElementSelector: true,
         setNewActionName: (name: string | null) => ({ name }),
+        toolbarMessageReceived: (type: PostHogAppToolbarEvent, payload: Record<string, any>) => ({ type, payload }),
     }),
 
     reducers({
@@ -199,6 +200,9 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
 
             const onIframeMessage = (e: MessageEvent): void => {
                 const type: PostHogAppToolbarEvent = e?.data?.type
+                const payload = e?.data?.payload
+
+                actions.toolbarMessageReceived(type, payload)
 
                 if (!type || !type.startsWith('ph-')) {
                     return
@@ -243,6 +247,10 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
                         })
                         actions.stopTrackingLoading()
                         actions.setIframeBanner({ level: 'error', message: 'The heatmap failed to load.' })
+                        return
+                    case PostHogAppToolbarEvent.PH_NEW_ACTION_CREATED:
+                        actions.setNewActionName(null)
+                        actions.disableElementSelector()
                         return
                     default:
                         console.warn(`[PostHog Heatmaps] Received unknown child window message: ${type}`)
