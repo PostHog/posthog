@@ -1063,7 +1063,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         cache.hasInitialized = false
         document.removeEventListener('fullscreenchange', cache.fullScreenListener)
         cache.pausedMediaElements = []
-        values.player?.replayer?.pause()
+        values.player?.replayer?.destroy()
         actions.setPlayer(null)
         cache.unmountConsoleWarns?.()
 
