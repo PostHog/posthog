@@ -675,7 +675,7 @@ class RunWorkflow(PostHogWorkflow):
         results = await temporalio.workflow.execute_activity(
             run_dag_activity,
             run_model_activity_inputs,
-            start_to_close_timeout=dt.timedelta(minutes=5),
+            start_to_close_timeout=dt.timedelta(hours=1),
             retry_policy=temporalio.common.RetryPolicy(
                 maximum_attempts=0,
             ),
