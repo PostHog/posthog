@@ -1,5 +1,5 @@
 import posthogEE from '@posthog/ee/exports'
-import { customEvent, EventType, eventWithTime } from '@rrweb/types'
+import { customEvent, EventType, eventWithTime, fullSnapshotEvent } from '@rrweb/types'
 import { captureException, captureMessage } from '@sentry/react'
 import {
     actions,
@@ -21,6 +21,7 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { isObject } from 'lib/utils'
 import { chainToElements } from 'lib/utils/elements-chain'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
@@ -61,6 +62,37 @@ let postHogEEModule: PostHogEE
 
 function isRecordingSnapshot(x: unknown): x is RecordingSnapshot {
     return typeof x === 'object' && x !== null && 'type' in x && 'timestamp' in x
+}
+
+function patchMetaEventIntoMobileData(parsedLines: any[], withMobileTransformer: boolean): any[] {
+    if (!withMobileTransformer) {
+        return parsedLines
+    }
+
+    const fullSnapshotIndex = parsedLines.findIndex((l) => l.type === EventType.FullSnapshot)
+    const metaIndex = parsedLines.findIndex((l) => l.type === EventType.Meta)
+
+    // there was a bug in mobile SDK that didn't consistently send a meta event with a full snapshot. rrweb player hides itself until it has seen the meta event 🤷
+    if (fullSnapshotIndex > -1 && metaIndex === -1) {
+        // need to patch the meta event into the snapshot data
+        const fullSnapshot = parsedLines[fullSnapshotIndex] as fullSnapshotEvent & eventWithTime
+        // a mobile full snapshot has a relatively fixed structure, so...
+        const mainNode = fullSnapshot.data.node as { childNodes: any[] }
+        const targetNode = mainNode.childNodes[1].childNodes[1].childNodes[0]
+        const { width, height } = targetNode.attributes
+        const metaEvent = {
+            type: EventType.Meta,
+            timestamp: fullSnapshot.timestamp,
+            data: {
+                href: getHrefFromSnapshot(fullSnapshot) || '',
+                width,
+                height,
+            },
+        }
+        parsedLines.splice(fullSnapshotIndex, 0, metaEvent)
+    }
+
+    return parsedLines
 }
 
 export const parseEncodedSnapshots = async (
@@ -119,11 +151,13 @@ export const parseEncodedSnapshots = async (
         })
     }
 
-    return parsedLines
+    return patchMetaEventIntoMobileData(parsedLines, withMobileTransformer)
 }
 
-const getHrefFromSnapshot = (snapshot: RecordingSnapshot): string | undefined => {
-    return (snapshot.data as any)?.href || (snapshot.data as any)?.payload?.href
+const getHrefFromSnapshot = (snapshot: unknown): string | undefined => {
+    return isObject(snapshot) && 'data' in snapshot
+        ? (snapshot.data as any)?.href || (snapshot.data as any)?.payload?.href
+        : undefined
 }
 
 /*
@@ -501,12 +535,14 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     try {
                         const query: HogQLQuery = {
                             kind: NodeKind.HogQLQuery,
-                            query: hogql`SELECT properties, uuid 
-                                FROM events
-                                WHERE timestamp > ${dayjs(event.timestamp).subtract(1000, 'ms')}
-                                AND timestamp < ${dayjs(event.timestamp).add(1000, 'ms')}
-                                AND event = ${event.event}
-                                AND uuid = ${event.id}`,
+                            query: hogql`SELECT properties, uuid
+                                         FROM events
+                                         WHERE timestamp
+                                             > ${dayjs(event.timestamp).subtract(1000, 'ms')}
+                                           AND timestamp
+                                             < ${dayjs(event.timestamp).add(1000, 'ms')}
+                                           AND event = ${event.event}
+                                           AND uuid = ${event.id}`,
                         }
                         const response = await api.query(query)
                         if (response.error) {
