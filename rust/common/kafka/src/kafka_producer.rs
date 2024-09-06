@@ -58,7 +58,7 @@ pub async fn create_kafka_producer(
     // "Ping" the Kafka brokers by requesting metadata
     match api
         .client()
-        .fetch_metadata(None, std::time::Duration::from_secs(2))
+        .fetch_metadata(None, std::time::Duration::from_secs(15))
     {
         Ok(metadata) => {
             info!(
