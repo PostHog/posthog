@@ -19,9 +19,23 @@ export function HedgehogOptions(): JSX.Element {
                 <div className="flex-1">
                     <h3>Hi, I'm Max!</h3>
                     <p>
-                        Don't mind me. I'm just here to keep you company.
-                        <br />
-                        You can move me around by clicking and dragging or control me with WASD / arrow keys.
+                        {hedgehogConfig.skin === 'spiderhog' ? (
+                            <>
+                                Well, it’s not every day you meet a hedgehog with spider powers. Yep, that's me -
+                                SpiderHog. I wasn’t always this way. Just your average, speedy little guy until a
+                                radioactive spider bit me. With great power comes great responsibility so, buckle up,
+                                because this hedgehog’s got a whole data warehouse to protect...
+                                <br />
+                                You can move me around by clicking and dragging or control me with WASD / arrow keys and
+                                I'll use your mouse as a web slinging target.
+                            </>
+                        ) : (
+                            <>
+                                Don't mind me. I'm just here to keep you company.
+                                <br />
+                                You can move me around by clicking and dragging or control me with WASD / arrow keys.
+                            </>
+                        )}
                     </p>
                 </div>
             </div>

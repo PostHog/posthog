@@ -262,6 +262,9 @@ export class HedgehogActor {
         }
     ): void {
         this.animationName = animationName
+        if (!this.animation) {
+            this.animationName = 'stop'
+        }
         this.animationFrame = 0
         this.animationCompletionHandler = () => {
             this.animationCompletionHandler = undefined
