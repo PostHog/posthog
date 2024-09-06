@@ -331,6 +331,11 @@ html {
     text-size-adjust: 100%;
 }
 
+input::placeholder,
+textarea::placeholder {
+    color: var(--muted); // Overrides Tailwind's default
+}
+
 // Global styles nested under body to ensure they're more specific than Tailwind's base
 body {
     font-size: 14px;
@@ -396,7 +401,7 @@ body {
     }
 
     h2 {
-        font-size: 1.5rem;
+        font-size: 1.25rem;
     }
 
     h3 {
