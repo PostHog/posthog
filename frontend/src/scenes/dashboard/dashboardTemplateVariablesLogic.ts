@@ -71,9 +71,9 @@ export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLog
                         if (
                             v.name === variableName &&
                             filterGroup?.[typeWithContents]?.length &&
-                            filterGroup[typeWithContents][0]
+                            filterGroup?.[typeWithContents]?.[0]
                         ) {
-                            return { ...v, default: filterGroup[typeWithContents][0], touched: true }
+                            return { ...v, default: filterGroup[typeWithContents]?.[0] || {}, touched: true }
                         }
                         return { ...v }
                     })
