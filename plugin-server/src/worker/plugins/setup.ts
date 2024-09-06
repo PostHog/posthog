@@ -5,7 +5,6 @@ import { status } from '../../utils/status'
 import { constructPluginInstance } from '../vm/lazy'
 import { loadPlugin } from './loadPlugin'
 import { loadPluginsFromDB } from './loadPluginsFromDB'
-import { loadSchedule } from './loadSchedule'
 import { teardownPlugins } from './teardown'
 
 export const importUsedGauge = new Gauge({
@@ -78,11 +77,6 @@ export async function setupPlugins(hub: Hub): Promise<void> {
 
     for (const teamId of hub.pluginConfigsPerTeam.keys()) {
         hub.pluginConfigsPerTeam.get(teamId)?.sort((a, b) => a.order - b.order)
-    }
-
-    // Only load the schedule in server that can process scheduled tasks, else the schedule won't be useful
-    if (hub.capabilities.pluginScheduledTasks) {
-        await loadSchedule(hub)
     }
 
     status.info(
