@@ -1,5 +1,5 @@
 import posthogEE from '@posthog/ee/exports'
-import { customEvent, EventType, eventWithTime } from '@rrweb/types'
+import { customEvent, EventType, eventWithTime, fullSnapshotEvent } from '@rrweb/types'
 import { captureException, captureMessage } from '@sentry/react'
 import {
     actions,
@@ -21,6 +21,7 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { isObject } from 'lib/utils'
 import { chainToElements } from 'lib/utils/elements-chain'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
@@ -63,6 +64,54 @@ function isRecordingSnapshot(x: unknown): x is RecordingSnapshot {
     return typeof x === 'object' && x !== null && 'type' in x && 'timestamp' in x
 }
 
+/*
+ there was a bug in mobile SDK that didn't consistently send a meta event with a full snapshot.
+ rrweb player hides itself until it has seen the meta event 🤷
+ but we can patch a meta event into the recording data to make it work
+*/
+function patchMetaEventIntoMobileData(parsedLines: RecordingSnapshot[]): RecordingSnapshot[] {
+    let fullSnapshotIndex: number = -1
+    let metaIndex: number = -1
+    try {
+        fullSnapshotIndex = parsedLines.findIndex((l) => l.type === EventType.FullSnapshot)
+        metaIndex = parsedLines.findIndex((l) => l.type === EventType.Meta)
+
+        // then we need to patch the meta event into the snapshot data
+        if (fullSnapshotIndex > -1 && metaIndex === -1) {
+            const fullSnapshot = parsedLines[fullSnapshotIndex] as RecordingSnapshot & fullSnapshotEvent & eventWithTime
+            // a full snapshot (particularly from the mobile transformer) has a relatively fixed structure,
+            // but the types exposed by rrweb don't quite cover what we need , so...
+            const mainNode = fullSnapshot.data.node as any
+            const targetNode = mainNode.childNodes[1].childNodes[1].childNodes[0]
+            const { width, height } = targetNode.attributes
+            const metaEvent: RecordingSnapshot = {
+                windowId: fullSnapshot.windowId,
+                type: EventType.Meta,
+                timestamp: fullSnapshot.timestamp,
+                data: {
+                    href: getHrefFromSnapshot(fullSnapshot) || '',
+                    width,
+                    height,
+                },
+            }
+            parsedLines.splice(fullSnapshotIndex, 0, metaEvent)
+        }
+    } catch (e) {
+        captureException(e, {
+            tags: { feature: 'session-recording-missing-meta-patching' },
+            extra: { fullSnapshotIndex, metaIndex },
+        })
+    }
+
+    return parsedLines
+}
+
+function hasAnyWireframes(snapshotData: Record<string, any>[]): boolean {
+    return snapshotData.some((d) => {
+        return isObject(d.data) && 'wireframes' in d.data
+    })
+}
+
 export const parseEncodedSnapshots = async (
     items: (RecordingSnapshot | EncodedRecordingSnapshot | string)[],
     sessionId: string,
@@ -72,9 +121,12 @@ export const parseEncodedSnapshots = async (
     if (!postHogEEModule) {
         postHogEEModule = await posthogEE()
     }
+
     const lineCount = items.length
     const unparseableLines: string[] = []
-    const parsedLines = items.flatMap((l) => {
+    let isMobileSnapshots = false
+
+    const parsedLines: RecordingSnapshot[] = items.flatMap((l) => {
         if (!l) {
             // blob files have an empty line at the end
             return []
@@ -82,6 +134,10 @@ export const parseEncodedSnapshots = async (
         try {
             const snapshotLine = typeof l === 'string' ? (JSON.parse(l) as EncodedRecordingSnapshot) : l
             const snapshotData = isRecordingSnapshot(snapshotLine) ? [snapshotLine] : snapshotLine['data']
+
+            if (!isMobileSnapshots) {
+                isMobileSnapshots = hasAnyWireframes(snapshotData)
+            }
 
             return snapshotData.map((d: unknown) => {
                 const snap = withMobileTransformer
@@ -118,11 +174,13 @@ export const parseEncodedSnapshots = async (
         })
     }
 
-    return parsedLines
+    return isMobileSnapshots ? patchMetaEventIntoMobileData(parsedLines) : parsedLines
 }
 
-const getHrefFromSnapshot = (snapshot: RecordingSnapshot): string | undefined => {
-    return (snapshot.data as any)?.href || (snapshot.data as any)?.payload?.href
+const getHrefFromSnapshot = (snapshot: unknown): string | undefined => {
+    return isObject(snapshot) && 'data' in snapshot
+        ? (snapshot.data as any)?.href || (snapshot.data as any)?.payload?.href
+        : undefined
 }
 
 /*
@@ -500,12 +558,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     try {
                         const query: HogQLQuery = {
                             kind: NodeKind.HogQLQuery,
-                            query: hogql`SELECT properties, uuid 
-                                FROM events
-                                WHERE timestamp > ${dayjs(event.timestamp).subtract(1000, 'ms')}
-                                AND timestamp < ${dayjs(event.timestamp).add(1000, 'ms')}
-                                AND event = ${event.event}
-                                AND uuid = ${event.id}`,
+                            query: hogql`SELECT properties, uuid
+                                         FROM events
+                                         WHERE timestamp > ${dayjs(event.timestamp).subtract(1000, 'ms')}
+                                           AND timestamp < ${dayjs(event.timestamp).add(1000, 'ms')}
+                                           AND event = ${event.event}
+                                           AND uuid = ${event.id}`,
                         }
                         const response = await api.query(query)
                         if (response.error) {
