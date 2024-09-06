@@ -1,7 +1,7 @@
 import { actions, kea, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { isEmptyObject } from 'lib/utils'
 
-import { DashboardTemplateVariableType, FilterType, Optional } from '~/types'
+import { DashboardTemplateVariableType, EntityType, FilterType, Optional } from '~/types'
 
 import type { dashboardTemplateVariablesLogicType } from './dashboardTemplateVariablesLogicType'
 
@@ -43,10 +43,23 @@ export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLog
                     })
                 },
                 setVariable: (state, { variable_name: variableName, filterGroup }): DashboardTemplateVariableType[] => {
-                    // TODO: handle actions as well as events
+                    // There is only one type with contents at a time
+                    // So iterate through the types to find the first one with contents
+                    const typeWithContents: EntityType = Object.keys(filterGroup).filter(
+                        (group) => (filterGroup[group as EntityType] || [])?.length > 0
+                    )?.[0] as EntityType
+
+                    if (!typeWithContents) {
+                        return state
+                    }
+
                     return state.map((v: DashboardTemplateVariableType) => {
-                        if (v.name === variableName && filterGroup?.events?.length && filterGroup.events[0]) {
-                            return { ...v, default: filterGroup.events[0], touched: true }
+                        if (
+                            v.name === variableName &&
+                            filterGroup?.[typeWithContents]?.length &&
+                            filterGroup[typeWithContents][0]
+                        ) {
+                            return { ...v, default: filterGroup[typeWithContents][0], touched: true }
                         }
                         return { ...v }
                     })
