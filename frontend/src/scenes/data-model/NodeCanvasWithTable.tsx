@@ -8,6 +8,7 @@ import { Edge, Node, NodePosition, NodePositionWithBounds, NodeWithDepth, Positi
 const VERTICAL_SPACING = 150
 const HORIZONTAL_SPACING = 250
 
+// TODO: Refactor this to be done in the backend
 const assignDepths = (nodes: Node[]): NodeWithDepth[] => {
     const nodeMap: { [id: string]: NodeWithDepth } = {}
 
