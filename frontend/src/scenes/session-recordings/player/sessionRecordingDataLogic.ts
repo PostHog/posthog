@@ -78,13 +78,13 @@ function patchMetaEventIntoMobileData(parsedLines: RecordingSnapshot[]): Recordi
 
         // then we need to patch the meta event into the snapshot data
         if (fullSnapshotIndex > -1 && metaIndex === -1) {
-            const fullSnapshot = parsedLines[fullSnapshotIndex] as fullSnapshotEvent & eventWithTime
+            const fullSnapshot = parsedLines[fullSnapshotIndex] as RecordingSnapshot & fullSnapshotEvent & eventWithTime
             // a full snapshot (particularly from the mobile transformer) has a relatively fixed structure,
             // but the types exposed by rrweb don't quite cover what we need , so...
             const mainNode = fullSnapshot.data.node as any
             const targetNode = mainNode.childNodes[1].childNodes[1].childNodes[0]
             const { width, height } = targetNode.attributes
-            const metaEvent = {
+            const metaEvent: RecordingSnapshot = {
                 windowId: fullSnapshot.windowId,
                 type: EventType.Meta,
                 timestamp: fullSnapshot.timestamp,
@@ -94,7 +94,7 @@ function patchMetaEventIntoMobileData(parsedLines: RecordingSnapshot[]): Recordi
                     height,
                 },
             }
-            parsedLines.splice(fullSnapshotIndex, 0, metaEvent as RecordingSnapshot)
+            parsedLines.splice(fullSnapshotIndex, 0, metaEvent)
         }
     } catch (e) {
         captureException(e, {
