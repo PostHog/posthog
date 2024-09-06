@@ -70,26 +70,36 @@ function isRecordingSnapshot(x: unknown): x is RecordingSnapshot {
  but we can patch a meta event into the recording data to make it work
 */
 function patchMetaEventIntoMobileData(parsedLines: any[]): any[] {
-    const fullSnapshotIndex = parsedLines.findIndex((l) => l.type === EventType.FullSnapshot)
-    const metaIndex = parsedLines.findIndex((l) => l.type === EventType.Meta)
+    let fullSnapshotIndex: number = -1
+    let metaIndex: number = -1
+    try {
+        fullSnapshotIndex = parsedLines.findIndex((l) => l.type === EventType.FullSnapshot)
+        metaIndex = parsedLines.findIndex((l) => l.type === EventType.Meta)
 
-    if (fullSnapshotIndex > -1 && metaIndex === -1) {
-        // need to patch the meta event into the snapshot data
-        const fullSnapshot = parsedLines[fullSnapshotIndex] as fullSnapshotEvent & eventWithTime
-        // a full snapshot (particularly from the parser) has a relatively fixed structure, so...
-        const mainNode = fullSnapshot.data.node as any
-        const targetNode = mainNode.childNodes[1].childNodes[1].childNodes[0]
-        const { width, height } = targetNode.attributes
-        const metaEvent = {
-            type: EventType.Meta,
-            timestamp: fullSnapshot.timestamp,
-            data: {
-                href: getHrefFromSnapshot(fullSnapshot) || '',
-                width,
-                height,
-            },
+        if (fullSnapshotIndex > -1 && metaIndex === -1) {
+            // need to patch the meta event into the snapshot data
+            const fullSnapshot = parsedLines[fullSnapshotIndex] as fullSnapshotEvent & eventWithTime
+            // a full snapshot (particularly from the parser) has a relatively fixed structure,
+            // but the types exposed by rrweb don't quite cover what we need , so...
+            const mainNode = fullSnapshot.data.node as any
+            const targetNode = mainNode.childNodes[1].childNodes[1].childNodes[0]
+            const { width, height } = targetNode.attributes
+            const metaEvent = {
+                type: EventType.Meta,
+                timestamp: fullSnapshot.timestamp,
+                data: {
+                    href: getHrefFromSnapshot(fullSnapshot) || '',
+                    width,
+                    height,
+                },
+            }
+            parsedLines.splice(fullSnapshotIndex, 0, metaEvent)
         }
-        parsedLines.splice(fullSnapshotIndex, 0, metaEvent)
+    } catch (e) {
+        captureException(e, {
+            tags: { feature: 'session-recording-missing-meta-patching' },
+            extra: { fullSnapshotIndex, metaIndex },
+        })
     }
 
     return parsedLines
