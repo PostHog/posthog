@@ -69,7 +69,7 @@ function isRecordingSnapshot(x: unknown): x is RecordingSnapshot {
  rrweb player hides itself until it has seen the meta event 🤷
  but we can patch a meta event into the recording data to make it work
 */
-function patchMetaEventIntoMobileData(parsedLines: any[]): any[] {
+function patchMetaEventIntoMobileData(parsedLines: eventWithTime[]): any[] {
     let fullSnapshotIndex: number = -1
     let metaIndex: number = -1
     try {
@@ -79,7 +79,7 @@ function patchMetaEventIntoMobileData(parsedLines: any[]): any[] {
         if (fullSnapshotIndex > -1 && metaIndex === -1) {
             // need to patch the meta event into the snapshot data
             const fullSnapshot = parsedLines[fullSnapshotIndex] as fullSnapshotEvent & eventWithTime
-            // a full snapshot (particularly from the parser) has a relatively fixed structure,
+            // a full snapshot (particularly from the mobile transformer) has a relatively fixed structure,
             // but the types exposed by rrweb don't quite cover what we need , so...
             const mainNode = fullSnapshot.data.node as any
             const targetNode = mainNode.childNodes[1].childNodes[1].childNodes[0]
@@ -125,7 +125,7 @@ export const parseEncodedSnapshots = async (
     const unparseableLines: string[] = []
     let isMobileSnapshots = false
 
-    const parsedLines = items.flatMap((l) => {
+    const parsedLines: eventWithTime[] = items.flatMap((l) => {
         if (!l) {
             // blob files have an empty line at the end
             return []
