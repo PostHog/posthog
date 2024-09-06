@@ -374,30 +374,7 @@ def get_dlt_destination():
     )
 
 
-@dataclasses.dataclass
-class BuildDagActivityInputs:
-    team_id: int
-    select: list[str] = dataclasses.field(default_factory=list)
-
-
-# Pattern matches model labels prefixed and/or suffixed by a '+' and additionally numbers.
-# For example:
-# '+my_model': "Run my_model and all of its ancestors"
-# '1+my_model': "Run my_model and its direct parents"
-# '+my_model+': "Run my_model, all of its ancestors, and all of its descendants"
-# 'my_model+': "Run my_model and all of its descendants"
-# 'my_model+1': "Run my_model and its direct children"
-SelectorPattern = re.compile(
-    r"^(?P<ancestors_marker>(?P<ancestors>[0-9]*)\+|\+)?(?P<label>[a-zA-Z0-9_]+)(?P<descendants_marker>\+|\+(?P<descendants>[0-9]*))?$"
-)
-
-
-class InvalidSelector(Exception):
-    def __init__(self, invalid_input: str):
-        super().__init__(f"invalid selector: '{invalid_input}'")
-
-
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class Selector:
     """A selector represents the models to select from a set of paths.
 
@@ -405,41 +382,48 @@ class Selector:
         label: The model we are selecting around.
         ancestors: How many ancestors to select from the model from each of the paths.
         descendants: How many descendants to select from the model from each of the paths.
-        paths: The paths we are doing the selection from.
     """
 
     label: str
-    ancestors: int | typing.Literal["ALL"]
-    descendants: int | typing.Literal["ALL"]
-    paths: list[str]
+    ancestors: int | typing.Literal["ALL"] = 0
+    descendants: int | typing.Literal["ALL"] = 0
+
+
+Paths = list[str]
+SelectorPaths = dict[Selector, Paths]
+
+
+@dataclasses.dataclass
+class BuildDagActivityInputs:
+    team_id: int
+    select: list[Selector] = dataclasses.field(default_factory=list)
+
+
+class InvalidSelector(Exception):
+    def __init__(self, invalid_input: str):
+        super().__init__(f"invalid selector: '{invalid_input}'")
 
 
 @temporalio.activity.defn
 async def build_dag_activity(inputs: BuildDagActivityInputs) -> DAG:
     """Construct a DAG from provided selector inputs."""
     async with Heartbeater():
-        selectors = []
+        selector_paths: SelectorPaths = {}
 
         if not inputs.select:
             matching_paths = await database_sync_to_async(list)(
                 DataWarehouseModelPath.objects.filter(team_id=inputs.team_id).values_list("path", flat=True)
             )
-            selectors.append(
+            selector_paths[
                 Selector(
                     label="*",
                     ancestors="ALL",
                     descendants="ALL",
-                    paths=matching_paths,
                 )
-            )
+            ] = matching_paths
 
         for selector_input in inputs.select:
-            selector_match = re.match(SelectorPattern, selector_input)
-
-            if selector_match is None or not selector_match.group("label"):
-                raise InvalidSelector(selector_input)
-
-            query = f'*.{selector_match.group("label")}.*'
+            query = f"*.{selector_input.label}.*"
 
             # TODO: Make this one database fetch for all selectors, instead of one per selector
             matching_paths = await database_sync_to_async(list)(
@@ -447,29 +431,15 @@ async def build_dag_activity(inputs: BuildDagActivityInputs) -> DAG:
                     "path", flat=True
                 )
             )
-            ancestors: int | typing.Literal["ALL"] = 0
-            if selector_match.group("ancestors_marker"):
-                ancestors = int(selector_match.group("ancestors")) if selector_match.group("ancestors") else "ALL"
 
-            descendants: int | typing.Literal["ALL"] = 0
-            if selector_match.group("descendants_marker"):
-                descendants = int(selector_match.group("descendants")) if selector_match.group("descendants") else "ALL"
+            selector_paths[selector_input] = matching_paths
 
-            selectors.append(
-                Selector(
-                    label=selector_match.group("label"),
-                    ancestors=ancestors,
-                    descendants=descendants,
-                    paths=matching_paths,
-                )
-            )
-
-        dag = await build_dag_from_selectors(selectors=selectors, team_id=inputs.team_id)
+        dag = await build_dag_from_selectors(selector_paths=selector_paths, team_id=inputs.team_id)
 
         return dag
 
 
-async def build_dag_from_selectors(selectors: collections.abc.Iterable[Selector], team_id: int) -> DAG:
+async def build_dag_from_selectors(selector_paths: SelectorPaths, team_id: int) -> DAG:
     """Build a DAG from a list of `DataWarehouseModelPath` paths.
 
     Our particular representation of a DAG includes all edges directly with each of the
@@ -489,11 +459,11 @@ async def build_dag_from_selectors(selectors: collections.abc.Iterable[Selector]
     posthog_tables = await get_posthog_tables(team_id)
     dag = {}
 
-    for selector in selectors:
+    for selector, paths in selector_paths.items():
         ancestors_offset = selector.ancestors
         descendants_offset = selector.descendants
 
-        for path in selector.paths:
+        for path in paths:
             if selector.label == "*":
                 label_index = -1
                 start = 0
@@ -626,7 +596,7 @@ class RunWorkflowInputs:
     """
 
     team_id: int
-    select: list[str] = dataclasses.field(default_factory=list)
+    select: list[Selector] = dataclasses.field(default_factory=list)
 
 
 @temporalio.workflow.defn(name="data-modeling-run")

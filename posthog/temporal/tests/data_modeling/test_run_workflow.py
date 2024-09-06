@@ -26,6 +26,7 @@ from posthog.temporal.data_modeling.run_workflow import (
     RunDagActivityInputs,
     RunWorkflow,
     RunWorkflowInputs,
+    Selector,
     build_dag_activity,
     finish_run_activity,
     get_dlt_destination,
@@ -292,7 +293,7 @@ async def test_materialize_model(ateam, bucket_name, minio_client, pageview_even
             }
             for event in events
         ],
-        key=lambda d: d["distinct_id"],
+        key=lambda d: (d["distinct_id"], d["timestamp"]),
     )
 
     assert table.num_rows == len(expected_events)
@@ -300,7 +301,7 @@ async def test_materialize_model(ateam, bucket_name, minio_client, pageview_even
     assert table.column_names == ["event", "distinct_id", "timestamp"]
     assert len(s3_objects["Contents"]) != 0
     assert key == saved_query.name
-    assert sorted(table.to_pylist(), key=lambda d: d["distinct_id"]) == expected_events
+    assert sorted(table.to_pylist(), key=lambda d: (d["distinct_id"], d["timestamp"])) == expected_events
 
 
 @pytest_asyncio.fixture
@@ -348,7 +349,7 @@ async def test_build_dag_activity_select_all_ancestors(activity_environment, ate
     """
     parent_saved_query, child_saved_query, _, grand_child_saved_query = saved_queries
 
-    select = [f"+{child_saved_query.id.hex}"]
+    select = [Selector(label=child_saved_query.id.hex, ancestors="ALL")]
     inputs = BuildDagActivityInputs(team_id=ateam.pk, select=select)
 
     async with asyncio.timeout(10):
@@ -375,7 +376,7 @@ async def test_build_dag_activity_select_all_descendants(activity_environment, a
     """
     parent_saved_query, child_saved_query, child_2_saved_query, grand_child_saved_query = saved_queries
 
-    select = [f"{parent_saved_query.id.hex}+"]
+    select = [Selector(label=parent_saved_query.id.hex, descendants="ALL")]
     inputs = BuildDagActivityInputs(team_id=ateam.pk, select=select)
 
     async with asyncio.timeout(10):
@@ -415,7 +416,11 @@ async def test_build_dag_activity_select_multiple_individual_models(activity_env
     """
     parent_saved_query, child_saved_query, child_2_saved_query, _ = saved_queries
 
-    select = [parent_saved_query.id.hex, child_saved_query.id.hex, child_2_saved_query.id.hex]
+    select = [
+        Selector(label=parent_saved_query.id.hex),
+        Selector(label=child_saved_query.id.hex),
+        Selector(label=child_2_saved_query.id.hex),
+    ]
     inputs = BuildDagActivityInputs(team_id=ateam.pk, select=select)
 
     async with asyncio.timeout(10):
@@ -427,8 +432,9 @@ async def test_build_dag_activity_select_multiple_individual_models(activity_env
     assert dag[child_saved_query.id.hex].parents == {parent_saved_query.id.hex}
     assert dag[child_2_saved_query.id.hex].parents == {parent_saved_query.id.hex}
 
-    assert all(dag[selected].selected is True for selected in select)
-    assert all(dag[other].selected is False for other in dag.keys() if other not in select)
+    selected = tuple(selected.label for selected in select)
+    assert all(dag[selected].selected is True for selected in selected)
+    assert all(dag[other].selected is False for other in dag.keys() if other not in selected)
 
 
 async def test_build_dag_activity_select_first_parents(activity_environment, ateam, saved_queries):
@@ -438,7 +444,7 @@ async def test_build_dag_activity_select_first_parents(activity_environment, ate
     """
     _, child_saved_query, child_2_saved_query, grand_child_saved_query = saved_queries
 
-    select = [f"1+{grand_child_saved_query.id.hex}"]
+    select = [Selector(label=grand_child_saved_query.id.hex, ancestors=1)]
     inputs = BuildDagActivityInputs(team_id=ateam.pk, select=select)
 
     async with asyncio.timeout(10):
@@ -464,7 +470,7 @@ async def test_build_dag_activity_select_first_children(activity_environment, at
     """
     parent_saved_query, child_saved_query, child_2_saved_query, _ = saved_queries
 
-    select = [f"{parent_saved_query.id.hex}+1"]
+    select = [Selector(label=parent_saved_query.id.hex, descendants=1)]
     inputs = BuildDagActivityInputs(team_id=ateam.pk, select=select)
 
     async with asyncio.timeout(10):
@@ -491,7 +497,7 @@ async def test_build_dag_activity_select_first_family(activity_environment, atea
     """
     parent_saved_query, child_saved_query, _, grand_child_saved_query = saved_queries
 
-    select = [f"1+{child_saved_query.id.hex}+1"]
+    select = [Selector(label=child_saved_query.id.hex, descendants=1, ancestors=1)]
     inputs = BuildDagActivityInputs(team_id=ateam.pk, select=select)
 
     async with asyncio.timeout(10):
