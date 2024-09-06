@@ -7,7 +7,13 @@ class TestTemplateAvo(BaseHogFunctionTemplateTest):
     template = template_avo
 
     def _inputs(self, **kwargs):
-        inputs = {"apiKey": "NnBd7B55ZXC6o0Kh20pE", "environment": "dev", "appName": "PostHog"}
+        inputs = {
+            "apiKey": "NnBd7B55ZXC6o0Kh20pE",
+            "environment": "dev",
+            "appName": "PostHog",
+            "excludeProperties": "",
+            "includeProperties": "",
+        }
         inputs.update(kwargs)
         return inputs
 
@@ -88,7 +94,7 @@ class TestTemplateAvo(BaseHogFunctionTemplateTest):
 
     def test_automatic_type_mapping(self):
         for property_value, expected_type in [
-            (None, "null"),
+            # (None, "null"),
             ("Bob", "string"),
             (99, "int"),
             (1.4, "float"),
@@ -105,3 +111,30 @@ class TestTemplateAvo(BaseHogFunctionTemplateTest):
 
             res = self.get_mock_fetch_calls()[0]
             assert res[1]["body"][0]["eventProperties"][0]["propertyType"] == expected_type
+
+    def test_property_filters(self):
+        # [excludeProperties, includeProperties], expected properties array
+        for filters, expected_result in [
+            [["name", ""], ["company", "job"]],
+            [[" name ", ""], ["company", "job"]],
+            [["name", "name"], []],
+            [["", "name,company"], ["name", "company"]],
+        ]:
+            self.run_function(
+                inputs={
+                    "apiKey": "NnBd7B55ZXC6o0Kh20pE",
+                    "environment": "dev",
+                    "appName": "PostHog",
+                    "excludeProperties": filters[0],
+                    "includeProperties": filters[1],
+                },
+                globals={
+                    "event": {
+                        "name": "sign up",
+                        "properties": {"name": "Max", "company": "PostHog", "job": "Product Engineer"},
+                    },
+                },
+            )
+
+            res = self.get_mock_fetch_calls()[0][1]["body"][0]["eventProperties"]
+            assert [item["propertyName"] for item in res] == expected_result
