@@ -20,3 +20,4 @@ pub const UPDATE_TRANSACTION_TIME: &str = "prop_defs_update_transaction_time_ms"
 pub const GROUP_TYPE_RESOLVE_TIME: &str = "prop_defs_group_type_resolve_time_ms";
 pub const UPDATES_SKIPPED: &str = "prop_defs_skipped_updates";
 pub const GROUP_TYPE_READS: &str = "prop_defs_group_type_reads";
+pub const SKIPPED_DUE_TO_TEAM_FILTER: &str = "prop_defs_skipped_due_to_team_filter";
