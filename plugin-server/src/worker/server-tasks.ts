@@ -25,17 +25,13 @@ export class ServerTaskManager {
     async start() {
         this.pubSub = new PubSub(this.hub, {
             [this.hub.PLUGINS_RELOAD_PUBSUB_CHANNEL]: async () => {
-                status.info('⚡', 'Reloading plugins!')
                 await this.reloadPlugins()
             },
             'reset-available-product-features-cache': (message) => {
                 this.resetAvailableProductFeaturesCache(JSON.parse(message))
             },
             'populate-plugin-capabilities': async (message) => {
-                // We need this to be done in only once
-                if (this.hub?.capabilities.appManagementSingleton) {
-                    await this.populatePluginCapabilities(JSON.parse(message))
-                }
+                await this.populatePluginCapabilities(JSON.parse(message))
             },
         })
 
@@ -57,6 +53,7 @@ export class ServerTaskManager {
         }
 
         if (!RELOAD_PLUGINS_PROMISE) {
+            status.info('⚡', 'Reloading plugins!')
             // No reload is in progress, schedule one. If multiple concurrent requests got in line
             // above, we only need one to schedule the reload here.
 
@@ -90,6 +87,9 @@ export class ServerTaskManager {
         this.hub.organizationManager.resetAvailableProductFeaturesCache(args.organization_id)
     }
     async populatePluginCapabilities(args: { plugin_id: string }) {
+        if (!this.hub?.capabilities.appManagementSingleton) {
+            return
+        }
         await populatePluginCapabilities(this.hub, Number(args.plugin_id))
     }
 
