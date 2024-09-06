@@ -55,7 +55,12 @@ fn getPropValueType(propValue) {
 }
 
 for (let key, value in event.properties) {
-    if (not key like '$%') {
+    let excludeProperties := arrayMap(x -> trim(x), splitByString(',', inputs.excludeProperties))
+    let includeProperties := arrayMap(x -> trim(x), splitByString(',', inputs.includeProperties))
+    let isExcluded := has(excludeProperties, key)
+    let isIncluded := includeProperties[1] == '' or has(includeProperties, key)
+
+    if (not (key like '$%' or isExcluded or not isIncluded)) {
         avoEvent.eventProperties := arrayPushBack(avoEvent.eventProperties, { 'propertyName': key, 'propertyType': getPropValueType(value) })
     }
 }
@@ -96,6 +101,24 @@ fetch('https://api.avo.app/inspector/posthog/v1/track', {
             "label": "App name",
             "description": "App name",
             "default": "PostHog",
+            "secret": False,
+            "required": False,
+        },
+        {
+            "key": "excludeProperties",
+            "type": "string",
+            "label": "Properties to exclude",
+            "description": "Comma-separated list of event properties that will not be sent to Avo.",
+            "default": "",
+            "secret": False,
+            "required": False,
+        },
+        {
+            "key": "includeProperties",
+            "type": "string",
+            "label": "Properties to include",
+            "description": "Comma separated list of event properties to send to Avo (will send all if left empty).",
+            "default": "",
             "secret": False,
             "required": False,
         },
