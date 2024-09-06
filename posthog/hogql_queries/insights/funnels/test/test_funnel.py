@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime
 from typing import cast
+from unittest.mock import patch, Mock
 
 from django.test import override_settings
 from freezegun import freeze_time
@@ -68,6 +69,7 @@ def _create_action(**kwargs):
     return action
 
 
+@patch("posthoganalytics.feature_enabled", new=Mock(return_value=False))
 class TestFunnelBreakdown(
     ClickhouseTestMixin,
     funnel_breakdown_test_factory(  # type: ignore
@@ -81,6 +83,7 @@ class TestFunnelBreakdown(
     pass
 
 
+@patch("posthoganalytics.feature_enabled", new=Mock(return_value=False))
 class TestFunnelGroupBreakdown(
     ClickhouseTestMixin,
     funnel_breakdown_group_test_factory(  # type: ignore
@@ -91,6 +94,7 @@ class TestFunnelGroupBreakdown(
     pass
 
 
+@patch("posthoganalytics.feature_enabled", new=Mock(return_value=False))
 class TestFunnelConversionTime(
     ClickhouseTestMixin,
     funnel_conversion_time_test_factory(FunnelOrderType.ORDERED, ClickhouseFunnelActors),  # type: ignore
@@ -2460,10 +2464,14 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-            self.assertEqual(results[0]["name"], "user signed up")
-            self.assertEqual(results[0]["count"], 0)
-
-            self.assertEqual(results[4]["count"], 0)
+            # There should be no events. UDF funnels returns an empty array and says "no events"
+            # Old style funnels returns a count of 0
+            try:
+                self.assertEqual([], results)
+            except AssertionError:
+                self.assertEqual(results[0]["name"], "user signed up")
+                self.assertEqual(results[0]["count"], 0)
+                self.assertEqual(results[4]["count"], 0)
 
             self.assertCountEqual(self._get_actor_ids_at_step(filters, 1), [])
 
@@ -3290,7 +3298,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             # event
             _create_person(distinct_ids=["user_1"], team_id=self.team.pk)
-            #  this event shouldn't appear as in US/Pacific this would be the previous day
+            # this event shouldn't appear as in US/Pacific this would be the previous day
             _create_event(
                 team=self.team,
                 event="user signed up",
@@ -3300,9 +3308,13 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-
-            self.assertEqual(results[0]["name"], "user signed up")
-            self.assertEqual(results[0]["count"], 0)
+            # There should be no events. UDF funnels returns an empty array and says "no events"
+            # Old style funnels returns a count of 0
+            try:
+                self.assertEqual([], results)
+            except AssertionError:
+                self.assertEqual(results[0]["name"], "user signed up")
+                self.assertEqual(results[0]["count"], 0)
 
         def test_funnel_with_sampling(self):
             action_play_movie = Action.objects.create(
@@ -4095,6 +4107,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
     return TestGetFunnel
 
 
+@patch("posthoganalytics.feature_enabled", new=Mock(return_value=False))
 class TestFOSSFunnel(funnel_test_factory(Funnel, _create_event, _create_person)):  # type: ignore
     maxDiff = None
 

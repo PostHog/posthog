@@ -115,6 +115,8 @@ export const STL: Record<string, STLFunction> = {
                     return args[0].size === 0
                 }
                 return Object.keys(args[0]).length === 0
+            } else if (typeof args[0] === 'number' || typeof args[0] === 'boolean') {
+                return false
             }
             return !args[0]
         },

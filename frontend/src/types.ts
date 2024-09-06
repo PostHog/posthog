@@ -1803,6 +1803,7 @@ export interface DashboardTemplateVariableType {
     type: 'event'
     default: Record<string, JsonType>
     required: boolean
+    touched?: boolean
 }
 
 export type DashboardLayoutSize = 'sm' | 'xs'
@@ -3864,6 +3865,7 @@ export const externalDataSources = [
     'Zendesk',
     'Snowflake',
     'Salesforce',
+    'Vitally',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

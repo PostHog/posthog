@@ -134,7 +134,7 @@ def org_quota_limited_until(
 
     if posthoganalytics.feature_enabled(
         QUOTA_LIMIT_DATA_RETENTION_FLAG,
-        organization.id,
+        str(organization.id),
         groups={"organization": str(organization.id)},
         group_properties={"organization": {"id": str(organization.id)}},
     ):
