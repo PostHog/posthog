@@ -61,10 +61,10 @@ class ExperimentResultQueryRunner(QueryRunner):
 
         for result in funnels_results:
             if result:
-                variant = result[0].get("breakdown_value", [""])[0]
+                variant = result[0].get("breakdown_value")[0]
                 if variant in variants:
-                    total_count = result[0]["count"]
-                    success_count = result[-1]["count"]
+                    total_count = result[0].get("count", 0)
+                    success_count = result[-1].get("count", 0)
                     processed_results[variant].success_count = success_count
                     processed_results[variant].failure_count = total_count - success_count
 
