@@ -550,23 +550,26 @@ def action_to_expr(action: Action) -> ast.Expr:
             if step.text is not None:
                 value = step.text
                 if step.text_matching == "regex":
-                    match = ast.CompareOperationOp.Regex
-                elif step.text_matching == "contains":
-                    match = ast.CompareOperationOp.ILike
-                    value = f"%{value}%"
-                else:
-                    match = ast.CompareOperationOp.Eq
-
-                exprs.append(
-                    parse_expr(
-                        "arrayExists(x -> {match}, elements_chain_texts)",
-                        {
-                            "match": ast.CompareOperation(
-                                op=match, left=ast.Field(chain=["x"]), right=ast.Constant(value=value)
-                            )
-                        },
+                    exprs.append(
+                        parse_expr(
+                            "arrayExists(x -> x =~ {value}, elements_chain_texts)",
+                            {"value": ast.Constant(value=value)},
+                        )
                     )
-                )
+                elif step.text_matching == "contains":
+                    exprs.append(
+                        parse_expr(
+                            "arrayExists(x -> x ilike {value}, elements_chain_texts)",
+                            {"value": ast.Constant(value=f"%{value}%")},
+                        )
+                    )
+                else:
+                    exprs.append(
+                        parse_expr(
+                            "arrayExists(x -> x = {value}, elements_chain_texts)",
+                            {"value": ast.Constant(value=value)},
+                        )
+                    )
         if step.url:
             if step.url_matching == "exact":
                 expr = parse_expr(

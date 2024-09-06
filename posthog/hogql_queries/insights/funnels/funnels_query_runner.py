@@ -17,7 +17,9 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.insights.funnels.funnel_time_to_convert import FunnelTimeToConvert
 from posthog.hogql_queries.insights.funnels.funnel_trends import FunnelTrends
+from posthog.hogql_queries.insights.funnels.funnel_trends_udf import FunnelTrendsUDF
 from posthog.hogql_queries.insights.funnels.utils import get_funnel_actor_class, get_funnel_order_class
+from posthog.hogql_queries.legacy_compatibility.feature_flag import insight_funnels_use_udf
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
@@ -28,6 +30,7 @@ from posthog.schema import (
     FunnelsQuery,
     FunnelsQueryResponse,
     HogQLQueryModifiers,
+    StepOrderValue,
 )
 
 
@@ -102,18 +105,28 @@ class FunnelsQueryRunner(QueryRunner):
         if response.timings is not None:
             timings.extend(response.timings)
 
-        return FunnelsQueryResponse(results=results, timings=timings, hogql=hogql, modifiers=self.modifiers)
+        return FunnelsQueryResponse(
+            isUdf=self._use_udf, results=results, timings=timings, hogql=hogql, modifiers=self.modifiers
+        )
+
+    @cached_property
+    def _use_udf(self):
+        return self.context.funnelsFilter.useUdf or insight_funnels_use_udf(self.team)
 
     @cached_property
     def funnel_order_class(self):
-        return get_funnel_order_class(self.context.funnelsFilter)(context=self.context)
+        return get_funnel_order_class(self.context.funnelsFilter, use_udf=self._use_udf)(context=self.context)
 
     @cached_property
     def funnel_class(self):
         funnelVizType = self.context.funnelsFilter.funnelVizType
 
         if funnelVizType == FunnelVizType.TRENDS:
-            return FunnelTrends(context=self.context, **self.kwargs)
+            return (
+                FunnelTrendsUDF(context=self.context, **self.kwargs)
+                if self._use_udf and self.context.funnelsFilter.funnelOrderType != StepOrderValue.UNORDERED
+                else FunnelTrends(context=self.context, **self.kwargs)
+            )
         elif funnelVizType == FunnelVizType.TIME_TO_CONVERT:
             return FunnelTimeToConvert(context=self.context)
         else:
