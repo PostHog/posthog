@@ -329,8 +329,8 @@ def get_lazy_session_table_properties_v1(search: Optional[str]):
         "duration",
         "$num_uniq_urls",
         # aliases for people reverting from v2 to v1
-        "end_current_url",
-        "end_pathname",
+        "$end_current_url",
+        "$end_pathname",
     }
 
     # some fields should have a specific property type which isn't derivable from the type of database field
