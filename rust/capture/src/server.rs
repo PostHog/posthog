@@ -10,7 +10,9 @@ use crate::config::CaptureMode;
 use crate::config::Config;
 
 use crate::limiters::overflow::OverflowLimiter;
-use crate::limiters::redis::{QuotaResource, RedisLimiter, OVERFLOW_LIMITER_CACHE_KEY, QUOTA_LIMITER_CACHE_KEY};
+use crate::limiters::redis::{
+    QuotaResource, RedisLimiter, OVERFLOW_LIMITER_CACHE_KEY, QUOTA_LIMITER_CACHE_KEY,
+};
 use crate::redis::RedisClient;
 use crate::router;
 use crate::sinks::kafka::KafkaSink;

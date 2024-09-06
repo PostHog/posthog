@@ -154,8 +154,14 @@ mod tests {
         );
         let client = Arc::new(client);
 
-        let limiter = RedisLimiter::new(Duration::seconds(1), client, OVERFLOW_LIMITER_CACHE_KEY.to_string(), None, QuotaResource::Recordings)
-            .expect("Failed to create billing limiter");
+        let limiter = RedisLimiter::new(
+            Duration::seconds(1),
+            client,
+            OVERFLOW_LIMITER_CACHE_KEY.to_string(),
+            None,
+            QuotaResource::Recordings,
+        )
+        .expect("Failed to create billing limiter");
         tokio::time::sleep(std::time::Duration::from_millis(30)).await;
 
         assert!(!limiter.is_limited("not_limited").await);
