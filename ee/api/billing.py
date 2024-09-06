@@ -185,7 +185,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         license = get_cached_instance_license()
         if not license:
             return Response(
-                {"sucess": True},
+                {"success": True},
                 status=status.HTTP_200_OK,
             )
 
@@ -199,7 +199,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         license = get_cached_instance_license()
         if not license:
             return Response(
-                {"sucess": True},
+                {"success": True},
                 status=status.HTTP_200_OK,
             )
 
@@ -232,7 +232,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             },
             status=status.HTTP_200_OK,
         )
-    
+
     @action(methods=["GET"], detail=False, url_path="credits/eligibility")
     def credits_eligibility(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         license = get_cached_instance_license()
@@ -246,7 +246,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         res = BillingManager(license).credits_eligibility(organization)
         return Response(res, status=status.HTTP_200_OK)
-    
+
     @action(methods=["POST"], detail=False, url_path="credits/purchase")
     def purchase_credits(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         license = get_cached_instance_license()
