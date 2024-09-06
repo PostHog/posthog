@@ -199,8 +199,8 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
                 }
                 breakpoint()
 
-                actionsLogic.actions.updateAction({ action: response })
                 actions.selectAction(null)
+                actionsLogic.actions.updateAction({ action: response })
 
                 lemonToast.success('Action saved', {
                     button: {
