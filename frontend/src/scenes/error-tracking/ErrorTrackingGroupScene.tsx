@@ -4,6 +4,7 @@ import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { base64Decode } from 'lib/utils'
+import { useEffect } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 
@@ -30,8 +31,16 @@ const STATUS_LABEL: Record<ErrorTrackingGroup['status'], string> = {
 }
 
 export function ErrorTrackingGroupScene(): JSX.Element {
-    const { group } = useValues(errorTrackingGroupSceneLogic)
-    const { updateGroup } = useActions(errorTrackingGroupSceneLogic)
+    const { group, groupLoading } = useValues(errorTrackingGroupSceneLogic)
+    const { updateGroup, loadGroup } = useActions(errorTrackingGroupSceneLogic)
+
+    useEffect(() => {
+        // don't like doing this but scene logics do not unmount after being loaded
+        // so this refreshes the group on each page visit in case any changes occurred
+        if (!groupLoading) {
+            loadGroup()
+        }
+    }, [])
 
     return (
         <>

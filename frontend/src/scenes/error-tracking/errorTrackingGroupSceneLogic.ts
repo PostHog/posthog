@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
@@ -74,7 +74,10 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
                             dateRange: values.dateRange,
                             filterTestAccounts: values.filterTestAccounts,
                             filterGroup: values.filterGroup,
-                        })
+                        }),
+                        {},
+                        undefined,
+                        true
                     )
 
                     // ErrorTrackingQuery returns a list of groups
@@ -171,8 +174,4 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
             }
         },
     })),
-
-    afterMount(({ actions }) => {
-        actions.loadGroup()
-    }),
 ])

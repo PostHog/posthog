@@ -39,8 +39,10 @@ export function ErrorTrackingScene(): JSX.Element {
                 render: CustomGroupTitleColumn,
             },
             occurrences: { align: 'center' },
+            sessions: { align: 'center' },
+            users: { align: 'center' },
             volume: { renderTitle: CustomVolumeColumnHeader },
-            assignee: { render: AssigneeColumn, align: 'center' },
+            assignee: { render: AssigneeColumn },
         },
         showOpenEditorButton: false,
         insightProps: insightProps,
@@ -150,9 +152,11 @@ const AssigneeColumn: QueryContextColumnComponent = (props) => {
     const record = props.record as ErrorTrackingGroup
 
     return (
-        <AssigneeSelect
-            assignee={record.assignee}
-            onChange={(assigneeId) => assignGroup(props.recordIndex, assigneeId)}
-        />
+        <div className="flex justify-center">
+            <AssigneeSelect
+                assignee={record.assignee}
+                onChange={(assigneeId) => assignGroup(props.recordIndex, assigneeId)}
+            />
+        </div>
     )
 }

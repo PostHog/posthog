@@ -37,7 +37,7 @@ export const AssigneeSelect = ({
                     sideIcon={null}
                     {...buttonProps}
                 >
-                    {showName ? (user ? fullName(user) : 'Unassigned') : null}
+                    {showName ? <span className="pl-1">{user ? fullName(user) : 'Unassigned'}</span> : null}
                 </LemonButton>
             )}
         </MemberSelect>
