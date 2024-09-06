@@ -3,13 +3,13 @@ import './Max.scss'
 import { LemonButton, LemonInput, Spinner } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { HedgehogBuddyStatic } from 'lib/components/HedgehogBuddy/HedgehogBuddyRender'
+import { HedgehogBuddy } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
+import { hedgehogBuddyLogic } from 'lib/components/HedgehogBuddy/hedgehogBuddyLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils'
 import React, { useState } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
-import { userLogic } from 'scenes/userLogic'
 
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { Query } from '~/queries/Query/Query'
@@ -41,8 +41,8 @@ function Message({
 }
 
 export function Max(): JSX.Element | null {
-    const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { hedgehogConfig } = useValues(hedgehogBuddyLogic)
 
     const logic = maxLogic({
         sessionId: uuid(),
@@ -119,11 +119,14 @@ export function Max(): JSX.Element | null {
             </div>
             <div className="relative flex items-start px-4">
                 <div className="flex -ml-2.5 -mt-2">
-                    <HedgehogBuddyStatic
-                        accessories={user?.hedgehog_config?.accessories}
-                        color={user?.hedgehog_config?.color}
-                        size={80}
-                        waveOnAppearance
+                    <HedgehogBuddy
+                        inline
+                        hedgehogConfig={{
+                            ...hedgehogConfig,
+                            walking_enabled: false,
+                            controls_enabled: false,
+                        }}
+                        onClick={(actor) => actor.setAnimation('wave')}
                     />
                 </div>
                 <LemonInput

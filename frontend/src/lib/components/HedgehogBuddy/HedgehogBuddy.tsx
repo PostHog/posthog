@@ -35,11 +35,12 @@ const MAX_JUMP_COUNT = 2
 
 export type HedgehogBuddyProps = {
     onActorLoaded?: (actor: HedgehogActor) => void
-    onClose?: () => void
-    onClick?: () => void
+    onClose?: (actor: HedgehogActor) => void
+    onClick?: (actor: HedgehogActor) => void
     onPositionChange?: (actor: HedgehogActor) => void
     hedgehogConfig?: HedgehogConfig
     tooltip?: JSX.Element
+    inline?: boolean
 }
 
 type Box = {
@@ -93,6 +94,7 @@ export class HedgehogActor {
     ignoreGroundAboveY?: number
     showTooltip = false
     lastScreenPosition = [window.screenX, window.screenY + window.innerHeight]
+    static = false
 
     // properties synced with the logic
     hedgehogConfig: Partial<HedgehogConfig> = {}
@@ -524,6 +526,9 @@ export class HedgehogActor {
     }
 
     private onGround(): boolean {
+        if (this.static) {
+            return true
+        }
         if (this.ground) {
             const groundLevel = elementToBox(this.ground).y + elementToBox(this.ground).height
             return this.y <= groundLevel
@@ -664,9 +669,9 @@ export class HedgehogActor {
                     onMouseOut={() => (this.showTooltip = false)}
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
-                        position: 'fixed',
-                        left: this.x,
-                        bottom: this.y - SHADOW_HEIGHT * 0.5,
+                        position: this.static ? 'relative' : 'fixed',
+                        left: this.static ? undefined : this.x,
+                        bottom: this.static ? undefined : this.y - SHADOW_HEIGHT * 0.5,
                         transition: !(this.isDragging || this.followMouse) ? `all ${1000 / FPS}ms` : undefined,
                         cursor: 'pointer',
                         margin: 0,
@@ -765,7 +770,7 @@ export class HedgehogActor {
 }
 
 export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps>(function HedgehogBuddy(
-    { onActorLoaded, onClick: _onClick, onPositionChange, hedgehogConfig, tooltip },
+    { onActorLoaded, onClick: _onClick, onPositionChange, hedgehogConfig, tooltip, inline },
     ref
 ): JSX.Element {
     const actorRef = useRef<HedgehogActor>()
@@ -797,6 +802,10 @@ export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps
     }, [tooltip])
 
     useEffect(() => {
+        actor.static = inline ?? false
+    }, [inline])
+
+    useEffect(() => {
         let timer: any = null
 
         const loop = (): void => {
@@ -826,7 +835,7 @@ export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps
     }, [actor.x, actor.y])
 
     const onClick = (): void => {
-        !actor.isDragging && _onClick?.()
+        !actor.isDragging && _onClick?.(actor)
     }
 
     return actor.render({ onClick, ref })
@@ -848,14 +857,14 @@ export function MyHedgehogBuddy({
 
     const [popoverVisible, setPopoverVisible] = useState(false)
 
-    const onClick = (): void => {
+    const onClick = (actor: HedgehogActor): void => {
         setPopoverVisible(!popoverVisible)
-        _onClick?.()
+        _onClick?.(actor)
     }
     const disappear = (): void => {
         setPopoverVisible(false)
         actor?.setAnimation('wave')
-        setTimeout(() => onClose?.(), (actor!.animations.wave.frames * 1000) / FPS)
+        setTimeout(() => onClose?.(actor!), (actor!.animations.wave.frames * 1000) / FPS)
     }
 
     return (
