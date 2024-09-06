@@ -17,6 +17,8 @@ export type SpriteInfo = {
     /** How likely this animation is to be chosen. Higher numbers are more likely. */
     randomChance?: number
     accessoryPositions?: [number, number][]
+    filter?: string
+    style?: React.CSSProperties
 }
 
 export const accessoryGroups = ['headwear', 'eyewear', 'other'] as const
@@ -45,6 +47,10 @@ const baseSpriteAccessoriesPath = (): string => `${baseSpritePath()}/accessories
 
 export const spriteUrl = (skin: HedgehogSkin, img: string): string => {
     return `${baseSpritePath()}/skins/${skin}/${img}.png`
+}
+
+export const spriteOverlayUrl = (img: string): string => {
+    return `${baseSpritePath()}/overlays/${img}.png`
 }
 
 export const spriteAccessoryUrl = (img: string): string => {
@@ -145,6 +151,29 @@ const standardAnimations: Record<AnimationNames, SpriteInfo> = {
         frames: 8,
         maxIteration: 3,
         randomChance: 1,
+    },
+}
+
+const overlayAnimationsNames = ['fire', 'fire2']
+
+export type OverlayAnimationNames = (typeof overlayAnimationsNames)[number]
+
+export const overlayAnimations: Record<OverlayAnimationNames, SpriteInfo> = {
+    fire: {
+        img: 'fire',
+        frames: 14,
+        maxIteration: 1,
+        style: {
+            opacity: 0.75,
+        },
+    },
+    fire2: {
+        img: 'fire2',
+        frames: 14,
+        maxIteration: 1,
+        style: {
+            opacity: 0.75,
+        },
     },
 }
 
