@@ -11,6 +11,8 @@ import typing
 import uuid
 
 import dlt
+import dlt.common.data_types as dlt_data_types
+import dlt.common.schema.typing as dlt_typing
 import dlt.extract
 import structlog
 import temporalio.activity
@@ -32,7 +34,7 @@ from posthog.warehouse.util import database_sync_to_async
 
 logger = structlog.get_logger()
 
-CLICKHOUSE_DLT_MAPPING = {
+CLICKHOUSE_DLT_MAPPING: dict[str, dlt_data_types.TDataType] = {
     "UUID": "text",
     "String": "text",
     "DateTime64": "timestamp",
@@ -289,7 +291,7 @@ async def materialize_model(model_label: str, team: Team) -> tuple[str, DeltaTab
     if not query_columns:
         query_columns = await database_sync_to_async(saved_query.get_columns)()
 
-    table_columns = {}
+    table_columns: dlt_typing.TTableSchemaColumns = {}
     for column_name, column_info in query_columns.items():
         clickhouse_type = column_info["clickhouse"]
         nullable = False
@@ -300,10 +302,12 @@ async def materialize_model(model_label: str, team: Team) -> tuple[str, DeltaTab
 
         clickhouse_type = re.sub(r"\(.+\)+", "", clickhouse_type)
 
-        table_columns[column_name] = {
-            "data_type": CLICKHOUSE_DLT_MAPPING[clickhouse_type],
+        data_type: dlt_data_types.TDataType = CLICKHOUSE_DLT_MAPPING[clickhouse_type]
+        column_schema: dlt_typing.TColumnSchema = {
+            "data_type": data_type,
             "nullable": nullable,
         }
+        table_columns[column_name] = column_schema
 
     hogql_query = saved_query.query["query"]
 
@@ -321,7 +325,7 @@ async def materialize_model(model_label: str, team: Team) -> tuple[str, DeltaTab
 
 
 @dlt.source(max_table_nesting=0)
-def hogql_table(query: str, team: Team, table_name: str, table_columns):
+def hogql_table(query: str, team: Team, table_name: str, table_columns: dlt_typing.TTableSchemaColumns):
     """A dlt source representing a HogQL table given by a HogQL query."""
 
     async def get_hogql_rows():
