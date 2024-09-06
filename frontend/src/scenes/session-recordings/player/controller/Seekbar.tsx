@@ -7,6 +7,7 @@ import { useEffect, useRef } from 'react'
 import { RecordingSegment } from '~/types'
 
 import { playerInspectorLogic } from '../inspector/playerInspectorLogic'
+import { playerSettingsLogic } from '../playerSettingsLogic'
 import { sessionRecordingDataLogic } from '../sessionRecordingDataLogic'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { PlayerSeekbarPreview } from './PlayerSeekbarPreview'
@@ -18,6 +19,7 @@ export function Seekbar(): JSX.Element {
     const { seekToTime } = useActions(sessionRecordingPlayerLogic)
     const { seekbarItems } = useValues(playerInspectorLogic(logicProps))
     const { endTimeMs, thumbLeftPos, bufferPercent, isScrubbing } = useValues(seekbarLogic(logicProps))
+    const { timestampFormat } = useValues(playerSettingsLogic)
 
     const { handleDown, setSlider, setThumb } = useActions(seekbarLogic(logicProps))
     const { sessionPlayerData, sessionPlayerMetaData } = useValues(sessionRecordingDataLogic(logicProps))
@@ -84,6 +86,8 @@ export function Seekbar(): JSX.Element {
                         activeMs={
                             sessionPlayerMetaData?.active_seconds ? sessionPlayerMetaData.active_seconds * 1000 : null
                         }
+                        timestampFormat={timestampFormat}
+                        startTime={sessionPlayerData.start}
                     />
                 </div>
             </div>

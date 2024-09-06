@@ -328,7 +328,7 @@ def bigquery_default_fields() -> list[BatchExportField]:
 async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> RecordsCompleted:
     """Activity streams data from ClickHouse to BigQuery."""
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="BigQuery")
-    logger.info(
+    await logger.ainfo(
         "Batch exporting range %s - %s to BigQuery: %s.%s.%s",
         inputs.data_interval_start,
         inputs.data_interval_end,
@@ -446,7 +446,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                     last: bool,
                     error: Exception | None,
                 ):
-                    logger.debug(
+                    await logger.adebug(
                         "Loading %s records of size %s bytes",
                         records_since_last_flush,
                         bytes_since_last_flush,
