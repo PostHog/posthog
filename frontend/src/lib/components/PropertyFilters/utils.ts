@@ -120,7 +120,7 @@ export function formatPropertyLabel(
     const taxonomicFilterGroupType = PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[type]
 
     return type === 'cohort'
-        ? cohortsById[value]?.name || `ID ${value}`
+        ? (cohortsById[value]?.name || `ID ${value}`) + ` ${operator}`
         : (CORE_FILTER_DEFINITIONS_BY_GROUP[taxonomicFilterGroupType]?.[key]?.label || key) +
               (isOperatorFlag(operator)
                   ? ` ${allOperatorsMapping[operator]}`
@@ -256,6 +256,7 @@ export function isPropertyFilterWithOperator(
             isLogEntryPropertyFilter(filter) ||
             isFeaturePropertyFilter(filter) ||
             isGroupPropertyFilter(filter) ||
+            isCohortPropertyFilter(filter) ||
             isDataWarehousePropertyFilter(filter))
     )
 }
