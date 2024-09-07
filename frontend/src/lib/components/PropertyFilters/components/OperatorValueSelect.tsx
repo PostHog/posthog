@@ -4,6 +4,7 @@ import {
     allOperatorsMapping,
     chooseOperatorMap,
     isMobile,
+    isOperatorCohort,
     isOperatorFlag,
     isOperatorMulti,
     isOperatorRange,
@@ -134,7 +135,9 @@ export function OperatorValueSelect({
                         setValidationError(null)
 
                         setCurrentOperator(newOperator)
-                        if (isOperatorFlag(newOperator)) {
+                        if (isOperatorCohort(newOperator)) {
+                            onChange(newOperator, value || null)
+                        } else if (isOperatorFlag(newOperator)) {
                             onChange(newOperator, newOperator)
                         } else if (isOperatorFlag(currentOperator || PropertyOperator.Exact)) {
                             onChange(newOperator, null)
