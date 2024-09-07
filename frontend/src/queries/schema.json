@@ -2502,6 +2502,9 @@
                 "label": {
                     "type": "string"
                 },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
                 "type": {
                     "const": "cohort",
                     "type": "string"
@@ -2510,7 +2513,7 @@
                     "type": "integer"
                 }
             },
-            "required": ["key", "type", "value"],
+            "required": ["key", "operator", "type", "value"],
             "type": "object"
         },
         "CompareFilter": {
@@ -7032,7 +7035,9 @@
                 "between",
                 "not_between",
                 "min",
-                "max"
+                "max",
+                "in",
+                "not_in"
             ],
             "type": "string"
         },

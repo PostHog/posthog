@@ -761,6 +761,7 @@ export interface CohortPropertyFilter extends BasePropertyFilter {
     key: 'id'
     /**  @asType integer */
     value: number
+    operator: PropertyOperator
 }
 
 export interface GroupPropertyFilter extends BasePropertyFilter {
