@@ -2503,7 +2503,8 @@
                     "type": "string"
                 },
                 "operator": {
-                    "$ref": "#/definitions/PropertyOperator"
+                    "$ref": "#/definitions/PropertyOperator",
+                    "default": "in"
                 },
                 "type": {
                     "const": "cohort",

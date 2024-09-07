@@ -2139,7 +2139,7 @@ class CohortPropertyFilter(BaseModel):
     )
     key: Literal["id"] = "id"
     label: Optional[str] = None
-    operator: PropertyOperator
+    operator: Optional[PropertyOperator] = PropertyOperator.IN_
     type: Literal["cohort"] = "cohort"
     value: int
 
