@@ -383,6 +383,7 @@ export function createDefaultPropertyFilter(
             key: 'id',
             value: parseInt(String(propertyKey)),
             type: propertyType,
+            operator: PropertyOperator.In,
         }
         return cohortProperty
     } else if (propertyType === PropertyFilterType.HogQL) {
