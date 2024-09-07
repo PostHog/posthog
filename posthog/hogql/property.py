@@ -494,7 +494,9 @@ def property_to_expr(
         cohort = Cohort.objects.get(team=team, id=property.value)
         return ast.CompareOperation(
             left=ast.Field(chain=["id" if scope == "person" else "person_id"]),
-            op=ast.CompareOperationOp.InCohort,
+            op=ast.CompareOperationOp.NotInCohort
+            if property.operator == PropertyOperator.NOT_IN
+            else ast.CompareOperationOp.InCohort,
             right=ast.Constant(value=cohort.pk),
         )
 
