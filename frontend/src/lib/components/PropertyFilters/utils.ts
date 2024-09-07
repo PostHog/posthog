@@ -1,6 +1,6 @@
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
-import { allOperatorsMapping, isOperatorFlag } from 'lib/utils'
+import { allOperatorsMapping, cohortOperatorMap, isOperatorFlag } from 'lib/utils'
 
 import { propertyDefinitionsModelType } from '~/models/propertyDefinitionsModelType'
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
@@ -120,7 +120,7 @@ export function formatPropertyLabel(
     const taxonomicFilterGroupType = PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[type]
 
     return type === 'cohort'
-        ? (cohortsById[value]?.name || `ID ${value}`) + ` ${operator}`
+        ? (cohortsById[value]?.name || `ID ${value}`) + ` ${cohortOperatorMap[operator || 'in']}`
         : (CORE_FILTER_DEFINITIONS_BY_GROUP[taxonomicFilterGroupType]?.[key]?.label || key) +
               (isOperatorFlag(operator)
                   ? ` ${allOperatorsMapping[operator]}`
