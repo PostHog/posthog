@@ -76,7 +76,8 @@ async fn main() {
             "janitor".to_string(),
             Duration::from_secs(config.cleanup_interval_secs * 4),
         )
-        .await;
+        .await
+        .expect("failed to register janitor liveness");
 
     let janitor_loop = tokio::spawn(cleanup_loop(
         janitor,

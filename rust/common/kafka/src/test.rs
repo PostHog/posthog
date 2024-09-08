@@ -12,7 +12,8 @@ pub async fn create_mock_kafka() -> (
     let registry = HealthRegistry::new("liveness");
     let handle = registry
         .register("one".to_string(), time::Duration::seconds(30))
-        .await;
+        .await
+        .expect("failed to register mock kafka liveness");
     let cluster = MockCluster::new(1).expect("failed to create mock brokers");
 
     let config = KafkaConfig {

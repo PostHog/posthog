@@ -69,11 +69,13 @@ async fn main() {
             "worker".to_string(),
             (app_config.job_poll_interval * 4).to_std().unwrap(),
         )
-        .await;
+        .await
+        .expect("failed to register job poller");
 
     let kafka_liveness = liveness
         .register("rdkafka".to_string(), time::Duration::seconds(30))
-        .await;
+        .await
+        .expect("failed to register kafka liveness");
 
     let app = setup_metrics_routes(app(liveness, app_config.worker_id.clone()));
 

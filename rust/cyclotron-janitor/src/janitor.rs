@@ -46,7 +46,8 @@ impl Janitor {
 
         let kafka_liveness = health_registry
             .register("rdkafka".to_string(), time::Duration::seconds(30))
-            .await;
+            .await
+            .expect("failed to register kafka liveness");
 
         let kafka_producer = create_kafka_producer(&config.kafka, kafka_liveness)
             .await

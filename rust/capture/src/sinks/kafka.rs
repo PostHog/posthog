@@ -358,7 +358,8 @@ mod tests {
         let registry = HealthRegistry::new("liveness");
         let handle = registry
             .register("one".to_string(), Duration::seconds(30))
-            .await;
+            .await
+            .expect("failed to register mock liveness");
         let limiter = Some(OverflowLimiter::new(
             NonZeroU32::new(10).unwrap(),
             NonZeroU32::new(10).unwrap(),

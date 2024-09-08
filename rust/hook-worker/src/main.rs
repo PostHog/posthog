@@ -24,7 +24,8 @@ async fn main() -> Result<(), WorkerError> {
     let liveness = HealthRegistry::new("liveness");
     let worker_liveness = liveness
         .register("worker".to_string(), time::Duration::seconds(60)) // TODO: compute the value from worker params
-        .await;
+        .await
+        .expect("failed to register worker liveness");
 
     let mut retry_policy_builder = RetryPolicy::build(
         config.retry_policy.backoff_coefficient,
@@ -49,7 +50,8 @@ async fn main() -> Result<(), WorkerError> {
 
     let kafka_liveness = liveness
         .register("rdkafka".to_string(), time::Duration::seconds(30))
-        .await;
+        .await
+        .expect("failed to register worker liveness");
     let kafka_producer = create_kafka_producer(&config.kafka, kafka_liveness)
         .await
         .expect("failed to create kafka producer");

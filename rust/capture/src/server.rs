@@ -43,6 +43,7 @@ where
         liveness
             .register("print_sink".to_string(), Duration::seconds(30))
             .await
+            .expect("failed to register print_sink")
             .report_status(ComponentStatus::Unhealthy)
             .await;
 
@@ -60,7 +61,8 @@ where
     } else {
         let sink_liveness = liveness
             .register("rdkafka".to_string(), Duration::seconds(30))
-            .await;
+            .await
+            .expect("failed to register kafka liveness");
 
         let partition = match config.overflow_enabled {
             false => None,

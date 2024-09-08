@@ -55,7 +55,8 @@ async fn main() {
         CleanerModeName::Webhooks => {
             let kafka_liveness = liveness
                 .register("rdkafka".to_string(), time::Duration::seconds(30))
-                .await;
+                .await
+                .expect("failed to register kafka liveness");
             let kafka_producer = create_kafka_producer(&config.kafka, kafka_liveness)
                 .await
                 .expect("failed to create kafka producer");
@@ -78,7 +79,8 @@ async fn main() {
             "cleanup_loop".to_string(),
             time::Duration::seconds(config.cleanup_interval_secs as i64 * 2),
         )
-        .await;
+        .await
+        .expect("failed to register cleanup loop");
     let cleanup_loop = Box::pin(cleanup_loop(
         cleaner,
         config.cleanup_interval_secs,

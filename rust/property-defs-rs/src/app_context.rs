@@ -31,7 +31,8 @@ impl AppContext {
         let liveness: HealthRegistry = HealthRegistry::new("liveness");
         let worker_liveness = liveness
             .register("worker".to_string(), Duration::seconds(60))
-            .await;
+            .await
+            .expect("failed to register worker liveness");
 
         let group_type_cache = Cache::new(config.group_type_cache_size);
 

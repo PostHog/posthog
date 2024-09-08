@@ -871,7 +871,8 @@ mod tests {
         let registry = HealthRegistry::new("liveness");
         let liveness = registry
             .register("worker".to_string(), ::time::Duration::seconds(30))
-            .await;
+            .await
+            .expect("failed to register worker liveness");
         // enqueue takes ownership of the job enqueued to avoid bugs that can cause duplicate jobs.
         // Normally, a separate application would be enqueueing jobs for us to consume, so no ownership
         // conflicts would arise. However, in this test we need to do the enqueueing ourselves.
@@ -939,7 +940,8 @@ mod tests {
         let registry = HealthRegistry::new("liveness");
         let liveness = registry
             .register("worker".to_string(), ::time::Duration::seconds(30))
-            .await;
+            .await
+            .expect("failed to register worker liveness");
 
         let (mock_cluster, mock_producer) = create_mock_kafka().await;
         let hog_mode = true;
@@ -1055,7 +1057,8 @@ mod tests {
         let registry = HealthRegistry::new("liveness");
         let liveness = registry
             .register("worker".to_string(), ::time::Duration::seconds(30))
-            .await;
+            .await
+            .expect("failed to register worker liveness");
 
         let (mock_cluster, mock_producer) = create_mock_kafka().await;
         let hog_mode = true;
@@ -1196,7 +1199,8 @@ mod tests {
         let registry = HealthRegistry::new("liveness");
         let liveness = registry
             .register("worker".to_string(), ::time::Duration::seconds(30))
-            .await;
+            .await
+            .expect("failed to register worker liveness");
 
         let (_, mock_producer) = create_mock_kafka().await;
         let hog_mode = true;

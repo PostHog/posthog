@@ -22,7 +22,8 @@ pub async fn get_app_test_context(db: PgPool) -> AppContext {
     let health = health::HealthRegistry::new("test");
     let liveness = health
         .register("test".to_string(), Duration::seconds(30).to_std().unwrap())
-        .await;
+        .await
+        .expect("failed to register test liveness");
 
     let config = AppConfig {
         fetch_timeout: Duration::seconds(10),
