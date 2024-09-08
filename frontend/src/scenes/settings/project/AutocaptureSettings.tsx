@@ -18,7 +18,11 @@ function WebVitalsAllowedMetricSwitch({ metric }: { metric: SupportedWebVitalsMe
         <LemonSwitch
             label={`Capture ${metric}`}
             bordered
-            checked={currentTeam?.autocapture_web_vitals_allowed_metrics?.includes(metric) || true}
+            checked={
+                currentTeam?.autocapture_web_vitals_allowed_metrics
+                    ? currentTeam?.autocapture_web_vitals_allowed_metrics?.includes(metric)
+                    : true
+            }
             disabledReason={
                 userLoading
                     ? 'Loading user'
@@ -27,14 +31,14 @@ function WebVitalsAllowedMetricSwitch({ metric }: { metric: SupportedWebVitalsMe
                     : 'Enable web vitals autocapture to set allowed metrics'
             }
             onChange={(checked) => {
-                if (!currentTeam?.autocapture_web_vitals_allowed_metrics) {
+                if (!currentTeam) {
                     // shouldn't ever get here without a team, but we certainly can't edit it if it's not there
                     return
                 }
 
-                const without = currentTeam?.autocapture_web_vitals_allowed_metrics?.filter(
-                    (allowedMetric) => allowedMetric !== metric
-                )
+                const without = (
+                    currentTeam?.autocapture_web_vitals_allowed_metrics || ['FCP', 'CLS', 'INP', 'LCP']
+                )?.filter((allowedMetric) => allowedMetric !== metric)
                 if (checked) {
                     updateCurrentTeam({
                         autocapture_web_vitals_allowed_metrics: [...without, metric],
