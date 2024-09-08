@@ -386,6 +386,19 @@ class TestDecide(BaseTest, QueryMatchingTest):
             {"web_vitals": True, "network_timing": True},
         )
 
+    def test_web_vitals_autocapture_allowed_metrics(self, *args):
+        response = self._post_decide().json()
+        self.assertEqual(response["capturePerformance"], {"web_vitals": False, "network_timing": True})
+
+        self._update_team({"autocapture_web_vitals_opt_in": True})
+        self._update_team({"autocapture_web_vitals_allowed_metrics": ["CLS", "FCP"]})
+
+        response = self._post_decide().json()
+        self.assertEqual(
+            response["capturePerformance"],
+            {"web_vitals": True, "network_timing": True, "web_vitals_allowed_metrics": ["CLS", "FCP"]},
+        )
+
     def test_user_session_recording_opt_in_wildcard_domain(self, *args):
         # :TRICKY: Test for regression around caching
         response = self._post_decide().json()
