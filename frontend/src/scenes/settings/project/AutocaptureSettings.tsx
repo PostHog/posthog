@@ -1,4 +1,4 @@
-import { LemonSwitch, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { LemonDivider, LemonSwitch, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -131,6 +131,14 @@ export function WebVitalsAutocaptureSettings(): JSX.Element {
                 }
                 bordered
             />
+            <LemonDivider />
+            <p>You can choose which metrics to capture. By default, we capture all metrics.</p>
+            <div className="inline-grid grid-cols-2 gap-2 xs:grid xs:w-full">
+                <LemonSwitch label="Capture CLS" bordered checked={true} />
+                <LemonSwitch label="Capture FCP" bordered checked={true} />
+                <LemonSwitch label="Capture LCP" bordered checked={true} />
+                <LemonSwitch label="Capture INP" bordered checked={true} />
+            </div>
         </>
     )
 }
