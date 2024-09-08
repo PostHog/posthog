@@ -6,7 +6,48 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { SupportedWebVitalsMetrics } from '../../../../../.yalc/posthog-js'
 import { autocaptureExceptionsLogic } from './autocaptureExceptionsLogic'
+
+function WebVitalsAllowedMetricSwitch({ metric }: { metric: SupportedWebVitalsMetrics }): JSX.Element {
+    const { userLoading } = useValues(userLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const { updateCurrentTeam } = useActions(teamLogic)
+
+    return (
+        <LemonSwitch
+            label={`Capture ${metric}`}
+            bordered
+            checked={currentTeam?.autocapture_web_vitals_allowed_metrics?.includes(metric) || true}
+            disabledReason={
+                userLoading
+                    ? 'Loading user'
+                    : currentTeam?.autocapture_web_vitals_opt_in
+                    ? null
+                    : 'Enable web vitals autocapture to set allowed metrics'
+            }
+            onChange={(checked) => {
+                if (!currentTeam?.autocapture_web_vitals_allowed_metrics) {
+                    // shouldn't ever get here without a team, but we certainly can't edit it if it's not there
+                    return
+                }
+
+                const without = currentTeam?.autocapture_web_vitals_allowed_metrics?.filter(
+                    (allowedMetric) => allowedMetric !== metric
+                )
+                if (checked) {
+                    updateCurrentTeam({
+                        autocapture_web_vitals_allowed_metrics: [...without, metric],
+                    })
+                } else {
+                    updateCurrentTeam({
+                        autocapture_web_vitals_allowed_metrics: [...without],
+                    })
+                }
+            }}
+        />
+    )
+}
 
 export function AutocaptureSettings(): JSX.Element {
     const { userLoading } = useValues(userLogic)
@@ -134,10 +175,10 @@ export function WebVitalsAutocaptureSettings(): JSX.Element {
             <LemonDivider />
             <p>You can choose which metrics to capture. By default, we capture all metrics.</p>
             <div className="inline-grid grid-cols-2 gap-2 xs:grid xs:w-full">
-                <LemonSwitch label="Capture CLS" bordered checked={true} />
-                <LemonSwitch label="Capture FCP" bordered checked={true} />
-                <LemonSwitch label="Capture LCP" bordered checked={true} />
-                <LemonSwitch label="Capture INP" bordered checked={true} />
+                <WebVitalsAllowedMetricSwitch metric="CLS" />
+                <WebVitalsAllowedMetricSwitch metric="FCP" />
+                <WebVitalsAllowedMetricSwitch metric="LCP" />
+                <WebVitalsAllowedMetricSwitch metric="INP" />
             </div>
         </>
     )
