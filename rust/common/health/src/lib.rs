@@ -5,6 +5,7 @@ use std::sync::{Arc, RwLock};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use std::time::Duration;
+use thiserror::Error;
 use tokio::sync::mpsc;
 use tracing::{info, warn};
 
@@ -67,6 +68,12 @@ pub struct HealthHandle {
     component: String,
     deadline: Duration,
     sender: mpsc::Sender<HealthMessage>,
+}
+
+#[derive(Error, Debug)]
+pub enum HealthError {
+    #[error("invalid deadline set")]
+    InvalidDeadline,
 }
 
 impl HealthHandle {
@@ -143,23 +150,27 @@ impl HealthRegistry {
 
     /// Registers a new component in the registry. The returned handle should be passed
     /// to the component, to allow it to frequently report its health status.
-    pub async fn register<D>(&self, component: String, deadline: D) -> HealthHandle
+    pub async fn register<D>(
+        &self,
+        component: String,
+        deadline: D,
+    ) -> Result<HealthHandle, HealthError>
     where
         // HACK: to let callers user time::Duration or std::time::Duration (and therefore chrono::Duration),
         // since apparently we use all three
         D: TryInto<Duration>,
     {
         let Ok(deadline) = deadline.try_into() else {
-            // TODO - I should return an error here, but I don't want to refactor everything that uses this right now
-            panic!("invalid deadline")
+            return Err(HealthError::InvalidDeadline);
         };
+
         let handle = HealthHandle {
             component,
             deadline,
             sender: self.sender.clone(),
         };
         handle.report_status(ComponentStatus::Starting).await;
-        handle
+        Ok(handle)
     }
 
     /// Returns the overall process status, computed from the status of all the components
@@ -243,7 +254,9 @@ mod tests {
         // New components are registered in Starting
         let handle = registry
             .register("one".to_string(), Duration::seconds(30))
-            .await;
+            .await
+            .expect("Failed to register health check");
+
         assert_or_retry(|| registry.get_status().components.len() == 1).await;
         let mut status = registry.get_status();
         assert!(!status.healthy);
@@ -274,7 +287,8 @@ mod tests {
         let registry = HealthRegistry::new("liveness");
         let handle = registry
             .register("one".to_string(), Duration::seconds(30))
-            .await;
+            .await
+            .expect("Failed to register health check");
 
         // Status goes healthy once the component reports
         handle.report_healthy().await;
@@ -303,10 +317,12 @@ mod tests {
         let registry = HealthRegistry::new("liveness");
         let handle1 = registry
             .register("one".to_string(), Duration::seconds(30))
-            .await;
+            .await
+            .expect("Failed to register health check");
         let handle2 = registry
             .register("two".to_string(), Duration::seconds(30))
-            .await;
+            .await
+            .expect("Failed to register health check");
         assert_or_retry(|| registry.get_status().components.len() == 2).await;
 
         // First component going healthy is not enough
