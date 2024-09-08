@@ -1698,7 +1698,7 @@ export interface DatabaseSchemaField {
 
 export interface DatabaseSchemaTableCommon {
     type: 'posthog' | 'data_warehouse' | 'view' | 'batch_export'
-    id: string
+    id?: string
     name: string
     fields: Record<string, DatabaseSchemaField>
 }

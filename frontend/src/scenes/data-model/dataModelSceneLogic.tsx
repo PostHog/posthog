@@ -48,14 +48,14 @@ export const dataModelSceneLogic = kea<dataModelSceneLogicType>([
             (s) => [s.personFields],
             (personFields) =>
                 Object.entries(personFields)
-                    .filter(([_, data]) => data.type != 'view')
+                    .filter(([_, data]) => data.type != 'view' && !(data.type == 'lazy_table' && data.name !== 'pdi'))
                     .map(([column, data]) => ({ column, type: data.type })),
         ],
         joinedFields: [
             (s) => [s.personFields],
             (personFields) =>
                 Object.entries(personFields)
-                    .filter(([_, data]) => data.type == 'view')
+                    .filter(([_, data]) => data.type == 'view' || (data.type == 'lazy_table' && data.name !== 'pdi'))
                     .map(([_, data]) => data),
         ],
         joinedFieldsAsNodes: [
@@ -84,13 +84,13 @@ export const dataModelSceneLogic = kea<dataModelSceneLogicType>([
             joinedFields.forEach((field: DatabaseSchemaTable) => {
                 actions.setNodes({
                     ...values.nodeMap,
-                    [field.id]: {
+                    [field.id || field.name]: {
                         nodeId: field.id,
                         name: values.viewsMapById[field.id]?.name || field.id,
-                        leaf: [field.name],
+                        leaf: [`${field.name}_joined`],
                     },
                 })
-                actions.traverseAncestors(field.id)
+                field.id && actions.traverseAncestors(field.id)
             })
         },
     })),
