@@ -3,10 +3,10 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { SupportedWebVitalsMetrics } from 'posthog-js'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { SupportedWebVitalsMetrics } from '../../../../../.yalc/posthog-js'
 import { autocaptureExceptionsLogic } from './autocaptureExceptionsLogic'
 
 function WebVitalsAllowedMetricSwitch({ metric }: { metric: SupportedWebVitalsMetrics }): JSX.Element {
