@@ -7,20 +7,32 @@ import {
 } from 'lib/components/ActivityLog/__mocks__/activityLogMocks'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 
-import { mswDecorator } from '~/mocks/browser'
+import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
+import organizationCurrent from '~/mocks/fixtures/api/organizations/@current/@current.json'
 import { ActivityScope } from '~/types'
 
 const meta: Meta<typeof ActivityLog> = {
     title: 'Components/ActivityLog',
     component: ActivityLog,
-    tags: ['test-skip'], // FIXME: Currently disabled as the Timeout story is flaky
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team/feature_flags/5/activity': (_, __, ctx) => [
-                    ctx.delay(86400000),
-                    ctx.status(200),
-                    ctx.json({ results: [] }),
+                // TODO: setting available featues should be a decorator to make this easy
+                '/api/users/@me': () => [
+                    200,
+                    {
+                        email: 'test@posthog.com',
+                        first_name: 'Test Hedgehog',
+                        organization: {
+                            ...organizationCurrent,
+                            available_product_features: [
+                                {
+                                    key: 'audit_logs',
+                                    name: 'Audit logs',
+                                },
+                            ],
+                        },
+                    },
                 ],
                 '/api/projects/:team/feature_flags/6/activity': (_, __, ctx) => [
                     ctx.status(200),
@@ -88,6 +100,21 @@ export function WithNoData(): JSX.Element {
     return <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={6} />
 }
 
-export function Timeout(): JSX.Element {
-    return <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={5} />
+export function WithoutAuditLogsFeaure(): JSX.Element {
+    useStorybookMocks({
+        get: {
+            '/api/users/@me': () => [
+                200,
+                {
+                    email: 'test@posthog.com',
+                    first_name: 'Test Hedgehog',
+                    organization: {
+                        ...organizationCurrent,
+                        available_product_features: [],
+                    },
+                },
+            ],
+        },
+    })
+    return <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={7} />
 }
