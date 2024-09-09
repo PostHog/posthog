@@ -1,8 +1,10 @@
 import { IconCheckCircle } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonDivider, LemonInput, LemonModal, LemonTable } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonModal, LemonTable, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 
 import { BillingGauge } from './BillingGauge'
 import { billingLogic } from './billingLogic'
@@ -11,7 +13,9 @@ import { BillingGaugeItemKind } from './types'
 export const PurchaseCreditsModal = (): JSX.Element | null => {
     const { showPurchaseCreditsModal, submitCreditForm } = useActions(billingLogic)
     const { selfServeCreditOverview, isCreditFormSubmitting, creditForm, creditDiscount } = useValues(billingLogic)
+    const { openSupportForm } = useActions(supportLogic)
 
+    const creditInputValue: number = +creditForm.creditInput || 0
     return (
         <LemonModal
             onClose={() => showPurchaseCreditsModal(false)}
@@ -27,7 +31,17 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                         Cancel
                     </LemonButton>
                     <LemonButton type="primary" onClick={() => submitCreditForm()} loading={isCreditFormSubmitting}>
-                        Buy {creditForm.creditInput ? `$${creditForm.creditInput.toLocaleString()}` : ''} credits
+                        Buy{' '}
+                        {creditForm.creditInput
+                            ? `$${Math.round(creditInputValue - creditInputValue * creditDiscount).toLocaleString(
+                                  'en-US',
+                                  {
+                                      minimumFractionDigits: 0,
+                                      maximumFractionDigits: 0,
+                                  }
+                              )}`
+                            : ''}{' '}
+                        credits
                     </LemonButton>
                 </>
             }
@@ -39,7 +53,15 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                     </p>
 
                     <p className="mb-0">
-                        Based on your usage, we think you'll need{' '}
+                        Based on your usage, we think you'll use{' '}
+                        <b>
+                            $
+                            {(+selfServeCreditOverview.estimated_monthly_credit_amount_usd).toLocaleString('en-US', {
+                                minimumFractionDigits: 0,
+                                maximumFractionDigits: 0,
+                            })}
+                        </b>{' '}
+                        of credits per months, for a total of{' '}
                         <b>
                             $
                             {(+selfServeCreditOverview.estimated_monthly_credit_amount_usd * 12).toLocaleString(
@@ -50,18 +72,14 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                                 }
                             )}
                         </b>{' '}
-                        credits this year. That's{' '}
-                        <b>
-                            $
-                            {(+selfServeCreditOverview.estimated_monthly_credit_amount_usd).toLocaleString('en-US', {
-                                minimumFractionDigits: 0,
-                                maximumFractionDigits: 0,
-                            })}
-                        </b>{' '}
-                        per month.
+                        creditsfor the year.
                     </p>
 
-                    <LemonField name="creditInput" label="How many credits do you want to purchase?">
+                    <LemonField
+                        name="creditInput"
+                        label="How many credits do you want to purchase?"
+                        help="Credits are dispersed monthly and roll over to the next month. If you use more than the available credits in any month, you'll pay for the usage at the standard rate. Credits expire after 1 year from purchase."
+                    >
                         {({ value, onChange, error }) => (
                             <div className="max-w-40">
                                 <LemonInput
@@ -86,7 +104,7 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                             {
                                 type: BillingGaugeItemKind.FreeTier,
                                 text:
-                                    +creditForm.creditInput >= 6000 && +creditForm.creditInput < 20000 ? (
+                                    creditInputValue >= 6000 && creditInputValue < 20000 ? (
                                         <>
                                             <IconCheckCircle className="text-success" /> 10% off
                                         </>
@@ -100,7 +118,7 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                             {
                                 type: BillingGaugeItemKind.FreeTier,
                                 text:
-                                    +creditForm.creditInput >= 20000 && +creditForm.creditInput < 60000 ? (
+                                    creditInputValue >= 20000 && creditInputValue < 60000 ? (
                                         <>
                                             <IconCheckCircle className="text-success" /> 20% off
                                         </>
@@ -114,7 +132,7 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                             {
                                 type: BillingGaugeItemKind.FreeTier,
                                 text:
-                                    +creditForm.creditInput >= 60000 && +creditForm.creditInput < 100000 ? (
+                                    creditInputValue >= 60000 && creditInputValue < 100000 ? (
                                         <>
                                             <IconCheckCircle className="text-success" /> 25% off
                                         </>
@@ -128,7 +146,7 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                             {
                                 type: BillingGaugeItemKind.FreeTier,
                                 text:
-                                    +creditForm.creditInput >= 100000 ? (
+                                    creditInputValue >= 100000 ? (
                                         <>
                                             <IconCheckCircle className="text-success" /> 30% off
                                         </>
@@ -143,7 +161,7 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                                 type: BillingGaugeItemKind.CurrentUsage,
                                 text: 'Credits purchased',
                                 prefix: '$',
-                                value: +creditForm.creditInput,
+                                value: creditInputValue,
                                 top: false,
                             },
                         ]}
@@ -153,6 +171,35 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                         }}
                     />
 
+                    <div>
+                        <p className="mb-1 text-md font-semibold">Payment details</p>
+                        <p className="mb-0">Choose how you'd like to pay for your credits.</p>
+                    </div>
+                    <LemonField name="collectionMethod">
+                        {({ value, onChange }) => (
+                            <LemonRadio
+                                value={value}
+                                onChange={onChange}
+                                options={[
+                                    {
+                                        value: 'charge_automatically',
+                                        label: `Pay with credit card on file (**** ${selfServeCreditOverview.cc_last_four})`,
+                                    },
+                                    {
+                                        value: 'send_invoice',
+                                        label: `Send me an invoice to ${selfServeCreditOverview.email}`,
+                                    },
+                                ]}
+                            />
+                        )}
+                    </LemonField>
+
+                    <LemonDivider />
+
+                    <div>
+                        <p className="mb-1 text-md font-semibold">Summary</p>
+                        <p className="mb-0">Here's a summary of what you'll pay.</p>
+                    </div>
                     <LemonTable
                         showHeader={false}
                         columns={[
@@ -167,34 +214,60 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                         ]}
                         dataSource={[
                             {
-                                item: "Total credits you'll receive",
-                                value: `$${(+creditForm.creditInput / (1 - creditDiscount)).toLocaleString('en-US', {
-                                    minimumFractionDigits: 0,
-                                    maximumFractionDigits: 0,
-                                })}`,
+                                item: "Credits you'll receive",
+                                value: (
+                                    <span className="flex space-x-2">
+                                        <span className="line-through">
+                                            $
+                                            {creditInputValue.toLocaleString('en-US', {
+                                                minimumFractionDigits: 0,
+                                                maximumFractionDigits: 0,
+                                            })}
+                                        </span>
+                                        <span className="italic">${creditDiscount * 100}% off</span>
+                                    </span>
+                                ),
                             },
                             {
                                 item: 'Discount',
-                                value: `${creditDiscount * 100}%`,
+                                value: (
+                                    <span className="text-success-light">
+                                        -$
+                                        {Math.round(creditInputValue * creditDiscount).toLocaleString('en-US', {
+                                            minimumFractionDigits: 0,
+                                            maximumFractionDigits: 0,
+                                        })}
+                                    </span>
+                                ),
                             },
                             {
                                 item: 'Due today',
-                                value: `$${Math.round(+creditForm.creditInput).toLocaleString('en-US')}`,
+                                value: (
+                                    <span className="font-semibold">
+                                        $
+                                        {Math.round(
+                                            creditInputValue - creditInputValue * creditDiscount
+                                        ).toLocaleString('en-US', {
+                                            minimumFractionDigits: 0,
+                                            maximumFractionDigits: 0,
+                                        })}
+                                    </span>
+                                ),
                             },
                         ]}
                     />
 
-                    <LemonDivider />
-                    <p className="mb-1 text-md font-semibold">Payment details</p>
-                    <p className="mb-0">
-                        Check the box if you want an invoice, otherwise we'll charge your card now. We'll also close any
-                        open invoices.
-                    </p>
-                    <LemonField name="sendInvoice">
-                        {({ value, onChange }) => (
-                            <LemonCheckbox label="Send me an invoice" checked={value} onChange={onChange} />
-                        )}
-                    </LemonField>
+                    <div className="flex gap-2">
+                        Have questions?{' '}
+                        <Link
+                            onClick={() => {
+                                showPurchaseCreditsModal(false)
+                                openSupportForm({ kind: 'support', target_area: 'billing' })
+                            }}
+                        >
+                            Get support
+                        </Link>
+                    </div>
                 </div>
             </Form>
         </LemonModal>

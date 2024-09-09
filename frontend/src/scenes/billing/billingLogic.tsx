@@ -1,6 +1,6 @@
 import { LemonDialog, lemonToast, Link } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { forms } from 'kea-forms'
+import { FieldNamePath, forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api, { getJSONOrNull } from 'lib/api'
@@ -307,6 +307,8 @@ export const billingLogic = kea<billingLogicType>([
                 status: 'none',
                 invoice_url: null,
                 collection_method: null,
+                cc_last_four: null,
+                email: null,
             },
             {
                 loadSelfServeCreditEligible: async () => {
@@ -431,12 +433,12 @@ export const billingLogic = kea<billingLogicType>([
         creditForm: {
             defaults: {
                 creditInput: '',
-                sendInvoice: false,
+                collectionMethod: 'charge_automatically',
             },
-            submit: async ({ creditInput, sendInvoice }) => {
+            submit: async ({ creditInput, collectionMethod }) => {
                 await api.create('api/billing/credits/purchase', {
-                    annual_amount_usd: +creditInput,
-                    send_invoice: sendInvoice,
+                    annual_amount_usd: +Math.round(+creditInput - +creditInput * values.creditDiscount),
+                    collection_method: collectionMethod,
                 })
 
                 actions.showPurchaseCreditsModal(false)
@@ -445,35 +447,38 @@ export const billingLogic = kea<billingLogicType>([
                 LemonDialog.open({
                     title: 'Your credit purchase has been submitted',
                     width: 536,
-                    content: sendInvoice ? (
-                        <>
-                            <p className="mb-4">
-                                The invoice for your credits has been created and it will be emailed to the email on
-                                file.
-                            </p>
-                            <p>
-                                Once the invoice is paid we will apply the credits to your account. Until the invoice is
-                                paid you will be charged for usage as normal.
-                            </p>
-                        </>
-                    ) : (
-                        <>
-                            <p>
-                                Your card will be charged in the next 3 hours and the credits will be applied to your
-                                account. Please make sure your{' '}
-                                <Link to={values.billing?.stripe_portal_url}>card on file</Link> is up to date. You will
-                                receive an email when the credits are applied.
-                            </p>
-                        </>
-                    ),
+                    content:
+                        collectionMethod === 'send_invoice' ? (
+                            <>
+                                <p className="mb-4">
+                                    The invoice for your credits has been created and it will be emailed to the email on
+                                    file.
+                                </p>
+                                <p>
+                                    Once the invoice is paid we will apply the credits to your account. Until the
+                                    invoice is paid you will be charged for usage as normal.
+                                </p>
+                            </>
+                        ) : (
+                            <>
+                                <p>
+                                    Your card will be charged in the next 3 hours and the credits will be applied to
+                                    your account. Please make sure your{' '}
+                                    <Link to={values.billing?.stripe_portal_url}>card on file</Link> is up to date. You
+                                    will receive an email when the credits are applied.
+                                </p>
+                            </>
+                        ),
                 })
             },
-            errors: ({ creditInput }) => ({
+            errors: ({ creditInput, collectionMethod }) => ({
                 creditInput: !creditInput
-                    ? 'Please enter the amount'
-                    : +creditInput < 6000
-                    ? 'Please enter a credit amount greater than $6,000'
+                    ? 'Please enter the amount of credits you want to purchase'
+                    : // This value is used because 6666 - 10% = 6000
+                    +creditInput < 6666
+                    ? 'Please enter a credit amount greater than $6,666'
                     : undefined,
+                collectionMethod: !collectionMethod ? 'Please select a collection method' : undefined,
             }),
         },
     })),
@@ -580,19 +585,21 @@ export const billingLogic = kea<billingLogicType>([
 
             actions.resetUsageLimitApproachingKey()
         },
-        setCreditFormValue: (input: any) => {
-            const spend = +input.value
-            let discount = 0
-            if (spend >= 100000) {
-                discount = 0.3
-            } else if (spend >= 60000) {
-                discount = 0.25
-            } else if (spend >= 20000) {
-                discount = 0.2
-            } else if (spend >= 6000) {
-                discount = 0.1
+        setCreditFormValue: ({ name, value }) => {
+            if (name === 'creditInput' || (name as FieldNamePath)?.[0] === 'creditInput') {
+                const spend = +value
+                let discount = 0
+                if (spend >= 100000) {
+                    discount = 0.3
+                } else if (spend >= 60000) {
+                    discount = 0.25
+                } else if (spend >= 20000) {
+                    discount = 0.2
+                } else if (spend >= 6000) {
+                    discount = 0.1
+                }
+                actions.setComputedDiscount(discount)
             }
-            actions.setComputedDiscount(discount)
         },
         registerInstrumentationProps: async (_, breakpoint) => {
             await breakpoint(100)

@@ -32,7 +32,10 @@ const BillingGaugeItem = ({ item, maxValue, isWithinUsageLimit }: BillingGaugeIt
             style={{ '--billing-gauge-item-width': width } as React.CSSProperties}
         >
             <div className="absolute right-0 w-px h-full bg-bg-light" />
-            <Tooltip title={item.value.toLocaleString()} placement="right">
+            <Tooltip
+                title={item.prefix ? `${item.prefix}${item.value.toLocaleString()}` : item.value.toLocaleString()}
+                placement="right"
+            >
                 <div
                     className={clsx('BillingGaugeItem__info', {
                         'BillingGaugeItem__info--bottom': !item.top,
