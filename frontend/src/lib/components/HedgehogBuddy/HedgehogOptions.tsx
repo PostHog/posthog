@@ -1,8 +1,11 @@
 import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { capitalizeFirstLetter } from 'lib/utils'
 import React from 'react'
+
+import { HedgehogSkin } from '~/types'
 
 import { COLOR_TO_FILTER_MAP, hedgehogBuddyLogic } from './hedgehogBuddyLogic'
 import { HedgehogBuddyProfile, HedgehogBuddyStatic } from './HedgehogBuddyRender'
@@ -19,9 +22,23 @@ export function HedgehogOptions(): JSX.Element {
                 <div className="flex-1">
                     <h3>Hi, I'm Max!</h3>
                     <p>
-                        Don't mind me. I'm just here to keep you company.
-                        <br />
-                        You can move me around by clicking and dragging or control me with WASD / arrow keys.
+                        {hedgehogConfig.skin === 'spiderhog' ? (
+                            <>
+                                Well, it’s not every day you meet a hedgehog with spider powers. Yep, that's me -
+                                SpiderHog. I wasn’t always this way. Just your average, speedy little guy until a
+                                radioactive spider bit me. With great power comes great responsibility, so buckle up,
+                                because this hedgehog’s got a whole data warehouse to protect...
+                                <br />
+                                You can move me around by clicking and dragging or control me with WASD / arrow keys and
+                                I'll use your mouse as a web slinging target.
+                            </>
+                        ) : (
+                            <>
+                                Don't mind me. I'm just here to keep you company.
+                                <br />
+                                You can move me around by clicking and dragging or control me with WASD / arrow keys.
+                            </>
+                        )}
                     </p>
                 </div>
             </div>
@@ -138,13 +155,33 @@ function HedgehogAccessories(): JSX.Element {
 function HedgehogColor(): JSX.Element {
     const { hedgehogConfig } = useValues(hedgehogBuddyLogic)
     const { patchHedgehogConfig } = useActions(hedgehogBuddyLogic)
+    const skinSpiderHogEnabled = !!useFeatureFlag('HEDGEHOG_SKIN_SPIDERHOG')
+
+    const skins: HedgehogSkin[] = skinSpiderHogEnabled ? ['default', 'spiderhog'] : ['default']
 
     return (
         <>
-            <h4>Colors</h4>
+            <h4>Skins and colors</h4>
 
             <div className="flex items-center gap-2 flex-wrap">
-                {[null, ...Object.keys(COLOR_TO_FILTER_MAP)].map((option) => (
+                {skins.map((option) => (
+                    <LemonButton
+                        key={option}
+                        className={clsx(
+                            'border-2',
+                            !hedgehogConfig.color && hedgehogConfig.skin === option
+                                ? 'border-primary'
+                                : 'border-transparent'
+                        )}
+                        size="small"
+                        onClick={() => patchHedgehogConfig({ skin: option as any, color: null })}
+                        noPadding
+                        tooltip={<>{capitalizeFirstLetter(option ?? 'default')}</>}
+                    >
+                        <HedgehogBuddyStatic skin={option} />
+                    </LemonButton>
+                ))}
+                {[...Object.keys(COLOR_TO_FILTER_MAP)].map((option) => (
                     <LemonButton
                         key={option}
                         className={clsx(
@@ -152,7 +189,7 @@ function HedgehogColor(): JSX.Element {
                             hedgehogConfig.color === option ? 'border-primary' : 'border-transparent'
                         )}
                         size="small"
-                        onClick={() => patchHedgehogConfig({ color: option as any })}
+                        onClick={() => patchHedgehogConfig({ color: option as any, skin: 'default' })}
                         noPadding
                         tooltip={<>{capitalizeFirstLetter(option ?? 'default')}</>}
                     >

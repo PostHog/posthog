@@ -1,4 +1,4 @@
-name: Rust test CI
+name: Rust CI
 
 on:
     workflow_dispatch:
@@ -16,7 +16,7 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         if: github.repository == 'PostHog/posthog'
-        name: Determine need to run rust checks
+        name: Determine need to run Rust checks
         # Set job outputs to values from filter step
         outputs:
             rust: ${{ steps.filter.outputs.rust }}
@@ -40,7 +40,7 @@ jobs:
                         - 'ee/migrations/**'
 
     build:
-        name: Build rust services
+        name: Build Rust services
         needs: changes
         runs-on: depot-ubuntu-22.04-4
 
@@ -76,7 +76,7 @@ jobs:
               run: cargo build --all --locked --release && find target/release/ -maxdepth 1 -executable -type f | xargs strip
 
     test:
-        name: Test rust services
+        name: Test Rust services
         strategy:
             matrix:
                 package:
@@ -179,7 +179,7 @@ jobs:
                   echo "Cargo test completed"
 
     linting:
-        name: Lint rust services
+        name: Lint Rust services
         needs: changes
         runs-on: depot-ubuntu-22.04-4
 
@@ -225,7 +225,7 @@ jobs:
               run: cargo check --all-features
 
     shear:
-        name: Shear rust services
+        name: Shear Rust services
         needs: changes
         runs-on: depot-ubuntu-22.04-4
 

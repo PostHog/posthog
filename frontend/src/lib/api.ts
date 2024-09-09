@@ -1741,7 +1741,7 @@ const api = {
     errorTracking: {
         async update(
             fingerprint: ErrorTrackingGroup['fingerprint'],
-            data: Partial<Pick<ErrorTrackingGroup, 'assignee'>>
+            data: Partial<Pick<ErrorTrackingGroup, 'assignee' | 'status'>>
         ): Promise<ErrorTrackingGroup> {
             return await new ApiRequest().errorTrackingGroup(fingerprint).update({ data })
         },
@@ -2071,6 +2071,18 @@ const api = {
             data: Pick<DataWarehouseSavedQuery, 'name' | 'query'>
         ): Promise<DataWarehouseSavedQuery> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).update({ data })
+        },
+        async ancestors(viewId: DataWarehouseSavedQuery['id'], level?: number): Promise<Record<string, string[]>> {
+            return await new ApiRequest()
+                .dataWarehouseSavedQuery(viewId)
+                .withAction('ancestors')
+                .create({ data: { level } })
+        },
+        async descendants(viewId: DataWarehouseSavedQuery['id'], level?: number): Promise<Record<string, string[]>> {
+            return await new ApiRequest()
+                .dataWarehouseSavedQuery(viewId)
+                .withAction('descendants')
+                .create({ data: { level } })
         },
     },
     externalDataSources: {

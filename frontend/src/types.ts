@@ -22,7 +22,7 @@ import {
 } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { PopoverProps } from 'lib/lemon-ui/Popover/Popover'
-import type { PostHog } from 'posthog-js'
+import type { PostHog, SupportedWebVitalsMetrics } from 'posthog-js'
 import { Layout } from 'react-grid-layout'
 import { LogLevel } from 'rrweb'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
@@ -295,9 +295,12 @@ export interface MinimalHedgehogConfig {
     accessories: string[]
 }
 
+export type HedgehogSkin = 'default' | 'spiderhog'
+
 export interface HedgehogConfig extends MinimalHedgehogConfig {
     enabled: boolean
     color: HedgehogColorOptions | null
+    skin?: HedgehogSkin
     accessories: string[]
     walking_enabled: boolean
     interactions_enabled: boolean
@@ -489,6 +492,7 @@ export interface TeamType extends TeamBasicType {
     session_replay_config: { record_canvas?: boolean; ai_config?: SessionRecordingAIConfig } | undefined | null
     autocapture_exceptions_opt_in: boolean
     autocapture_web_vitals_opt_in?: boolean
+    autocapture_web_vitals_allowed_metrics?: SupportedWebVitalsMetrics[]
     surveys_opt_in?: boolean
     heatmaps_opt_in?: boolean
     autocapture_exceptions_errors_to_ignore: string[]
