@@ -32,6 +32,25 @@ export function IntegrationChoice({
     if (integrationsLoading) {
         return <LemonSkeleton className="h-10" />
     }
+    const kindName = kind.startsWith('gcloud') ? 'Google Cloud' : capitalizeFirstLetter(kind)
+
+    function uploadKey(): void {
+        const input = document.createElement('input')
+        input.type = 'file'
+        input.accept = '.json'
+        input.onchange = async (e) => {
+            const file = (e.target as HTMLInputElement).files?.[0]
+            if (!file) {
+                return
+            }
+            const formData = new FormData()
+            formData.append('key', file)
+            const response = await api.integrations.gcloud(formData)
+            // debugger
+            onChange?.(response.id)
+        }
+        input.click()
+    }
 
     const button = (
         <LemonMenu
@@ -48,20 +67,29 @@ export function IntegrationChoice({
                           ],
                       }
                     : null,
-                {
-                    items: [
-                        {
-                            to: api.integrations.authorizeUrl({
-                                kind,
-                                next: redirectUrl,
-                            }),
-                            disableClientSideRouting: true,
-                            label: integrationsOfKind?.length
-                                ? `Connect to a different ${kind} integration`
-                                : `Connect to ${kind}`,
-                        },
-                    ],
-                },
+                kind.startsWith('gcloud')
+                    ? {
+                          items: [
+                              {
+                                  onClick: () => uploadKey(),
+                                  label: 'Upload Google Cloud .json key file',
+                              },
+                          ],
+                      }
+                    : {
+                          items: [
+                              {
+                                  to: api.integrations.authorizeUrl({
+                                      kind,
+                                      next: redirectUrl,
+                                  }),
+                                  disableClientSideRouting: true,
+                                  label: integrationsOfKind?.length
+                                      ? `Connect to a different ${kind} integration`
+                                      : `Connect to ${kind}`,
+                              },
+                          ],
+                      },
                 {
                     items: [
                         {
@@ -83,7 +111,7 @@ export function IntegrationChoice({
             {integrationKind ? (
                 <LemonButton type="secondary">Change</LemonButton>
             ) : (
-                <LemonButton type="secondary">Choose {capitalizeFirstLetter(kind)} connection</LemonButton>
+                <LemonButton type="secondary">Choose {kindName} connection</LemonButton>
             )}
         </LemonMenu>
     )

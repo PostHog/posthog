@@ -16,6 +16,7 @@ from .zapier.template_zapier import template as zapier
 from .mailgun.template_mailgun import template_mailgun_send_email as mailgun
 from .loops.template_loops import template as loops
 from .rudderstack.template_rudderstack import template as rudderstack
+from .google_pubsub.template_google_pubsub import template as google_pubsub
 
 
 HOG_FUNCTION_TEMPLATES = [
@@ -36,6 +37,7 @@ HOG_FUNCTION_TEMPLATES = [
     mailgun,
     loops,
     rudderstack,
+    google_pubsub,
 ]
 
 

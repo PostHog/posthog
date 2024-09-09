@@ -4318,7 +4318,7 @@ export type HogFunctionInputSchemaType = {
     description?: string
     integration?: string
     integration_key?: string
-    integration_field?: 'slack_channel'
+    integration_field?: 'slack_channel' | 'gcloud-pubsub'
 }
 
 export type HogFunctionInputType = {

@@ -39,6 +39,7 @@ class Integration(models.Model):
         SLACK = "slack"
         SALESFORCE = "salesforce"
         HUBSPOT = "hubspot"
+        GCLOUD = "gcloud"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
@@ -100,7 +101,7 @@ class OauthConfig:
 
 
 class OauthIntegration:
-    supported_kinds = ["slack", "salesforce", "hubspot"]
+    supported_kinds = ["slack", "salesforce", "hubspot", "gcloud"]
     integration: Integration
 
     def __init__(self, integration: Integration) -> None:
@@ -158,7 +159,16 @@ class OauthIntegration:
                 id_path="hub_id",
                 name_path="hub_domain",
             )
-
+        elif kind == "gcloud":
+            return OauthConfig(
+                authorize_url="https://accounts.google.com/o/oauth2/auth",
+                token_url="https://oauth2.googleapis.com/token",
+                client_id="",
+                client_secret="",
+                scope="https://www.googleapis.com/auth/pubsub",
+                id_path="team.id",
+                name_path="team.name",
+            )
         raise NotImplementedError(f"Oauth config for kind {kind} not implemented")
 
     @classmethod
@@ -167,8 +177,38 @@ class OauthIntegration:
         return f"{settings.SITE_URL.replace('http://', 'https://')}/integrations/{kind}/callback"
 
     @classmethod
-    def authorize_url(cls, kind: str, next="") -> str:
-        oauth_config = cls.oauth_config_for_kind(kind)
+    def gcloud(cls, kind: str, next="") -> str:
+        oauth_config = cls.oauth_config_for_kind("gcloud")
+
+        # self.re
+
+        # integration, created = Integration.objects.update_or_create(
+        #     team_id=team_id,
+        #     kind=kind,
+        #     integration_id=integration_id,
+        #     defaults={
+        #         "config": config,
+        #         "sensitive_config": sensitive_config,
+        #         "created_by": created_by,
+        #     },
+        # )
+
+        query_params = {
+            "client_id": oauth_config.client_id,
+            "scope": oauth_config.scope,
+            "redirect_uri": cls.redirect_uri(kind),
+            "response_type": "code",
+            "state": urlencode({"next": next}),
+        }
+
+        return f"{oauth_config.authorize_url}?{urlencode(query_params)}"
+
+    @classmethod
+    def authorize_url(cls, kind: str, oauth_config: Optional[OauthConfig] = None, next="") -> str:
+        if not oauth_config:
+            oauth_config = cls.oauth_config_for_kind(kind)
+
+        assert oauth_config is not None
 
         query_params = {
             "client_id": oauth_config.client_id,

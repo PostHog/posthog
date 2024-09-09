@@ -1,3 +1,7 @@
+import json
+from google.oauth2 import service_account
+from google.auth.transport.requests import Request as GoogleRequest
+
 from typing import Any
 
 from django.http import HttpResponse
@@ -82,3 +86,28 @@ class IntegrationViewSet(
         ]
 
         return Response({"channels": channels})
+
+    @action(methods=["POST"], detail=False)
+    def gcloud(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        keyfile = request.FILES.get("key")
+        if not keyfile:
+            raise ValidationError("Key file not provided")
+
+        # Parse the keyfile JSON contents
+        contents = keyfile.read()
+        key_info = json.loads(contents.decode("utf-8"))
+
+        # Construct credentials
+        credentials = service_account.Credentials.from_service_account_info(
+            key_info, scopes=["https://www.googleapis.com/auth/pubsub"]
+        )
+
+        # Attempt to get an access token to verify if the credentials are valid
+        try:
+            credentials.refresh(GoogleRequest())
+        except Exception as e:
+            raise ValidationError(f"Failed to authenticate with provided service account key: {str(e)}")
+
+        # At this point, credentials are valid and you can use them to call Google APIs
+        # Store relevant information securely if needed and respond appropriately
+        return Response({"message": "Service account authenticated successfully"})

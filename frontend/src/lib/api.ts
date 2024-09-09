@@ -2227,6 +2227,9 @@ const api = {
         async slackChannels(id: IntegrationType['id']): Promise<{ channels: SlackChannelType[] }> {
             return await new ApiRequest().integrationSlackChannels(id).get()
         },
+        async gcloud(formData: FormData): Promise<IntegrationType> {
+            return await new ApiRequest().integrations().withAction('gcloud').create({ data: formData })
+        },
     },
 
     resourcePermissions: {
