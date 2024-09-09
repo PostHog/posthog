@@ -295,9 +295,12 @@ export interface MinimalHedgehogConfig {
     accessories: string[]
 }
 
+export type HedgehogSkin = 'default' | 'spiderhog'
+
 export interface HedgehogConfig extends MinimalHedgehogConfig {
     enabled: boolean
     color: HedgehogColorOptions | null
+    skin?: HedgehogSkin
     accessories: string[]
     walking_enabled: boolean
     interactions_enabled: boolean
