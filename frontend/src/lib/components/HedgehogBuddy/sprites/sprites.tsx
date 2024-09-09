@@ -1,3 +1,5 @@
+import { inStorybook } from 'lib/utils'
+
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { HedgehogSkin } from '~/types'
 
@@ -35,7 +37,9 @@ const baseSpritePath = (): string => {
     let path = `/static/hedgehog/sprites`
     const toolbarAPIUrl = toolbarConfigLogic.findMounted()?.values.apiURL
 
-    if (window.location.hostname !== 'localhost' && !global.process?.env.STORYBOOK) {
+    if (inStorybook()) {
+        // Nothing to do
+    } else if (window.location.hostname !== 'localhost') {
         path = `https://us.posthog.com${path}`
     } else if (toolbarAPIUrl) {
         path = `${toolbarAPIUrl}${path}`
