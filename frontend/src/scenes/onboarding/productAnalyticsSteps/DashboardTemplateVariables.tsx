@@ -49,6 +49,13 @@ function VariableSelector({
                     <IconInfo /> {variable.description}
                 </p>
             </div>
+            {!showCustomEventField && activeVariableIndex == 0 && hasSelectedSite && (
+                <LemonBanner type="info" className="mb-4">
+                    <p>
+                        <strong>Tip:</strong> Navigate to the page you want before you start selecting.
+                    </p>
+                </LemonBanner>
+            )}
             {variable.touched && !customEventName && (
                 <div className="flex justify-between items-center bg-bg-3000-light p-2 pl-3 rounded mb-4">
                     <div>
