@@ -52,7 +52,7 @@ class ExperimentResultQueryRunner(QueryRunner):
         return processed_results
 
     def _process_funnels_results(
-        self, funnels_results: list[dict[str, Any]]
+        self, funnels_results: list[list[dict[str, Any]]]
     ) -> dict[str, ExperimentVariantFunnelResult]:
         variants = self.query.variants
         processed_results = {
@@ -60,13 +60,15 @@ class ExperimentResultQueryRunner(QueryRunner):
         }
 
         for result in funnels_results:
-            if result:
-                variant = result[0].get("breakdown_value")[0]
-                if variant in variants:
-                    total_count = result[0].get("count", 0)
-                    success_count = result[-1].get("count", 0)
-                    processed_results[variant].success_count = success_count
-                    processed_results[variant].failure_count = total_count - success_count
+            first_step = result[0]
+            last_step = result[-1]
+            variant = first_step.get("breakdown_value")
+            variant_str = variant[0] if isinstance(variant, list) else str(variant)
+            if variant_str in variants:
+                total_count = first_step.get("count", 0)
+                success_count = last_step.get("count", 0) if len(result) > 1 else 0
+                processed_results[variant_str].success_count = success_count
+                processed_results[variant_str].failure_count = total_count - success_count
 
         return processed_results
 

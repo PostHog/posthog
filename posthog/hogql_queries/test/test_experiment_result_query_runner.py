@@ -1,7 +1,16 @@
 from posthog.hogql_queries.experiment_result_query_runner import ExperimentResultQueryRunner
-from posthog.schema import BreakdownFilter, EventsNode, ExperimentResultQuery, FunnelsQuery, TrendsQuery
+from posthog.schema import (
+    BreakdownFilter,
+    EventsNode,
+    ExperimentResultQuery,
+    FunnelsQuery,
+    TrendsQuery,
+    ExperimentResultFunnelQueryResponse,
+    ExperimentResultTrendQueryResponse,
+)
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from freezegun import freeze_time
+from typing import cast
 
 
 class TestExperimentResultQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -48,11 +57,13 @@ class TestExperimentResultQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result.insight, "FUNNELS")
         self.assertEqual(len(result.results), 2)
 
-        self.assertIn("control", result.results)
-        self.assertIn("test", result.results)
+        funnel_result = cast(ExperimentResultFunnelQueryResponse, result)
 
-        control_result = result.results["control"]
-        test_result = result.results["test"]
+        self.assertIn("control", funnel_result.results)
+        self.assertIn("test", funnel_result.results)
+
+        control_result = funnel_result.results["control"]
+        test_result = funnel_result.results["test"]
 
         self.assertEqual(control_result.success_count, 6)
         self.assertEqual(control_result.failure_count, 4)
@@ -89,11 +100,13 @@ class TestExperimentResultQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result.insight, "TRENDS")
         self.assertEqual(len(result.results), 2)
 
-        self.assertIn("control", result.results)
-        self.assertIn("test", result.results)
+        trend_result = cast(ExperimentResultTrendQueryResponse, result)
 
-        control_result = result.results["control"]
-        test_result = result.results["test"]
+        self.assertIn("control", trend_result.results)
+        self.assertIn("test", trend_result.results)
+
+        control_result = trend_result.results["control"]
+        test_result = trend_result.results["test"]
 
         self.assertEqual(control_result.count, 11)
         self.assertEqual(test_result.count, 15)
