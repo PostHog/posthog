@@ -264,7 +264,7 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
                     (automaticActionCreationEnabled &&
                         selectedAction?.name &&
                         actionForm.steps?.[0]?.selector_selected) ||
-                    false // annoying type requirement
+                    false
                 )
             },
         ],
