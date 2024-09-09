@@ -56,6 +56,10 @@ We're constantly adding new features, with <a href="https://posthog.com/docs/web
 
 The fastest and most reliable way to get started with PostHog is signing up for free to [PostHog Cloud](https://us.posthog.com/signup) or [PostHog Cloud EU](https://eu.posthog.com/signup). Your first 1 million events (and 5k replays) are free every month, after which you pay based on usage.
 
+### One-click Deployment Options
+
+[![Deploy on Elestio](https://elest.io/images/logos/deploy-to-elestio-btn.png)]()
+
 ### Open-source hobby deploy (Advanced)
 
 You can deploy a hobby instance in one line on Linux with Docker (recommended 4GB memory):
