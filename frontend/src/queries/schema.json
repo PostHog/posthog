@@ -505,6 +505,9 @@
                 },
                 {
                     "$ref": "#/definitions/ErrorTrackingQuery"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentResultQuery"
                 }
             ]
         },
@@ -3092,6 +3095,40 @@
                             },
                             "required": ["results"],
                             "type": "object"
+                        },
+                        {
+                            "additionalProperties": false,
+                            "properties": {
+                                "insight": {
+                                    "const": "TRENDS",
+                                    "type": "string"
+                                },
+                                "results": {
+                                    "additionalProperties": {
+                                        "$ref": "#/definitions/ExperimentVariantTrendResult"
+                                    },
+                                    "type": "object"
+                                }
+                            },
+                            "required": ["insight", "results"],
+                            "type": "object"
+                        },
+                        {
+                            "additionalProperties": false,
+                            "properties": {
+                                "insight": {
+                                    "const": "FUNNELS",
+                                    "type": "string"
+                                },
+                                "results": {
+                                    "additionalProperties": {
+                                        "$ref": "#/definitions/ExperimentVariantFunnelResult"
+                                    },
+                                    "type": "object"
+                                }
+                            },
+                            "required": ["insight", "results"],
+                            "type": "object"
                         }
                     ]
                 },
@@ -3203,6 +3240,9 @@
                         },
                         {
                             "$ref": "#/definitions/ErrorTrackingQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/ExperimentResultQuery"
                         }
                     ],
                     "description": "Source of the events"
@@ -4313,6 +4353,107 @@
                 }
             },
             "required": ["columns", "hogql", "results", "types"],
+            "type": "object"
+        },
+        "ExperimentResultFunnelQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "insight": {
+                    "const": "FUNNELS",
+                    "type": "string"
+                },
+                "results": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/ExperimentVariantFunnelResult"
+                    },
+                    "type": "object"
+                }
+            },
+            "required": ["insight", "results"],
+            "type": "object"
+        },
+        "ExperimentResultQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "ExperimentResultQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/ExperimentResultQueryResponse"
+                },
+                "source": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/TrendsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/FunnelsQuery"
+                        }
+                    ]
+                },
+                "variants": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["kind", "source", "variants"],
+            "type": "object"
+        },
+        "ExperimentResultQueryResponse": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/ExperimentResultTrendQueryResponse"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentResultFunnelQueryResponse"
+                }
+            ]
+        },
+        "ExperimentResultTrendQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "insight": {
+                    "const": "TRENDS",
+                    "type": "string"
+                },
+                "results": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/ExperimentVariantTrendResult"
+                    },
+                    "type": "object"
+                }
+            },
+            "required": ["insight", "results"],
+            "type": "object"
+        },
+        "ExperimentVariantFunnelResult": {
+            "additionalProperties": false,
+            "properties": {
+                "failure_count": {
+                    "type": "number"
+                },
+                "success_count": {
+                    "type": "number"
+                }
+            },
+            "required": ["success_count", "failure_count"],
+            "type": "object"
+        },
+        "ExperimentVariantTrendResult": {
+            "additionalProperties": false,
+            "properties": {
+                "count": {
+                    "type": "number"
+                }
+            },
+            "required": ["count"],
             "type": "object"
         },
         "ExperimentalAITrendsQuery": {
@@ -6567,6 +6708,7 @@
                 "RecordingsQuery",
                 "SessionAttributionExplorerQuery",
                 "ErrorTrackingQuery",
+                "ExperimentResultQuery",
                 "DataTableNode",
                 "DataVisualizationNode",
                 "SavedInsightNode",
@@ -7778,6 +7920,12 @@
                     "type": "object"
                 },
                 {
+                    "$ref": "#/definitions/ExperimentResultTrendQueryResponse"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentResultFunnelQueryResponse"
+                },
+                {
                     "properties": {},
                     "type": "object"
                 },
@@ -8271,6 +8419,40 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "insight": {
+                            "const": "TRENDS",
+                            "type": "string"
+                        },
+                        "results": {
+                            "additionalProperties": {
+                                "$ref": "#/definitions/ExperimentVariantTrendResult"
+                            },
+                            "type": "object"
+                        }
+                    },
+                    "required": ["insight", "results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "insight": {
+                            "const": "FUNNELS",
+                            "type": "string"
+                        },
+                        "results": {
+                            "additionalProperties": {
+                                "$ref": "#/definitions/ExperimentVariantFunnelResult"
+                            },
+                            "type": "object"
+                        }
+                    },
+                    "required": ["insight", "results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
@@ -8627,6 +8809,9 @@
                 },
                 {
                     "$ref": "#/definitions/ErrorTrackingQuery"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentResultQuery"
                 },
                 {
                     "$ref": "#/definitions/DataVisualizationNode"
