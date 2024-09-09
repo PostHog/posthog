@@ -122,6 +122,12 @@ jobs:
                   # as apt-get is quite out of date. The same version must be set in hogql_parser/pyproject.toml
                   ANTLR_VERSION: '4.13.2'
 
+            - name: Check if STL bytecode is up to date
+              if: needs.changes.outputs.hog == 'true'
+              run: |
+                  python -m hogvm.stl.compile
+                  git diff --exit-code
+
             - name: Run HogVM Python tests
               if: needs.changes.outputs.hog == 'true'
               run: |

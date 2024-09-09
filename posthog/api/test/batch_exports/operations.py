@@ -1,5 +1,6 @@
 from django.test.client import Client as TestClient
 from rest_framework import status
+from posthog.models.utils import UUIDT
 
 
 def create_batch_export(client: TestClient, team_id: int, batch_export_data: dict | str):
@@ -16,17 +17,17 @@ def create_batch_export_ok(client: TestClient, team_id: int, batch_export_data: 
     return response.json()
 
 
-def pause_batch_export(client: TestClient, team_id: int, batch_export_id: int):
+def pause_batch_export(client: TestClient, team_id: int, batch_export_id: UUIDT):
     return client.post(f"/api/projects/{team_id}/batch_exports/{batch_export_id}/pause")
 
 
-def pause_batch_export_ok(client: TestClient, team_id: int, batch_export_id: int):
+def pause_batch_export_ok(client: TestClient, team_id: int, batch_export_id: UUIDT):
     response = pause_batch_export(client, team_id, batch_export_id)
     assert response.status_code == status.HTTP_200_OK, response.json()
     return response.json()
 
 
-def unpause_batch_export(client: TestClient, team_id: int, batch_export_id: int, backfill: bool = False):
+def unpause_batch_export(client: TestClient, team_id: int, batch_export_id: UUIDT, backfill: bool = False):
     return client.post(
         f"/api/projects/{team_id}/batch_exports/{batch_export_id}/unpause",
         {"backfill": backfill},
@@ -34,17 +35,17 @@ def unpause_batch_export(client: TestClient, team_id: int, batch_export_id: int,
     )
 
 
-def unpause_batch_export_ok(client: TestClient, team_id: int, batch_export_id: int, backfill: bool = False):
+def unpause_batch_export_ok(client: TestClient, team_id: int, batch_export_id: UUIDT, backfill: bool = False):
     response = unpause_batch_export(client, team_id, batch_export_id, backfill)
     assert response.status_code == status.HTTP_200_OK, response.json()
     return response.json()
 
 
-def get_batch_export(client: TestClient, team_id: int, batch_export_id: int):
+def get_batch_export(client: TestClient, team_id: int, batch_export_id: UUIDT):
     return client.get(f"/api/projects/{team_id}/batch_exports/{batch_export_id}")
 
 
-def get_batch_export_ok(client: TestClient, team_id: int, batch_export_id: int):
+def get_batch_export_ok(client: TestClient, team_id: int, batch_export_id: UUIDT):
     response = get_batch_export(client, team_id, batch_export_id)
     assert response.status_code == status.HTTP_200_OK, response.json()
     return response.json()
@@ -63,11 +64,11 @@ def get_batch_export_runs_ok(client: TestClient, team_id: int, batch_export_id: 
     return response.json()
 
 
-def delete_batch_export(client: TestClient, team_id: int, batch_export_id: int):
+def delete_batch_export(client: TestClient, team_id: int, batch_export_id: UUIDT):
     return client.delete(f"/api/projects/{team_id}/batch_exports/{batch_export_id}")
 
 
-def delete_batch_export_ok(client: TestClient, team_id: int, batch_export_id: int):
+def delete_batch_export_ok(client: TestClient, team_id: int, batch_export_id: UUIDT):
     response = delete_batch_export(client, team_id, batch_export_id)
     assert response.status_code == status.HTTP_204_NO_CONTENT, response
     return response

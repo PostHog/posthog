@@ -5,6 +5,8 @@ import {
     isHogQLQuery,
     isPersonsNode,
     isSessionAttributionExplorerQuery,
+    isWebExternalClicksQuery,
+    isWebGoalsQuery,
     isWebOverviewQuery,
     isWebStatsTableQuery,
     isWebTopClicksQuery,
@@ -58,7 +60,13 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         }
     }
 
-    if (isWebOverviewQuery(query) || isWebTopClicksQuery(query) || isWebStatsTableQuery(query)) {
+    if (
+        isWebOverviewQuery(query) ||
+        isWebTopClicksQuery(query) ||
+        isWebExternalClicksQuery(query) ||
+        isWebStatsTableQuery(query) ||
+        isWebGoalsQuery(query)
+    ) {
         features.add(QueryFeature.columnsInResponse)
         features.add(QueryFeature.resultIsArrayOfArrays)
         features.add(QueryFeature.hideLoadNextButton)

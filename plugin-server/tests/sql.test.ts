@@ -1,5 +1,5 @@
 import { Hub } from '../src/types'
-import { createHub } from '../src/utils/db/hub'
+import { closeHub, createHub } from '../src/utils/db/hub'
 import { PostgresUse } from '../src/utils/db/postgres'
 import { disablePlugin, getActivePluginRows, getPluginAttachmentRows, getPluginConfigRows } from '../src/utils/db/sql'
 import { commonOrganizationId } from './helpers/plugins'
@@ -10,15 +10,14 @@ jest.mock('../src/utils/status')
 
 describe('sql', () => {
     let hub: Hub
-    let closeHub: () => Promise<void>
 
     beforeEach(async () => {
-        ;[hub, closeHub] = await createHub()
+        hub = await createHub()
         await resetTestDatabase(`const processEvent = event => event`)
     })
 
     afterEach(async () => {
-        await closeHub()
+        await closeHub(hub)
     })
 
     test('getPluginAttachmentRows', async () => {

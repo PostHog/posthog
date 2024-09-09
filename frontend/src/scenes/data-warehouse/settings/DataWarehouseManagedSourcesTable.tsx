@@ -12,12 +12,15 @@ import IconMySQL from 'public/services/mysql.png'
 import IconPostgres from 'public/services/postgres.png'
 import IconSalesforce from 'public/services/salesforce.png'
 import IconSnowflake from 'public/services/snowflake.png'
+import IconMSSQL from 'public/services/sql-azure.png'
 import IconStripe from 'public/services/stripe.png'
+import IconVitally from 'public/services/vitally.png'
 import IconZendesk from 'public/services/zendesk.png'
 import { urls } from 'scenes/urls'
 
 import { manualLinkSources, PipelineNodeTab, PipelineStage } from '~/types'
 
+import { SOURCE_DETAILS } from '../new/sourceWizardLogic'
 import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
 
 const StatusTagSetting = {
@@ -25,6 +28,7 @@ const StatusTagSetting = {
     Completed: 'success',
     Error: 'danger',
     Failed: 'danger',
+    'Billing limits': 'danger',
 }
 
 export function DataWarehouseManagedSourcesTable(): JSX.Element {
@@ -56,7 +60,7 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
                                     `managed-${source.id}`,
                                     PipelineNodeTab.Schemas
                                 )}
-                                title={source.source_type}
+                                title={SOURCE_DETAILS[source.source_type]?.label ?? source.source_type}
                                 description={source.prefix}
                             />
                         )
@@ -185,6 +189,8 @@ export function RenderDataWarehouseSourceIcon({
         'cloudflare-r2': IconCloudflare,
         azure: Iconazure,
         Salesforce: IconSalesforce,
+        MSSQL: IconMSSQL,
+        Vitally: IconVitally,
     }[type]
 
     return (
@@ -199,7 +205,7 @@ export function RenderDataWarehouseSourceIcon({
                 }
             >
                 <Link to={getDataWarehouseSourceUrl(type)}>
-                    <img src={icon} alt={type} height={sizePx} width={sizePx} className="rounded" />
+                    <img src={icon} alt={type} height={sizePx} width={sizePx} className="rounded object-contain" />
                 </Link>
             </Tooltip>
         </div>

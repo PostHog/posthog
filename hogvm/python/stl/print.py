@@ -1,6 +1,6 @@
 import re
 
-from hogvm.python.objects import is_hog_datetime, is_hog_date, is_hog_error
+from hogvm.python.objects import is_hog_datetime, is_hog_date, is_hog_error, is_hog_closure, is_hog_callable
 
 # Copied from clickhouse_driver.util.escape, adapted only from single quotes to backquotes.
 escape_chars_map = {
@@ -46,7 +46,10 @@ def print_hog_value(obj, marked: set | None = None):
             + (f", {print_hog_value(obj['payload'])}" if "payload" in obj and obj["payload"] is not None else "")
             + ")"
         )
-
+    if isinstance(obj, dict) and is_hog_closure(obj):
+        return print_hog_value(obj["callable"], marked)
+    if isinstance(obj, dict) and is_hog_callable(obj):
+        return f"fn<{escape_identifier(obj.get('name', 'lambda'))}({print_hog_value(obj['argCount'])})>"
     if isinstance(obj, list) or isinstance(obj, dict) or isinstance(obj, tuple):
         if id(obj) in marked:
             return "null"

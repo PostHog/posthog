@@ -1,5 +1,14 @@
-use cyclotron_core::{QueueError, SHARD_ID_KEY};
-use tracing::{info, warn};
+use common_kafka::kafka_messages::app_metrics2::{
+    AppMetric2, Kind as AppMetric2Kind, Source as AppMetric2Source,
+};
+use common_kafka::kafka_producer::create_kafka_producer;
+use common_kafka::kafka_producer::{send_iter_to_kafka, KafkaContext, KafkaProduceError};
+use common_kafka::APP_METRICS2_TOPIC;
+use cyclotron_core::{AggregatedDelete, QueueError, SHARD_ID_KEY};
+use health::HealthRegistry;
+use tracing::{error, info, warn};
+
+use rdkafka::producer::FutureProducer;
 
 use crate::{
     config::{JanitorConfig, JanitorSettings},
@@ -17,12 +26,16 @@ pub struct CleanupResult {
 
 pub struct Janitor {
     pub inner: cyclotron_core::Janitor,
+    pub kafka_producer: FutureProducer<KafkaContext>,
     pub settings: JanitorSettings,
     pub metrics_labels: Vec<(String, String)>,
 }
 
 impl Janitor {
-    pub async fn new(config: JanitorConfig) -> Result<Self, QueueError> {
+    pub async fn new(
+        config: JanitorConfig,
+        health_registry: &HealthRegistry,
+    ) -> Result<Self, QueueError> {
         let settings = config.settings;
         let inner = cyclotron_core::Janitor::new(config.pool).await?;
 
@@ -31,8 +44,17 @@ impl Janitor {
             (SHARD_ID_KEY.to_string(), settings.shard_id.clone()),
         ];
 
+        let kafka_liveness = health_registry
+            .register("rdkafka".to_string(), time::Duration::seconds(30))
+            .await;
+
+        let kafka_producer = create_kafka_producer(&config.kafka, kafka_liveness)
+            .await
+            .expect("failed to create kafka producer");
+
         Ok(Self {
             inner,
+            kafka_producer,
             settings,
             metrics_labels,
         })
@@ -47,17 +69,43 @@ impl Janitor {
         let _loop_start = common_metrics::timing_guard(RUN_TIME, &self.metrics_labels);
         common_metrics::inc(RUN_STARTS, &self.metrics_labels, 1);
 
-        let completed = {
-            let _time = common_metrics::timing_guard(COMPLETED_TIME, &self.metrics_labels);
-            self.inner.delete_completed_jobs().await?
+        let aggregated_deletes = {
+            let _time = common_metrics::timing_guard(CLEANUP_TIME, &self.metrics_labels);
+            self.inner.delete_completed_and_failed_jobs().await?
         };
-        common_metrics::inc(COMPLETED_COUNT, &self.metrics_labels, completed);
 
-        let failed = {
-            let _time = common_metrics::timing_guard(FAILED_TIME, &self.metrics_labels);
-            self.inner.delete_failed_jobs().await?
-        };
-        common_metrics::inc(FAILED_COUNT, &self.metrics_labels, failed);
+        let mut completed_count = 0u64;
+        let mut failed_count = 0u64;
+        for delete in &aggregated_deletes {
+            if delete.state == "completed" {
+                completed_count += delete.count as u64;
+            } else if delete.state == "failed" {
+                failed_count += delete.count as u64;
+            }
+        }
+        common_metrics::inc(COMPLETED_COUNT, &self.metrics_labels, completed_count);
+        common_metrics::inc(FAILED_COUNT, &self.metrics_labels, failed_count);
+
+        match send_iter_to_kafka(
+            &self.kafka_producer,
+            APP_METRICS2_TOPIC,
+            aggregated_deletes
+                .into_iter()
+                .map(aggregated_delete_to_app_metric2),
+        )
+        .await
+        {
+            Ok(()) => {}
+            Err(KafkaProduceError::SerializationError { error }) => {
+                error!("Failed to serialize app_metrics2: {error}");
+            }
+            Err(KafkaProduceError::KafkaProduceError { error }) => {
+                error!("Failed to produce to app_metrics2 kafka: {error}");
+            }
+            Err(KafkaProduceError::KafkaProduceCanceled) => {
+                error!("Failed to produce to app_metrics2 kafka (timeout)");
+            }
+        }
 
         let poisoned = {
             let _time = common_metrics::timing_guard(POISONED_TIME, &self.metrics_labels);
@@ -98,10 +146,29 @@ impl Janitor {
         common_metrics::inc(RUN_ENDS, &self.metrics_labels, 1);
         info!("Janitor loop complete");
         Ok(CleanupResult {
-            completed,
-            failed,
+            completed: completed_count,
+            failed: failed_count,
             poisoned,
             stalled,
         })
+    }
+}
+
+fn aggregated_delete_to_app_metric2(delete: AggregatedDelete) -> AppMetric2 {
+    let kind = match delete.state.as_str() {
+        "completed" => AppMetric2Kind::Success,
+        "failed" => AppMetric2Kind::Failure,
+        _ => AppMetric2Kind::Unknown,
+    };
+
+    AppMetric2 {
+        team_id: delete.team_id as u32,
+        timestamp: delete.hour,
+        app_source: AppMetric2Source::Cyclotron,
+        app_source_id: delete.function_id.unwrap_or("".to_owned()),
+        instance_id: None,
+        metric_kind: kind,
+        metric_name: "finished_state".to_owned(),
+        count: delete.count as u32,
     }
 }

@@ -242,7 +242,7 @@ export interface LineGraphProps {
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
     return (
-        <ErrorBoundary>
+        <ErrorBoundary tags={{ feature: 'LineGraph' }}>
             {props.type === GraphType.Pie ? <PieChart {...props} /> : <LineGraph_ {...props} />}
         </ErrorBoundary>
     )
@@ -485,6 +485,7 @@ export function LineGraph_({
                         if (tooltip.body) {
                             const referenceDataPoint = tooltip.dataPoints[0] // Use this point as reference to get the date
                             const dataset = datasets[referenceDataPoint.datasetIndex]
+                            const date = dataset?.days?.[referenceDataPoint.dataIndex]
                             const seriesData = createTooltipData(tooltip.dataPoints, (dp) => {
                                 const hasDotted =
                                     datasets.some((d) => d.dotted) &&
@@ -498,7 +499,12 @@ export function LineGraph_({
 
                             tooltipRoot.render(
                                 <InsightTooltip
-                                    date={dataset?.days?.[tooltip.dataPoints?.[0]?.dataIndex]}
+                                    date={date}
+                                    altTitle={() =>
+                                        typeof date === 'number'
+                                            ? dataset?.labels?.[referenceDataPoint.dataIndex]
+                                            : null
+                                    }
                                     timezone={timezone}
                                     seriesData={seriesData}
                                     breakdownFilter={breakdownFilter}
@@ -743,7 +749,7 @@ export function LineGraph_({
                                     d.compareLabels?.[i],
                                 ]
                             } else if (d.breakdownLabels?.[i]) {
-                                labelDescriptors = [d.breakdownLabels[i], d.compareLabels?.[i]]
+                                labelDescriptors = [d.actions?.[i]?.name, d.breakdownLabels[i], d.compareLabels?.[i]]
                             } else if (d.labels?.[i]) {
                                 labelDescriptors = [d.labels[i], d.compareLabels?.[i]]
                             } else {

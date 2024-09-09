@@ -331,6 +331,138 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
             },
         ],
     },
+    MSSQL: {
+        name: 'MSSQL',
+        label: 'Azure SQL Server',
+        caption: (
+            <>
+                Enter your MS SQL Server/Azure SQL Server credentials to automatically pull your SQL data into the
+                PostHog Data warehouse.
+            </>
+        ),
+        fields: [
+            {
+                name: 'host',
+                label: 'Host',
+                type: 'text',
+                required: true,
+                placeholder: 'localhost',
+            },
+            {
+                name: 'port',
+                label: 'Port',
+                type: 'number',
+                required: true,
+                placeholder: '1433',
+            },
+            {
+                name: 'dbname',
+                label: 'Database',
+                type: 'text',
+                required: true,
+                placeholder: 'msdb',
+            },
+            {
+                name: 'user',
+                label: 'User',
+                type: 'text',
+                required: true,
+                placeholder: 'sa',
+            },
+            {
+                name: 'password',
+                label: 'Password',
+                type: 'password',
+                required: true,
+                placeholder: '',
+            },
+            {
+                name: 'schema',
+                label: 'Schema',
+                type: 'text',
+                required: true,
+                placeholder: 'dbo',
+            },
+            {
+                name: 'ssh-tunnel',
+                label: 'Use SSH tunnel?',
+                type: 'switch-group',
+                default: false,
+                fields: [
+                    {
+                        name: 'host',
+                        label: 'Tunnel host',
+                        type: 'text',
+                        required: true,
+                        placeholder: 'localhost',
+                    },
+                    {
+                        name: 'port',
+                        label: 'Tunnel port',
+                        type: 'number',
+                        required: true,
+                        placeholder: '22',
+                    },
+                    {
+                        type: 'select',
+                        name: 'auth_type',
+                        label: 'Authentication type',
+                        required: true,
+                        defaultValue: 'password',
+                        options: [
+                            {
+                                label: 'Password',
+                                value: 'password',
+                                fields: [
+                                    {
+                                        name: 'username',
+                                        label: 'Tunnel username',
+                                        type: 'text',
+                                        required: true,
+                                        placeholder: 'User1',
+                                    },
+                                    {
+                                        name: 'password',
+                                        label: 'Tunnel password',
+                                        type: 'password',
+                                        required: true,
+                                        placeholder: '',
+                                    },
+                                ],
+                            },
+                            {
+                                label: 'Key pair',
+                                value: 'keypair',
+                                fields: [
+                                    {
+                                        name: 'username',
+                                        label: 'Tunnel username',
+                                        type: 'text',
+                                        required: false,
+                                        placeholder: 'User1',
+                                    },
+                                    {
+                                        name: 'private_key',
+                                        label: 'Tunnel private key',
+                                        type: 'textarea',
+                                        required: true,
+                                        placeholder: '',
+                                    },
+                                    {
+                                        name: 'passphrase',
+                                        label: 'Tunnel passphrase',
+                                        type: 'password',
+                                        required: false,
+                                        placeholder: '',
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                ],
+            },
+        ],
+    },
     Snowflake: {
         name: 'Snowflake',
         caption: (
@@ -434,6 +566,45 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
             },
         ],
         caption: 'Select an existing Salesforce account to link to PostHog or create a new connection',
+    },
+    Vitally: {
+        name: 'Vitally',
+        fields: [
+            {
+                name: 'secret_token',
+                label: 'Secret token',
+                type: 'text',
+                required: true,
+                placeholder: 'sk_live_...',
+            },
+            {
+                type: 'select',
+                name: 'region',
+                label: 'Vitally region',
+                required: true,
+                defaultValue: 'EU',
+                options: [
+                    {
+                        label: 'EU',
+                        value: 'EU',
+                    },
+                    {
+                        label: 'US',
+                        value: 'US',
+                        fields: [
+                            {
+                                name: 'subdomain',
+                                label: 'Vitally subdomain',
+                                type: 'text',
+                                required: true,
+                                placeholder: '',
+                            },
+                        ],
+                    },
+                ],
+            },
+        ],
+        caption: '',
     },
 }
 

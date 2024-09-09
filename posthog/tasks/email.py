@@ -20,6 +20,7 @@ from posthog.models import (
     Team,
     User,
 )
+from posthog.models.utils import UUIDT
 from posthog.user_permissions import UserPermissions
 
 logger = structlog.get_logger(__name__)
@@ -159,7 +160,7 @@ def send_fatal_plugin_error(
 
 
 def send_batch_export_run_failure(
-    batch_export_run_id: str,
+    batch_export_run_id: UUIDT,
 ) -> None:
     logger = structlog.get_logger(__name__)
 

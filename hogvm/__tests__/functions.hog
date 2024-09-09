@@ -1,41 +1,49 @@
 print('-- test functions --')
 
-fn add(a, b) {
+fun add(a, b) {
     return a + b
 }
-fn add2(a, b) {
+print(add)
+
+fun add2(a, b) {
     let c := a + b
     return c
 }
-fn mult(a, b) {
+print(add2)
+
+fun mult(a, b) {
     return a * b
 }
-fn noArgs() {
+print(mult)
+
+fun noArgs() {
     let url := 'basdfasdf'
     let second := 2 + 3
     return second
 }
-fn empty() {}
-fn empty2() {}
-fn empty3() {}
-fn noReturn() {
+print(noArgs)
+
+fun empty() {}
+fun empty2() {}
+fun empty3() {}
+fun noReturn() {
     let a := 1
     let b := 2
     let c := a + b
 }
-fn emptyReturn() {
+fun emptyReturn() {
     return
 }
-fn emptyReturnBeforeOtherStuff() {
+fun emptyReturnBeforeOtherStuff() {
     return
     ; 2 + 2
 }
-fn emptyReturnBeforeOtherStuffNoSemicolon() {
+fun emptyReturnBeforeOtherStuffNoSemicolon() {
     // This will return 4 because whitespace is omitted
     return
     2 + 2
 }
-fn ifThenReturn() {
+fun ifThenReturn() {
     // make sure this is not a placeholder {return}
     if (false) {
         return
@@ -57,3 +65,22 @@ print(ifThenReturn() ?? -1)
 
 print(mult(add(3, 4) + 100 + add(2, 1), 2))
 print(mult(add2(3, 4) + 100 + add2(2, 1), 10))
+
+// Call functions with different argument counts
+
+fun printArgs(arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
+  print(arg1, arg2, arg3, arg4, arg5, arg6, arg7)
+}
+
+let printArgs2 := (arg1, arg2, arg3, arg4, arg5, arg6, arg7) -> {
+  print(arg1, arg2, arg3, arg4, arg5, arg6, arg7)
+}
+
+printArgs(1, 2, 3, 4, 5, 6, 7)
+printArgs2(1, 2, 3, 4, 5, 6, 7)
+printArgs(1, 2, 3, 4, 5, 6)
+printArgs2(1, 2, 3, 4, 5, 6)
+printArgs(1, 2, 3, 4, 5)
+printArgs2(1, 2, 3, 4, 5)
+printArgs()
+printArgs2()

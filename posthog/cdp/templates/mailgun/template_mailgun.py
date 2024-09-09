@@ -15,7 +15,7 @@ if (empty(inputs.template.to)) {
     return false
 }
 
-fn multiPartFormEncode(data) {
+fun multiPartFormEncode(data) {
     let boundary := f'---011000010111000001101001'
     let bodyBoundary := f'--{boundary}\\r\\n'
     let body := bodyBoundary

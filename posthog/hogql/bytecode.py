@@ -4,7 +4,7 @@ from typing import Any, Optional, cast, TYPE_CHECKING
 from collections.abc import Callable
 
 from hogvm.python.execute import execute_bytecode, BytecodeResult
-from hogvm.python.stl import STL, MIN_ARGS_INCLUDING_OPTIONAL
+from hogvm.python.stl import STL
 from posthog.hogql import ast
 from posthog.hogql.base import AST
 from posthog.hogql.context import HogQLContext
@@ -62,12 +62,15 @@ def create_bytecode(
     supported_functions: Optional[set[str]] = None,
     args: Optional[list[str]] = None,
     context: Optional[HogQLContext] = None,
+    enclosing: Optional["BytecodeCompiler"] = None,
 ) -> list[Any]:
+    supported_functions = supported_functions or set()
     bytecode: list[Any] = []
     if args is None:
         bytecode.append(HOGQL_BYTECODE_IDENTIFIER)
         bytecode.append(HOGQL_BYTECODE_VERSION)
-    bytecode.extend(BytecodeCompiler(supported_functions, args, context).visit(expr))
+
+    bytecode.extend(BytecodeCompiler(supported_functions, args, context, enclosing).visit(expr))
     return bytecode
 
 
@@ -75,6 +78,7 @@ def create_bytecode(
 class Local:
     name: str
     depth: int
+    is_captured: bool
 
 
 @dataclasses.dataclass
@@ -84,17 +88,25 @@ class HogFunction:
     bytecode: list[Any]
 
 
+class UpValue:
+    def __init__(self, index: int, is_local: bool):
+        self.index = index
+        self.is_local = is_local
+
+
 class BytecodeCompiler(Visitor):
     def __init__(
         self,
         supported_functions: Optional[set[str]] = None,
         args: Optional[list[str]] = None,
         context: Optional[HogQLContext] = None,
+        enclosing: Optional["BytecodeCompiler"] = None,
     ):
         super().__init__()
+        self.enclosing = enclosing
         self.supported_functions = supported_functions or set()
         self.locals: list[Local] = []
-        self.functions: dict[str, HogFunction] = {}
+        self.upvalues: list[UpValue] = []
         self.scope_depth = 0
         self.args = args
         # we're in a function definition
@@ -113,7 +125,10 @@ class BytecodeCompiler(Visitor):
             if local.depth <= self.scope_depth:
                 break
             self.locals.pop()
-            response.append(Operation.POP)
+            if local.is_captured:
+                response.append(Operation.CLOSE_UPVALUE)
+            else:
+                response.append(Operation.POP)
         return response
 
     def _declare_local(self, name: str) -> int:
@@ -123,7 +138,7 @@ class BytecodeCompiler(Visitor):
             if local.name == name:
                 raise QueryError(f"Variable `{name}` already declared in this scope")
 
-        self.locals.append(Local(name, self.scope_depth))
+        self.locals.append(Local(name=name, depth=self.scope_depth, is_captured=False))
         return len(self.locals) - 1
 
     def visit_and(self, node: ast.And):
@@ -158,19 +173,51 @@ class BytecodeCompiler(Visitor):
             ARITHMETIC_OPERATIONS[node.op],
         ]
 
+    def _add_upvalue(self, index: int, is_local: bool) -> int:
+        for i, upvalue in enumerate(self.upvalues):
+            if upvalue.index == index and upvalue.is_local == is_local:
+                return i
+        self.upvalues.append(UpValue(index, is_local))
+        return len(self.upvalues) - 1
+
+    def _resolve_upvalue(self, name: str) -> int:
+        if not self.enclosing:
+            return -1
+
+        for index, local in reversed(list(enumerate(self.enclosing.locals))):
+            if local.name == name:
+                local.is_captured = True
+                return self._add_upvalue(index, True)
+
+        upvalue = self.enclosing._resolve_upvalue(name)
+        if upvalue != -1:
+            return self._add_upvalue(upvalue, False)
+
+        return -1
+
     def visit_field(self, node: ast.Field):
+        ops: list[str | int] = []
         for index, local in reversed(list(enumerate(self.locals))):
             if local.name == node.chain[0]:
-                if len(node.chain) == 1:
-                    return [Operation.GET_LOCAL, index]
-                else:
-                    ops: list[str | int] = [Operation.GET_LOCAL, index]
-                    for element in node.chain[1:]:
-                        if isinstance(element, int):
-                            ops.extend([Operation.INTEGER, element, Operation.GET_PROPERTY])
-                        else:
-                            ops.extend([Operation.STRING, str(element), Operation.GET_PROPERTY])
-                    return ops
+                ops = [Operation.GET_LOCAL, index]
+                break
+
+        if len(ops) == 0:
+            arg = self._resolve_upvalue(str(node.chain[0]))
+            if arg != -1:
+                ops = [Operation.GET_UPVALUE, arg]
+
+        if len(ops) > 0:
+            if len(node.chain) > 1:
+                for element in node.chain[1:]:
+                    if isinstance(element, int):
+                        ops.extend([Operation.INTEGER, element, Operation.GET_PROPERTY])
+                    else:
+                        ops.extend([Operation.STRING, str(element), Operation.GET_PROPERTY])
+            return ops
+
+        # Did not find a local nor an upvalue, must be a global.
+
         chain = []
         for element in reversed(node.chain):
             chain.extend([Operation.STRING, element])
@@ -272,30 +319,57 @@ class BytecodeCompiler(Visitor):
             response.extend(if_null)
             return response
 
-        if node.name not in STL and node.name not in self.functions and node.name not in self.supported_functions:
-            raise QueryError(f"Hog function `{node.name}` is not implemented")
-        if node.name in self.functions and len(node.args) != len(self.functions[node.name].params):
-            raise QueryError(
-                f"Function `{node.name}` expects {len(self.functions[node.name].params)} arguments, got {len(node.args)}"
-            )
-        response = []
+        # HogQL functions can have two sets of parameters: asd(args) or asd(params)(args)
+        # If params exist, take them as the first set
+        args = node.params if node.params is not None else node.args
 
-        for expr in node.args:
+        response = []
+        for expr in args:
             response.extend(self.visit(expr))
 
-        if node.name in MIN_ARGS_INCLUDING_OPTIONAL and len(node.args) < MIN_ARGS_INCLUDING_OPTIONAL[node.name]:
-            for _ in range(len(node.args), MIN_ARGS_INCLUDING_OPTIONAL[node.name]):
-                response.append(Operation.NULL)
+        found_local_with_name = False
+        for local in reversed(self.locals):
+            if local.name == node.name:
+                found_local_with_name = True
 
-        response.extend(
-            [
-                Operation.CALL_GLOBAL,
-                node.name,
-                len(node.args)
-                if node.name not in MIN_ARGS_INCLUDING_OPTIONAL
-                else MIN_ARGS_INCLUDING_OPTIONAL[node.name],
-            ]
-        )
+        if found_local_with_name:
+            field = self.visit(ast.Field(chain=[node.name]))
+            response.extend([*field, Operation.CALL_LOCAL, len(args)])
+        else:
+            upvalue = self._resolve_upvalue(node.name)
+            if upvalue != -1:
+                response.extend([Operation.GET_UPVALUE, upvalue, Operation.CALL_LOCAL, len(args)])
+            else:
+                if self.context.globals and node.name in self.context.globals:
+                    self.context.notices.append(
+                        HogQLNotice(start=node.start, end=node.end, message="Global variable: " + str(node.name))
+                    )
+                elif node.name in self.supported_functions or node.name in STL:
+                    pass
+                else:
+                    self.context.errors.append(
+                        HogQLNotice(
+                            start=node.start, end=node.end, message=f"Hog function `{node.name}` is not implemented"
+                        )
+                    )
+
+                response.extend([Operation.CALL_GLOBAL, node.name, len(args)])
+
+        # If the node has two sets of params, process the second set now
+        if node.params is not None:
+            next_response = []
+            for expr in node.args:
+                next_response.extend(self.visit(expr))
+            response = [*next_response, *response, Operation.CALL_LOCAL, len(node.args)]
+
+        return response
+
+    def visit_expr_call(self, node: ast.ExprCall):
+        response = []
+        for expr in node.args:
+            response.extend(self.visit(expr))
+        response.extend(self.visit(node.expr))
+        response.extend([Operation.CALL_LOCAL, len(node.args)])
         return response
 
     def visit_program(self, node: ast.Program):
@@ -317,6 +391,14 @@ class BytecodeCompiler(Visitor):
     def visit_expr_statement(self, node: ast.ExprStatement):
         if node.expr is None:
             return []
+        if isinstance(node.expr, ast.CompareOperation) and node.expr.op == ast.CompareOperationOp.Eq:
+            self.context.warnings.append(
+                HogQLNotice(
+                    start=node.start,
+                    end=node.end,
+                    message="You must use ':=' for assignment instead of '='.",
+                )
+            )
         response = self.visit(node.expr)
         response.append(Operation.POP)
         return response
@@ -497,7 +579,15 @@ class BytecodeCompiler(Visitor):
         response.extend([Operation.INTEGER, 1])
 
         loop_limit_local = self._declare_local("__H_limit_H__")  # length of keys
-        response.extend([Operation.GET_LOCAL, expr_values_local, Operation.CALL_GLOBAL, "length", 1])
+        response.extend(
+            [
+                Operation.GET_LOCAL,
+                expr_values_local,
+                Operation.CALL_GLOBAL,
+                "length",
+                1,
+            ]
+        )
 
         if key_var is not None:
             key_var_local = self._declare_local(key_var)  # loop key
@@ -586,6 +676,7 @@ class BytecodeCompiler(Visitor):
             ]
 
         if isinstance(node.left, ast.Field) and len(node.left.chain) >= 1:
+            ops: list
             chain = node.left.chain
             name = chain[0]
             for index, local in reversed(list(enumerate(self.locals))):
@@ -595,7 +686,7 @@ class BytecodeCompiler(Visitor):
                         return [*self.visit(cast(AST, node.right)), Operation.SET_LOCAL, index]
 
                     # else set a property on a local object
-                    ops: list = [Operation.GET_LOCAL, index]
+                    ops = [Operation.GET_LOCAL, index]
                     for element in chain[1:-1]:
                         if isinstance(element, int):
                             ops.extend([Operation.INTEGER, element, Operation.GET_PROPERTY])
@@ -608,16 +699,30 @@ class BytecodeCompiler(Visitor):
 
                     return ops
 
+            upvalue_index = self._resolve_upvalue(str(chain[0]))
+            if upvalue_index != -1:
+                # Set an upvalue
+                if len(node.left.chain) == 1:
+                    return [*self.visit(cast(AST, node.right)), Operation.SET_UPVALUE, upvalue_index]
+
+                # else set a property on an upvalue object
+                ops = [Operation.GET_UPVALUE, upvalue_index]
+                for element in chain[1:-1]:
+                    if isinstance(element, int):
+                        ops.extend([Operation.INTEGER, element, Operation.GET_PROPERTY])
+                    else:
+                        ops.extend([Operation.STRING, str(element), Operation.GET_PROPERTY])
+                if isinstance(chain[-1], int):
+                    ops.extend([Operation.INTEGER, chain[-1], *self.visit(node.right), Operation.SET_PROPERTY])
+                else:
+                    ops.extend([Operation.STRING, str(chain[-1]), *self.visit(node.right), Operation.SET_PROPERTY])
+
+                return ops
             raise QueryError(f'Variable "{name}" not declared in this scope. Can not assign to globals.')
 
         raise QueryError(f"Can not assign to this type of expression")
 
     def visit_function(self, node: ast.Function):
-        if node.name in self.functions:
-            raise QueryError(f"Function `{node.name}` already declared")
-        all_known_functions = self.supported_functions.union(set(self.functions.keys()))
-        all_known_functions.add(node.name)
-
         # add an implicit return if none at the end of the function
         body = node.body
         if isinstance(node.body, ast.Block):
@@ -626,9 +731,51 @@ class BytecodeCompiler(Visitor):
         elif not isinstance(node.body, ast.ReturnStatement):
             body = ast.Block(declarations=[node.body, ast.ReturnStatement(expr=None)])
 
-        bytecode = create_bytecode(body, all_known_functions, node.params, self.context)
-        self.functions[node.name] = HogFunction(node.name, node.params, bytecode)
-        return [Operation.DECLARE_FN, node.name, len(node.params), len(bytecode), *bytecode]
+        self._declare_local(node.name)
+        compiler = BytecodeCompiler(self.supported_functions, node.params, self.context, self)
+        bytecode = compiler.visit(body)
+
+        ops = [
+            Operation.CALLABLE,
+            node.name,
+            len(node.params),
+            len(compiler.upvalues),
+            len(bytecode),
+            *bytecode,
+            Operation.CLOSURE,
+            len(compiler.upvalues),
+        ]
+        for upvalue in compiler.upvalues:
+            ops.extend([upvalue.is_local, upvalue.index])
+        return ops
+
+    def visit_lambda(self, node: ast.Lambda):
+        # add an implicit return if none at the end of the function
+        expr: ast.Expr | ast.Statement = node.expr
+        if isinstance(expr, ast.Block):
+            if len(expr.declarations) == 0 or not isinstance(expr.declarations[-1], ast.ReturnStatement):
+                expr = ast.Block(declarations=[*expr.declarations, ast.ReturnStatement(expr=None)])
+        elif not isinstance(expr, ast.ReturnStatement):
+            if isinstance(expr, ast.Statement):
+                expr = ast.Block(declarations=[expr, ast.ReturnStatement(expr=None)])
+            else:
+                expr = ast.ReturnStatement(expr=expr)
+
+        compiler = BytecodeCompiler(self.supported_functions, node.args, self.context, self)
+        bytecode = compiler.visit(expr)
+        ops = [
+            Operation.CALLABLE,
+            "lambda",
+            len(node.args),
+            len(compiler.upvalues),
+            len(bytecode),
+            *bytecode,
+            Operation.CLOSURE,
+            len(compiler.upvalues),
+        ]
+        for upvalue in compiler.upvalues:
+            ops.extend([upvalue.is_local, upvalue.index])
+        return ops
 
     def visit_dict(self, node: ast.Dict):
         response = []

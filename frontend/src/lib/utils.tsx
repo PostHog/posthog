@@ -594,9 +594,9 @@ export function stripHTTP(url: string): string {
     return url
 }
 
-export function isDomain(url: string): boolean {
+export function isDomain(url: string | URL): boolean {
     try {
-        const parsedUrl = new URL(url)
+        const parsedUrl = typeof url === 'string' ? new URL(url) : url
         if (parsedUrl.protocol.includes('http') && (!parsedUrl.pathname || parsedUrl.pathname === '/')) {
             return true
         }
@@ -613,7 +613,7 @@ export function isURL(input: any): boolean {
     if (!input || typeof input !== 'string') {
         return false
     }
-    const regexp = /^http(s)?:\/\/[\w*.-]+[\w*.-]+[\w\-._~:/?#[\]@%!$&'()*+,;=]+$/
+    const regexp = /^(http|capacitor|https):\/\/[\w*.-]+[\w*.-]+[\w\-._~:/?#[\]@%!$&'()*+,;=]+$/
     return !!input.trim().match(regexp)
 }
 
@@ -1674,6 +1674,10 @@ export function downloadFile(file: File): void {
 
 export function inStorybookTestRunner(): boolean {
     return navigator.userAgent.includes('StorybookTestRunner')
+}
+
+export function inStorybook(): boolean {
+    return '__STORYBOOK_CLIENT_API__' in window
 }
 
 /** We issue a cancel request, when the request is aborted or times out (frontend side), since in these cases the backend query might still be running. */

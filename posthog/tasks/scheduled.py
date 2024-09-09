@@ -15,7 +15,6 @@ from posthog.tasks.tasks import (
     calculate_decide_usage,
     calculate_replay_embeddings,
     check_async_migration_health,
-    check_data_import_row_limits,
     check_flags_to_rollback,
     clean_stale_partials,
     clear_clickhouse_deleted_person,
@@ -315,13 +314,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
             name="delete expired exported assets",
         )
 
-    sender.add_periodic_task(
-        crontab(minute="*/20"),
-        check_data_import_row_limits.s(),
-        name="check external data rows synced",
-    )
     # Every 20 minutes try to retrieve and calculate total rows synced in period
-
     sender.add_periodic_task(
         crontab(minute="*/20"),
         calculate_external_data_rows_synced.s(),

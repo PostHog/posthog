@@ -69,6 +69,10 @@ def sql_source_for_type(
         )
     elif source_type == ExternalDataSource.Type.MYSQL:
         credentials = ConnectionStringCredentials(f"mysql+pymysql://{user}:{password}@{host}:{port}/{database}")
+    elif source_type == ExternalDataSource.Type.MSSQL:
+        credentials = ConnectionStringCredentials(
+            f"mssql+pyodbc://{user}:{password}@{host}:{port}/{database}?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes"
+        )
     else:
         raise Exception("Unsupported source_type")
 
@@ -169,24 +173,26 @@ def sql_database(
         # and pass them in here to get empty table materialization
         binary_columns_to_drop = get_binary_columns(engine, schema or "", table.name)
 
-        yield dlt.resource(
-            table_rows,
-            name=table.name,
-            primary_key=get_primary_key(table),
-            merge_key=get_primary_key(table),
-            write_disposition={
-                "disposition": "merge",
-                "strategy": "upsert",
-            }
-            if incremental
-            else "replace",
-            spec=SqlDatabaseTableConfiguration,
-            table_format="delta",
-            columns=get_column_hints(engine, schema or "", table.name),
-        ).add_map(remove_columns(binary_columns_to_drop, team_id))(
-            engine=engine,
-            table=table,
-            incremental=incremental,
+        yield (
+            dlt.resource(
+                table_rows,
+                name=table.name,
+                primary_key=get_primary_key(table),
+                merge_key=get_primary_key(table),
+                write_disposition={
+                    "disposition": "merge",
+                    "strategy": "upsert",
+                }
+                if incremental
+                else "replace",
+                spec=SqlDatabaseTableConfiguration,
+                table_format="delta",
+                columns=get_column_hints(engine, schema or "", table.name),
+            ).add_map(remove_columns(binary_columns_to_drop, team_id))(
+                engine=engine,
+                table=table,
+                incremental=incremental,
+            )
         )
 
 

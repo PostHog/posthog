@@ -2,6 +2,7 @@ from enum import StrEnum
 from prometheus_client import Counter
 from sentry_sdk import set_tag
 from collections.abc import Callable
+from functools import wraps
 
 
 class Feature(StrEnum):
@@ -17,6 +18,12 @@ API_REQUESTS_COUNTER = Counter(
     labelnames=["endpoint", "method"],
 )
 
+API_REQUESTS_ERROR_COUNTER = Counter(
+    "api_requests_error",
+    "Number of errored API requests",
+    labelnames=["endpoint", "method"],
+)
+
 
 def monitor(*, feature: Feature | None, endpoint: str, method: str) -> Callable:
     """
@@ -25,13 +32,17 @@ def monitor(*, feature: Feature | None, endpoint: str, method: str) -> Callable:
     """
 
     def decorator(func: Callable) -> Callable:
+        @wraps(func)
         def wrapper(*args, **kwargs):
             API_REQUESTS_COUNTER.labels(endpoint=endpoint, method=method).inc()
 
             if feature:
                 set_tag("feature", feature.value)
-
-            return func(*args, **kwargs)
+            try:
+                return func(*args, **kwargs)
+            except Exception:
+                API_REQUESTS_ERROR_COUNTER.labels(endpoint=endpoint, method=method).inc()
+                raise
 
         return wrapper
 

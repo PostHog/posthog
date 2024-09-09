@@ -412,7 +412,7 @@ async def start_batch_export_run(inputs: StartBatchExportRunInputs) -> BatchExpo
     (i.e. without running the insert activity), as there will be nothing to export.
     """
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
-    logger.info(
+    await logger.ainfo(
         "Starting batch export for range %s - %s",
         inputs.data_interval_start,
         inputs.data_interval_end,
@@ -483,19 +483,19 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
     )
 
     if batch_export_run.status == BatchExportRun.Status.FAILED_RETRYABLE:
-        logger.error("Batch export failed with error: %s", batch_export_run.latest_error)
+        await logger.aerror("Batch export failed with error: %s", batch_export_run.latest_error)
 
     elif batch_export_run.status == BatchExportRun.Status.FAILED:
-        logger.error("Batch export failed with non-recoverable error: %s", batch_export_run.latest_error)
+        await logger.aerror("Batch export failed with non-recoverable error: %s", batch_export_run.latest_error)
 
         from posthog.tasks.email import send_batch_export_run_failure
 
         try:
             await database_sync_to_async(send_batch_export_run_failure)(inputs.id)
         except Exception:
-            logger.exception("Failure email notification could not be sent")
+            await logger.aexception("Failure email notification could not be sent")
         else:
-            logger.info("Failure notification email for run %s has been sent", inputs.id)
+            await logger.ainfo("Failure notification email for run %s has been sent", inputs.id)
 
         is_over_failure_threshold = await check_if_over_failure_threshold(
             inputs.batch_export_id,
@@ -512,10 +512,10 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
             # Pausing could error if the underlying schedule is deleted.
             # Our application logic should prevent that, but I want to log it in case it ever happens
             # as that would indicate a bug.
-            logger.exception("Batch export could not be automatically paused")
+            await logger.aexception("Batch export could not be automatically paused")
         else:
             if was_paused:
-                logger.warning(
+                await logger.awarning(
                     "Batch export was automatically paused due to exceeding failure threshold and exhausting "
                     "all automated retries."
                     "The batch export can be unpaused after addressing any errors."
@@ -526,10 +526,10 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
                 inputs.batch_export_id,
             )
         except Exception:
-            logger.exception("Ongoing backfills could not be automatically cancelled")
+            await logger.aexception("Ongoing backfills could not be automatically cancelled")
         else:
             if total_cancelled > 0:
-                logger.warning(
+                await logger.awarning(
                     f"{total_cancelled} ongoing batch export backfill{'s' if total_cancelled > 1 else ''} "
                     f"{'were' if total_cancelled > 1 else 'was'} cancelled due to exceeding failure threshold "
                     " and exhausting all automated retries."
@@ -537,10 +537,10 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
                 )
 
     elif batch_export_run.status == BatchExportRun.Status.CANCELLED:
-        logger.warning("Batch export was cancelled")
+        await logger.awarning("Batch export was cancelled")
 
     else:
-        logger.info(
+        await logger.ainfo(
             "Successfully finished exporting batch %s - %s",
             batch_export_run.data_interval_start,
             batch_export_run.data_interval_end,
@@ -652,7 +652,7 @@ async def create_batch_export_backfill_model(inputs: CreateBatchExportBackfillIn
     model instance to represent them in our database.
     """
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
-    logger.info(
+    await logger.ainfo(
         "Creating historical export for batches in range %s - %s",
         inputs.start_at,
         inputs.end_at,
@@ -685,13 +685,13 @@ async def update_batch_export_backfill_model_status(inputs: UpdateBatchExportBac
     logger = await bind_temporal_worker_logger(team_id=backfill.team_id)
 
     if backfill.status in (BatchExportBackfill.Status.FAILED, BatchExportBackfill.Status.FAILED_RETRYABLE):
-        logger.error("Historical export failed")
+        await logger.aerror("Historical export failed")
 
     elif backfill.status == BatchExportBackfill.Status.CANCELLED:
-        logger.warning("Historical export was cancelled.")
+        await logger.awarning("Historical export was cancelled.")
 
     else:
-        logger.info(
+        await logger.ainfo(
             "Successfully finished exporting historical batches in %s - %s",
             backfill.start_at,
             backfill.end_at,

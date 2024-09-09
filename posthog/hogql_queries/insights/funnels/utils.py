@@ -5,15 +5,18 @@ from posthog.schema import FunnelConversionWindowTimeUnit, FunnelVizType, Funnel
 from rest_framework.exceptions import ValidationError
 
 
-def get_funnel_order_class(funnelsFilter: FunnelsFilter):
+def get_funnel_order_class(funnelsFilter: FunnelsFilter, use_udf=False):
     from posthog.hogql_queries.insights.funnels import (
         Funnel,
+        FunnelUDF,
         FunnelStrict,
         FunnelUnordered,
     )
 
     if funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED:
         return FunnelUnordered
+    elif use_udf:
+        return FunnelUDF
     elif funnelsFilter.funnelOrderType == StepOrderValue.STRICT:
         return FunnelStrict
     return Funnel
