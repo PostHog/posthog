@@ -422,6 +422,18 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ignore_conflicts=True,
         )
 
+        for team in teams:
+            log_activity(
+                organization_id=cast(UUIDT, organization_id),
+                team_id=team.pk,
+                user=user,
+                was_impersonated=is_impersonated_session(self.request),
+                scope="Team",
+                item_id=team.pk,
+                activity="deleted",
+                detail=Detail(name=str(team.name)),
+            )
+            report_user_action(user, f"team deleted", team=team)
         log_activity(
             organization_id=cast(UUIDT, organization_id),
             team_id=project_id,
@@ -438,18 +450,6 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             {"project_name": project_name},
             team=teams[0],
         )
-        for team in teams:
-            log_activity(
-                organization_id=cast(UUIDT, organization_id),
-                team_id=team.pk,
-                user=user,
-                was_impersonated=is_impersonated_session(self.request),
-                scope="Team",
-                item_id=team.pk,
-                activity="deleted",
-                detail=Detail(name=str(team.name)),
-            )
-            report_user_action(user, f"team deleted", team=team)
 
     @action(
         methods=["PATCH"],

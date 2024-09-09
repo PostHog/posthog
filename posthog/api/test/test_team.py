@@ -282,7 +282,7 @@ def team_api_test_factory():
 
             # we can't query by API but can prove the log was recorded
             activity = [a.__dict__ for a in ActivityLog.objects.filter(team_id=team.pk).all()]
-            assert activity == [
+            expected_activity = [
                 {
                     "_state": ANY,
                     "activity": "deleted",
@@ -304,6 +304,31 @@ def team_api_test_factory():
                     "was_impersonated": False,
                 },
             ]
+            if self.client_class is EnvironmentToProjectRewriteClient:
+                expected_activity.insert(
+                    0,
+                    {
+                        "_state": ANY,
+                        "activity": "deleted",
+                        "created_at": ANY,
+                        "detail": {
+                            "changes": None,
+                            "name": "Default project",
+                            "short_id": None,
+                            "trigger": None,
+                            "type": None,
+                        },
+                        "id": ANY,
+                        "is_system": False,
+                        "organization_id": ANY,
+                        "team_id": team.pk,
+                        "item_id": str(team.project_id),
+                        "scope": "Project",
+                        "user_id": self.user.pk,
+                        "was_impersonated": False,
+                    },
+                )
+            assert activity == expected_activity
 
         @patch("posthog.api.project.delete_bulky_postgres_data")
         @patch("posthog.api.team.delete_bulky_postgres_data")
@@ -334,17 +359,25 @@ def team_api_test_factory():
                 ).count(),
                 1,
             )
-            mock_capture.assert_has_calls(
-                calls=[
+            expected_capture_calls = [
+                call(
+                    self.user.distinct_id,
+                    "membership level changed",
+                    properties={"new_level": 8, "previous_level": 1, "$set": mock.ANY},
+                    groups=mock.ANY,
+                ),
+                call(self.user.distinct_id, "team deleted", properties={}, groups=mock.ANY),
+            ]
+            if self.client_class is EnvironmentToProjectRewriteClient:
+                expected_capture_calls.append(
                     call(
                         self.user.distinct_id,
-                        "membership level changed",
-                        properties={"new_level": 8, "previous_level": 1, "$set": mock.ANY},
+                        "project deleted",
+                        properties={"project_name": "Default project"},
                         groups=mock.ANY,
-                    ),
-                    call(self.user.distinct_id, "team deleted", properties={}, groups=mock.ANY),
-                ]
-            )
+                    )
+                )
+            assert mock_capture.call_args_list == expected_capture_calls
             mock_delete_bulky_postgres_data.assert_called_once_with(team_ids=[team.pk])
 
         def test_delete_bulky_postgres_data(self):
