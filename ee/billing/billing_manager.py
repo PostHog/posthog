@@ -348,7 +348,7 @@ class BillingManager:
 
         return data
 
-    def credits_overview(self, organization: Organization) -> bool:
+    def credits_overview(self, organization: Organization):
         res = requests.get(
             f"{BILLING_SERVICE_URL}/api/credits/overview",
             headers=self.get_auth_headers(organization),
@@ -358,7 +358,7 @@ class BillingManager:
 
         return res.json()
 
-    def purchase_credits(self, organization: Organization, data: dict[str, Any]) -> None:
+    def purchase_credits(self, organization: Organization, data: dict[str, Any]):
         res = requests.post(
             f"{BILLING_SERVICE_URL}/api/credits/purchase",
             headers=self.get_auth_headers(organization),
@@ -366,3 +366,5 @@ class BillingManager:
         )
 
         handle_billing_service_error(res)
+
+        return res.json()
