@@ -148,7 +148,7 @@ export class TeamManager {
     }
 }
 
-export async function fetchTeam(client: PostgresRouter, teamId: Team['id']): Promise<Team | null> {
+async function fetchTeam(client: PostgresRouter, teamId: Team['id']): Promise<Team | null> {
     const selectResult = await client.query<Team>(
         PostgresUse.COMMON_READ,
         `
@@ -174,7 +174,7 @@ export async function fetchTeam(client: PostgresRouter, teamId: Team['id']): Pro
     return selectResult.rows[0] ?? null
 }
 
-export async function fetchTeamByToken(client: PostgresRouter, token: string): Promise<Team | null> {
+async function fetchTeamByToken(client: PostgresRouter, token: string): Promise<Team | null> {
     const selectResult = await client.query<Team>(
         PostgresUse.COMMON_READ,
         `

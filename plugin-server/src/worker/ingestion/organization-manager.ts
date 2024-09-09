@@ -29,8 +29,13 @@ export class OrganizationManager {
 
         const timeout = timeoutGuard(`Still running "fetchOrganization". Timeout warning after 30 sec!`)
         try {
-            const organization: RawOrganization | null =
-                (await fetchOrganization(this.postgres, organizationId)) || null
+            const selectResult = await this.postgres.query<RawOrganization>(
+                PostgresUse.COMMON_READ,
+                `SELECT * FROM posthog_organization WHERE id = $1`,
+                [organizationId],
+                'fetchOrganization'
+            )
+            const organization: RawOrganization | null = selectResult.rows[0]
             this.organizationCache.set(organizationId, [organization, Date.now()])
             return organization
         } finally {
@@ -64,17 +69,4 @@ export class OrganizationManager {
         this.availableProductFeaturesCache = new Map()
         this.organizationCache.delete(organizationId)
     }
-}
-
-export async function fetchOrganization(
-    client: PostgresRouter,
-    organizationId: string
-): Promise<RawOrganization | undefined> {
-    const selectResult = await client.query<RawOrganization>(
-        PostgresUse.COMMON_READ,
-        `SELECT * FROM posthog_organization WHERE id = $1`,
-        [organizationId],
-        'fetchOrganization'
-    )
-    return selectResult.rows[0]
 }
