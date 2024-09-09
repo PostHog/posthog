@@ -193,7 +193,9 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_CYCLOTRON_BATCH_SIZE: 500,
 
         // Cyclotron
-        CYCLOTRON_DATABASE_URL: isTestEnv()
+        CYCLOTRON_DATABASE_URL: process.env.E2E_TESTING
+            ? ''
+            : isTestEnv()
             ? 'postgres://posthog:posthog@localhost:5432/test_cyclotron'
             : isDevEnv()
             ? 'postgres://posthog:posthog@localhost:5432/cyclotron'
