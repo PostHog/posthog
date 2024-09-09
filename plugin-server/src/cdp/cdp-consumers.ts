@@ -431,7 +431,7 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
             const invocationResults = await runInstrumentedFunction({
                 statsKey: `cdpConsumer.handleEachBatch.executeInvocations`,
                 func: async () => {
-                    const hogResults = await this.runManyWithHeartbeat(invocationsToBeQueued, (item) =>
+                    const hogResults = await this.runManyWithHeartbeat(kafkaInvocations, (item) =>
                         this.hogExecutor.execute(item)
                     )
                     return [...hogResults]
