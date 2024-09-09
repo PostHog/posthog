@@ -74,6 +74,7 @@ export enum NodeKind {
     RecordingsQuery = 'RecordingsQuery',
     SessionAttributionExplorerQuery = 'SessionAttributionExplorerQuery',
     ErrorTrackingQuery = 'ErrorTrackingQuery',
+    ExperimentResultQuery = 'ExperimentResultQuery',
 
     // Interface nodes
     DataTableNode = 'DataTableNode',
@@ -120,6 +121,7 @@ export type AnyDataNode =
     | WebGoalsQuery
     | SessionAttributionExplorerQuery
     | ErrorTrackingQuery
+    | ExperimentResultQuery
 
 /**
  * @discriminator kind
@@ -145,6 +147,7 @@ export type QuerySchema =
     | WebGoalsQuery
     | SessionAttributionExplorerQuery
     | ErrorTrackingQuery
+    | ExperimentResultQuery
 
     // Interface nodes
     | DataVisualizationNode
@@ -570,6 +573,7 @@ export interface DataTableNode
                     | WebGoalsQuery
                     | SessionAttributionExplorerQuery
                     | ErrorTrackingQuery
+                    | ExperimentResultQuery
                 )['response']
             >
         >,
@@ -588,6 +592,7 @@ export interface DataTableNode
         | WebGoalsQuery
         | SessionAttributionExplorerQuery
         | ErrorTrackingQuery
+        | ExperimentResultQuery
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
     /** Columns that aren't shown in the table, even if in columns or returned data */
@@ -1506,6 +1511,33 @@ export type InsightQueryNode =
     | PathsQuery
     | StickinessQuery
     | LifecycleQuery
+
+export interface ExperimentVariantTrendResult {
+    count: number
+}
+
+export interface ExperimentVariantFunnelResult {
+    success_count: number
+    failure_count: number
+}
+
+export interface ExperimentResultTrendQueryResponse {
+    insight: InsightType.TRENDS
+    results: Record<string, ExperimentVariantTrendResult>
+}
+
+export interface ExperimentResultFunnelQueryResponse {
+    insight: InsightType.FUNNELS
+    results: Record<string, ExperimentVariantFunnelResult>
+}
+
+export type ExperimentResultQueryResponse = ExperimentResultTrendQueryResponse | ExperimentResultFunnelQueryResponse
+
+export interface ExperimentResultQuery extends DataNode<ExperimentResultQueryResponse> {
+    kind: NodeKind.ExperimentResultQuery
+    source: TrendsQuery | FunnelsQuery
+    variants: string[]
+}
 
 /**
  * @discriminator kind

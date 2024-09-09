@@ -4,6 +4,7 @@ import {
     IconBrackets,
     IconCorrelationAnalysis,
     IconCursor,
+    IconFlask,
     IconFunnels,
     IconGraph,
     IconHogQL,
@@ -326,6 +327,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         name: 'Session Recordings',
         description: 'View available recordings',
         icon: IconVideoCamera,
+        inMenu: false,
+    },
+    [NodeKind.ExperimentResultQuery]: {
+        name: 'Experiment Result',
+        description: 'View experiment result',
+        icon: IconFlask,
         inMenu: false,
     },
 }
