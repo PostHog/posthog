@@ -26,7 +26,7 @@ export function HedgehogOptions(): JSX.Element {
                             <>
                                 Well, it’s not every day you meet a hedgehog with spider powers. Yep, that's me -
                                 SpiderHog. I wasn’t always this way. Just your average, speedy little guy until a
-                                radioactive spider bit me. With great power comes great responsibility so, buckle up,
+                                radioactive spider bit me. With great power comes great responsibility, so buckle up,
                                 because this hedgehog’s got a whole data warehouse to protect...
                                 <br />
                                 You can move me around by clicking and dragging or control me with WASD / arrow keys and
