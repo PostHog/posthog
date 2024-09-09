@@ -149,7 +149,7 @@ mod tests {
     #[tokio::test]
     async fn test_dynamic_limited() {
         let client = MockRedisClient::new().zrangebyscore_ret(
-            "@posthog/capture-overflow/events",
+            "@posthog/capture-overflow/recordings",
             vec![String::from("banana")],
         );
         let client = Arc::new(client);
