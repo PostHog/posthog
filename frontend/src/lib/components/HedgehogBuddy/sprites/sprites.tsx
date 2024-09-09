@@ -57,22 +57,10 @@ export const spriteAccessoryUrl = (img: string): string => {
     return `${baseSpriteAccessoriesPath()}/${img}.png`
 }
 
-const animationsNames = [
-    'stop',
-    'fall',
-    'jump',
-    'sign',
-    'walk',
-    'wave',
-    'heatmaps',
-    'flag',
-    'inspect',
-    'phone',
-    'action',
-]
-type AnimationNames = (typeof animationsNames)[number]
+const animationsNames = ['stop', 'fall', 'jump', 'sign', 'walk', 'wave', 'flag', 'inspect', 'phone', 'action'] as const
+export type AnimationName = (typeof animationsNames)[number]
 
-const standardAnimations: Record<AnimationNames, SpriteInfo> = {
+const standardAnimations: Record<AnimationName, SpriteInfo> = {
     stop: {
         img: 'wave',
         frames: 1,
@@ -122,12 +110,6 @@ const standardAnimations: Record<AnimationNames, SpriteInfo> = {
         maxIteration: 1,
         randomChance: 2,
     },
-    heatmaps: {
-        img: 'heatmaps',
-        frames: 14,
-        maxIteration: 1,
-        randomChance: 0,
-    },
     flag: {
         img: 'flag',
         frames: 25,
@@ -154,21 +136,13 @@ const standardAnimations: Record<AnimationNames, SpriteInfo> = {
     },
 }
 
-const overlayAnimationsNames = ['fire', 'fire2']
+const overlayAnimationsNames = ['fire'] as const
 
-export type OverlayAnimationNames = (typeof overlayAnimationsNames)[number]
+export type OverlayAnimationName = (typeof overlayAnimationsNames)[number]
 
-export const overlayAnimations: Record<OverlayAnimationNames, SpriteInfo> = {
+export const overlayAnimations: Record<OverlayAnimationName, SpriteInfo> = {
     fire: {
         img: 'fire',
-        frames: 14,
-        maxIteration: 1,
-        style: {
-            opacity: 0.75,
-        },
-    },
-    fire2: {
-        img: 'fire2',
         frames: 14,
         maxIteration: 1,
         style: {

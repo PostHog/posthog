@@ -18,6 +18,8 @@ import { COLOR_TO_FILTER_MAP, hedgehogBuddyLogic } from './hedgehogBuddyLogic'
 import { HedgehogOptions } from './HedgehogOptions'
 import {
     AccessoryInfo,
+    AnimationName,
+    OverlayAnimationName,
     overlayAnimations,
     SHADOW_HEIGHT,
     skins,
@@ -83,7 +85,6 @@ type AnimationState = {
 
 export class HedgehogActor {
     element?: HTMLDivElement | null
-    // animations = standardAnimations
     direction: 'left' | 'right' = 'right'
     startX = 0
     startY = 0
@@ -317,7 +318,7 @@ export class HedgehogActor {
         }
     }
 
-    setAnimation(animationName: string, options?: Partial<AnimationState>): void {
+    setAnimation(animationName: AnimationName, options?: Partial<AnimationState>): void {
         const availableAnimations = this.animations()
         animationName = availableAnimations[animationName] ? animationName : 'stop'
         const spriteInfo = availableAnimations[animationName]
@@ -356,7 +357,7 @@ export class HedgehogActor {
     }
 
     setOverlayAnimation(
-        animationName: string | null,
+        animationName: OverlayAnimationName | null,
         options?: {
             onComplete: () => boolean | void
         }
@@ -384,9 +385,9 @@ export class HedgehogActor {
         if (this.mainAnimation?.name !== 'stop') {
             this.setAnimation('stop')
         } else {
-            let randomChoiceList: string[] = Object.keys(this.animations()).reduce((acc: string[], key: string) => {
-                return [...acc, ...range(this.animations()[key].randomChance || 0).map(() => key)]
-            }, [])
+            let randomChoiceList = Object.keys(this.animations()).reduce((acc, key) => {
+                return [...acc, ...range(this.animations()[key].randomChance || 0).map(() => key)] as AnimationName[]
+            }, [] as AnimationName[])
 
             randomChoiceList = this.hedgehogConfig.walking_enabled
                 ? randomChoiceList
