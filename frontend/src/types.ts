@@ -3564,7 +3564,7 @@ export enum EventDefinitionType {
     EventPostHog = 'event_posthog',
 }
 
-export type IntegrationKind = 'slack' | 'salesforce' | 'hubspot'
+export type IntegrationKind = 'slack' | 'salesforce' | 'hubspot' | 'gcloud'
 
 export interface IntegrationType {
     id: number
@@ -4322,7 +4322,7 @@ export type HogFunctionInputSchemaType = {
     description?: string
     integration?: string
     integration_key?: string
-    integration_field?: 'slack_channel' | 'gcloud-pubsub'
+    integration_field?: 'slack_channel'
 }
 
 export type HogFunctionInputType = {

@@ -1,5 +1,6 @@
 from celery import shared_task
 
+from posthog.models.integration import GoogleCloudIntegration
 from posthog.tasks.utils import CeleryQueue
 
 
@@ -15,6 +16,14 @@ def refresh_integrations() -> int:
         if oauth_integration.access_token_expired():
             refresh_integration.delay(integration.id)
 
+    gcloud_integrations = Integration.objects.filter(kind="gcloud").all()
+
+    for integration in gcloud_integrations:
+        gcloud_integration = GoogleCloudIntegration(integration)
+
+        if gcloud_integration.access_token_expired():
+            refresh_integration.delay(integration.id)
+
     return 0
 
 
@@ -27,5 +36,8 @@ def refresh_integration(id: int) -> int:
     if integration.kind in OauthIntegration.supported_kinds:
         oauth_integration = OauthIntegration(integration)
         oauth_integration.refresh_access_token()
+    elif integration.kind == "gcloud":
+        gcloud_integration = GoogleCloudIntegration(integration)
+        gcloud_integration.refresh_access_token()
 
     return 0

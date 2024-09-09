@@ -2224,7 +2224,7 @@ const api = {
         async get(id: IntegrationType['id']): Promise<IntegrationType> {
             return await new ApiRequest().integration(id).get()
         },
-        async create(data: Partial<IntegrationType>): Promise<IntegrationType> {
+        async create(data: Partial<IntegrationType> | FormData): Promise<IntegrationType> {
             return await new ApiRequest().integrations().create({ data })
         },
         async delete(integrationId: IntegrationType['id']): Promise<IntegrationType> {
@@ -2238,9 +2238,6 @@ const api = {
         },
         async slackChannels(id: IntegrationType['id']): Promise<{ channels: SlackChannelType[] }> {
             return await new ApiRequest().integrationSlackChannels(id).get()
-        },
-        async gcloud(formData: FormData): Promise<IntegrationType> {
-            return await new ApiRequest().integrations().withAction('gcloud').create({ data: formData })
         },
     },
 

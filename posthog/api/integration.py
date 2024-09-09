@@ -1,6 +1,4 @@
 import json
-from google.oauth2 import service_account
-from google.auth.transport.requests import Request as GoogleRequest
 
 from typing import Any
 
@@ -14,7 +12,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.models.integration import Integration, OauthIntegration, SlackIntegration
+from posthog.models.integration import Integration, OauthIntegration, SlackIntegration, GoogleCloudIntegration
 
 
 class IntegrationSerializer(serializers.ModelSerializer):
@@ -31,7 +29,15 @@ class IntegrationSerializer(serializers.ModelSerializer):
         request = self.context["request"]
         team_id = self.context["team_id"]
 
-        if validated_data["kind"] in OauthIntegration.supported_kinds:
+        if validated_data["kind"] == "gcloud":
+            key_file = request.FILES.get("key")
+            if not key_file:
+                raise ValidationError("Key file not provided")
+            key_info = json.loads(key_file.read().decode("utf-8"))
+            instance = GoogleCloudIntegration.integration_from_key(key_info, team_id, request)
+            return instance
+
+        elif validated_data["kind"] in OauthIntegration.supported_kinds:
             try:
                 instance = OauthIntegration.integration_from_oauth_response(
                     validated_data["kind"], team_id, request.user, validated_data["config"]
@@ -86,28 +92,3 @@ class IntegrationViewSet(
         ]
 
         return Response({"channels": channels})
-
-    @action(methods=["POST"], detail=False)
-    def gcloud(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
-        keyfile = request.FILES.get("key")
-        if not keyfile:
-            raise ValidationError("Key file not provided")
-
-        # Parse the keyfile JSON contents
-        contents = keyfile.read()
-        key_info = json.loads(contents.decode("utf-8"))
-
-        # Construct credentials
-        credentials = service_account.Credentials.from_service_account_info(
-            key_info, scopes=["https://www.googleapis.com/auth/pubsub"]
-        )
-
-        # Attempt to get an access token to verify if the credentials are valid
-        try:
-            credentials.refresh(GoogleRequest())
-        except Exception as e:
-            raise ValidationError(f"Failed to authenticate with provided service account key: {str(e)}")
-
-        # At this point, credentials are valid and you can use them to call Google APIs
-        # Store relevant information securely if needed and respond appropriately
-        return Response({"message": "Service account authenticated successfully"})

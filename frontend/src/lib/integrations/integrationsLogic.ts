@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { fromParamsGivenUrl } from 'lib/utils'
+import IconGoogleCloud from 'public/services/google-cloud.png'
 import IconHubspot from 'public/services/hubspot.png'
 import IconSalesforce from 'public/services/salesforce.png'
 import IconSlack from 'public/services/slack.png'
@@ -18,6 +19,7 @@ const ICONS: Record<IntegrationKind, any> = {
     slack: IconSlack,
     salesforce: IconSalesforce,
     hubspot: IconHubspot,
+    gcloud: IconGoogleCloud,
 }
 
 export const integrationsLogic = kea<integrationsLogicType>([
@@ -28,10 +30,11 @@ export const integrationsLogic = kea<integrationsLogicType>([
 
     actions({
         handleOauthCallback: (kind: IntegrationKind, searchParams: any) => ({ kind, searchParams }),
+        newGoogleCloudKey: (key: File, callback?: (integration: IntegrationType) => void) => ({ key, callback }),
         deleteIntegration: (id: number) => ({ id }),
     }),
 
-    loaders(() => ({
+    loaders(({ values }) => ({
         integrations: [
             null as IntegrationType[] | null,
             {
@@ -47,6 +50,34 @@ export const integrationsLogic = kea<integrationsLogicType>([
                             icon_url: ICONS[integration.kind],
                         }
                     })
+                },
+                newGoogleCloudKey: async ({ key, callback }) => {
+                    try {
+                        const formData = new FormData()
+                        formData.append('kind', 'gcloud')
+                        formData.append('key', key)
+                        const response = await api.integrations.create(formData)
+                        const responseWithIcon = { ...response, icon_url: ICONS.gcloud }
+
+                        // run onChange after updating the integrations loader
+                        window.setTimeout(() => callback?.(responseWithIcon), 0)
+
+                        if (
+                            values.integrations?.find(
+                                (x) => x.kind === 'gcloud' && x.display_name === response.display_name
+                            )
+                        ) {
+                            lemonToast.success('Google Cloud key updated.')
+                            return values.integrations.map((x) =>
+                                x.kind === 'gcloud' && x.display_name === response.display_name ? responseWithIcon : x
+                            )
+                        }
+                        lemonToast.success('Google Cloud key created.')
+                        return [...(values.integrations ?? []), responseWithIcon]
+                    } catch (e) {
+                        lemonToast.error('Failed to upload Google Cloud key.')
+                        throw e
+                    }
                 },
             },
         ],

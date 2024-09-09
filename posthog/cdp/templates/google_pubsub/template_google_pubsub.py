@@ -32,10 +32,9 @@ if (res.status >= 200 and res.status < 300) {
             "key": "oauth",
             "type": "integration",
             "integration": "gcloud",
-            "label": "Google Cloud connection",
+            "label": "Google Cloud service account",
             "secret": False,
             "required": True,
-            "integration_field": "gcloud-pubsub",
         },
         {
             "key": "topicName",

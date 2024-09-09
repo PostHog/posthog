@@ -1,6 +1,6 @@
 import { IconExternal, IconX } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
@@ -21,6 +21,7 @@ export function IntegrationChoice({
     redirectUrl,
 }: IntegrationConfigureProps): JSX.Element | null {
     const { integrationsLoading, integrations } = useValues(integrationsLogic)
+    const { newGoogleCloudKey } = useActions(integrationsLogic)
     const kind = integration
     const integrationsOfKind = integrations?.filter((x) => x.kind === kind)
     const integrationKind = integrationsOfKind?.find((integration) => integration.id === value)
@@ -32,7 +33,8 @@ export function IntegrationChoice({
     if (integrationsLoading) {
         return <LemonSkeleton className="h-10" />
     }
-    const kindName = kind.startsWith('gcloud') ? 'Google Cloud' : capitalizeFirstLetter(kind)
+
+    const kindName = kind == 'gcloud' ? 'Google Cloud' : capitalizeFirstLetter(kind)
 
     function uploadKey(): void {
         const input = document.createElement('input')
@@ -43,11 +45,7 @@ export function IntegrationChoice({
             if (!file) {
                 return
             }
-            const formData = new FormData()
-            formData.append('key', file)
-            const response = await api.integrations.gcloud(formData)
-            // debugger
-            onChange?.(response.id)
+            newGoogleCloudKey(file, (integration) => onChange?.(integration.id))
         }
         input.click()
     }
@@ -67,7 +65,7 @@ export function IntegrationChoice({
                           ],
                       }
                     : null,
-                kind.startsWith('gcloud')
+                kind === 'gcloud'
                     ? {
                           items: [
                               {

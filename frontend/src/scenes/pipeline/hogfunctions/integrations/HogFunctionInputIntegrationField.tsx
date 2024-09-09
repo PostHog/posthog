@@ -38,9 +38,6 @@ export function HogFunctionInputIntegrationField({
     const integrationId = configuration.inputs?.[relatedSchemaIntegration.key]?.value
     const integration = integrations?.find((integration) => integration.id === integrationId)
 
-    if (schema.integration === 'gcloud') {
-        return <div className="border border-dashed h-10 rounded p-2 text-muted-alt italic">Google google google</div>
-    }
     if (!integration) {
         return (
             <div className="border border-dashed h-10 rounded p-2 text-muted-alt italic">
