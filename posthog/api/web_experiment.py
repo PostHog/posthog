@@ -22,16 +22,13 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
     Serializer for the exposed /api/web_experiments endpoint, to be used in posthog-js and for headless APIs.
     """
 
-    variants = serializers.JSONField(read_only=False)
     feature_flag_key = serializers.CharField(source="feature_flag.key", read_only=True)
 
     class Meta:
         model = WebExperiment
         fields = ["id", "name", "feature_flag_key", "variants"]
-        # read_only_fields = fields
 
     def validate(self, attrs):
-        # print("input to REST API is ", attrs)
         return attrs
 
     def create(self, validated_data: dict[str, Any]) -> Any:
@@ -39,6 +36,7 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
             "name": validated_data.get("name", ""),
             "description": "",
             "type": "web",
+            "variants": validated_data.get("variants", None),
             "filters": {
                 "events": [{"type": "events", "id": "$pageview", "order": 0, "name": "$pageview"}],
                 "layout": "horizontal",
@@ -51,16 +49,11 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
                 "filter_test_accounts": True,
             },
         }
-        variants = validated_data.get("variants", None)
-        multivariant_variants = self.extract_transforms(validated_data)
+
         filters = {
             "groups": [{"properties": [], "rollout_percentage": 100}],
-            "payloads": multivariant_variants.get("payloads", None),
-            "multivariate": multivariant_variants.get("variants", None),
+            "multivariate": self.get_variant_names(validated_data)
         }
-
-        for variant, transforms in variants.items():
-            filters["payloads"][variant] = json.dumps({"data": transforms.get("transforms", {})})
 
         feature_flag_serializer = FeatureFlagSerializer(
             data={
@@ -84,36 +77,32 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
         variants = validated_data.get("variants", None)
         if variants is not None and isinstance(variants, dict):
             feature_flag = instance.feature_flag
-            multivariant_variants = self.extract_transforms(validated_data)
             filters = {
                 "groups": feature_flag.filters.get("groups", None),
-                "payloads": multivariant_variants.get("payloads", None),
-                "multivariate": multivariant_variants.get("variants", None),
+                "multivariate": self.get_variant_names(validated_data)
             }
-            for variant, transforms in variants.items():
-                filters["payloads"][variant] = json.dumps({"data": transforms.get("transforms", {})})
 
-            validated_data["filters"] = filters
-            super().update(feature_flag, validated_data)
+            existing_flag_serializer = FeatureFlagSerializer(
+                feature_flag,
+                data={"filters": filters},
+                partial=True,
+                context=self.context,
+            )
+            existing_flag_serializer.is_valid(raise_exception=True)
+            existing_flag_serializer.save()
 
         instance = super().update(instance, validated_data)
         return instance
 
-    def extract_transforms(self, validated_data: dict[str, Any]):
-        variants = validated_data.pop("variants", None)
-        variant_transforms = {}
-        multivariate_variants = []
+    def get_variant_names(self, validated_data: dict[str, Any]):
+        variant_names = []
+        variants = validated_data.get("variants", None)
         if variants is not None and isinstance(variants, dict):
             for variant, transforms in variants.items():
-                variant_transforms[variant] = json.dumps({"data": transforms.get("transforms", {})})
-                multivariate_variants.append(
+                variant_names.append(
                     {"key": variant, "rollout_percentage": transforms.get("rollout_percentage", 0)}
                 )
-
-        return {
-            "payloads": variant_transforms,
-            "variants": {"variants": multivariate_variants},
-        }
+        return {"variants": variant_names}
 
 
 class WebExperimentViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):

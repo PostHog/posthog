@@ -1,12 +1,15 @@
+from dataclasses import dataclass, asdict
+from typing import Optional, Any
 
 from django.db import models
 from django.utils import timezone
 
 
-class Experiment(models.Model):
 
+class Experiment(models.Model):
     class ExperimentType(models.TextChoices):
         WEB = "web", "web"
+        PRODUCT = "product", "product"
 
     name = models.CharField(max_length=400)
     description = models.CharField(max_length=400, null=True, blank=True)
@@ -36,7 +39,8 @@ class Experiment(models.Model):
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     archived = models.BooleanField(default=False)
-    type = models.CharField(max_length=40, choices=ExperimentType.choices)
+    type = models.CharField(max_length=40, choices=ExperimentType.choices, default='product')
+    variants = models.JSONField(default=dict, null=True, blank=True)
 
     def get_feature_flag_key(self):
         return self.feature_flag.key
@@ -44,7 +48,3 @@ class Experiment(models.Model):
     @property
     def is_draft(self):
         return not self.start_date
-
-    @property
-    def variants(self):
-        return None
