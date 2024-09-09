@@ -56,7 +56,6 @@ posthog/utils.py:0: note: Possible overload variants:
 posthog/utils.py:0: note: def asdict(obj: DataclassInstance) -> dict[str, Any]
 posthog/utils.py:0: note: def [_T] asdict(obj: DataclassInstance, *, dict_factory: Callable[[list[tuple[str, Any]]], _T]) -> _T
 posthog/utils.py:0: error: Name "timezone.datetime" is not defined  [name-defined]
-posthog/settings/data_stores.py:0: error: Incompatible types in assignment (expression has type "str | None", variable has type "str")  [assignment]
 posthog/settings/data_stores.py:0: error: Name "DATABASE_URL" already defined on line 0  [no-redef]
 posthog/plugins/utils.py:0: error: Subclass of "str" and "bytes" cannot exist: would have incompatible method signatures  [unreachable]
 posthog/plugins/utils.py:0: error: Statement is unreachable  [unreachable]
