@@ -185,6 +185,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS: '',
         CDP_ASYNC_FUNCTIONS_CYCLOTRON_TEAMS: '',
         CDP_REDIS_PASSWORD: '',
+        CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: true,
         CDP_REDIS_HOST: '',
         CDP_REDIS_PORT: 6479,
 

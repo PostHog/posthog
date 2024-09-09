@@ -48,7 +48,7 @@ interface LemonInputPropsBase
     /** Special case - show a transparent background rather than white */
     transparentBackground?: boolean
     /** Size of the element. Default: `'medium'`. */
-    size?: 'xsmall' | 'small' | 'medium'
+    size?: 'xsmall' | 'small' | 'medium' | 'large'
     onPressEnter?: (event: React.KeyboardEvent<HTMLInputElement>) => void
     'data-attr'?: string
     'aria-label'?: string

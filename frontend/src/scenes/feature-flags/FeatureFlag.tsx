@@ -533,7 +533,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             overlay={
                                                 <>
                                                     <LemonButton
-                                                        to={urls.replay(ReplayTabs.Recent, recordingFilterForFlag)}
+                                                        to={urls.replay(ReplayTabs.Home, recordingFilterForFlag)}
                                                         fullWidth
                                                     >
                                                         View Recordings
