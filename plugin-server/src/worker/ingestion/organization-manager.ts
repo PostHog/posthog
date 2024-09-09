@@ -1,4 +1,4 @@
-import { ProductFeature, RawOrganization, Team, TeamId } from '../../types'
+import { ProductFeature, RawOrganization, TeamId } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { timeoutGuard } from '../../utils/db/utils'
 import { getByAge } from '../../utils/utils'
@@ -43,7 +43,7 @@ export class OrganizationManager {
         }
     }
 
-    public async hasAvailableFeature(teamId: TeamId, feature: string, team?: Team): Promise<boolean> {
+    public async hasAvailableFeature(teamId: TeamId, feature: string): Promise<boolean> {
         const cachedAvailableFeatures = getByAge(this.availableProductFeaturesCache, teamId, ONE_DAY)
 
         if (cachedAvailableFeatures !== undefined) {
@@ -51,13 +51,13 @@ export class OrganizationManager {
             return availableProductFeaturesKeys.includes(feature)
         }
 
-        const _team = team || (await this.teamManager.fetchTeam(teamId))
+        const team = this.teamManager.getTeam(teamId)
 
-        if (!_team) {
+        if (!team) {
             return false
         }
 
-        const organization = await this.fetchOrganization(_team.organization_id)
+        const organization = await this.fetchOrganization(team.organization_id)
         const availableProductFeatures = organization?.available_product_features || []
         this.availableProductFeaturesCache.set(teamId, [availableProductFeatures, Date.now()])
 

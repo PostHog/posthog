@@ -115,16 +115,12 @@ abstract class CdpConsumerBase {
         }
     }
 
-    private async captureInternalPostHogEvent(
-        hogFunctionId: HogFunctionType['id'],
-        event: string,
-        properties: any = {}
-    ) {
+    private captureInternalPostHogEvent(hogFunctionId: HogFunctionType['id'], event: string, properties: any = {}) {
         const hogFunction = this.hogFunctionManager.getHogFunction(hogFunctionId)
         if (!hogFunction) {
             return
         }
-        const team = await this.hub.teamManager.fetchTeam(hogFunction.team_id)
+        const team = this.hub.teamManager.getTeam(hogFunction.team_id)
 
         if (!team) {
             return
@@ -248,7 +244,7 @@ abstract class CdpConsumerBase {
                         delete result.capturedPostHogEvents
 
                         for (const event of capturedEvents ?? []) {
-                            const team = await this.hub.teamManager.fetchTeam(event.team_id)
+                            const team = this.hub.teamManager.getTeam(event.team_id)
                             if (!team) {
                                 continue
                             }
@@ -491,32 +487,38 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
                 statsKey: `cdpConsumer.handleEachBatch.parseKafkaMessages`,
                 func: async () => {
                     const events: HogFunctionInvocationGlobals[] = []
-                    await Promise.all(
-                        messages.map(async (message) => {
+
+                    const clickhouseEvents = messages
+                        .map((message) => {
                             try {
-                                const clickHouseEvent = JSON.parse(message.value!.toString()) as RawClickHouseEvent
-
-                                if (!this.hogFunctionManager.teamHasHogFunctions(clickHouseEvent.team_id)) {
-                                    // No need to continue if the team doesn't have any functions
-                                    return
-                                }
-
-                                const team = await this.hub.teamManager.fetchTeam(clickHouseEvent.team_id)
-                                if (!team) {
-                                    return
-                                }
-                                events.push(
-                                    convertToHogFunctionInvocationGlobals(
-                                        clickHouseEvent,
-                                        team,
-                                        this.hub.SITE_URL ?? 'http://localhost:8000'
-                                    )
-                                )
+                                return JSON.parse(message.value!.toString()) as RawClickHouseEvent
                             } catch (e) {
                                 status.error('Error parsing message', e)
                             }
                         })
-                    )
+                        .filter(Boolean) as RawClickHouseEvent[]
+
+                    // Pre-load teams to avoid a lot of queries
+                    await this.hub.teamManager.prefetchTeams(clickhouseEvents.map((event) => ({ id: event?.team_id })))
+
+                    clickhouseEvents.forEach((clickHouseEvent) => {
+                        if (!this.hogFunctionManager.teamHasHogFunctions(clickHouseEvent.team_id)) {
+                            // No need to continue if the team doesn't have any functions
+                            return
+                        }
+
+                        const team = this.hub.teamManager.getTeam(clickHouseEvent.team_id)
+                        if (!team) {
+                            return
+                        }
+                        events.push(
+                            convertToHogFunctionInvocationGlobals(
+                                clickHouseEvent,
+                                team,
+                                this.hub.SITE_URL ?? 'http://localhost:8000'
+                            )
+                        )
+                    })
 
                     return events
                 },

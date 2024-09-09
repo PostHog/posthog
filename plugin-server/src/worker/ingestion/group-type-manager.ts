@@ -62,7 +62,7 @@ export class GroupTypeManager {
             }
 
             if (isInsert && groupTypeIndex !== null) {
-                await this.captureGroupTypeInsert(teamId, groupType, groupTypeIndex)
+                this.captureGroupTypeInsert(teamId, groupType, groupTypeIndex)
             }
             return groupTypeIndex
         }
@@ -103,13 +103,10 @@ export class GroupTypeManager {
         return [group_type_index, is_insert === 1]
     }
 
-    private async captureGroupTypeInsert(teamId: TeamId, groupType: string, groupTypeIndex: GroupTypeIndex) {
-        const team: Team | null = await this.teamManager.fetchTeam(teamId)
-
-        if (!team) {
-            return
+    private captureGroupTypeInsert(teamId: TeamId, groupType: string, groupTypeIndex: GroupTypeIndex) {
+        const team: Team | null = this.teamManager.getTeam(teamId)
+        if (team) {
+            captureTeamEvent(team, 'group type ingested', { groupType, groupTypeIndex })
         }
-
-        captureTeamEvent(team, 'group type ingested', { groupType, groupTypeIndex })
     }
 }

@@ -41,7 +41,7 @@ export class GroupAndFirstEventManager {
         )
 
         try {
-            const team: Team | null = await this.teamManager.fetchTeam(teamId)
+            const team: Team | null = this.teamManager.getTeam(teamId)
 
             if (!team) {
                 return

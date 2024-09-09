@@ -239,7 +239,7 @@ export class LazyPluginVM implements PluginInstance {
             if (this.pluginConfig.plugin && this.pluginConfig.plugin.name == 'Replicator') {
                 const host = this.pluginConfig.config['host']
                 const apiKey = String(this.pluginConfig.config['project_api_key'])
-                const team = await this.hub.teamManager.fetchTeam(this.pluginConfig.team_id)
+                const team = this.hub.teamManager.getTeam(this.pluginConfig.team_id)
                 // There's a single team with replication for the same api key from US to EU
                 // otherwise we're just checking that token differs to better safeguard against forwarding
                 const isAllowed = team?.uuid == '017955d2-b09f-0000-ec00-2116c7e8a605' && host == 'eu.posthog.com'

@@ -20,7 +20,7 @@ type HeatmapDataItem = {
 
 type HeatmapData = Record<string, HeatmapDataItem[]>
 
-export async function extractHeatmapDataStep(
+export function extractHeatmapDataStep(
     runner: EventPipelineRunner,
     event: PreIngestionEvent
 ): Promise<[PreIngestionEvent, Promise<void>[]]> {
@@ -29,7 +29,7 @@ export async function extractHeatmapDataStep(
     let acks: Promise<void>[] = []
 
     try {
-        const team = await runner.hub.teamManager.fetchTeam(teamId)
+        const team = runner.hub.teamManager.getTeam(teamId)
 
         if (team?.heatmaps_opt_in !== false) {
             const heatmapEvents = extractScrollDepthHeatmapData(event) ?? []
@@ -55,7 +55,7 @@ export async function extractHeatmapDataStep(
     // We don't want to ingest this data to the events table
     delete event.properties['$heatmap_data']
 
-    return [event, acks]
+    return Promise.resolve([event, acks])
 }
 
 function replacePathInUrl(url: string, newPath: string): string {

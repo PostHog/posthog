@@ -143,6 +143,14 @@ export async function eachBatchParallelIngestion(
                     data: { batchLength: currentBatch.length },
                 })
 
+                // Optimization step to avoid lots of parallel PG queries for the same team
+                await queue.pluginsServer.teamManager.prefetchTeams(
+                    currentBatch.map((x) => ({
+                        id: x.pluginEvent.team_id ?? undefined,
+                        token: x.pluginEvent.token ?? undefined,
+                    }))
+                )
+
                 // Process overflow ingestion warnings
                 if (
                     (overflowMode == IngestionOverflowMode.ConsumeSplitByDistinctId ||

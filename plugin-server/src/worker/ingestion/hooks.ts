@@ -69,7 +69,7 @@ export class HookCommander {
         }
         status.debug('🔍', `Found ${actionMatches.length} matching actions`)
 
-        const team = await this.teamManager.fetchTeam(event.teamId)
+        const team = await this.teamManager.getTeam(event.teamId)
 
         if (!team) {
             return

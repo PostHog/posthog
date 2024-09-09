@@ -83,8 +83,7 @@ export class EventsProcessor {
         try {
             // We know `normalizeEvent` has been called here.
             const properties: Properties = data.properties!
-
-            const team = await this.teamManager.fetchTeam(teamId)
+            const team = this.teamManager.getTeam(teamId)
             if (!team) {
                 throw new Error(`No team found with ID ${teamId}. Can't ingest event.`)
             }

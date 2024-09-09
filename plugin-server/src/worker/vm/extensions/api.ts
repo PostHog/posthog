@@ -53,7 +53,7 @@ export function createApi(server: Hub, pluginConfig: PluginConfig): ApiExtension
         if (options.projectApiKey) {
             tokenParam.token = options.projectApiKey
         } else {
-            const team = await server.teamManager.fetchTeam(pluginConfig.team_id)
+            const team = server.teamManager.getTeam(pluginConfig.team_id)
             if (!team) {
                 throw new Error('Unable to determine project')
             }
