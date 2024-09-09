@@ -13,6 +13,8 @@ use hook_worker::config::Config;
 use hook_worker::error::WorkerError;
 use hook_worker::worker::WebhookWorker;
 
+common_alloc::used!();
+
 #[tokio::main]
 async fn main() -> Result<(), WorkerError> {
     tracing_subscriber::fmt::init();

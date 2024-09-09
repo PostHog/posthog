@@ -237,6 +237,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setGeographyTab: (tab: string) => ({ tab }),
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setInterval: (interval: IntervalType) => ({ interval }),
+        setDatesAndInterval: (dateFrom: string | null, dateTo: string | null, interval: IntervalType) => ({
+            dateFrom,
+            dateTo,
+            interval,
+        }),
         setIsPathCleaningEnabled: (isPathCleaningEnabled: boolean) => ({ isPathCleaningEnabled }),
         setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({
             shouldFilterTestAccounts,
@@ -419,6 +424,17 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         dateTo,
                         dateFrom,
                         interval,
+                    }
+                },
+                setDatesAndInterval: (_, { dateTo, dateFrom, interval }) => {
+                    if (!dateFrom && !dateTo) {
+                        dateFrom = initialDateFrom
+                        dateTo = initialDateTo
+                    }
+                    return {
+                        dateTo,
+                        dateFrom,
+                        interval: interval || getDefaultInterval(dateFrom, dateTo),
                     }
                 },
                 setStateFromUrl: (_, { state: { dateTo, dateFrom, interval } }) => {
@@ -1541,11 +1557,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             if (parsedFilters) {
                 actions.setWebAnalyticsFilters(parsedFilters)
             }
-            if (date_from || date_to) {
-                actions.setDates(date_from, date_to)
-            }
-            if (interval) {
-                actions.setInterval(interval)
+            if (date_from || date_to || interval) {
+                actions.setDatesAndInterval(date_from, date_to, interval)
             }
             if (device_tab) {
                 actions.setDeviceTab(device_tab)

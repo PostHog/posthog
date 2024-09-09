@@ -1,3 +1,5 @@
+use std::{num::ParseIntError, str::FromStr};
+
 use envconfig::Envconfig;
 use rdkafka::ClientConfig;
 
@@ -92,6 +94,16 @@ pub struct Config {
 
     #[envconfig(from = "BIND_PORT", default = "3301")]
     pub port: u16,
+
+    // The set of teams to opt-in or opt-out of property definitions processing (depending on the setting below)
+    #[envconfig(default = "")]
+    pub filtered_teams: TeamList,
+
+    // Whether the team list above is used to filter teams OUT of processing (opt-out) or IN to processing (opt-in).
+    // Defaults to opt-in for now, skipping all updates for teams not in the list. TODO - change this to opt-out
+    // once rollout is complete.
+    #[envconfig(default = "opt_in")]
+    pub filter_mode: TeamFilterMode,
 }
 
 #[derive(Envconfig, Clone)]
@@ -123,5 +135,56 @@ impl From<&KafkaConfig> for ClientConfig {
             );
         };
         client_config
+    }
+}
+
+#[derive(Clone)]
+pub struct TeamList {
+    pub teams: Vec<i32>,
+}
+
+impl FromStr for TeamList {
+    type Err = ParseIntError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut teams = Vec::new();
+        for team in s.trim().split(',') {
+            if team.is_empty() {
+                continue;
+            }
+            teams.push(team.parse()?);
+        }
+        Ok(TeamList { teams })
+    }
+}
+
+#[derive(Clone)]
+pub enum TeamFilterMode {
+    OptIn,
+    OptOut,
+}
+
+impl FromStr for TeamFilterMode {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().trim() {
+            "opt_in" => Ok(TeamFilterMode::OptIn),
+            "opt_out" => Ok(TeamFilterMode::OptOut),
+            "opt-in" => Ok(TeamFilterMode::OptIn),
+            "opt-out" => Ok(TeamFilterMode::OptOut),
+            "optin" => Ok(TeamFilterMode::OptIn),
+            "optout" => Ok(TeamFilterMode::OptOut),
+            _ => Err(format!("Invalid team filter mode: {}", s)),
+        }
+    }
+}
+
+impl TeamFilterMode {
+    pub fn should_process(&self, list: &[i32], team_id: i32) -> bool {
+        match self {
+            TeamFilterMode::OptIn => list.contains(&team_id),
+            TeamFilterMode::OptOut => !list.contains(&team_id),
+        }
     }
 }

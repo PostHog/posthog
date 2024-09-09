@@ -53,7 +53,7 @@
         "@maxmind/geoip2-node": "^3.4.0",
         "@posthog/clickhouse": "^1.7.0",
         "@posthog/cyclotron": "file:../rust/cyclotron-node",
-        "@posthog/hogvm": "^1.0.43",
+        "@posthog/hogvm": "^1.0.47",
         "@posthog/plugin-scaffold": "1.4.4",
         "@sentry/node": "^7.49.0",
         "@sentry/profiling-node": "^0.3.0",
