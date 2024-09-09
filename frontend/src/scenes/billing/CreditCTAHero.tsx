@@ -27,13 +27,13 @@ export const CreditCTAHero = (): JSX.Element | null => {
             <div className="p-4">
                 {selfServeCreditOverview.eligible && selfServeCreditOverview.status === 'pending' && (
                     <>
-                        <h1 className="mb-0">Your credits are processing</h1>
+                        <h1 className="mb-0">We're applying your credits</h1>
                         <p className="mt-2 mb-0 max-w-xl">
-                            You've initiated the process to purchase credits.{' '}
+                            Your credits will be ready within 24 hours of payment.
                             {selfServeCreditOverview.collection_method === 'send_invoice'
                                 ? "You'll receive an email with a link to pay the invoice. Please make sure to pay that as soon as possible so we can apply the credits to your account."
-                                : "We'll will charge your card on file and we will notify if there are any issues."}{' '}
-                            The credits should be applied ot your account within 24 hours of completing your payment.{' '}
+                                : "We'll will charge your card on file."}{' '}
+                            We'll let you know if there are any issues!{' '}
                         </p>
                         {selfServeCreditOverview.invoice_url && (
                             <LemonButton
@@ -51,13 +51,13 @@ export const CreditCTAHero = (): JSX.Element | null => {
                 )}
                 {selfServeCreditOverview.eligible && selfServeCreditOverview.status === 'none' && (
                     <>
-                        <h1 className="mb-0">You're eligible to purchase credits</h1>
+                        <h1 className="mb-0">Get a discount of up to 30%</h1>
                         <p className="mt-2 mb-0 max-w-xl">
-                            You're eligible to purchase credits. Buy credits upfront to get a discount and make your
-                            PostHog payments more predictable.
+                            Buy credits in advance, at a discount of up to 30%. It helps you make costs more
+                            predictable!
                         </p>
                         <LemonButton type="primary" onClick={() => showPurchaseCreditsModal(true)} className="mt-4">
-                            Purchase credits
+                            Buy credits
                         </LemonButton>
                     </>
                 )}

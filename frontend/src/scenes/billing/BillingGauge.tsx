@@ -39,7 +39,7 @@ const BillingGaugeItem = ({ item, maxValue, isWithinUsageLimit }: BillingGaugeIt
                     })}
                 >
                     <b>{item.text}</b>
-                    <div>{compactNumber(item.value)}</div>
+                    <div>{item.prefix ? `${item.prefix}${compactNumber(item.value)}` : compactNumber(item.value)}</div>
                 </div>
             </Tooltip>
         </div>

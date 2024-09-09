@@ -16,7 +16,7 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
         <LemonModal
             onClose={() => showPurchaseCreditsModal(false)}
             width="max(44vw)"
-            title="Level unlocked, you're eligible for a discount 🎉"
+            title="Buy credits in advance, get a discount"
             footer={
                 <>
                     <LemonButton
@@ -27,20 +27,22 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                         Cancel
                     </LemonButton>
                     <LemonButton type="primary" onClick={() => submitCreditForm()} loading={isCreditFormSubmitting}>
-                        Purchase {creditForm.creditInput ? `$${creditForm.creditInput.toLocaleString()}` : ''} credits
+                        Buy {creditForm.creditInput ? `$${creditForm.creditInput.toLocaleString()}` : ''} credits
                     </LemonButton>
                 </>
             }
         >
             <Form formKey="creditForm" logic={billingLogic} enableFormOnSubmit>
                 <div className="flex flex-col gap-3.5">
-                    <p className="mb-0">Save up to 30% on your bill by purchasing credits up front.</p>
+                    <p className="mb-0">
+                        We're giving you the option to buy credits in advance at discount of up to 30%.
+                    </p>
 
                     <p className="mb-0">
-                        Based on your usage, we recommend purchasing{' '}
+                        Based on your usage, we think you'll need{' '}
                         <b>
                             $
-                            {(selfServeCreditOverview.estimated_monthly_credit_amount_usd * 12).toLocaleString(
+                            {(+selfServeCreditOverview.estimated_monthly_credit_amount_usd * 12).toLocaleString(
                                 'en-US',
                                 {
                                     minimumFractionDigits: 0,
@@ -48,11 +50,14 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                                 }
                             )}
                         </b>{' '}
-                        credits which equals $
-                        {selfServeCreditOverview.estimated_monthly_credit_amount_usd.toLocaleString('en-US', {
-                            minimumFractionDigits: 0,
-                            maximumFractionDigits: 0,
-                        })}{' '}
+                        credits this year. That's{' '}
+                        <b>
+                            $
+                            {(+selfServeCreditOverview.estimated_monthly_credit_amount_usd).toLocaleString('en-US', {
+                                minimumFractionDigits: 0,
+                                maximumFractionDigits: 0,
+                            })}
+                        </b>{' '}
                         per month.
                     </p>
 
@@ -89,6 +94,7 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                                         '10% off'
                                     ),
                                 value: 6000,
+                                prefix: '$',
                                 top: true,
                             },
                             {
@@ -102,6 +108,7 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                                         '20% off'
                                     ),
                                 value: 20000,
+                                prefix: '$',
                                 top: true,
                             },
                             {
@@ -114,6 +121,7 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                                     ) : (
                                         '25% off'
                                     ),
+                                prefix: '$',
                                 value: 60000,
                                 top: true,
                             },
@@ -127,12 +135,14 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                                     ) : (
                                         '30% off'
                                     ),
+                                prefix: '$',
                                 value: 100000,
                                 top: true,
                             },
                             {
                                 type: BillingGaugeItemKind.CurrentUsage,
-                                text: 'Your input',
+                                text: 'Credits purchased',
+                                prefix: '$',
                                 value: +creditForm.creditInput,
                                 top: false,
                             },
@@ -157,38 +167,28 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                         ]}
                         dataSource={[
                             {
-                                item: 'Due today',
-                                value: `$${Math.round(+creditForm.creditInput).toLocaleString('en-US')}`,
-                            },
-                            {
-                                item: 'Discount',
-                                value: `${creditDiscount * 100}%`,
-                            },
-                            {
-                                item: 'Total credits',
+                                item: "Total credits you'll receive",
                                 value: `$${(+creditForm.creditInput / (1 - creditDiscount)).toLocaleString('en-US', {
                                     minimumFractionDigits: 0,
                                     maximumFractionDigits: 0,
                                 })}`,
                             },
                             {
-                                item: 'Monthly credits',
-                                value: `$${(+creditForm.creditInput / (1 - creditDiscount) / 12).toLocaleString(
-                                    'en-US',
-                                    {
-                                        minimumFractionDigits: 0,
-                                        maximumFractionDigits: 0,
-                                    }
-                                )}`,
+                                item: 'Discount',
+                                value: `${creditDiscount * 100}%`,
+                            },
+                            {
+                                item: 'Due today',
+                                value: `$${Math.round(+creditForm.creditInput).toLocaleString('en-US')}`,
                             },
                         ]}
                     />
 
                     <LemonDivider />
-                    <p className="mb-1 text-md font-semibold">Invoice details</p>
+                    <p className="mb-1 text-md font-semibold">Payment details</p>
                     <p className="mb-0">
-                        We can either charge your card on file now or send you an invoice. Check the box below if you'd
-                        like to receive an invoice. We will also close any existing open invoices.
+                        Check the box if you want an invoice, otherwise we'll charge your card now. We'll also close any
+                        open invoices.
                     </p>
                     <LemonField name="sendInvoice">
                         {({ value, onChange }) => (
