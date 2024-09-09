@@ -58,7 +58,8 @@ The fastest and most reliable way to get started with PostHog is signing up for 
 
 ### One-click Deployment Options
 
-[![Deploy on Elestio](https://elest.io/images/logos/deploy-to-elestio-btn.png)]()
+#### Elestio:
+[![Deploy on Elestio](https://elest.io/images/logos/deploy-to-elestio-btn.png)](https://elest.io/open-source/posthog)
 
 ### Open-source hobby deploy (Advanced)
 
