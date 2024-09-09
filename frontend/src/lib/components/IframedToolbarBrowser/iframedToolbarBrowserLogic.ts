@@ -59,7 +59,7 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
         toolbarMessageReceived: (type: PostHogAppToolbarEvent, payload: Record<string, any>) => ({ type, payload }),
     }),
 
-    reducers({
+    reducers(({ props }) => ({
         // they're called common filters in the toolbar because they're shared between heatmaps and clickmaps
         // the name is continued here since they're passed down into the embedded iframe
         commonFilters: [
@@ -94,7 +94,7 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
         ],
         browserUrl: [
             null as string | null,
-            { persist: true },
+            { persist: props.userIntent == 'heatmaps' },
             {
                 setBrowserUrl: (_, { url }) => url,
             },
@@ -114,7 +114,7 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
                 setIframeBanner: (_, { banner }) => banner,
             },
         ],
-    }),
+    })),
 
     selectors({
         isBrowserUrlAuthorized: [

@@ -43,6 +43,7 @@ export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLog
         possiblyIncrementActiveVariableIndex: true,
         resetVariable: (variableId: string) => ({ variableId }),
         goToNextUntouchedActiveVariableIndex: true,
+        setIsCurrentlySelectingElement: (isSelecting: boolean) => ({ isSelecting }),
     }),
     reducers({
         variables: [
@@ -93,6 +94,12 @@ export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLog
             {
                 setActiveVariableIndex: (_, { index }) => index,
                 incrementActiveVariableIndex: (state) => state + 1,
+            },
+        ],
+        isCurrentlySelectingElement: [
+            false as boolean,
+            {
+                setIsCurrentlySelectingElement: (_, { isSelecting }) => isSelecting,
             },
         ],
     }),
@@ -148,6 +155,7 @@ export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLog
                 ],
             }
             actions.setVariable(originalVariableName, filterGroup)
+            actions.setIsCurrentlySelectingElement(false)
         },
         toolbarMessageReceived: ({ type, payload }) => {
             if (type === PostHogAppToolbarEvent.PH_NEW_ACTION_CREATED) {

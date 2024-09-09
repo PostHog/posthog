@@ -1,5 +1,5 @@
 import { IconCheckCircle, IconInfo, IconTarget, IconTrash } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCollapse, LemonInput, LemonLabel } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCollapse, LemonInput, LemonLabel, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { iframedToolbarBrowserLogic } from 'lib/components/IframedToolbarBrowser/iframedToolbarBrowserLogic'
 import { useEffect, useState } from 'react'
@@ -21,9 +21,16 @@ function VariableSelector({
     const theDashboardTemplateVariablesLogic = dashboardTemplateVariablesLogic({
         variables: activeDashboardTemplate?.variables || [],
     })
-    const { setVariable, resetVariable, goToNextUntouchedActiveVariableIndex, incrementActiveVariableIndex } =
-        useActions(theDashboardTemplateVariablesLogic)
-    const { allVariablesAreTouched, variables, activeVariableIndex } = useValues(theDashboardTemplateVariablesLogic)
+    const {
+        setVariable,
+        resetVariable,
+        goToNextUntouchedActiveVariableIndex,
+        incrementActiveVariableIndex,
+        setIsCurrentlySelectingElement,
+    } = useActions(theDashboardTemplateVariablesLogic)
+    const { allVariablesAreTouched, variables, activeVariableIndex, isCurrentlySelectingElement } = useValues(
+        theDashboardTemplateVariablesLogic
+    )
     const [customEventName, setCustomEventName] = useState<string | null>(null)
     const [showCustomEventField, setShowCustomEventField] = useState(false)
     const { enableElementSelector, disableElementSelector, setNewActionName } = useActions(
@@ -146,24 +153,40 @@ function VariableSelector({
                         </>
                     ) : (
                         <div className="flex gap-x-2">
-                            <LemonButton
-                                type="primary"
-                                status="alt"
-                                onClick={() => {
-                                    setShowCustomEventField(false)
-                                    enableElementSelector()
-                                    setNewActionName(variable.name)
-                                }}
-                                icon={<IconTarget />}
-                            >
-                                Select from site
-                            </LemonButton>
+                            {isCurrentlySelectingElement ? (
+                                <LemonButton
+                                    type="secondary"
+                                    onClick={() => {
+                                        disableElementSelector()
+                                        setNewActionName(null)
+                                        setIsCurrentlySelectingElement(false)
+                                    }}
+                                    icon={<Spinner textColored className="text-muted" />}
+                                >
+                                    Cancel selection
+                                </LemonButton>
+                            ) : (
+                                <LemonButton
+                                    type="primary"
+                                    status="alt"
+                                    onClick={() => {
+                                        setShowCustomEventField(false)
+                                        enableElementSelector()
+                                        setNewActionName(variable.name)
+                                        setIsCurrentlySelectingElement(true)
+                                    }}
+                                    icon={<IconTarget />}
+                                >
+                                    Select from site
+                                </LemonButton>
+                            )}
                             <LemonButton
                                 type="secondary"
                                 onClick={() => {
                                     disableElementSelector()
                                     setNewActionName(null)
                                     setShowCustomEventField(true)
+                                    setIsCurrentlySelectingElement(false)
                                 }}
                             >
                                 Use custom event
@@ -188,7 +211,9 @@ export function DashboardTemplateVariables({
         variables: activeDashboardTemplate?.variables || [],
     })
     const { variables, activeVariableIndex } = useValues(theDashboardTemplateVariablesLogic)
-    const { setVariables, setActiveVariableIndex } = useActions(theDashboardTemplateVariablesLogic)
+    const { setVariables, setActiveVariableIndex, setIsCurrentlySelectingElement } = useActions(
+        theDashboardTemplateVariablesLogic
+    )
     const { setNewActionName, disableElementSelector } = useActions(
         iframedToolbarBrowserLogic({ iframeRef, clearBrowserUrlOnUnmount: true })
     )
@@ -223,6 +248,7 @@ export function DashboardTemplateVariables({
                         setActiveVariableIndex(i)
                         disableElementSelector()
                         setNewActionName(null)
+                        setIsCurrentlySelectingElement(false)
                     },
                 }))}
                 embedded
