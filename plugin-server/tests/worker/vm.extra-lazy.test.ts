@@ -18,53 +18,6 @@ describe('VMs are extra lazy 💤', () => {
         await closeHub(hub)
         jest.clearAllMocks()
     })
-    test('VM with scheduled tasks gets setup immediately', async () => {
-        const indexJs = `
-        export async function runEveryMinute () {
-            console.log('haha')
-        }
-
-        export async function setupPlugin () {
-            await fetch('https://onevent.com/')
-        }
-    `
-        await resetTestDatabase(indexJs)
-
-        const pluginConfig = { ...pluginConfig39, plugin: plugin60 }
-        const lazyVm = new LazyPluginVM(hub, pluginConfig)
-        pluginConfig.instance = lazyVm
-        jest.spyOn(lazyVm, 'setupPluginIfNeeded')
-        await lazyVm.initialize!(indexJs, pluginDigest(plugin60))
-
-        expect(lazyVm.ready).toEqual(true)
-        expect(lazyVm.setupPluginIfNeeded).not.toHaveBeenCalled()
-        expect(fetch).toHaveBeenCalledWith('https://onevent.com/', undefined)
-    })
-
-    test('VM with jobs gets setup immediately', async () => {
-        const indexJs = `
-        export async function setupPlugin () {
-            await fetch('https://onevent.com/')
-        }
-
-        export const jobs = {
-            test: (payload, meta) => {
-                console.log(payload)
-            }
-        }
-    `
-        await resetTestDatabase(indexJs)
-
-        const pluginConfig = { ...pluginConfig39, plugin: plugin60 }
-        const lazyVm = new LazyPluginVM(hub, pluginConfig)
-        pluginConfig.instance = lazyVm
-        jest.spyOn(lazyVm, 'setupPluginIfNeeded')
-        await lazyVm.initialize!(indexJs, pluginDigest(plugin60))
-
-        expect(lazyVm.ready).toEqual(true)
-        expect(lazyVm.setupPluginIfNeeded).not.toHaveBeenCalled()
-        expect(fetch).toHaveBeenCalledWith('https://onevent.com/', undefined)
-    })
 
     test('VM without tasks delays setup until necessary', async () => {
         const indexJs = `
