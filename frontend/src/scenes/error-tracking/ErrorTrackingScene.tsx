@@ -1,11 +1,20 @@
 import { TZLabel } from '@posthog/apps-common'
-import { IconPerson } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonDivider, LemonSegmentedButton, ProfilePicture } from '@posthog/lemon-ui'
+import { IconBell, IconPerson } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonCheckbox,
+    LemonDivider,
+    LemonModal,
+    LemonSegmentedButton,
+    ProfilePicture,
+} from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { FeedbackNotice } from 'lib/components/FeedbackNotice'
 import { MemberSelect } from 'lib/components/MemberSelect'
+import { PageHeader } from 'lib/components/PageHeader'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -27,6 +36,33 @@ export const scene: SceneExport = {
 }
 
 export function ErrorTrackingScene(): JSX.Element {
+    return (
+        <>
+            <Header />
+            <MainContent />
+        </>
+    )
+}
+
+const Header = (): JSX.Element => {
+    const { setAlertConfigurationModalVisible } = useActions(errorTrackingSceneLogic)
+
+    return (
+        <PageHeader
+            buttons={
+                <LemonButton
+                    type="secondary"
+                    icon={<IconBell />}
+                    onClick={() => setAlertConfigurationModalVisible(true)}
+                >
+                    Configure alerts
+                </LemonButton>
+            }
+        />
+    )
+}
+
+const MainContent = (): JSX.Element => {
     const { query, selectedRowIndexes } = useValues(errorTrackingSceneLogic)
 
     const insightProps: InsightLogicProps = {
@@ -50,6 +86,7 @@ export function ErrorTrackingScene(): JSX.Element {
 
     return (
         <BindLogic logic={errorTrackingDataNodeLogic} props={{ query, key: insightVizDataNodeKey(insightProps) }}>
+            <AlertConfigrationModal />
             <FeedbackNotice text="Error tracking is in closed alpha. Thanks for taking part! We'd love to hear what you think." />
             <ErrorTrackingFilters.FilterGroup />
             <LemonDivider className="mt-2" />
@@ -172,5 +209,32 @@ const AssigneeColumn: QueryContextColumnComponent = (props) => {
                 />
             )}
         </MemberSelect>
+    )
+}
+
+const AlertConfigrationModal = (): JSX.Element => {
+    const { alertConfigurationModalVisible } = useValues(errorTrackingSceneLogic)
+    const { setAlertConfigurationModalVisible } = useActions(errorTrackingSceneLogic)
+
+    return (
+        <LemonModal
+            isOpen={alertConfigurationModalVisible}
+            title="Configure alerts"
+            onClose={() => setAlertConfigurationModalVisible(false)}
+        >
+            <div className="space-y-2">
+                <LinkedHogFunctions
+                    subTemplateId="exception"
+                    filters={{
+                        events: [
+                            {
+                                id: `$exception`,
+                                type: 'events',
+                            },
+                        ],
+                    }}
+                />
+            </div>
+        </LemonModal>
     )
 }

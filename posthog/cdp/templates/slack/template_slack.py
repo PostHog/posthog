@@ -165,5 +165,46 @@ if (res.status != 200 or not res.body.ok) {
                 ],
             },
         ),
+        HogFunctionSubTemplate(
+            id="exception",
+            name="Post to Slack on Exception",
+            description="Posts a message to Slack when an error or exception occurs",
+            filters=SUB_TEMPLATE_COMMON["exception"].filters,
+            masking=SUB_TEMPLATE_COMMON["exception"].masking,
+            inputs={
+                "text": "*:exclamation: <{project.url}/error_tracking/{base64Encode(jsonStringify(event.properties.$exception_fingerprint))}|{event.properties.$exception_type}>*",
+                "blocks": [
+                    {
+                        "text": {
+                            "text": "*:exclamation: <{project.url}/error_tracking/{base64Encode(jsonStringify(event.properties.$exception_fingerprint))}|{event.properties.$exception_type}>*",
+                            "type": "mrkdwn",
+                        },
+                        "type": "section",
+                    },
+                    {
+                        "text": {
+                            "text": "```{event.properties.$exception_type}: {event.properties.$exception_message}```",
+                            "type": "mrkdwn",
+                        },
+                        "type": "section",
+                    },
+                    {
+                        "type": "actions",
+                        "elements": [
+                            {
+                                "url": "{project.url}/error_tracking/{base64Encode(jsonStringify(event.properties.$exception_fingerprint))}",
+                                "text": {"text": "View Error", "type": "plain_text"},
+                                "type": "button",
+                            },
+                            {
+                                "url": "{person.url}",
+                                "text": {"text": "View Person", "type": "plain_text"},
+                                "type": "button",
+                            },
+                        ],
+                    },
+                ],
+            },
+        ),
     ],
 )

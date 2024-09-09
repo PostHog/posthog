@@ -119,6 +119,7 @@ const templateToConfiguration = (
         description: subTemplate?.name ?? template.description,
         inputs_schema: template.inputs_schema,
         filters: subTemplate?.filters ?? template.filters,
+        masking: subTemplate?.masking ?? template.masking,
         hog: template.hog,
         icon_url: template.icon_url,
         inputs,
@@ -633,7 +634,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             const template = values.hogFunction?.template ?? values.template
             if (template) {
                 const config = templateToConfiguration(template, values.subTemplate)
-
                 const inputs = config.inputs ?? {}
 
                 // Keep any non-default values

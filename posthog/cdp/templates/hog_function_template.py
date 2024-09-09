@@ -8,7 +8,7 @@ else:
     PluginConfig = None
 
 
-SubTemplateId = Literal["early_access_feature_enrollment", "survey_response"]
+SubTemplateId = Literal["early_access_feature_enrollment", "survey_response", "exception"]
 
 SUB_TEMPLATE_ID: tuple[SubTemplateId, ...] = get_args(SubTemplateId)
 
@@ -71,5 +71,11 @@ SUB_TEMPLATE_COMMON: dict[SubTemplateId, HogFunctionSubTemplate] = {
         id="early_access_feature_enrollment",
         name="Early Access Feature Enrollment",
         filters={"events": [{"id": "$feature_enrollment_update", "type": "events"}]},
+    ),
+    "exception": HogFunctionSubTemplate(
+        id="exception",
+        name="Error or Exception",
+        filters={"events": [{"id": "$exception", "type": "events"}]},
+        masking={"ttl": -1, "hash": "{event.properties.$exception_fingerprint}"},
     ),
 }
