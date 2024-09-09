@@ -51,16 +51,16 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
             raise ValidationError("Experiment does not have any variants")
         if variants and not isinstance(variants, dict):
             raise ValidationError("Experiment variants should be a dictionary of keys -> transforms")
-        for variant in variants:
+        for name, variant in variants.items():
             if variant.get("rollout_percentage") is None:
-                raise ValidationError(f"Experiment variant '{variant}' does not have any rollout percentage")
+                raise ValidationError(f"Experiment variant '{name}' does not have any rollout percentage")
             transforms = variant.get("transforms")
             if transforms is None:
-                raise ValidationError(f"Experiment variant '{variant}' does not have any element transforms")
+                raise ValidationError(f"Experiment variant '{name}' does not have any element transforms")
             for idx, transform in enumerate(transforms):
                 if transform.get("selector") is None:
                     raise ValidationError(
-                        f"Experiment transform [${idx}] variant '{variant}' does not have a valid selector"
+                        f"Experiment transform [${idx}] variant '{name}' does not have a valid selector"
                     )
 
         return attrs
