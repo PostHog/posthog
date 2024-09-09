@@ -126,6 +126,10 @@ export function isWebStatsTableQuery(node?: Record<string, any> | null): node is
     return node?.kind === NodeKind.WebStatsTableQuery
 }
 
+export function isWebExternalClicksQuery(node?: Record<string, any> | null): boolean {
+    return node?.kind === NodeKind.WebExternalClicksTableQuery
+}
+
 export function isWebTopClicksQuery(node?: Record<string, any> | null): node is WebTopClicksQuery {
     return node?.kind === NodeKind.WebTopClicksQuery
 }
