@@ -1693,6 +1693,7 @@ export interface DatabaseSchemaField {
     table?: string
     fields?: string[]
     chain?: (string | integer)[]
+    id?: string
 }
 
 export interface DatabaseSchemaTableCommon {

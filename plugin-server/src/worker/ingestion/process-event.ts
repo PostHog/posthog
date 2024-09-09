@@ -26,7 +26,7 @@ import { castTimestampOrNow } from '../../utils/utils'
 import { GroupTypeManager, MAX_GROUP_TYPES_PER_TEAM } from './group-type-manager'
 import { addGroupProperties } from './groups'
 import { upsertGroup } from './properties-updater'
-import { PropertyDefinitionsManager } from './property-definitions-manager'
+import { GroupAndFirstEventManager } from './property-definitions-manager'
 import { TeamManager } from './team-manager'
 import { captureIngestionWarning } from './utils'
 
@@ -49,7 +49,7 @@ export class EventsProcessor {
     kafkaProducer: KafkaProducerWrapper
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
-    propertyDefinitionsManager: PropertyDefinitionsManager
+    groupAndFirstEventManager: GroupAndFirstEventManager
 
     constructor(pluginsServer: Hub) {
         this.pluginsServer = pluginsServer
@@ -58,11 +58,10 @@ export class EventsProcessor {
         this.kafkaProducer = pluginsServer.kafkaProducer
         this.teamManager = pluginsServer.teamManager
         this.groupTypeManager = new GroupTypeManager(pluginsServer.postgres, this.teamManager, pluginsServer.SITE_URL)
-        this.propertyDefinitionsManager = new PropertyDefinitionsManager(
+        this.groupAndFirstEventManager = new GroupAndFirstEventManager(
             this.teamManager,
             this.groupTypeManager,
-            pluginsServer.db,
-            pluginsServer
+            pluginsServer.db
         )
     }
 
@@ -156,7 +155,7 @@ export class EventsProcessor {
 
         if (this.pluginsServer.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP === false) {
             try {
-                await this.propertyDefinitionsManager.updateEventNamesAndProperties(team.id, event, properties)
+                await this.groupAndFirstEventManager.updateGroupsAndFirstEvent(team.id, event, properties)
             } catch (err) {
                 Sentry.captureException(err, { tags: { team_id: team.id } })
                 status.warn('⚠️', 'Failed to update property definitions for an event', {
