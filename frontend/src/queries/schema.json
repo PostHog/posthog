@@ -3444,6 +3444,9 @@
                 "hogql_value": {
                     "type": "string"
                 },
+                "id": {
+                    "type": "string"
+                },
                 "name": {
                     "type": "string"
                 },
