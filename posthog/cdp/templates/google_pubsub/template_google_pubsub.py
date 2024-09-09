@@ -9,16 +9,20 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     icon_url="/static/services/google-cloud.png",
     hog="""
 let headers := {
-    'Authorization': f'Bearer {inputs.oauth.access_token}',
+    'Authorization': f'Bearer {inputs.auth.access_token}',
     'Content-Type': 'application/json'
 }
 
 let res := fetch(f'https://pubsub.googleapis.com/v1/{inputs.topicName}:publish', {
   'method': 'POST',
   'headers': headers,
-  'body': {
-    'properties': properties
-  }
+  'body': jsonStringify({
+    'messages': [{
+      'data': base64Encode(jsonStringify(inputs.payload))
+      // 'attributes': inputs.payload,
+      // 'messageId': event.uuid
+    }]
+  })
 })
 
 if (res.status >= 200 and res.status < 300) {

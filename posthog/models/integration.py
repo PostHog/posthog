@@ -412,6 +412,7 @@ class GoogleCloudIntegration:
         config = {}
         config["expires_in"] = credentials.expiry.timestamp() - int(time.time())
         config["refreshed_at"] = int(time.time())
+        config["access_token"] = credentials.token
 
         integration, created = Integration.objects.update_or_create(
             team_id=team_id,
@@ -457,6 +458,7 @@ class GoogleCloudIntegration:
         config = {}
         config["expires_in"] = credentials.expiry.timestamp() - int(time.time())
         config["refreshed_at"] = int(time.time())
+        config["access_token"] = credentials.token
 
         self.integration.config = config
         self.integration.save()
