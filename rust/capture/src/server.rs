@@ -6,10 +6,11 @@ use health::{ComponentStatus, HealthRegistry};
 use time::Duration;
 use tokio::net::TcpListener;
 
+use crate::config::CaptureMode;
 use crate::config::Config;
 
 use crate::limiters::overflow::OverflowLimiter;
-use crate::limiters::redis::RedisLimiter;
+use crate::limiters::redis::{QuotaResource, RedisLimiter};
 use crate::redis::RedisClient;
 use crate::router;
 use crate::sinks::kafka::KafkaSink;
@@ -28,6 +29,10 @@ where
         Duration::seconds(5),
         redis_client.clone(),
         config.redis_key_prefix,
+        match config.capture_mode {
+            CaptureMode::Events => QuotaResource::Events,
+            CaptureMode::Recordings => QuotaResource::Recordings,
+        },
     )
     .expect("failed to create billing limiter");
 

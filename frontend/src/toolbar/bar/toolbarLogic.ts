@@ -280,7 +280,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
         setVisibleMenu: ({ visibleMenu }) => {
             if (visibleMenu === 'heatmap') {
                 actions.enableHeatmap()
-                values.hedgehogActor?.setAnimation('heatmaps')
+                values.hedgehogActor?.setOnFire(1)
             } else if (visibleMenu === 'actions') {
                 actions.showButtonActions()
                 values.hedgehogActor?.setAnimation('action')

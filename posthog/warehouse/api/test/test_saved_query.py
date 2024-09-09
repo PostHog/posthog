@@ -231,7 +231,7 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(response.status_code, 200, response.content)
         child_ancestors = response.json()["ancestors"]
         child_ancestors.sort()
-        self.assertEqual(child_ancestors, sorted([uuid.UUID(saved_query_parent_id).hex, "events", "persons"]))
+        self.assertEqual(child_ancestors, sorted([saved_query_parent_id, "events", "persons"]))
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/warehouse_saved_queries/{saved_query_child_id}/ancestors", {"level": 1}
@@ -240,7 +240,7 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(response.status_code, 200, response.content)
         child_ancestors_level_1 = response.json()["ancestors"]
         child_ancestors_level_1.sort()
-        self.assertEqual(child_ancestors_level_1, [uuid.UUID(saved_query_parent_id).hex])
+        self.assertEqual(child_ancestors_level_1, [saved_query_parent_id])
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/warehouse_saved_queries/{saved_query_child_id}/ancestors", {"level": 2}
@@ -248,7 +248,7 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(response.status_code, 200, response.content)
         child_ancestors_level_2 = response.json()["ancestors"]
         child_ancestors_level_2.sort()
-        self.assertEqual(child_ancestors_level_2, sorted([uuid.UUID(saved_query_parent_id).hex, "events", "persons"]))
+        self.assertEqual(child_ancestors_level_2, sorted([saved_query_parent_id, "events", "persons"]))
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/warehouse_saved_queries/{saved_query_child_id}/ancestors", {"level": 10}
@@ -256,7 +256,7 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(response.status_code, 200, response.content)
         child_ancestors_level_10 = response.json()["ancestors"]
         child_ancestors_level_10.sort()
-        self.assertEqual(child_ancestors_level_2, sorted([uuid.UUID(saved_query_parent_id).hex, "events", "persons"]))
+        self.assertEqual(child_ancestors_level_10, sorted([saved_query_parent_id, "events", "persons"]))
 
     def test_descendants(self):
         query = """\
@@ -316,7 +316,7 @@ class TestSavedQuery(APIBaseTest):
         parent_descendants = response.json()["descendants"]
         self.assertEqual(
             sorted(parent_descendants),
-            sorted([uuid.UUID(saved_query_child_id).hex, uuid.UUID(saved_query_grand_child_id).hex]),
+            sorted([saved_query_child_id, saved_query_grand_child_id]),
         )
 
         response = self.client.post(
@@ -327,7 +327,7 @@ class TestSavedQuery(APIBaseTest):
         parent_descendants_level_1 = response.json()["descendants"]
         self.assertEqual(
             parent_descendants_level_1,
-            [uuid.UUID(saved_query_child_id).hex],
+            [saved_query_child_id],
         )
 
         response = self.client.post(
@@ -338,7 +338,7 @@ class TestSavedQuery(APIBaseTest):
         parent_descendants_level_2 = response.json()["descendants"]
         self.assertEqual(
             sorted(parent_descendants_level_2),
-            sorted([uuid.UUID(saved_query_child_id).hex, uuid.UUID(saved_query_grand_child_id).hex]),
+            sorted([saved_query_child_id, saved_query_grand_child_id]),
         )
 
         response = self.client.post(
@@ -347,7 +347,7 @@ class TestSavedQuery(APIBaseTest):
 
         self.assertEqual(response.status_code, 200, response.content)
         child_ancestors = response.json()["descendants"]
-        self.assertEqual(child_ancestors, [uuid.UUID(saved_query_grand_child_id).hex])
+        self.assertEqual(child_ancestors, [saved_query_grand_child_id])
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/warehouse_saved_queries/{saved_query_grand_child_id}/descendants",

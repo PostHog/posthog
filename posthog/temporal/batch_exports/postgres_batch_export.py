@@ -434,7 +434,7 @@ def get_postgres_fields_from_record_schema(
 async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> RecordsCompleted:
     """Activity streams data from ClickHouse to Postgres."""
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="PostgreSQL")
-    logger.info(
+    await logger.ainfo(
         "Batch exporting range %s - %s to PostgreSQL: %s.%s.%s",
         inputs.data_interval_start,
         inputs.data_interval_end,
@@ -538,7 +538,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
                     last: bool,
                     error: Exception | None,
                 ):
-                    logger.debug(
+                    await logger.adebug(
                         "Copying %s records of size %s bytes",
                         records_since_last_flush,
                         bytes_since_last_flush,

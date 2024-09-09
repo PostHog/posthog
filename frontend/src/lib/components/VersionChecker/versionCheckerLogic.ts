@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, listeners, path, reducers, sharedListeners } from 'kea'
+import { actions, afterMount, kea, key, listeners, path, props, reducers, sharedListeners } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { isNotNil } from 'lib/utils'
@@ -45,8 +45,14 @@ export interface AvailableVersions {
     deprecation?: PosthogJSDeprecation
 }
 
+export interface VersionCheckerLogicProps {
+    teamId: number | null
+}
+
 export const versionCheckerLogic = kea<versionCheckerLogicType>([
-    path(['components', 'VersionChecker', 'versionCheckerLogic']),
+    props({ teamId: null } as VersionCheckerLogicProps),
+    key(({ teamId }) => teamId || 'no-team-id'),
+    path((key) => ['components', 'VersionChecker', 'versionCheckerLogic', key]),
     actions({
         setVersionWarning: (versionWarning: SDKVersionWarning | null) => ({ versionWarning }),
         setSdkVersions: (sdkVersions: SDKVersion[]) => ({ sdkVersions }),
