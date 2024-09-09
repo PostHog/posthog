@@ -1,8 +1,8 @@
-import json
 from typing import Any
 from django.http import HttpResponse, JsonResponse
 from rest_framework import status, serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 
 from posthog.api.feature_flag import FeatureFlagSerializer
@@ -28,7 +28,41 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
         model = WebExperiment
         fields = ["id", "name", "feature_flag_key", "variants"]
 
+    # Validates that the `variants` property in the request follows this known object format.
+    # {
+    #     "name": "create-params-debug",
+    #     "variants": {
+    #         "control": {
+    #             "transforms": [
+    #                 {
+    #                     "text": "Here comes Superman!",
+    #                     "html": "",
+    #                     "selector": "#page > #body > .header h1"
+    #                 }
+    #             ],
+    #             "conditions": "None",
+    #             "rollout_percentage": 50
+    #         },
+    #     }
+    # }
     def validate(self, attrs):
+        variants = attrs.get("variants")
+        if variants is None:
+            raise ValidationError("Experiment does not have any variants")
+        if variants and not isinstance(variants, dict):
+            raise ValidationError("Experiment variants should be a dictionary of keys -> transforms")
+        for variant in variants:
+            if variant.get("rollout_percentage") is None:
+                raise ValidationError(f"Experiment variant '{variant}' does not have any rollout percentage")
+            transforms = variant.get("transforms")
+            if transforms is None:
+                raise ValidationError(f"Experiment variant '{variant}' does not have any element transforms")
+            for idx, transform in enumerate(transforms):
+                if transform.get("selector") is None:
+                    raise ValidationError(
+                        f"Experiment transform [${idx}] variant '{variant}' does not have a valid selector"
+                    )
+
         return attrs
 
     def create(self, validated_data: dict[str, Any]) -> Any:
@@ -52,7 +86,7 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
 
         filters = {
             "groups": [{"properties": [], "rollout_percentage": 100}],
-            "multivariate": self.get_variant_names(validated_data)
+            "multivariate": self.get_variant_names(validated_data),
         }
 
         feature_flag_serializer = FeatureFlagSerializer(
@@ -79,7 +113,7 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
             feature_flag = instance.feature_flag
             filters = {
                 "groups": feature_flag.filters.get("groups", None),
-                "multivariate": self.get_variant_names(validated_data)
+                "multivariate": self.get_variant_names(validated_data),
             }
 
             existing_flag_serializer = FeatureFlagSerializer(
@@ -99,9 +133,7 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
         variants = validated_data.get("variants", None)
         if variants is not None and isinstance(variants, dict):
             for variant, transforms in variants.items():
-                variant_names.append(
-                    {"key": variant, "rollout_percentage": transforms.get("rollout_percentage", 0)}
-                )
+                variant_names.append({"key": variant, "rollout_percentage": transforms.get("rollout_percentage", 0)})
         return {"variants": variant_names}
 
 
