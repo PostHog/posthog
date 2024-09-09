@@ -96,6 +96,7 @@ export enum NodeKind {
     WebOverviewQuery = 'WebOverviewQuery',
     WebTopClicksQuery = 'WebTopClicksQuery',
     WebStatsTableQuery = 'WebStatsTableQuery',
+    WebExternalClicksTableQuery = 'WebExternalClicksTableQuery',
     WebGoalsQuery = 'WebGoalsQuery',
 
     // Database metadata
@@ -117,6 +118,7 @@ export type AnyDataNode =
     | HogQLAutocomplete
     | WebOverviewQuery
     | WebStatsTableQuery
+    | WebExternalClicksTableQuery
     | WebTopClicksQuery
     | WebGoalsQuery
     | SessionAttributionExplorerQuery
@@ -143,6 +145,7 @@ export type QuerySchema =
     | HogQLAutocomplete
     | WebOverviewQuery
     | WebStatsTableQuery
+    | WebExternalClicksTableQuery
     | WebTopClicksQuery
     | WebGoalsQuery
     | SessionAttributionExplorerQuery
@@ -569,6 +572,7 @@ export interface DataTableNode
                     | HogQLQuery
                     | WebOverviewQuery
                     | WebStatsTableQuery
+                    | WebExternalClicksTableQuery
                     | WebTopClicksQuery
                     | WebGoalsQuery
                     | SessionAttributionExplorerQuery
@@ -588,6 +592,7 @@ export interface DataTableNode
         | HogQLQuery
         | WebOverviewQuery
         | WebStatsTableQuery
+        | WebExternalClicksTableQuery
         | WebTopClicksQuery
         | WebGoalsQuery
         | SessionAttributionExplorerQuery
@@ -1420,6 +1425,22 @@ export interface WebStatsTableQueryResponse extends AnalyticsQueryResponseBase<u
     offset?: integer
 }
 export type CachedWebStatsTableQueryResponse = CachedQueryResponse<WebStatsTableQueryResponse>
+
+export interface WebExternalClicksTableQuery extends WebAnalyticsQueryBase<WebExternalClicksTableQueryResponse> {
+    kind: NodeKind.WebExternalClicksTableQuery
+    limit?: integer
+    stripQueryParams?: boolean
+}
+export interface WebExternalClicksTableQueryResponse extends AnalyticsQueryResponseBase<unknown[]> {
+    types?: unknown[]
+    columns?: unknown[]
+    hogql?: string
+    samplingRate?: SamplingRate
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+}
+export type CachedWebExternalClicksTableQueryResponse = CachedQueryResponse<WebExternalClicksTableQueryResponse>
 
 export interface WebGoalsQuery extends WebAnalyticsQueryBase<WebGoalsQueryResponse> {
     kind: NodeKind.WebGoalsQuery

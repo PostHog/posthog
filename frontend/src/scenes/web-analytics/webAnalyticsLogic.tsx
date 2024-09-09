@@ -246,6 +246,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({
             shouldFilterTestAccounts,
         }),
+        setShouldStripQueryParams: (shouldStripQueryParams: boolean) => ({
+            shouldStripQueryParams,
+        }),
         setStateFromUrl: (state: {
             filters: WebAnalyticsPropertyFilters
             dateFrom: string | null
@@ -457,6 +460,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 setShouldFilterTestAccounts: (_, { shouldFilterTestAccounts }) => shouldFilterTestAccounts,
             },
         ],
+        shouldStripQueryParams: [
+            false as boolean,
+            { persist: true },
+            {
+                setShouldStripQueryParams: (_, { shouldStripQueryParams }) => shouldStripQueryParams,
+            },
+        ],
     }),
     selectors(({ actions, values }) => ({
         graphsTab: [(s) => [s._graphsTab], (graphsTab: string | null) => graphsTab || GraphsTab.UNIQUE_USERS],
@@ -486,6 +496,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 () => values.isGreaterThanMd,
                 () => values.shouldShowGeographyTile,
                 () => values.featureFlags,
+                () => values.shouldStripQueryParams,
             ],
             (
                 webAnalyticsFilters,
@@ -497,7 +508,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 _statusCheck,
                 isGreaterThanMd,
                 shouldShowGeographyTile,
-                featureFlags
+                featureFlags,
+                shouldStripQueryParams
             ): WebDashboardTile[] => {
                 const dateRange = {
                     date_from: dateFrom,
@@ -741,20 +753,19 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LAST_CLICK]
                                     ? {
                                           id: PathTab.EXIT_CLICK,
-                                          title: 'Exit clicks',
-                                          linkText: 'Exit clicks',
+                                          title: 'Outbound link clicks',
+                                          linkText: 'Outbound clicks',
                                           query: {
                                               full: true,
                                               kind: NodeKind.DataTableNode,
                                               source: {
-                                                  kind: NodeKind.WebStatsTableQuery,
+                                                  kind: NodeKind.WebExternalClicksTableQuery,
                                                   properties: webAnalyticsFilters,
-                                                  breakdownBy: WebStatsBreakdown.ExitClick,
                                                   dateRange,
-                                                  includeScrollDepth: false,
                                                   sampling,
                                                   limit: 10,
                                                   filterTestAccounts,
+                                                  stripQueryParams: shouldStripQueryParams,
                                               },
                                               embedded: false,
                                           },
