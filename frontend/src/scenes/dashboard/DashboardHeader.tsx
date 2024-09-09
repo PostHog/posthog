@@ -138,7 +138,13 @@ export function DashboardHeader(): JSX.Element | null {
                                     setDashboardMode(null, DashboardEventSource.DashboardHeaderSaveDashboard)
                                 }
                                 tabIndex={10}
-                                disabled={dashboardLoading}
+                                disabledReason={
+                                    dashboardLoading
+                                        ? 'Wait for dashboard to finish loading'
+                                        : canEditDashboard
+                                        ? undefined
+                                        : 'Not privileged to edit this dashboard'
+                                }
                             >
                                 Save
                             </LemonButton>

@@ -158,6 +158,11 @@ const teamActionsMapping: Record<
     autocapture_web_vitals_opt_in(change: ActivityChange | undefined): ChangeMapping | null {
         return { description: [<>{change?.after ? 'enabled' : 'disabled'} web vitals autocapture</>] }
     },
+    autocapture_web_vitals_allowed_metrics(change: ActivityChange | undefined): ChangeMapping | null {
+        const after = change?.after
+        const metricsList = Array.isArray(after) ? after.join(', ') : 'CLS, FCP, INP, and LCP'
+        return { description: [<>set allowed web vitals autocapture metrics to {metricsList}</>] }
+    },
     autocapture_opt_out(change: ActivityChange | undefined): ChangeMapping | null {
         return { description: [<>{change?.after ? 'opted in to' : 'opted out of'} autocapture</>] }
     },

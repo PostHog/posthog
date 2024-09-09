@@ -5,6 +5,7 @@ import {
     isHogQLQuery,
     isPersonsNode,
     isSessionAttributionExplorerQuery,
+    isWebExternalClicksQuery,
     isWebGoalsQuery,
     isWebOverviewQuery,
     isWebStatsTableQuery,
@@ -62,6 +63,7 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
     if (
         isWebOverviewQuery(query) ||
         isWebTopClicksQuery(query) ||
+        isWebExternalClicksQuery(query) ||
         isWebStatsTableQuery(query) ||
         isWebGoalsQuery(query)
     ) {

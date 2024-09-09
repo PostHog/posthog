@@ -1,10 +1,10 @@
-import json
 from datetime import timedelta
 from typing import Optional
 
 from dateutil.parser import isoparse
 from django.db.models import Prefetch
 from django.utils.timezone import now
+import orjson
 
 from posthog.api.element import ElementSerializer
 from posthog.api.utils import get_pk_or_uuid
@@ -206,7 +206,7 @@ class EventsQueryRunner(QueryRunner):
                     self.paginator.results[index] = list(result)
                     select = result[star_idx]
                     new_result = dict(zip(SELECT_STAR_FROM_EVENTS_FIELDS, select))
-                    new_result["properties"] = json.loads(new_result["properties"])
+                    new_result["properties"] = orjson.loads(new_result["properties"])
                     if new_result["elements_chain"]:
                         new_result["elements"] = ElementSerializer(
                             chain_to_elements(new_result["elements_chain"]), many=True

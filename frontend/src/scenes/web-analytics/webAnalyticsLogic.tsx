@@ -237,9 +237,17 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setGeographyTab: (tab: string) => ({ tab }),
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setInterval: (interval: IntervalType) => ({ interval }),
+        setDatesAndInterval: (dateFrom: string | null, dateTo: string | null, interval: IntervalType) => ({
+            dateFrom,
+            dateTo,
+            interval,
+        }),
         setIsPathCleaningEnabled: (isPathCleaningEnabled: boolean) => ({ isPathCleaningEnabled }),
         setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({
             shouldFilterTestAccounts,
+        }),
+        setShouldStripQueryParams: (shouldStripQueryParams: boolean) => ({
+            shouldStripQueryParams,
         }),
         setStateFromUrl: (state: {
             filters: WebAnalyticsPropertyFilters
@@ -421,6 +429,17 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         interval,
                     }
                 },
+                setDatesAndInterval: (_, { dateTo, dateFrom, interval }) => {
+                    if (!dateFrom && !dateTo) {
+                        dateFrom = initialDateFrom
+                        dateTo = initialDateTo
+                    }
+                    return {
+                        dateTo,
+                        dateFrom,
+                        interval: interval || getDefaultInterval(dateFrom, dateTo),
+                    }
+                },
                 setStateFromUrl: (_, { state: { dateTo, dateFrom, interval } }) => {
                     if (!dateFrom && !dateTo) {
                         dateFrom = initialDateFrom
@@ -439,6 +458,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             { persist: true },
             {
                 setShouldFilterTestAccounts: (_, { shouldFilterTestAccounts }) => shouldFilterTestAccounts,
+            },
+        ],
+        shouldStripQueryParams: [
+            false as boolean,
+            { persist: true },
+            {
+                setShouldStripQueryParams: (_, { shouldStripQueryParams }) => shouldStripQueryParams,
             },
         ],
     }),
@@ -470,6 +496,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 () => values.isGreaterThanMd,
                 () => values.shouldShowGeographyTile,
                 () => values.featureFlags,
+                () => values.shouldStripQueryParams,
             ],
             (
                 webAnalyticsFilters,
@@ -481,7 +508,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 _statusCheck,
                 isGreaterThanMd,
                 shouldShowGeographyTile,
-                featureFlags
+                featureFlags,
+                shouldStripQueryParams
             ): WebDashboardTile[] => {
                 const dateRange = {
                     date_from: dateFrom,
@@ -725,20 +753,19 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LAST_CLICK]
                                     ? {
                                           id: PathTab.EXIT_CLICK,
-                                          title: 'Exit clicks',
-                                          linkText: 'Exit clicks',
+                                          title: 'Outbound link clicks',
+                                          linkText: 'Outbound clicks',
                                           query: {
                                               full: true,
                                               kind: NodeKind.DataTableNode,
                                               source: {
-                                                  kind: NodeKind.WebStatsTableQuery,
+                                                  kind: NodeKind.WebExternalClicksTableQuery,
                                                   properties: webAnalyticsFilters,
-                                                  breakdownBy: WebStatsBreakdown.ExitClick,
                                                   dateRange,
-                                                  includeScrollDepth: false,
                                                   sampling,
                                                   limit: 10,
                                                   filterTestAccounts,
+                                                  stripQueryParams: shouldStripQueryParams,
                                               },
                                               embedded: false,
                                           },
@@ -1541,11 +1568,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             if (parsedFilters) {
                 actions.setWebAnalyticsFilters(parsedFilters)
             }
-            if (date_from || date_to) {
-                actions.setDates(date_from, date_to)
-            }
-            if (interval) {
-                actions.setInterval(interval)
+            if (date_from || date_to || interval) {
+                actions.setDatesAndInterval(date_from, date_to, interval)
             }
             if (device_tab) {
                 actions.setDeviceTab(device_tab)

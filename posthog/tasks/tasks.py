@@ -181,7 +181,7 @@ CLICKHOUSE_TABLES = [
     "log_entries",
 ]
 
-HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC = {"heartbeat": "ingestion", "$heartbeat": "ingestion_api"}
+HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC = {"$heartbeat": "ingestion_api"}
 
 
 @shared_task(ignore_result=True)

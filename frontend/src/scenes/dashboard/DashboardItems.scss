@@ -23,8 +23,9 @@
     will-change: width, height;
 }
 
-.react-grid-item.react-draggable .CardMeta {
-    // .CardMeta is the draggable handle
+.react-grid-item.react-draggable .CardMeta,
+.react-grid-item.react-draggable .TextCard__body {
+    // .CardMeta is the draggable handle of insight cards. Text cards are draggable as a whole
     cursor: move;
     user-select: none; // Prevent accidental text selection while dragging
 }
