@@ -35,7 +35,7 @@ class Experiment(models.Model):
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     archived = models.BooleanField(default=False)
-    type = models.CharField(max_length=40, choices=ExperimentType.choices, default="product")
+    type = models.CharField(max_length=40, choices=ExperimentType.choices, null=True, blank=True, default="product")
     variants = models.JSONField(default=dict, null=True, blank=True)
 
     def get_feature_flag_key(self):
