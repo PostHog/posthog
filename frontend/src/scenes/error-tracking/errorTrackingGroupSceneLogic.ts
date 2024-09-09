@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
@@ -45,6 +45,7 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
     actions({
         setErrorGroupTab: (tab: ErrorGroupTab) => ({ tab }),
         setActiveEventUUID: (uuid: ErrorTrackingEvent['uuid']) => ({ uuid }),
+        updateGroup: (group: Partial<Pick<ErrorTrackingGroup, 'assignee' | 'status'>>) => ({ group }),
     }),
 
     reducers(() => ({
@@ -73,12 +74,19 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
                             dateRange: values.dateRange,
                             filterTestAccounts: values.filterTestAccounts,
                             filterGroup: values.filterGroup,
-                        })
+                        }),
+                        {},
+                        undefined,
+                        true
                     )
 
                     // ErrorTrackingQuery returns a list of groups
                     // when a fingerprint is supplied there will only be a single group
                     return response.results[0]
+                },
+                updateGroup: async ({ group }) => {
+                    const response = await api.errorTracking.update(props.fingerprint, group)
+                    return { ...values.group, ...response }
                 },
             },
         ],
@@ -166,8 +174,4 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
             }
         },
     })),
-
-    afterMount(({ actions }) => {
-        actions.loadGroup()
-    }),
 ])
