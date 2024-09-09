@@ -142,11 +142,12 @@ impl From<&Event> for EventDefinition {
         EventDefinition {
             name: sanitize_event_name(&event.event),
             team_id: event.team_id,
-            // We round last seen to the nearest day, as per the TS impl. Unwrap is safe here because we
+            // We round last seen to the nearest quarter-day, as per the TS impl. Unwrap is safe here because we
             // the duration is positive, non-zero, and smaller than time since epoch. We use this
             // in the hash value, so updates which would modify this in the DB are issued even
             // if another otherwise-identical event definition is in the cache
-            last_seen_at: floor_datetime(Utc::now(), Duration::days(1)).unwrap(),
+            // TODO - consider making this configurable, consider tuning it to be smaller than 6 hours - we can probably get away with 30-60 minutes
+            last_seen_at: floor_datetime(Utc::now(), Duration::hours(6)).unwrap(),
         }
     }
 }
@@ -427,7 +428,7 @@ impl EventDefinition {
             Uuid::now_v7(),
             self.name,
             self.team_id,
-            self.last_seen_at
+            Utc::now() // We floor the update datetime to the nearest day for cache purposes, but can insert the exact time we see the event
         ).execute(executor).await.map(|_| ())
     }
 }
@@ -477,5 +478,23 @@ impl EventProperty {
         .execute(executor)
         .await
         .map(|_| ())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use chrono::{Timelike, Utc};
+
+    use crate::types::floor_datetime;
+
+    #[test]
+    fn test_date_flooring() {
+        let timestamp = Utc::now();
+        let rounded = floor_datetime(timestamp, chrono::Duration::days(1)).unwrap();
+        assert_eq!(rounded.hour(), 0);
+        assert_eq!(rounded.minute(), 0);
+        assert_eq!(rounded.second(), 0);
+        assert_eq!(rounded.nanosecond(), 0);
+        assert!(rounded <= timestamp);
     }
 }
