@@ -35,7 +35,7 @@ const baseSpritePath = (): string => {
     let path = `/static/hedgehog/sprites`
     const toolbarAPIUrl = toolbarConfigLogic.findMounted()?.values.apiURL
 
-    if (window.location.hostname !== 'localhost') {
+    if (window.location.hostname !== 'localhost' && !global.process?.env.STORYBOOK) {
         path = `https://us.posthog.com${path}`
     } else if (toolbarAPIUrl) {
         path = `${toolbarAPIUrl}${path}`
