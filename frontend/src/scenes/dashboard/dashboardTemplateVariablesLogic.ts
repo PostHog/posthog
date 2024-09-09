@@ -11,6 +11,7 @@ import {
     EntityTypes,
     FilterType,
     Optional,
+    TemplateVariableStep,
 } from '~/types'
 
 import type { dashboardTemplateVariablesLogicType } from './dashboardTemplateVariablesLogicType'
@@ -139,20 +140,18 @@ export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLog
         },
         setVariableFromAction: ({ variableName, action }) => {
             const originalVariableName = variableName.replace(/\s-\s\d+/g, '')
+            const step: TemplateVariableStep = {
+                id: action.id.toString(),
+                math: BaseMathType.UniqueUsers,
+                name: action.name,
+                order: 0,
+                type: EntityTypes.ACTIONS,
+                selector: action.steps?.[0]?.selector,
+                href: action.steps?.[0]?.href,
+                url: action.steps?.[0]?.url,
+            }
             const filterGroup: FilterType = {
-                actions: [
-                    // TODO: This needs a type
-                    {
-                        id: action.id,
-                        math: BaseMathType.UniqueUsers,
-                        name: action.name,
-                        order: 0,
-                        type: EntityTypes.ACTIONS,
-                        selector: action.steps?.[0]?.selector,
-                        href: action.steps?.[0]?.href,
-                        url: action.steps?.[0]?.url,
-                    },
-                ],
+                actions: [step],
             }
             actions.setVariable(originalVariableName, filterGroup)
             actions.setIsCurrentlySelectingElement(false)

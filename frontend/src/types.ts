@@ -2135,6 +2135,17 @@ export interface FilterType {
     aggregation_group_type_index?: integer // Groups aggregation
 }
 
+export interface TemplateVariableStep {
+    id: string
+    math: BaseMathType
+    name: string | null
+    order: number
+    type: EntityTypes
+    selector?: string | null
+    href?: string | null
+    url?: string | null
+}
+
 export interface PropertiesTimelineFilterType {
     date_from?: string | null // DateMixin
     date_to?: string | null // DateMixin
