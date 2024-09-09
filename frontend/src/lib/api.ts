@@ -14,6 +14,7 @@ import {
     AlertTypeWrite,
     DatabaseSerializedFieldType,
     ErrorTrackingGroup,
+    QueryRequest,
     QuerySchema,
     QueryStatusResponse,
     RecordingsQuery,
@@ -2307,10 +2308,11 @@ const api = {
         return new ApiRequest().query().assembleFullUrl(true)
     },
 
-    async query<T extends Record<string, any> = QuerySchema>(
+    async query<T extends QuerySchema = QuerySchema>(
         query: T,
         options?: ApiMethodOptions,
         queryId?: string,
+        queryMetadata?: Record<string, any>,
         refresh?: boolean,
         async?: boolean
     ): Promise<
@@ -2321,9 +2323,13 @@ const api = {
             : Record<string, any>
     > {
         const refreshParam: RefreshType | undefined = refresh && async ? 'force_async' : async ? 'async' : refresh
-        return await new ApiRequest()
-            .query()
-            .create({ ...options, data: { query, client_query_id: queryId, refresh: refreshParam } })
+        const data: QueryRequest = {
+            query,
+            client_query_id: queryId,
+            client_query_metadata: queryMetadata,
+            refresh: refreshParam,
+        }
+        return await new ApiRequest().query().create({ ...options, data })
     },
 
     chatURL: (): string => {
