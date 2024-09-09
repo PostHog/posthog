@@ -97,7 +97,7 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
                         title={
                             <div className="space-y-2">
                                 <div>
-                                    This column simulates the feature flag evaluation based on the selected distinct ID
+                                    This column simulates the feature flag evaluation based on the selected distinct ID, current properties,
                                     and groups associated with the user. If the actual flag value differs, it could be
                                     due to different inputs used during evaluation.
                                 </div>
