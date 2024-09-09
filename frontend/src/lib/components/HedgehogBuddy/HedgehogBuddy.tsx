@@ -141,17 +141,17 @@ export class HedgehogActor {
 
     setOnFire(times = 3): void {
         this.log('setting on fire, iterations remaining:', times)
-        this.setOverlayAnimation('fire')
-
-        this.setAnimation('fall', {
+        this.setOverlayAnimation('fire', {
             onComplete: () => {
                 if (times == 1) {
-                    return
+                    this.setOverlayAnimation(null)
+                } else {
+                    this.setOnFire(times - 1)
                 }
-                this.setOnFire(times - 1)
-                return true
             },
         })
+
+        this.setAnimation('stop', {})
         this.direction = sampleOne(['left', 'right'])
         this.xVelocity = this.direction === 'left' ? -5 : 5
         this.jump()
@@ -833,24 +833,7 @@ export class HedgehogActor {
                                 }}
                             />
                         ) : null}
-                        {this.overlayAnimation ? (
-                            <div
-                                // eslint-disable-next-line react/forbid-dom-props
-                                style={{
-                                    position: 'absolute',
-                                    top: 0,
-                                    left: 0,
-                                    imageRendering: 'pixelated',
-                                    width: SPRITE_SIZE,
-                                    height: SPRITE_SIZE,
-                                    backgroundImage: `url(${spriteOverlayUrl(this.overlayAnimation.spriteInfo.img)})`,
-                                    backgroundPosition: `-${
-                                        (this.overlayAnimation.frame % X_FRAMES) * SPRITE_SIZE
-                                    }px -${Math.floor(this.overlayAnimation.frame / X_FRAMES) * SPRITE_SIZE}px`,
-                                    ...(this.overlayAnimation.spriteInfo.style ?? {}),
-                                }}
-                            />
-                        ) : null}
+
                         {this.accessories().map((accessory, index) => (
                             <div
                                 key={index}
@@ -870,6 +853,24 @@ export class HedgehogActor {
                                 }}
                             />
                         ))}
+                        {this.overlayAnimation ? (
+                            <div
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{
+                                    position: 'absolute',
+                                    top: 0,
+                                    left: 0,
+                                    imageRendering: 'pixelated',
+                                    width: SPRITE_SIZE,
+                                    height: SPRITE_SIZE,
+                                    backgroundImage: `url(${spriteOverlayUrl(this.overlayAnimation.spriteInfo.img)})`,
+                                    backgroundPosition: `-${
+                                        (this.overlayAnimation.frame % X_FRAMES) * SPRITE_SIZE
+                                    }px -${Math.floor(this.overlayAnimation.frame / X_FRAMES) * SPRITE_SIZE}px`,
+                                    ...(this.overlayAnimation.spriteInfo.style ?? {}),
+                                }}
+                            />
+                        ) : null}
                     </div>
                 </div>
                 {this.renderRope()}
@@ -1059,7 +1060,11 @@ export function MemberHedgehogBuddy({ member }: { member: OrganizationMemberType
     const memberHedgehogConfig: HedgehogConfig = useMemo(
         () => ({
             ...hedgehogConfig,
+            // Reset some params to default
+            skin: 'default',
+            // Then apply the user's config
             ...member.user.hedgehog_config,
+            // Finally some settings are forced
             controls_enabled: false,
         }),
         [hedgehogConfig, member.user.hedgehog_config]
