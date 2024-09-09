@@ -530,7 +530,7 @@ export const WebExternalClicksTile = ({
                 <div className="flex flex-row items-center space-x-2">
                     <LemonSwitch
                         label="Strip query parameters"
-                        checked={!!shouldStripQueryParams}
+                        checked={shouldStripQueryParams}
                         onChange={setShouldStripQueryParams}
                         className="h-full"
                     />
