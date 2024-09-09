@@ -37,9 +37,9 @@ async fn test_updates(db: PgPool) {
         update.issue(&db).await.unwrap();
     }
 
-    let today = floor_datetime(Utc::now(), Duration::days(1)).unwrap();
+    let expect_date = floor_datetime(Utc::now(), Duration::hours(1)).unwrap();
 
-    assert_eventdefinition_exists(&db, "update", 1, today).await;
+    assert_eventdefinition_exists(&db, "update", 1, expect_date).await;
     assert_propertydefinition_exists(
         &db,
         "TIMESTAMP",
