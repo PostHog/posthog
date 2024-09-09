@@ -3,7 +3,6 @@ import json
 from datetime import datetime
 from typing import Optional, cast
 from unittest import mock
-from unittest.mock import ANY, patch
 
 from zoneinfo import ZoneInfo
 from django.core.files.uploadedfile import SimpleUploadedFile
