@@ -1,12 +1,10 @@
 import { Hub, LogLevel, PluginCapabilities } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
-import { loadSchedule } from '../../src/worker/plugins/loadSchedule'
 import { setupPlugins } from '../../src/worker/plugins/setup'
 import { getVMPluginCapabilities, shouldSetupPluginInServer } from '../../src/worker/vm/capabilities'
 import { createPluginConfigVM } from '../../src/worker/vm/vm'
 import { pluginConfig39 } from '../helpers/plugins'
 
-jest.mock('../../src/worker/plugins/loadSchedule')
 jest.mock('../../src/worker/plugins/loadPluginsFromDB', () => ({
     loadPluginsFromDB: () => Promise.resolve({ plugins: [], pluginConfigs: [], pluginConfigsPerTeam: [] }),
 }))
@@ -220,16 +218,6 @@ describe('capabilities', () => {
                 )
                 expect(shouldSetupPlugin).toEqual(false)
             })
-        })
-    })
-
-    describe('setupPlugins()', () => {
-        it('calls loadSchedule only if pluginScheduledTasks is true', async () => {
-            await setupPlugins({ ...hub, capabilities: { pluginScheduledTasks: false } })
-            expect(loadSchedule).not.toHaveBeenCalled()
-
-            await setupPlugins({ ...hub, capabilities: { pluginScheduledTasks: true } })
-            expect(loadSchedule).toHaveBeenCalled()
         })
     })
 })

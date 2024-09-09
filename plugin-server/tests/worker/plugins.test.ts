@@ -5,7 +5,6 @@ import { processError } from '../../src/utils/db/error'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { delay, IllegalOperationError } from '../../src/utils/utils'
 import { loadPlugin } from '../../src/worker/plugins/loadPlugin'
-import { loadSchedule } from '../../src/worker/plugins/loadSchedule'
 import { runProcessEvent } from '../../src/worker/plugins/run'
 import { setupPlugins } from '../../src/worker/plugins/setup'
 import { LazyPluginVM } from '../../src/worker/vm/lazy'
@@ -627,7 +626,6 @@ describe('plugins', () => {
         ])
 
         await setupPlugins(hub)
-        await loadSchedule(hub)
 
         expect(loadPlugin).toHaveBeenCalledTimes(4)
         expect(Array.from(hub.plugins.keys())).toEqual(expect.arrayContaining([60, 61, 62, 63]))
@@ -650,7 +648,6 @@ describe('plugins', () => {
         ])
 
         await setupPlugins(hub)
-        await loadSchedule(hub)
 
         expect(loadPlugin).toHaveBeenCalledTimes(4 + 3)
         expect(Array.from(hub.plugins.keys())).toEqual(expect.arrayContaining([60, 61, 63, 64]))
@@ -693,32 +690,5 @@ describe('plugins', () => {
         expect(newPluginConfig.plugin).not.toBe(pluginConfig.plugin)
         expect(setPluginCapabilities.mock.calls.length).toBe(1)
         expect(newPluginConfig.plugin!.capabilities).toEqual(pluginConfig.plugin!.capabilities)
-    })
-
-    describe('loadSchedule()', () => {
-        const mockConfig = (tasks: any) => ({ instance: { getScheduledTasks: () => Promise.resolve(tasks) } })
-
-        const hub = {
-            pluginConfigs: new Map(
-                Object.entries({
-                    1: {},
-                    2: mockConfig({ runEveryMinute: null, runEveryHour: () => 123 }),
-                    3: mockConfig({ runEveryMinute: () => 123, foo: () => 'bar' }),
-                })
-            ),
-        } as any
-
-        it('sets server.pluginSchedule once all plugins are ready', async () => {
-            const promise = loadSchedule(hub)
-            expect(hub.pluginSchedule).toEqual(null)
-
-            await promise
-
-            expect(hub.pluginSchedule).toEqual({
-                runEveryMinute: ['3'],
-                runEveryHour: ['2'],
-                runEveryDay: [],
-            })
-        })
     })
 })
