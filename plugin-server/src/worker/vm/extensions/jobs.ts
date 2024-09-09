@@ -1,5 +1,3 @@
-import { Counter } from 'prom-client'
-
 import { Hub, PluginConfig, PluginLogEntryType } from '../../../types'
 
 type JobRunner = {
@@ -39,30 +37,11 @@ export function durationToMs(duration: number, unit: string): number {
     return durations[unit] * duration
 }
 
-const pluginJobEnqueueCounter = new Counter({
-    name: 'plugin_job_enqueue_total',
-    help: 'Count of plugin jobs enqueued',
-    labelNames: ['plugin_id'],
-})
-
 export function createJobs(server: Hub, pluginConfig: PluginConfig): Jobs {
-    /**
-     * Helper function to enqueue jobs to be executed by the jobs pool.
-     * To avoid disruptions if the Graphile PG is unhealthy, job payloads are
-     * written to a Kafka topic.
-     * job-consumer.ts will consume and place them in the Graphile queue asynchronously.
-     */
-    const runJob = async (type: string, payload: Record<string, any>, timestamp: number) => {
+    // Jobs were fully removed and are now only here for the VM until it is also fully removed
+    const runJob = async (type: string) => {
         try {
-            const job = {
-                type,
-                payload,
-                timestamp,
-                pluginConfigId: pluginConfig.id,
-                pluginConfigTeam: pluginConfig.team_id,
-            }
-            pluginJobEnqueueCounter.labels(String(pluginConfig.plugin?.id)).inc()
-            await server.enqueuePluginJob(job)
+            throw new Error('Jobs are no longer supported')
         } catch (e) {
             await pluginConfig.instance?.createLogEntry(
                 `Failed to enqueue job ${type} with error: ${e.message}`,
@@ -77,17 +56,16 @@ export function createJobs(server: Hub, pluginConfig: PluginConfig): Jobs {
         {},
         {
             get(target, key) {
-                return function createTaskRunner(payload: Record<string, any>): JobRunner {
+                return function createTaskRunner(): JobRunner {
                     return {
-                        runAt: async function runAt(date: Date) {
-                            await runJob(key.toString(), payload, date.valueOf())
+                        runAt: async function runAt() {
+                            await runJob(key.toString())
                         },
-                        runIn: async function runIn(duration, unit) {
-                            const timestamp = new Date().valueOf() + durationToMs(duration, unit)
-                            await runJob(key.toString(), payload, timestamp)
+                        runIn: async function runIn() {
+                            await runJob(key.toString())
                         },
                         runNow: async function runNow() {
-                            await runJob(key.toString(), payload, new Date().valueOf())
+                            await runJob(key.toString())
                         },
                     }
                 }

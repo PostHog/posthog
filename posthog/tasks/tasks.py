@@ -299,69 +299,6 @@ KNOWN_CELERY_TASK_IDENTIFIERS = {
 
 
 @shared_task(ignore_result=True)
-def graphile_worker_queue_size() -> None:
-    from django.db import connections
-    from statshog.defaults.django import statsd
-
-    connection = connections["graphile"] if "graphile" in connections else connections["default"]
-    with connection.cursor() as cursor:
-        cursor.execute(
-            """
-        SELECT count(*)
-        FROM graphile_worker.jobs
-        WHERE (jobs.locked_at is null or jobs.locked_at < (now() - INTERVAL '4 hours'))
-        AND run_at <= now()
-        AND attempts < max_attempts
-        """
-        )
-
-        queue_size = cursor.fetchone()[0]
-        statsd.gauge("graphile_worker_queue_size", queue_size)
-
-        # Track the number of jobs that will still be run at least once or are currently running based on job type (i.e. task_identifier)
-        # Completed jobs are deleted and "permanently failed" jobs have attempts == max_attempts
-        # Jobs not yet eligible for execution are filtered out with run_at <= now()
-        cursor.execute(
-            """
-        SELECT task_identifier, count(*) as c, EXTRACT(EPOCH FROM MIN(run_at)) as oldest FROM graphile_worker.jobs
-        WHERE attempts < max_attempts
-        AND run_at <= now()
-        GROUP BY task_identifier
-        """
-        )
-
-        seen_task_identifier = set()
-        with pushed_metrics_registry("celery_graphile_worker_queue_size") as registry:
-            processing_lag_gauge = Gauge(
-                "posthog_celery_graphile_lag_seconds",
-                "Oldest scheduled run on pending Graphile jobs per task identifier, zero if queue empty.",
-                labelnames=["task_identifier"],
-                registry=registry,
-            )
-            waiting_jobs_gauge = Gauge(
-                "posthog_celery_graphile_waiting_jobs",
-                "Number of Graphile jobs in the queue, per task identifier.",
-                labelnames=["task_identifier"],
-                registry=registry,
-            )
-            for task_identifier, count, oldest in cursor.fetchall():
-                seen_task_identifier.add(task_identifier)
-                waiting_jobs_gauge.labels(task_identifier=task_identifier).set(count)
-                processing_lag_gauge.labels(task_identifier=task_identifier).set(time.time() - float(oldest))
-                statsd.gauge(
-                    "graphile_waiting_jobs",
-                    count,
-                    tags={"task_identifier": task_identifier},
-                )
-
-            # The query will not return rows for empty queues, creating missing points.
-            # Let's emit updates for known queues even if they are empty.
-            for task_identifier in KNOWN_CELERY_TASK_IDENTIFIERS - seen_task_identifier:
-                waiting_jobs_gauge.labels(task_identifier=task_identifier).set(0)
-                processing_lag_gauge.labels(task_identifier=task_identifier).set(0)
-
-
-@shared_task(ignore_result=True)
 def clickhouse_row_count() -> None:
     from statshog.defaults.django import statsd
 

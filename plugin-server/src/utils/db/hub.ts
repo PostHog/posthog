@@ -10,12 +10,10 @@ import { ConnectionOptions } from 'tls'
 import { getPluginServerCapabilities } from '../../capabilities'
 import { buildIntegerMatcher, defaultConfig } from '../../config/config'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from '../../config/constants'
-import { KAFKA_JOBS } from '../../config/kafka-topics'
 import { createRdConnectionConfigFromEnvVars, createRdProducerConfigFromEnvVars } from '../../kafka/config'
 import { createKafkaProducer } from '../../kafka/producer'
 import { getObjectStorage } from '../../main/services/object_storage'
 import {
-    EnqueuedPluginJob,
     Hub,
     KafkaSaslMechanism,
     KafkaSecurityProtocol,
@@ -148,27 +146,6 @@ export async function createHub(
     const actionMatcher = new ActionMatcher(postgres, actionManager, teamManager)
     const groupTypeManager = new GroupTypeManager(postgres, teamManager)
 
-    const enqueuePluginJob = async (job: EnqueuedPluginJob) => {
-        // NOTE: we use the producer directly here rather than using the wrapper
-        // such that we can a response immediately on error, and thus bubble up
-        // any errors in producing. It's important that we ensure that we have
-        // an acknowledgement as for instance there are some jobs that are
-        // chained, and if we do not manage to produce then the chain will be
-        // broken.
-        await kafkaProducer.queueMessage({
-            kafkaMessage: {
-                topic: KAFKA_JOBS,
-                messages: [
-                    {
-                        value: Buffer.from(JSON.stringify(job)),
-                        key: Buffer.from(job.pluginConfigTeam.toString()),
-                    },
-                ],
-            },
-            waitForAck: true,
-        })
-    }
-
     const hub: Hub = {
         ...serverConfig,
         instanceId,
@@ -179,7 +156,6 @@ export async function createHub(
         clickhouse,
         kafka,
         kafkaProducer,
-        enqueuePluginJob,
         objectStorage: objectStorage,
         groupTypeManager,
 

@@ -1,5 +1,4 @@
 import ClickHouse from '@posthog/clickhouse'
-import { makeWorkerUtils, WorkerUtils } from 'graphile-worker'
 import Redis from 'ioredis'
 import parsePrometheusTextFormat from 'parse-prometheus-text-format'
 import { PoolClient } from 'pg'
@@ -17,7 +16,7 @@ import {
 } from '../src/types'
 import { PostgresRouter, PostgresUse } from '../src/utils/db/postgres'
 import { parseRawClickHouseEvent } from '../src/utils/event'
-import { createPostgresPool, UUIDT } from '../src/utils/utils'
+import { UUIDT } from '../src/utils/utils'
 import { RawAppMetric } from '../src/worker/ingestion/app-metrics'
 import { insertRow } from '../tests/helpers/sql'
 import { waitForExpect } from './expectations'
@@ -26,14 +25,10 @@ import { produce } from './kafka'
 let clickHouseClient: ClickHouse
 export let postgres: PostgresRouter
 export let redis: Redis.Redis
-let graphileWorker: WorkerUtils
 
 beforeAll(async () => {
     // Setup connections to kafka, clickhouse, and postgres
     postgres = new PostgresRouter({ ...defaultConfig, POSTGRES_CONNECTION_POOL_SIZE: 1 }, null)
-    graphileWorker = await makeWorkerUtils({
-        pgPool: createPostgresPool(defaultConfig.DATABASE_URL!, 1, 'functional_tests'),
-    })
     clickHouseClient = new ClickHouse({
         host: defaultConfig.CLICKHOUSE_HOST,
         port: 8123,
@@ -234,34 +229,6 @@ export const enablePluginConfig = async (teamId: number, pluginConfigId: number)
         [pluginConfigId, teamId],
         'enablePluginConfig'
     )
-}
-
-export const schedulePluginJob = async ({
-    teamId,
-    pluginConfigId,
-    type,
-    taskType,
-    payload,
-}: {
-    teamId: number
-    pluginConfigId: number
-    type: string
-    taskType: string
-    payload: any
-}) => {
-    return await graphileWorker.addJob(taskType, { teamId, pluginConfigId, type, payload })
-}
-
-export const getScheduledPluginJob = async (jobId: string) => {
-    const result = await postgres.query(
-        PostgresUse.COMMON_WRITE,
-        `SELECT *
-         FROM graphile_worker.jobs
-         WHERE id = $1`,
-        [jobId],
-        'getScheduledPluginJob'
-    )
-    return result.rows[0]
 }
 
 export const reloadAction = async (teamId: number, actionId: number) => {

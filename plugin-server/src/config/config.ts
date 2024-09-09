@@ -91,18 +91,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         DISABLE_MMDB: isTestEnv(),
         DISTINCT_ID_LRU_SIZE: 10000,
         EVENT_PROPERTY_LRU_SIZE: 10000,
-        JOB_QUEUES: 'graphile',
-        JOB_QUEUE_GRAPHILE_URL: '',
-        JOB_QUEUE_GRAPHILE_SCHEMA: 'graphile_worker',
-        JOB_QUEUE_GRAPHILE_PREPARED_STATEMENTS: false,
-        JOB_QUEUE_GRAPHILE_CONCURRENCY: 1,
-        JOB_QUEUE_S3_AWS_ACCESS_KEY: '',
-        JOB_QUEUE_S3_AWS_SECRET_ACCESS_KEY: '',
-        JOB_QUEUE_S3_AWS_REGION: 'us-west-1',
-        JOB_QUEUE_S3_BUCKET_NAME: '',
-        JOB_QUEUE_S3_PREFIX: '',
-        CRASH_IF_NO_PERSISTENT_JOB_QUEUE: false,
-        HEALTHCHECK_MAX_STALE_SECONDS: 2 * 60 * 60, // 2 hours
         SITE_URL: null,
         KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: 1,
         CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: '',
@@ -242,10 +230,6 @@ export function overrideWithEnv(
         const encodedUser = encodeURIComponent(newConfig.POSTHOG_DB_USER)
         const encodedPassword = encodeURIComponent(newConfig.POSTHOG_DB_PASSWORD)
         newConfig.DATABASE_URL = `postgres://${encodedUser}:${encodedPassword}@${newConfig.POSTHOG_POSTGRES_HOST}:${newConfig.POSTHOG_POSTGRES_PORT}/${newConfig.POSTHOG_DB_NAME}`
-    }
-
-    if (!newConfig.JOB_QUEUE_GRAPHILE_URL) {
-        newConfig.JOB_QUEUE_GRAPHILE_URL = newConfig.DATABASE_URL
     }
 
     if (!Object.keys(KAFKAJS_LOG_LEVEL_MAPPING).includes(newConfig.KAFKAJS_LOG_LEVEL)) {

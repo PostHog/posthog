@@ -1542,48 +1542,6 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
             ],
         )
 
-    @patch("posthog.api.plugin.validate_plugin_job_payload")
-    @patch("posthog.api.plugin.connections")
-    def test_job_trigger(self, db_connections, mock_validate_plugin_job_payload, mock_get, mock_reload):
-        response = self.client.post(
-            "/api/organizations/@current/plugins/",
-            {"url": "https://github.com/PostHog/helloworldplugin"},
-        )
-        plugin_id = response.json()["id"]
-        response = self.client.post(
-            "/api/plugin_config/",
-            {
-                "plugin": plugin_id,
-                "enabled": True,
-                "order": 0,
-                "config": json.dumps({"bar": "moop"}),
-            },
-            format="multipart",
-        )
-        plugin_config_id = response.json()["id"]
-        response = self.client.post(
-            f"/api/plugin_config/{plugin_config_id}/job",
-            {"job": {"type": "myJob", "payload": {"a": 1}, "operation": "stop"}},
-            format="json",
-        )
-        self.assertEqual(response.status_code, 200)
-        execute_fn = db_connections["default"].cursor().__enter__().execute
-        self.assertEqual(execute_fn.call_count, 1)
-
-        execute_fn_args = execute_fn.mock_calls[0].args
-        self.assertEqual(execute_fn_args[0], "SELECT graphile_worker.add_job('pluginJob', %s)")
-        self.assertDictEqual(
-            json.loads(execute_fn_args[1][0]),
-            {
-                "type": "myJob",
-                "payload": {"a": 1, "$operation": "stop", "$job_id": ANY},
-                "pluginConfigId": plugin_config_id,
-                "pluginConfigTeam": self.team.pk,
-            },
-        )
-
-        mock_validate_plugin_job_payload.assert_called_with(ANY, "myJob", {"a": 1}, is_staff=False)
-
     def test_check_for_updates_plugins_reload_not_called(self, _, mock_reload):
         response = self.client.post(
             "/api/organizations/@current/plugins/",

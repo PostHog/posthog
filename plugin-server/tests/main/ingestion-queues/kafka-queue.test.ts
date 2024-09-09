@@ -6,7 +6,6 @@ import { ServerInstance, startPluginsServer } from '../../../src/main/pluginsSer
 import { LogLevel, PluginsServerConfig } from '../../../src/types'
 import { Hub } from '../../../src/types'
 import { UUIDT } from '../../../src/utils/utils'
-import { makePiscina } from '../../../src/worker/piscina'
 import { createPosthog, DummyPostHog } from '../../../src/worker/vm/extensions/posthog'
 import { writeToFile } from '../../../src/worker/vm/extensions/test-utils'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../helpers/clickhouse'
@@ -40,7 +39,7 @@ describe.skip('IngestionConsumer', () => {
         testConsole.reset()
         await resetTestDatabase()
         await resetTestDatabaseClickhouse(extraServerConfig)
-        pluginServer = await startPluginsServer(extraServerConfig, makePiscina)
+        pluginServer = await startPluginsServer(extraServerConfig)
         hub = pluginServer.hub
         stopServer = pluginServer.stop
         posthog = createPosthog(hub, pluginConfig39)

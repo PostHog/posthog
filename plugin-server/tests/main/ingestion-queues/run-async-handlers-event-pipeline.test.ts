@@ -5,20 +5,10 @@
 // simply would bubble up to the KafkaJS consumer runnner where it can handle
 // retries.
 //
-// There is complicating factor in that the pipeline uses a separate Node Worker
-// to run the pipeline, which means we can't easily mock the `produce` call, and
-// as such the test is broken into answering these questions separately, with no
-// integration test between the two:
-//
-//  1. using the Piscina task runner to run the pipeline results in the
-//     DependencyUnavailableError Error being thrown.
-//  2. the KafkaQueue consumer handler will let the error bubble up to the
-//     KafkaJS consumer runner, which we assume will handle retries.
 
 import Redis from 'ioredis'
 import LibrdKafkaError from 'node-rdkafka/lib/error'
 
-import { defaultConfig } from '../../../src/config/config'
 import { KAFKA_EVENTS_JSON } from '../../../src/config/kafka-topics'
 import { buildOnEventIngestionConsumer } from '../../../src/main/ingestion-queues/on-event-handler-consumer'
 import { Hub, ISOTimestamp } from '../../../src/types'
@@ -27,7 +17,6 @@ import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { PostgresUse } from '../../../src/utils/db/postgres'
 import { UUIDT } from '../../../src/utils/utils'
 import { processOnEventStep } from '../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
-import Piscina, { makePiscina } from '../../../src/worker/piscina'
 import { setupPlugins } from '../../../src/worker/plugins/setup'
 import { teardownPlugins } from '../../../src/worker/plugins/teardown'
 import {
@@ -44,10 +33,6 @@ describe('runAppsOnEventPipeline()', () => {
     // Tests the failure cases for the workerTasks.runAppsOnEventPipeline
     // task. Note that this equally applies to e.g. runEventPipeline task as
     // well and likely could do with adding additional tests for that.
-    //
-    // We are assuming here that we are bubbling up any errors thrown from the
-    // Piscina task runner to the consumer here, I couldn't figure out a nice
-    // way to mock things in subprocesses to test this however.
 
     let hub: Hub
     let redis: Redis.Redis
@@ -162,13 +147,7 @@ describe('runAppsOnEventPipeline()', () => {
 })
 
 describe('eachBatchAsyncHandlers', () => {
-    // We want to ensure that if the handler rejects, then the consumer will
-    // raise to the consumer, triggering the KafkaJS retry logic. Here we are
-    // assuming that piscina will reject the returned promise, which according
-    // to https://github.com/piscinajs/piscina#method-runtask-options should be
-    // the case.
     let hub: Hub
-    let piscina: Piscina
 
     beforeEach(async () => {
         jest.useFakeTimers({ advanceTimers: true })
@@ -181,9 +160,7 @@ describe('eachBatchAsyncHandlers', () => {
     })
 
     test('rejections from kafka are bubbled up to the consumer', async () => {
-        piscina = await makePiscina(defaultConfig, hub)
-        const ingestionConsumer = buildOnEventIngestionConsumer({ hub, piscina })
-
+        const ingestionConsumer = buildOnEventIngestionConsumer({ hub })
         const error = new LibrdKafkaError({ message: 'test', code: 1, errno: 1, origin: 'test', isRetriable: true })
 
         jest.spyOn(ingestionConsumer, 'eachBatch').mockRejectedValue(

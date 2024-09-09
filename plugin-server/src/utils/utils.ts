@@ -450,16 +450,6 @@ export function pluginConfigIdFromStack(
     }
 }
 
-export function logOrThrowJobQueueError(server: PluginsServerConfig, error: Error, message: string): void {
-    Sentry.captureException(error)
-    if (server.CRASH_IF_NO_PERSISTENT_JOB_QUEUE) {
-        status.error('🔴', message)
-        throw error
-    } else {
-        status.info('🟡', message)
-    }
-}
-
 export function groupBy<T extends Record<string, any>, K extends keyof T>(
     objects: T[],
     key: K,

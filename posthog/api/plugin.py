@@ -814,64 +814,6 @@ class PluginConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return Response(PluginConfigSerializer(plugin_configs, many=True).data)
 
-    @action(methods=["POST"], detail=True)
-    def job(self, request: request.Request, **kwargs):
-        if not can_configure_plugins(self.team.organization_id):
-            raise ValidationError("Plugin configuration is not available for the current organization!")
-
-        plugin_config = self.get_object()
-        plugin_config_id = plugin_config.id
-        job = request.data.get("job", {})
-
-        if "type" not in job:
-            raise ValidationError("The job type must be specified!")
-
-        # job_type = job name
-        job_type = job.get("type")
-        job_payload = job.get("payload", {})
-        job_op = job.get("operation", "start")
-        job_id = str(UUIDT())
-
-        validate_plugin_job_payload(
-            plugin_config.plugin,
-            job_type,
-            job_payload,
-            is_staff=request.user.is_staff or is_impersonated_session(request),
-        )
-
-        payload_json = json.dumps(
-            {
-                "type": job_type,
-                "payload": {**job_payload, **{"$operation": job_op, "$job_id": job_id}},
-                "pluginConfigId": plugin_config_id,
-                "pluginConfigTeam": self.team.pk,
-            }
-        )
-        sql = f"SELECT graphile_worker.add_job('pluginJob', %s)"
-        params = [payload_json]
-        try:
-            connection = connections["graphile"] if "graphile" in connections else connections["default"]
-            with connection.cursor() as cursor:
-                cursor.execute(sql, params)
-        except Exception as e:
-            raise Exception(f"Failed to execute postgres sql={sql},\nparams={params},\nexception={str(e)}")
-
-        log_activity(
-            organization_id=self.team.organization.id,
-            # Users in an org but not yet in a team can technically manage plugins via the API
-            team_id=self.team.pk,
-            user=request.user,  # type: ignore
-            was_impersonated=is_impersonated_session(self.request),
-            item_id=plugin_config_id,
-            scope="PluginConfig",  # use the type plugin so we can also provide unified history
-            activity="job_triggered",
-            detail=Detail(
-                name=self.get_object().plugin.name,
-                trigger=Trigger(job_type=job_type, job_id=job_id, payload=job_payload),
-            ),
-        )
-        return Response(status=200)
-
     @action(methods=["GET"], detail=True)
     @renderer_classes((PlainRenderer,))
     def frontend(self, request: request.Request, **kwargs):

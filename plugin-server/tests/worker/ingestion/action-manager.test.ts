@@ -54,7 +54,7 @@ describe('ActionManager', () => {
             'testKey'
         )
 
-        // This is normally dispatched by Django and broadcasted by Piscina
+        // This is normally dispatched by Django and broadcasted by the server manager
         await actionManager.reloadAction(TEAM_ID, ACTION_ID)
 
         const reloadedAction = actionManager.getTeamActions(TEAM_ID)
@@ -81,7 +81,7 @@ describe('ActionManager', () => {
             ],
         })
 
-        // This is normally dispatched by Django and broadcasted by Piscina
+        // This is normally dispatched by Django
         actionManager.dropAction(TEAM_ID, ACTION_ID)
 
         const droppedAction = actionManager.getTeamActions(TEAM_ID)
@@ -123,7 +123,7 @@ describe('ActionManager', () => {
             'testKey'
         )
 
-        // This is normally dispatched by Django and broadcasted by Piscina
+        // This is normally dispatched by Django
         await actionManager.reloadAction(TEAM_ID, ACTION_ID)
 
         const droppedAction = actionManager.getTeamActions(TEAM_ID)
