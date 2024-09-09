@@ -230,7 +230,6 @@ export interface PluginsServerConfig extends CdpConfig {
     EXTERNAL_REQUEST_TIMEOUT_MS: number
     DROP_EVENTS_BY_TOKEN_DISTINCT_ID: string
     DROP_EVENTS_BY_TOKEN: string
-    SKIP_DEFINITIONS_FOR_TEAM_IDS: string // Comma separated list of team IDs to skip processing property/event definitions for
     RELOAD_PLUGIN_JITTER_MAX_MS: number
     RUSTY_HOOK_FOR_TEAMS: string
     RUSTY_HOOK_ROLLOUT_PERCENTAGE: number

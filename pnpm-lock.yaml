@@ -269,8 +269,8 @@ dependencies:
     specifier: ^9.3.0
     version: 9.3.0(postcss@8.4.31)
   posthog-js:
-    specifier: 1.160.3
-    version: 1.160.3
+    specifier: 1.161.0
+    version: 1.161.0
   posthog-js-lite:
     specifier: 3.0.0
     version: 3.0.0
@@ -15394,7 +15394,7 @@ packages:
       image-size: 0.5.5
       make-dir: 2.1.0
       mime: 1.6.0
-      native-request: 1.1.0
+      native-request: 1.1.2
       source-map: 0.6.1
     dev: true
 
@@ -16130,8 +16130,8 @@ packages:
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
 
-  /native-request@1.1.0:
-    resolution: {integrity: sha512-uZ5rQaeRn15XmpgE0xoPL8YWqcX90VtCFglYwAgkvKM5e8fog+vePLAhHxuuv/gRkrQxIeh5U3q9sMNUrENqWw==}
+  /native-request@1.1.2:
+    resolution: {integrity: sha512-/etjwrK0J4Ebbcnt35VMWnfiUX/B04uwGJxyJInagxDqf2z5drSt/lsOvEMWGYunz1kaLZAFrV4NDAbOoDKvAQ==}
     requiresBuild: true
     dev: true
     optional: true
@@ -17674,8 +17674,8 @@ packages:
     resolution: {integrity: sha512-dyajjnfzZD1tht4N7p7iwf7nBnR1MjVaVu+MKr+7gBgA39bn28wizCIJZztZPtHy4PY0YwtSGgwfBCuG/hnHgA==}
     dev: false
 
-  /posthog-js@1.160.3:
-    resolution: {integrity: sha512-mGvxOIlWPtdPx8EI0MQ81wNKlnH2K0n4RqwQOl044b34BCKiFVzZ7Hc7geMuZNaRAvCi5/5zyGeWHcAYZQxiMQ==}
+  /posthog-js@1.161.0:
+    resolution: {integrity: sha512-P17q2s77/p7QPWrIhp9uAXVaLT8SwrdNh6W2QOilAMllOYMxD6Lzj4C8JW3NeqlL+nGbViCPpLmkUWuvWnGVLQ==}
     dependencies:
       fflate: 0.4.8
       preact: 10.23.2
