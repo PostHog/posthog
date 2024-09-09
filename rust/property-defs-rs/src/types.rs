@@ -142,12 +142,11 @@ impl From<&Event> for EventDefinition {
         EventDefinition {
             name: sanitize_event_name(&event.event),
             team_id: event.team_id,
-            // We round last seen to the nearest quarter-day, as per the TS impl. Unwrap is safe here because we
+            // We round last seen to the nearest hour. Unwrap is safe here because we
             // the duration is positive, non-zero, and smaller than time since epoch. We use this
             // in the hash value, so updates which would modify this in the DB are issued even
             // if another otherwise-identical event definition is in the cache
-            // TODO - consider making this configurable, consider tuning it to be smaller than 6 hours - we can probably get away with 30-60 minutes
-            last_seen_at: floor_datetime(Utc::now(), Duration::hours(6)).unwrap(),
+            last_seen_at: floor_datetime(Utc::now(), Duration::hours(1)).unwrap(),
         }
     }
 }
