@@ -36,7 +36,7 @@ export function IntegrationChoice({
 
     const kindName = kind == 'gc-pubsub' ? 'Google Cloud Pub/Sub' : capitalizeFirstLetter(kind)
 
-    function uploadKey(): void {
+    function uploadKey(kind: string): void {
         const input = document.createElement('input')
         input.type = 'file'
         input.accept = '.json'
@@ -69,7 +69,7 @@ export function IntegrationChoice({
                     ? {
                           items: [
                               {
-                                  onClick: () => uploadKey(),
+                                  onClick: () => uploadKey(kind),
                                   label: 'Upload Google Cloud .json key file',
                               },
                           ],
