@@ -2,7 +2,7 @@ import { DateTime } from 'luxon'
 
 import { HogExecutor } from '../../src/cdp/hog-executor'
 import { HogFunctionManager } from '../../src/cdp/hog-function-manager'
-import { HogFunctionAsyncFunctionResponse, HogFunctionType } from '../../src/cdp/types'
+import { HogFunctionInvocation, HogFunctionType } from '../../src/cdp/types'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './examples'
 import {
     createHogExecutionGlobals,
@@ -11,8 +11,9 @@ import {
     insertHogFunction as _insertHogFunction,
 } from './fixtures'
 
-const createAsyncFunctionResponse = (response?: Record<string, any>): HogFunctionAsyncFunctionResponse => {
-    return {
+const setupFetchResponse = (invocation: HogFunctionInvocation, options?: { status?: number; body?: string }): void => {
+    invocation.queue = 'hog'
+    invocation.queueParameters = {
         timings: [
             {
                 kind: 'async_function',
@@ -20,11 +21,10 @@ const createAsyncFunctionResponse = (response?: Record<string, any>): HogFunctio
             },
         ],
         response: {
-            status: 200,
-            body: 'success',
-            ...response,
+            status: options?.status ?? 200,
         },
     }
+    invocation.queueBlob = Buffer.from(options?.body ?? 'success')
 }
 
 describe('Hog Executor', () => {
@@ -69,6 +69,7 @@ describe('Hog Executor', () => {
                     hogFunction: invocation.hogFunction,
                     queue: 'fetch',
                     queueParameters: expect.any(Object),
+                    queueBlob: expect.any(Buffer),
                     timings: [
                         {
                             kind: 'hog',
@@ -133,7 +134,8 @@ describe('Hog Executor', () => {
                 },
             })
 
-            expect(JSON.parse(result.invocation.queueParameters!.body)).toEqual({
+            const body = JSON.parse(Buffer.from(result.invocation.queueBlob!).toString())
+            expect(body).toEqual({
                 event: {
                     uuid: 'uuid',
                     name: 'test',
@@ -163,8 +165,7 @@ describe('Hog Executor', () => {
             expect(result.invocation.vmState).toBeDefined()
 
             // Simulate what the callback does
-            result.invocation.queue = 'hog'
-            result.invocation.queueParameters = createAsyncFunctionResponse()
+            setupFetchResponse(result.invocation)
 
             const secondResult = executor.execute(result.invocation)
             logs.push(...secondResult.logs)
@@ -185,10 +186,7 @@ describe('Hog Executor', () => {
         it('parses the responses body if a string', () => {
             const result = executor.execute(createInvocation(hogFunction))
             const logs = result.logs.splice(0, 100)
-            result.invocation.queue = 'hog'
-            result.invocation.queueParameters = createAsyncFunctionResponse({
-                body: JSON.stringify({ foo: 'bar' }),
-            })
+            setupFetchResponse(result.invocation, { body: JSON.stringify({ foo: 'bar' }) })
 
             const secondResult = executor.execute(result.invocation)
             logs.push(...secondResult.logs)
@@ -399,18 +397,16 @@ describe('Hog Executor', () => {
             // Start the function
             const result1 = executor.execute(invocation)
             // Run the response one time simulating a successful fetch
-            result1.invocation.queue = 'hog'
-            result1.invocation.queueParameters = createAsyncFunctionResponse()
+            setupFetchResponse(result1.invocation)
             const result2 = executor.execute(result1.invocation)
             expect(result2.finished).toBe(false)
             expect(result2.error).toBe(undefined)
             expect(result2.invocation.queue).toBe('fetch')
 
             // This time we should see an error for hitting the loop limit
-            result2.invocation.queue = 'hog'
-            result2.invocation.queueParameters = createAsyncFunctionResponse()
+            setupFetchResponse(result2.invocation)
             const result3 = executor.execute(result1.invocation)
-            expect(result3.finished).toBe(false)
+            expect(result3.finished).toBe(true)
             expect(result3.error).toEqual('Exceeded maximum number of async steps: 2')
             expect(result3.logs.map((log) => log.message)).toEqual([
                 'Resuming function',

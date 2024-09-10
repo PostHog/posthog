@@ -12,7 +12,7 @@ import {
     HogFunctionQueueParametersFetchRequest,
     HogFunctionQueueParametersFetchResponse,
 } from './types'
-import { gzipObject, serializeInvocation } from './utils'
+import { gzipObject, queueBlobToString, serializeHogFunctionInvocation } from './utils'
 
 export const BUCKETS_KB_WRITTEN = [0, 128, 512, 1024, 2024, 4096, 10240, Infinity]
 
@@ -40,19 +40,22 @@ export class FetchExecutor {
 
     async execute(invocation: HogFunctionInvocation): Promise<HogFunctionInvocationResult | undefined> {
         if (invocation.queue !== 'fetch' || !invocation.queueParameters) {
-            throw new Error('Bad invocation')
+            status.error('🦔', `[HogExecutor] Bad invocation`, { invocation })
+            return
         }
 
         const params = invocation.queueParameters as HogFunctionQueueParametersFetchRequest
-        if (params.body) {
-            histogramFetchPayloadSize.observe(params.body.length / 1024)
+
+        const body = queueBlobToString(invocation.queueBlob)
+        if (body) {
+            histogramFetchPayloadSize.observe(body.length / 1024)
         }
 
         try {
             if (this.hogHookEnabledForTeams(invocation.teamId)) {
                 // This is very temporary until we are commited to Cyclotron
                 const payload: HogFunctionInvocationAsyncRequest = {
-                    state: await gzipObject(serializeInvocation(invocation)),
+                    state: await gzipObject(serializeHogFunctionInvocation(invocation)),
                     teamId: invocation.teamId,
                     hogFunctionId: invocation.hogFunction.id,
                     asyncFunctionRequest: {
@@ -61,6 +64,7 @@ export class FetchExecutor {
                             params.url,
                             {
                                 ...params,
+                                body,
                             },
                         ],
                     },
@@ -88,11 +92,12 @@ export class FetchExecutor {
         }
 
         const params = invocation.queueParameters as HogFunctionQueueParametersFetchRequest
+        const body = queueBlobToString(invocation.queueBlob) || ''
+        let responseBody = ''
 
         const resParams: HogFunctionQueueParametersFetchResponse = {
             response: {
                 status: 0,
-                body: {},
             },
             error: null,
             timings: [],
@@ -102,17 +107,12 @@ export class FetchExecutor {
             const start = performance.now()
             const fetchResponse = await trackedFetch(params.url, {
                 method: params.method,
-                body: params.body,
+                body,
                 headers: params.headers,
                 timeout: this.serverConfig.EXTERNAL_REQUEST_TIMEOUT_MS,
             })
 
-            let responseBody = await fetchResponse.text()
-            try {
-                responseBody = JSON.parse(responseBody)
-            } catch (err) {
-                // Ignore
-            }
+            responseBody = await fetchResponse.text()
 
             const duration = performance.now() - start
 
@@ -123,7 +123,6 @@ export class FetchExecutor {
 
             resParams.response = {
                 status: fetchResponse.status,
-                body: responseBody,
             }
         } catch (err) {
             status.error('🦔', `[HogExecutor] Error during fetch`, { error: String(err) })
@@ -135,6 +134,7 @@ export class FetchExecutor {
                 ...invocation,
                 queue: 'hog',
                 queueParameters: resParams,
+                queueBlob: Buffer.from(responseBody),
             },
             finished: false,
             logs: [],
