@@ -11,11 +11,9 @@ import { useRef } from 'react'
 
 import { SessionRecordingSidebarTab } from '~/types'
 
-import { NetworkView } from '../apm/NetworkView'
 import { PlayerInspectorControls, TabToIcon } from './inspector/PlayerInspectorControls'
 import { PlayerInspectorList } from './inspector/PlayerInspectorList'
 import { playerSettingsLogic } from './playerSettingsLogic'
-import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
 import { playerSidebarLogic } from './sidebar/playerSidebarLogic'
 
 export function PlayerSidebar({
@@ -27,7 +25,6 @@ export function PlayerSidebar({
 }): JSX.Element {
     const ref = useRef<HTMLDivElement>(null)
 
-    const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { activeTab } = useValues(playerSidebarLogic)
     const { setTab } = useActions(playerSidebarLogic)
@@ -47,7 +44,7 @@ export function PlayerSidebar({
 
     const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
 
-    const sidebarTabs = [SessionRecordingSidebarTab.INSPECTOR, SessionRecordingSidebarTab.WATERFALL]
+    const sidebarTabs = [SessionRecordingSidebarTab.INSPECTOR]
 
     if (window.IMPERSONATED_SESSION || featureFlags[FEATURE_FLAGS.SESSION_REPLAY_DOCTOR]) {
         sidebarTabs.push(SessionRecordingSidebarTab.DEBUGGER)
@@ -105,8 +102,6 @@ export function PlayerSidebar({
                             <PlayerInspectorControls />
                             <PlayerInspectorList />
                         </>
-                    ) : activeTab === SessionRecordingSidebarTab.WATERFALL ? (
-                        <NetworkView sessionRecordingId={logicProps.sessionRecordingId} />
                     ) : (
                         <div>Debugger tab</div>
                     )}

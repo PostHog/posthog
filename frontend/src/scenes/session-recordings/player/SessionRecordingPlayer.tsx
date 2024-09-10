@@ -211,7 +211,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                 </div>
                             ) : (
                                 <>
-                                    <div className="flex justify-between items-center px-2 py-1 border-b pr-[3px]">
+                                    <div className="flex justify-between items-center p-2 border-b pr-[3px]">
                                         <LemonSegmentedButton
                                             value="playback"
                                             options={[
