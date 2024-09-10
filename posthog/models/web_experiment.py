@@ -1,4 +1,3 @@
-# type: ignore
 from django.db import models
 from posthog.models import Experiment
 
@@ -9,7 +8,7 @@ class WebExperimentManager(models.Manager):
 
 
 class WebExperiment(Experiment):
-    objects = WebExperimentManager()
+    objects = WebExperimentManager()  # type: ignore
 
     class Meta:
         proxy = True
