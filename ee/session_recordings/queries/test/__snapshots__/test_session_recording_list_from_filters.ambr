@@ -8,9 +8,9 @@
          max(toTimeZone(s.max_last_timestamp, %(hogql_val_1)s)) AS end_time,
          dateDiff(%(hogql_val_2)s, start_time, end_time) AS duration,
          argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
          divide(sum(s.active_milliseconds), 1000) AS active_seconds,
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
@@ -23,7 +23,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                        WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_6)s), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, %(hogql_val_7)s), now64(6, %(hogql_val_8)s)), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_9)s), toDateTime64('2020-12-24 23:58:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, %(hogql_val_10)s), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), ifNull(equals(nullIf(nullIf(mat_pp_rgInternal, ''), 'null'), %(hogql_val_11)s), 0))
                                                                                                                                                                                                                                                                                                                                                                                                                                                        GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                                                                                                                                                                                        HAVING 1)))
-  GROUP BY s.session_id
+  GROUP BY session_id
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 50000
@@ -38,9 +38,9 @@
          max(toTimeZone(s.max_last_timestamp, %(hogql_val_1)s)) AS end_time,
          dateDiff(%(hogql_val_2)s, start_time, end_time) AS duration,
          argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
          divide(sum(s.active_milliseconds), 1000) AS active_seconds,
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
@@ -62,7 +62,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                           GROUP BY person.id
                                                                                                                                                                                                                                                                                                                                                                                                                                                           HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_7)s), person.version), plus(now64(6, %(hogql_val_8)s), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids__person ON equals(person_distinct_ids.person_distinct_ids___person_id, person_distinct_ids__person.id)
                                                                                                                                                                                                                                                                                                                                                                                                                                                        WHERE ifNull(equals(person_distinct_ids__person.properties___rgInternal, %(hogql_val_9)s), 0))))
-  GROUP BY s.session_id
+  GROUP BY session_id
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 50000
@@ -77,9 +77,9 @@
          max(toTimeZone(s.max_last_timestamp, %(hogql_val_1)s)) AS end_time,
          dateDiff(%(hogql_val_2)s, start_time, end_time) AS duration,
          argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
          divide(sum(s.active_milliseconds), 1000) AS active_seconds,
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
@@ -101,7 +101,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                           GROUP BY person.id
                                                                                                                                                                                                                                                                                                                                                                                                                                                           HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_7)s), person.version), plus(now64(6, %(hogql_val_8)s), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids__person ON equals(person_distinct_ids.person_distinct_ids___person_id, person_distinct_ids__person.id)
                                                                                                                                                                                                                                                                                                                                                                                                                                                        WHERE ifNull(equals(person_distinct_ids__person.properties___rgInternal, %(hogql_val_9)s), 0))))
-  GROUP BY s.session_id
+  GROUP BY session_id
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 50000
@@ -116,9 +116,9 @@
          max(toTimeZone(s.max_last_timestamp, %(hogql_val_1)s)) AS end_time,
          dateDiff(%(hogql_val_2)s, start_time, end_time) AS duration,
          argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
          divide(sum(s.active_milliseconds), 1000) AS active_seconds,
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
@@ -131,7 +131,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                        WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_6)s), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, %(hogql_val_7)s), now64(6, %(hogql_val_8)s)), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_9)s), toDateTime64('2020-12-24 23:58:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, %(hogql_val_10)s), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), ifNull(equals(nullIf(nullIf(mat_pp_rgInternal, ''), 'null'), %(hogql_val_11)s), 0))
                                                                                                                                                                                                                                                                                                                                                                                                                                                        GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                                                                                                                                                                                        HAVING 1)))
-  GROUP BY s.session_id
+  GROUP BY session_id
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 50000
@@ -146,9 +146,9 @@
          max(toTimeZone(s.max_last_timestamp, %(hogql_val_1)s)) AS end_time,
          dateDiff(%(hogql_val_2)s, start_time, end_time) AS duration,
          argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
          divide(sum(s.active_milliseconds), 1000) AS active_seconds,
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
@@ -161,7 +161,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                        WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_6)s), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, %(hogql_val_7)s), now64(6, %(hogql_val_8)s)), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_9)s), toDateTime64('2020-12-24 23:58:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, %(hogql_val_10)s), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), ifNull(equals(nullIf(nullIf(mat_pp_rgInternal, ''), 'null'), %(hogql_val_11)s), 0))
                                                                                                                                                                                                                                                                                                                                                                                                                                                        GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                                                                                                                                                                                        HAVING 1)))
-  GROUP BY s.session_id
+  GROUP BY session_id
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 50000
@@ -176,9 +176,9 @@
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
          argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
          divide(sum(s.active_milliseconds), 1000) AS active_seconds,
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
@@ -186,7 +186,7 @@
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
-  GROUP BY s.session_id
+  GROUP BY session_id
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
@@ -208,9 +208,9 @@
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
          argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
          divide(sum(s.active_milliseconds), 1000) AS active_seconds,
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
@@ -223,7 +223,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                          WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-24 23:58:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), ifNull(equals(nullIf(nullIf(mat_pp_email, ''), 'null'), 'bla'), 0))
                                                                                                                                                                                                                                                                                                                                                                                                                          GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                                                                                                                                                          HAVING 1)))
-  GROUP BY s.session_id
+  GROUP BY session_id
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
@@ -245,9 +245,9 @@
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
          argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
          divide(sum(s.active_milliseconds), 1000) AS active_seconds,
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
@@ -255,7 +255,7 @@
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
-  GROUP BY s.session_id
+  GROUP BY session_id
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
@@ -277,9 +277,9 @@
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
          argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
          divide(sum(s.active_milliseconds), 1000) AS active_seconds,
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
@@ -292,7 +292,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                          WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-24 23:58:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), ifNull(equals(nullIf(nullIf(mat_pp_email, ''), 'null'), 'bla'), 0))
                                                                                                                                                                                                                                                                                                                                                                                                                          GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                                                                                                                                                          HAVING 1)))
-  GROUP BY s.session_id
+  GROUP BY session_id
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
@@ -314,9 +314,9 @@
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
          argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
          divide(sum(s.active_milliseconds), 1000) AS active_seconds,
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
@@ -324,7 +324,7 @@
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
-  GROUP BY s.session_id
+  GROUP BY session_id
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
@@ -346,9 +346,9 @@
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
          argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
          divide(sum(s.active_milliseconds), 1000) AS active_seconds,
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
@@ -361,7 +361,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                          WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-24 23:58:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), ifNull(equals(nullIf(nullIf(mat_pp_email, ''), 'null'), 'bla'), 0))
                                                                                                                                                                                                                                                                                                                                                                                                                          GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                                                                                                                                                          HAVING 1)))
-  GROUP BY s.session_id
+  GROUP BY session_id
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
@@ -383,9 +383,9 @@
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
          argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
          divide(sum(s.active_milliseconds), 1000) AS active_seconds,
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
@@ -393,7 +393,7 @@
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
-  GROUP BY s.session_id
+  GROUP BY session_id
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
@@ -415,9 +415,9 @@
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
          argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
          divide(sum(s.active_milliseconds), 1000) AS active_seconds,
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
@@ -430,7 +430,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                          WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-24 23:58:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), ifNull(equals(nullIf(nullIf(mat_pp_email, ''), 'null'), 'bla'), 0))
                                                                                                                                                                                                                                                                                                                                                                                                                          GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                                                                                                                                                          HAVING 1)))
-  GROUP BY s.session_id
+  GROUP BY session_id
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
@@ -452,9 +452,9 @@
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
          argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
          divide(sum(s.active_milliseconds), 1000) AS active_seconds,
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
@@ -462,7 +462,7 @@
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
-  GROUP BY s.session_id
+  GROUP BY session_id
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
@@ -484,9 +484,9 @@
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
          argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
          divide(sum(s.active_milliseconds), 1000) AS active_seconds,
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
@@ -511,7 +511,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                               GROUP BY person.id
                                                                                                                                                                                                                                                                                                                                                                                                                                                                               HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids__person ON equals(person_distinct_ids.person_distinct_ids___person_id, person_distinct_ids__person.id)
                                                                                                                                                                                                                                                                                                                                                                                                                          WHERE ifNull(equals(person_distinct_ids__person.properties___email, 'bla'), 0))))
-  GROUP BY s.session_id
+  GROUP BY session_id
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
@@ -533,9 +533,9 @@
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
          argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
          divide(sum(s.active_milliseconds), 1000) AS active_seconds,
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
@@ -543,7 +543,7 @@
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
-  GROUP BY s.session_id
+  GROUP BY session_id
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
@@ -565,9 +565,9 @@
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
          argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
          divide(sum(s.active_milliseconds), 1000) AS active_seconds,
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
@@ -592,7 +592,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                               GROUP BY person.id
                                                                                                                                                                                                                                                                                                                                                                                                                                                                               HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids__person ON equals(person_distinct_ids.person_distinct_ids___person_id, person_distinct_ids__person.id)
                                                                                                                                                                                                                                                                                                                                                                                                                          WHERE ifNull(equals(person_distinct_ids__person.properties___email, 'bla'), 0))))
-  GROUP BY s.session_id
+  GROUP BY session_id
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
@@ -614,9 +614,9 @@
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
          argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
          divide(sum(s.active_milliseconds), 1000) AS active_seconds,
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
@@ -624,7 +624,7 @@
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
-  GROUP BY s.session_id
+  GROUP BY session_id
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
@@ -646,9 +646,9 @@
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
          argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
          divide(sum(s.active_milliseconds), 1000) AS active_seconds,
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
@@ -673,7 +673,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                               GROUP BY person.id
                                                                                                                                                                                                                                                                                                                                                                                                                                                                               HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids__person ON equals(person_distinct_ids.person_distinct_ids___person_id, person_distinct_ids__person.id)
                                                                                                                                                                                                                                                                                                                                                                                                                          WHERE ifNull(equals(person_distinct_ids__person.properties___email, 'bla'), 0))))
-  GROUP BY s.session_id
+  GROUP BY session_id
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
@@ -695,9 +695,9 @@
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
          argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
          divide(sum(s.active_milliseconds), 1000) AS active_seconds,
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
@@ -705,7 +705,7 @@
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
-  GROUP BY s.session_id
+  GROUP BY session_id
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
@@ -727,9 +727,9 @@
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
          argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
          divide(sum(s.active_milliseconds), 1000) AS active_seconds,
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
@@ -754,7 +754,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                               GROUP BY person.id
                                                                                                                                                                                                                                                                                                                                                                                                                                                                               HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids__person ON equals(person_distinct_ids.person_distinct_ids___person_id, person_distinct_ids__person.id)
                                                                                                                                                                                                                                                                                                                                                                                                                          WHERE ifNull(equals(person_distinct_ids__person.properties___email, 'bla'), 0))))
-  GROUP BY s.session_id
+  GROUP BY session_id
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
@@ -776,9 +776,9 @@
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
          argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
          divide(sum(s.active_milliseconds), 1000) AS active_seconds,
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
@@ -786,7 +786,7 @@
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
-  GROUP BY s.session_id
+  GROUP BY session_id
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
@@ -808,9 +808,9 @@
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
          argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
          divide(sum(s.active_milliseconds), 1000) AS active_seconds,
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
@@ -823,7 +823,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                          WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-24 23:58:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), ifNull(equals(nullIf(nullIf(mat_pp_email, ''), 'null'), 'bla'), 0))
                                                                                                                                                                                                                                                                                                                                                                                                                          GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                                                                                                                                                          HAVING 1)))
-  GROUP BY s.session_id
+  GROUP BY session_id
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
@@ -845,9 +845,9 @@
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
          argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
          divide(sum(s.active_milliseconds), 1000) AS active_seconds,
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
@@ -855,7 +855,7 @@
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
-  GROUP BY s.session_id
+  GROUP BY session_id
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
@@ -877,9 +877,9 @@
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
          argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
          divide(sum(s.active_milliseconds), 1000) AS active_seconds,
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
@@ -892,7 +892,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                          WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-24 23:58:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), ifNull(equals(nullIf(nullIf(mat_pp_email, ''), 'null'), 'bla'), 0))
                                                                                                                                                                                                                                                                                                                                                                                                                          GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                                                                                                                                                          HAVING 1)))
-  GROUP BY s.session_id
+  GROUP BY session_id
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
@@ -914,9 +914,9 @@
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
          argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
          divide(sum(s.active_milliseconds), 1000) AS active_seconds,
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
@@ -924,7 +924,7 @@
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
-  GROUP BY s.session_id
+  GROUP BY session_id
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
@@ -946,9 +946,9 @@
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
          argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
          divide(sum(s.active_milliseconds), 1000) AS active_seconds,
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
@@ -961,7 +961,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                          WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-24 23:58:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), ifNull(equals(nullIf(nullIf(mat_pp_email, ''), 'null'), 'bla'), 0))
                                                                                                                                                                                                                                                                                                                                                                                                                          GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                                                                                                                                                          HAVING 1)))
-  GROUP BY s.session_id
+  GROUP BY session_id
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
@@ -983,9 +983,9 @@
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
          argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
          divide(sum(s.active_milliseconds), 1000) AS active_seconds,
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
@@ -993,7 +993,7 @@
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
-  GROUP BY s.session_id
+  GROUP BY session_id
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
@@ -1015,9 +1015,9 @@
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
          argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
          divide(sum(s.active_milliseconds), 1000) AS active_seconds,
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
@@ -1030,7 +1030,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                          WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-24 23:58:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), ifNull(equals(nullIf(nullIf(mat_pp_email, ''), 'null'), 'bla'), 0))
                                                                                                                                                                                                                                                                                                                                                                                                                          GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                                                                                                                                                          HAVING 1)))
-  GROUP BY s.session_id
+  GROUP BY session_id
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
@@ -1052,20 +1052,20 @@
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
          argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
          divide(sum(s.active_milliseconds), 1000) AS active_seconds,
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), in(session_id,
                                                                                                                                                                    (SELECT DISTINCT events.`$session_id` AS `$session_id`
                                                                                                                                                                     FROM events
                                                                                                                                                                     WHERE and(equals(events.team_id, 2), equals(events.person_id, '00000000-0000-0000-0000-000000000000'), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), notEmpty(events.`$session_id`)))), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
-  GROUP BY s.session_id
+  GROUP BY session_id
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
@@ -1087,20 +1087,20 @@
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
          argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
          divide(sum(s.active_milliseconds), 1000) AS active_seconds,
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), in(session_id,
                                                                                                                                                                    (SELECT DISTINCT events.`$session_id` AS `$session_id`
                                                                                                                                                                     FROM events
                                                                                                                                                                     WHERE and(equals(events.team_id, 2), equals(events.person_id, '00000000-0000-0000-0000-000000000000'), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), notEmpty(events.`$session_id`)))), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
-  GROUP BY s.session_id
+  GROUP BY session_id
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
@@ -1122,20 +1122,20 @@
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
          argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
          divide(sum(s.active_milliseconds), 1000) AS active_seconds,
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), in(session_id,
                                                                                                                                                                    (SELECT DISTINCT events.`$session_id` AS `$session_id`
                                                                                                                                                                     FROM events
                                                                                                                                                                     WHERE and(equals(events.team_id, 2), equals(events.person_id, '00000000-0000-0000-0000-000000000000'), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), notEmpty(events.`$session_id`)))), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
-  GROUP BY s.session_id
+  GROUP BY session_id
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
@@ -1157,20 +1157,20 @@
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
          argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
          divide(sum(s.active_milliseconds), 1000) AS active_seconds,
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), in(session_id,
                                                                                                                                                                    (SELECT DISTINCT events.`$session_id` AS `$session_id`
                                                                                                                                                                     FROM events
                                                                                                                                                                     WHERE and(equals(events.team_id, 2), equals(events.person_id, '00000000-0000-0000-0000-000000000000'), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), notEmpty(events.`$session_id`)))), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
-  GROUP BY s.session_id
+  GROUP BY session_id
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
@@ -1192,9 +1192,9 @@
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
          argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
          divide(sum(s.active_milliseconds), 1000) AS active_seconds,
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
@@ -1210,7 +1210,7 @@
                                                                                                                                                                        GROUP BY person_distinct_id2.distinct_id
                                                                                                                                                                        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
                                                                                                                                                                     WHERE ifNull(equals(person_distinct_ids.person_id, '00000000-0000-0000-0000-000000000000'), 0))), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
-  GROUP BY s.session_id
+  GROUP BY session_id
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
@@ -1232,9 +1232,9 @@
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
          argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
          divide(sum(s.active_milliseconds), 1000) AS active_seconds,
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
@@ -1250,7 +1250,7 @@
                                                                                                                                                                        GROUP BY person_distinct_id2.distinct_id
                                                                                                                                                                        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
                                                                                                                                                                     WHERE ifNull(equals(person_distinct_ids.person_id, '00000000-0000-0000-0000-000000000000'), 0))), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
-  GROUP BY s.session_id
+  GROUP BY session_id
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
@@ -1272,9 +1272,9 @@
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
          argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
          divide(sum(s.active_milliseconds), 1000) AS active_seconds,
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
@@ -1290,7 +1290,7 @@
                                                                                                                                                                        GROUP BY person_distinct_id2.distinct_id
                                                                                                                                                                        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
                                                                                                                                                                     WHERE ifNull(equals(person_distinct_ids.person_id, '00000000-0000-0000-0000-000000000000'), 0))), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
-  GROUP BY s.session_id
+  GROUP BY session_id
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
@@ -1312,9 +1312,9 @@
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
          argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
          divide(sum(s.active_milliseconds), 1000) AS active_seconds,
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
@@ -1330,7 +1330,7 @@
                                                                                                                                                                        GROUP BY person_distinct_id2.distinct_id
                                                                                                                                                                        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
                                                                                                                                                                     WHERE ifNull(equals(person_distinct_ids.person_id, '00000000-0000-0000-0000-000000000000'), 0))), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
-  GROUP BY s.session_id
+  GROUP BY session_id
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
@@ -1352,16 +1352,16 @@
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
          argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
          divide(sum(s.active_milliseconds), 1000) AS active_seconds,
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), in(session_id,
                                                                                                                                                                    (SELECT DISTINCT events.`$session_id` AS `$session_id`
                                                                                                                                                                     FROM events
                                                                                                                                                                     LEFT OUTER JOIN
@@ -1371,7 +1371,7 @@
                                                                                                                                                                        GROUP BY person_distinct_id_overrides.distinct_id
                                                                                                                                                                        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                                                                                                                                                                     WHERE and(equals(events.team_id, 2), ifNull(equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), '00000000-0000-0000-0000-000000000000'), 0), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), notEmpty(events.`$session_id`)))), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
-  GROUP BY s.session_id
+  GROUP BY session_id
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
@@ -1393,16 +1393,16 @@
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
          argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
          divide(sum(s.active_milliseconds), 1000) AS active_seconds,
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), in(session_id,
                                                                                                                                                                    (SELECT DISTINCT events.`$session_id` AS `$session_id`
                                                                                                                                                                     FROM events
                                                                                                                                                                     LEFT OUTER JOIN
@@ -1412,7 +1412,7 @@
                                                                                                                                                                        GROUP BY person_distinct_id_overrides.distinct_id
                                                                                                                                                                        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                                                                                                                                                                     WHERE and(equals(events.team_id, 2), ifNull(equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), '00000000-0000-0000-0000-000000000000'), 0), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), notEmpty(events.`$session_id`)))), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
-  GROUP BY s.session_id
+  GROUP BY session_id
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
@@ -1434,16 +1434,16 @@
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
          argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
          divide(sum(s.active_milliseconds), 1000) AS active_seconds,
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), in(session_id,
                                                                                                                                                                    (SELECT DISTINCT events.`$session_id` AS `$session_id`
                                                                                                                                                                     FROM events
                                                                                                                                                                     LEFT OUTER JOIN
@@ -1453,7 +1453,7 @@
                                                                                                                                                                        GROUP BY person_distinct_id_overrides.distinct_id
                                                                                                                                                                        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                                                                                                                                                                     WHERE and(equals(events.team_id, 2), ifNull(equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), '00000000-0000-0000-0000-000000000000'), 0), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), notEmpty(events.`$session_id`)))), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
-  GROUP BY s.session_id
+  GROUP BY session_id
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
@@ -1475,16 +1475,16 @@
          max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
          dateDiff('SECOND', start_time, end_time) AS duration,
          argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
          divide(sum(s.active_milliseconds), 1000) AS active_seconds,
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), in(session_id,
                                                                                                                                                                    (SELECT DISTINCT events.`$session_id` AS `$session_id`
                                                                                                                                                                     FROM events
                                                                                                                                                                     LEFT OUTER JOIN
@@ -1494,7 +1494,7 @@
                                                                                                                                                                        GROUP BY person_distinct_id_overrides.distinct_id
                                                                                                                                                                        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                                                                                                                                                                     WHERE and(equals(events.team_id, 2), ifNull(equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), '00000000-0000-0000-0000-000000000000'), 0), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), notEmpty(events.`$session_id`)))), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
-  GROUP BY s.session_id
+  GROUP BY session_id
   HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
