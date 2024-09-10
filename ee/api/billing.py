@@ -185,7 +185,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         license = get_cached_instance_license()
         if not license:
             return Response(
-                {"success": True},
+                {"sucess": True},
                 status=status.HTTP_200_OK,
             )
 
@@ -199,7 +199,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         license = get_cached_instance_license()
         if not license:
             return Response(
-                {"success": True},
+                {"sucess": True},
                 status=status.HTTP_200_OK,
             )
 
@@ -232,34 +232,6 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             },
             status=status.HTTP_200_OK,
         )
-
-    @action(methods=["GET"], detail=False, url_path="credits/overview")
-    def credits_overview(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
-        license = get_cached_instance_license()
-        if not license:
-            return Response(
-                {"success": True},
-                status=status.HTTP_200_OK,
-            )
-
-        organization = self._get_org_required()
-
-        res = BillingManager(license).credits_overview(organization)
-        return Response(res, status=status.HTTP_200_OK)
-
-    @action(methods=["POST"], detail=False, url_path="credits/purchase")
-    def purchase_credits(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
-        license = get_cached_instance_license()
-        if not license:
-            return Response(
-                {"success": True},
-                status=status.HTTP_200_OK,
-            )
-
-        organization = self._get_org_required()
-
-        res = BillingManager(license).purchase_credits(organization, request.data)
-        return Response(res, status=status.HTTP_200_OK)
 
     @action(methods=["PATCH"], detail=False)
     def license(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
