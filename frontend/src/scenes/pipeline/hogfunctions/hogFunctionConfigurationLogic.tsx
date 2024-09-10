@@ -382,22 +382,26 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             (s) => [s.configuration, s.currentTeam, s.groupTypes],
             (configuration, currentTeam, groupTypes): HogFunctionInvocationGlobals => {
                 const currentUrl = window.location.href.split('#')[0]
+                const personId = uuid()
                 const globals: HogFunctionInvocationGlobals = {
                     event: {
                         uuid: uuid(),
                         distinct_id: uuid(),
-                        name: '$pageview',
+                        event: '$pageview',
                         timestamp: dayjs().toISOString(),
-                        url: `${window.location.origin}/project/${currentTeam?.id}/events/`,
+                        elements_chain: '',
                         properties: {
                             $current_url: currentUrl,
                             $browser: 'Chrome',
                         },
+                        name: '$pageview',
+                        url: `${window.location.origin}/project/${currentTeam?.id}/events/`,
                     },
                     person: {
-                        uuid: uuid(),
+                        id: personId,
+                        uuid: personId,
                         name: 'Example person',
-                        url: `${window.location.origin}/person/${uuid()}`,
+                        url: `${window.location.origin}/person/${personId}`,
                         properties: {
                             email: 'example@posthog.com',
                         },
