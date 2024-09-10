@@ -12,7 +12,7 @@ export RUST_LOG=${DEBUG:-debug}
 SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
 export RUST_LOG=$RUST_LOG,sqlx::query=$SQLX_QUERY_LEVEL
 
-export DATABASE_URL=${DATABASE_URL:-postgres://posthog:posthog@localhost:5432/posthog}
+export DATABASE_URL=${CYCLOTRON_DATABASE_URL:-postgres://posthog:posthog@localhost:5432/cyclotron}
 export ALLOW_INTERNAL_IPS=${ALLOW_INTERNAL_IPS:-true}
 
 ./target/debug/cyclotron-fetch &

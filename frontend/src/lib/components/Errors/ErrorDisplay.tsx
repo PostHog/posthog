@@ -71,7 +71,7 @@ function ChainedStackTraces({ exceptionList }: { exceptionList: ExceptionTrace[]
                 return (
                     <div key={index} className="flex flex-col gap-1 mt-6">
                         <h3 className="mb-0">{value}</h3>
-                        <StackTrace rawTrace={JSON.stringify(stacktrace.frames)} />
+                        <StackTrace rawTrace={JSON.stringify(stacktrace?.frames || [])} />
                     </div>
                 )
             })}

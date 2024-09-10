@@ -2,7 +2,7 @@ import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { AutoplayDirection, DurationType, SessionRecordingPlayerTab, SessionRecordingSidebarStacking } from '~/types'
+import { AutoplayDirection, SessionRecordingPlayerTab, SessionRecordingSidebarStacking } from '~/types'
 
 import type { playerSettingsLogicType } from './playerSettingsLogicType'
 
@@ -186,7 +186,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setTab: (tab: SessionRecordingPlayerTab) => ({ tab }),
         setMiniFilter: (key: string, enabled: boolean) => ({ key, enabled }),
         setSearchQuery: (search: string) => ({ search }),
-        setDurationTypeToShow: (type: DurationType) => ({ type }),
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
         setQuickFilterProperties: (properties: string[]) => ({ properties }),
         setTimestampFormat: (format: TimestampFormat) => ({ format }),
@@ -215,13 +214,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             },
             {
                 setQuickFilterProperties: (_, { properties }) => properties,
-            },
-        ],
-        durationTypeToShow: [
-            'duration' as DurationType,
-            { persist: true },
-            {
-                setDurationTypeToShow: (_, { type }) => type,
             },
         ],
         speed: [
