@@ -45,7 +45,9 @@ class TestTeamAndOrgViewSetMixin(APIBaseTest):
         super().setUp()
         other_org, _, other_org_team = Organization.objects.bootstrap(user=self.user)
         self.other_org_annotation = Annotation.objects.create(team=other_org_team, organization=other_org)
-        _, other_project_team = Project.objects.create_with_team(organization=self.organization)
+        _, other_project_team = Project.objects.create_with_team(
+            initiating_user=self.user, organization=self.organization
+        )
         self.other_project_annotation = Annotation.objects.create(
             team=other_project_team, organization=self.organization
         )

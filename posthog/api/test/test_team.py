@@ -268,7 +268,7 @@ def team_api_test_factory():
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
 
-            team: Team = Team.objects.create_with_data(organization=self.organization)
+            team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
 
             response = self.client.delete(f"/api/environments/{team.id}")
             assert response.status_code == 204
@@ -345,7 +345,7 @@ def team_api_test_factory():
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
 
-            team: Team = Team.objects.create_with_data(organization=self.organization)
+            team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
 
             self.assertEqual(Team.objects.filter(organization=self.organization).count(), 2)
 
@@ -384,7 +384,7 @@ def team_api_test_factory():
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
 
-            team: Team = Team.objects.create_with_data(organization=self.organization)
+            team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
 
             self.assertEqual(Team.objects.filter(organization=self.organization).count(), 2)
 
@@ -434,7 +434,7 @@ def team_api_test_factory():
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
 
-            team: Team = Team.objects.create_with_data(organization=self.organization)
+            team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
 
             destination_data = {
                 "type": "S3",
@@ -543,6 +543,9 @@ def team_api_test_factory():
             self.assertEqual(response_data["primary_dashboard"], d.id)
 
         def test_cant_set_primary_dashboard_to_another_teams_dashboard(self):
+            self.team.primary_dashboard_id = None  # Remove the default primary dashboard from the picture
+            self.team.save()
+
             team_2 = Team.objects.create(organization=self.organization, name="Default project")
             d = Dashboard.objects.create(name="Test", team=team_2)
 
@@ -563,6 +566,14 @@ def team_api_test_factory():
             response = self.client.get(f"/api/environments/{self.team.id}/is_generating_demo_data/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(response.json(), {"is_generating_demo_data": False})
+
+        @patch("posthog.tasks.demo_create_data.create_data_for_demo_team.delay")
+        def test_org_member_can_create_demo_project(self, mock_create_data_for_demo_team: MagicMock):
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+            response = self.client.post("/api/environments/", {"name": "Hedgebox", "is_demo": True})
+            mock_create_data_for_demo_team.assert_called_once()
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         @freeze_time("2022-02-08")
         def test_team_float_config_can_be_serialized_to_activity_log(self):

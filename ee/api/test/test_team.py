@@ -56,7 +56,7 @@ def team_enterprise_api_test_factory():  # type: ignore
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
             response = self.client.post("/api/environments/", {"name": "Hedgebox", "is_demo": True})
-            self.assertEqual(Team.objects.count(), 2)
+            self.assertEqual(Team.objects.count(), 3)
             self.assertEqual(response.status_code, 201)
             response_data = response.json()
             self.assertDictContainsSubset(
@@ -73,7 +73,7 @@ def team_enterprise_api_test_factory():  # type: ignore
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
             response = self.client.post("/api/environments/", {"name": "Hedgebox", "is_demo": True})
-            self.assertEqual(Team.objects.count(), 2)
+            self.assertEqual(Team.objects.count(), 3)
             self.assertEqual(response.status_code, 201)
             response_data = response.json()
             self.assertDictContainsSubset(
@@ -85,7 +85,7 @@ def team_enterprise_api_test_factory():  # type: ignore
                 response_data,
             )
             response_2 = self.client.post("/api/environments/", {"name": "Hedgebox", "is_demo": True})
-            self.assertEqual(Team.objects.count(), 2)
+            self.assertEqual(Team.objects.count(), 3)
             response_2_data = response_2.json()
             self.assertDictContainsSubset(
                 {

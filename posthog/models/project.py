@@ -7,11 +7,13 @@ from django.core.validators import MinLengthValidator
 from posthog.models.utils import sane_repr
 
 if TYPE_CHECKING:
-    from .team import Team
+    from posthog.models import Team, User
 
 
 class ProjectManager(models.Manager):
-    def create_with_team(self, *, team_fields: Optional[dict] = None, **kwargs) -> tuple["Project", "Team"]:
+    def create_with_team(
+        self, *, team_fields: Optional[dict] = None, initiating_user: Optional["User"], **kwargs
+    ) -> tuple["Project", "Team"]:
         from .team import Team
 
         if team_fields is None:
@@ -22,8 +24,12 @@ class ProjectManager(models.Manager):
         with transaction.atomic(using=self.db):
             common_id = Team.objects.increment_id_sequence()
             project = cast("Project", self.create(id=common_id, **kwargs))
-            team = Team.objects.create(
-                id=common_id, organization_id=project.organization_id, project=project, **team_fields
+            team = Team.objects.create_with_data(
+                id=common_id,
+                organization_id=project.organization_id,
+                project=project,
+                initiating_user=initiating_user,
+                **team_fields,
             )
             return project, team
 

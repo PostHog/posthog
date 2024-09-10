@@ -210,7 +210,10 @@ class ProjectSerializer(ProjectBasicSerializer, UserPermissionsSerializerMixin):
             if field_name in self.Meta.team_passthrough_fields:
                 team_fields[field_name] = validated_data.pop(field_name)
         project, team = Project.objects.create_with_team(
-            organization_id=self.context["view"].organization_id, **validated_data, team_fields=team_fields
+            organization_id=self.context["view"].organization_id,
+            initiating_user=self.context["request"].user,
+            **validated_data,
+            team_fields=team_fields,
         )
 
         request.user.current_team = team

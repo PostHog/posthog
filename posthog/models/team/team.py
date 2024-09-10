@@ -1,7 +1,8 @@
 import re
 from decimal import Decimal
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any, Optional, cast
+from typing import TYPE_CHECKING, Optional, cast
+from uuid import UUID
 from zoneinfo import ZoneInfo
 from django.core.cache import cache
 import posthoganalytics
@@ -26,7 +27,7 @@ from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.instance_setting import get_instance_setting
-from posthog.models.organization import Organization
+from posthog.models.organization import OrganizationMembership
 from posthog.models.signals import mutable_receiver
 from posthog.models.utils import (
     UUIDClassicModel,
@@ -66,7 +67,7 @@ class TeamManager(models.Manager):
     def get_queryset(self):
         return super().get_queryset().defer(*DEPRECATED_ATTRS)
 
-    def set_test_account_filters(self, organization: Optional[Any]) -> list:
+    def set_test_account_filters(self, organization_id: Optional[UUID]) -> list:
         filters = [
             {
                 "key": "$host",
@@ -75,10 +76,12 @@ class TeamManager(models.Manager):
                 "type": "event",
             }
         ]
-        if organization:
-            example_emails = organization.members.only("email")
+        if organization_id:
+            example_emails_raw = OrganizationMembership.objects.filter(organization_id=organization_id).values_list(
+                "user__email", flat=True
+            )
             generic_emails = GenericEmails()
-            example_emails = [email.email for email in example_emails if not generic_emails.is_generic(email.email)]
+            example_emails = [email for email in example_emails_raw if not generic_emails.is_generic(email)]
             if len(example_emails) > 0:
                 example_email = re.search(r"@[\w.]+", example_emails[0])
                 if example_email:
@@ -88,18 +91,25 @@ class TeamManager(models.Manager):
                     ]
         return filters
 
-    def create_with_data(
-        self, user: Any = None, default_dashboards: bool = True, *, organization: Organization, **kwargs
-    ) -> "Team":
-        kwargs["test_account_filters"] = self.set_test_account_filters(organization)
-        team = cast("Team", self.create(organization=organization, **kwargs))
+    def create_with_data(self, *, initiating_user: Optional["User"], **kwargs) -> "Team":
+        team = cast("Team", self.create(**kwargs))
 
-        # Create default dashboards (skipped for demo projects)
-        if default_dashboards:
-            dashboard = Dashboard.objects.db_manager(self.db).create(name="My App Dashboard", pinned=True, team=team)
-            create_dashboard_from_template("DEFAULT_APP", dashboard)
-            team.primary_dashboard = dashboard
-            team.save()
+        if kwargs.get("is_demo"):
+            if initiating_user is None:
+                raise ValueError("initiating_user must be provided when creating a demo team")
+            team.kick_off_demo_data_generation(initiating_user)
+            return team  # Return quickly, as the demo data and setup will be created asynchronously
+
+        team.test_account_filters = self.set_test_account_filters(
+            kwargs.get("organization_id") or kwargs["organization"].id
+        )
+
+        # Create default dashboards
+        dashboard = Dashboard.objects.db_manager(self.db).create(name="My App Dashboard", pinned=True, team=team)
+        create_dashboard_from_template("DEFAULT_APP", dashboard)
+        team.primary_dashboard = dashboard
+
+        team.save()
         return team
 
     def create(self, **kwargs):
@@ -478,7 +488,15 @@ class Team(UUIDClassicModel):
         )
 
     def get_is_generating_demo_data(self) -> bool:
-        return cache.get(f"is_generating_demo_data_{self.pk}") == "True"
+        cache_key = f"is_generating_demo_data_{self.id}"
+        return cache.get(cache_key) == "True"
+
+    def kick_off_demo_data_generation(self, initiating_user: "User") -> None:
+        from posthog.tasks.demo_create_data import create_data_for_demo_team
+
+        cache_key = f"is_generating_demo_data_{self.id}"
+        cache.set(cache_key, "True")  # Create an item in the cache that we can use to see if the demo data is ready
+        create_data_for_demo_team.delay(self.id, initiating_user.id, cache_key)
 
     def all_users_with_access(self) -> QuerySet["User"]:
         from ee.models.explicit_team_membership import ExplicitTeamMembership

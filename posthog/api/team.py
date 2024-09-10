@@ -284,7 +284,11 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 # but ClickHouse doesn't support Saturday as the first day of the week, so we fall back to Sunday
                 validated_data["week_start_day"] = 1 if week_start_day_for_user_ip_location == 1 else 0
 
-        team = Team.objects.create_with_data(organization=self.context["view"].organization, **validated_data)
+        team = Team.objects.create_with_data(
+            initiating_user=self.context["request"].user,
+            organization=self.context["view"].organization,
+            **validated_data,
+        )
 
         request.user.current_team = team
         request.user.team = request.user.current_team  # Update cached property
