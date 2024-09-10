@@ -555,7 +555,7 @@ class QueryMatchingTest:
         # replace session uuids
         # replace arrays like "in(s.session_id, ['ea376ce0-d365-4c75-8015-0407e71a1a28'])"
         query = re.sub(
-            r"in\(s\.session_id, \['[0-9a-f-]{36}'(, '[0-9a-f-]{36}')*\]\)",
+            r"in\((?:s\.)?session_id, \['[0-9a-f-]{36}'(, '[0-9a-f-]{36}')*\]\)",
             r"in(s.session_id, ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000001' /* ... */]",
             query,
         )
