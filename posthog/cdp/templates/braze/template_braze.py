@@ -25,7 +25,7 @@ let getPayload := () -> [{
     'events': [inputs.event]
 }]
 
-fetch(getEndpoint(), {
+let res := fetch(f'{getEndpoint()}/users/track', {
     'method': 'POST',
     'headers': {
         'Authorization': f'Bearer {inputs.apiKey}',
@@ -33,6 +33,12 @@ fetch(getEndpoint(), {
     },
     'body': getPayload()
 })
+
+if (res.status >= 200 and res.status < 300) {
+  print('Event sent successfully!')
+} else {
+  throw Error(f'Error sending event: {res.status} {res.body}')
+}
 """.strip(),
     inputs_schema=[
         {
