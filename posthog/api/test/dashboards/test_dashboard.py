@@ -1162,6 +1162,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(dashboard["name"], valid_template["template_name"], dashboard)
         self.assertEqual(dashboard["description"], valid_template["dashboard_description"])
+        self.assertEqual(
+            dashboard["created_by"], dashboard["created_by"] | {"first_name": "", "email": "user1@posthog.com"}
+        )
 
         self.assertEqual(len(dashboard["tiles"]), 1)
 
