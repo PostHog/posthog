@@ -130,10 +130,6 @@ export const defaultMocks: Mocks = {
             link: null,
             count: 0,
         },
-        '/api/billing/credits/overview': {
-            status: 'None',
-            eligible: false,
-        },
         'https://status.posthog.com/api/v2/summary.json': statusPageAllOK,
     },
     post: {
