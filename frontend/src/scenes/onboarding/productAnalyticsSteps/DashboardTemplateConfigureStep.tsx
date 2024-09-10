@@ -31,7 +31,7 @@ export const OnboardingDashboardTemplateConfigureStep = ({
         variables: activeDashboardTemplate?.variables || [],
     })
     const { variables, allVariablesAreTouched, hasTouchedAnyVariable } = useValues(theDashboardTemplateVariablesLogic)
-    const { goToNextStep } = useActions(onboardingLogic)
+    const { goToNextStep, setStepKey } = useActions(onboardingLogic)
 
     const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -59,32 +59,50 @@ export const OnboardingDashboardTemplateConfigureStep = ({
                                     <div className="absolute inset-0 z-20 rounded flex items-center justify-center">
                                         <LemonCard className="max-w-lg" hoverEffect={false}>
                                             <h2>Select where you want to track events from.</h2>
-                                            <p>
-                                                Not seeing the site you want? Install posthog-js or the HTML snippet
-                                                wherever you want to track events, then come back here.
-                                            </p>
                                             {snippetHosts.length > 0 ? (
-                                                <div className="space-y-2">
-                                                    {snippetHosts.map((host) => (
-                                                        <LemonButton
-                                                            key={`snippet-host-button-${host}`}
-                                                            type="tertiary"
-                                                            status="default"
-                                                            onClick={() => {
-                                                                addUrl(host)
-                                                                setBrowserUrl(host)
-                                                            }}
-                                                            sideIcon={<IconArrowRight />}
-                                                        >
-                                                            {host}
-                                                        </LemonButton>
-                                                    ))}
-                                                </div>
+                                                <>
+                                                    <p>
+                                                        Not seeing the site you want? Install posthog-js or the HTML
+                                                        snippet wherever you want to track events, then come back here.
+                                                    </p>
+                                                    <div className="space-y-2">
+                                                        {snippetHosts.map((host) => (
+                                                            <LemonButton
+                                                                key={`snippet-host-button-${host}`}
+                                                                type="tertiary"
+                                                                status="default"
+                                                                onClick={() => {
+                                                                    addUrl(host)
+                                                                    setBrowserUrl(host)
+                                                                }}
+                                                                sideIcon={<IconArrowRight />}
+                                                            >
+                                                                {host}
+                                                            </LemonButton>
+                                                        ))}
+                                                    </div>
+                                                </>
                                             ) : (
-                                                <p>
-                                                    Hm, we're not finding any available hosts. Head back to the install
-                                                    step to install posthog-js in your frontend.
-                                                </p>
+                                                <>
+                                                    <p className="text-muted">
+                                                        Hm, it looks like you haven't ingested any events from a website
+                                                        yet. To select actions from your site, head back to the{' '}
+                                                        <Link onClick={() => setStepKey(OnboardingStepKey.INSTALL)}>
+                                                            install step
+                                                        </Link>{' '}
+                                                        to install posthog-js in your frontend.
+                                                    </p>
+                                                    <p className="text-muted">
+                                                        You can still create a dashboard using custom event names,
+                                                        though it's not quite as fun.
+                                                    </p>
+                                                    <LemonButton
+                                                        onClick={() => setStepKey(OnboardingStepKey.INSTALL)}
+                                                        type="primary"
+                                                    >
+                                                        Install posthog-js
+                                                    </LemonButton>
+                                                </>
                                             )}
                                         </LemonCard>
                                     </div>

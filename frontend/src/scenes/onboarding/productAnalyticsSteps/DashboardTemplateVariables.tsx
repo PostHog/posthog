@@ -135,82 +135,78 @@ function VariableSelector({
                     </div>
                 </div>
             )}
-            {!hasSelectedSite ? (
-                <LemonBanner type="warning">Please select a site to continue. </LemonBanner>
-            ) : (
-                <div className="flex">
-                    {variable.touched ? (
-                        <>
-                            {!allVariablesAreTouched ||
-                            (allVariablesAreTouched && variables.length !== activeVariableIndex + 1) ? (
-                                <LemonButton
-                                    type="primary"
-                                    status="alt"
-                                    onClick={() =>
-                                        !allVariablesAreTouched
-                                            ? goToNextUntouchedActiveVariableIndex()
-                                            : variables.length !== activeVariableIndex + 1
-                                            ? incrementActiveVariableIndex()
-                                            : null
-                                    }
-                                >
-                                    Continue
-                                </LemonButton>
-                            ) : null}
-                        </>
-                    ) : (
-                        <div className="w-full flex flex-wrap gap-x-2 gap-y-2">
-                            {isCurrentlySelectingElement ? (
-                                <LemonButton
-                                    type="secondary"
-                                    onClick={() => {
-                                        disableElementSelector()
-                                        setNewActionName(null)
-                                        setIsCurrentlySelectingElement(false)
-                                    }}
-                                    icon={<Spinner textColored className="text-muted" />}
-                                    fullWidth
-                                    center
-                                    className="max-w-44"
-                                >
-                                    Cancel selection
-                                </LemonButton>
-                            ) : (
-                                <LemonButton
-                                    type="primary"
-                                    status="alt"
-                                    onClick={() => {
-                                        setShowCustomEventField(false)
-                                        enableElementSelector()
-                                        setNewActionName(variable.name)
-                                        setIsCurrentlySelectingElement(true)
-                                    }}
-                                    icon={<IconTarget />}
-                                    fullWidth
-                                    center
-                                    className="max-w-44"
-                                >
-                                    Select from site
-                                </LemonButton>
-                            )}
+
+            <div className="flex">
+                {variable.touched ? (
+                    <>
+                        {!allVariablesAreTouched ||
+                        (allVariablesAreTouched && variables.length !== activeVariableIndex + 1) ? (
+                            <LemonButton
+                                type="primary"
+                                status="alt"
+                                onClick={() =>
+                                    !allVariablesAreTouched
+                                        ? goToNextUntouchedActiveVariableIndex()
+                                        : variables.length !== activeVariableIndex + 1
+                                        ? incrementActiveVariableIndex()
+                                        : null
+                                }
+                            >
+                                Continue
+                            </LemonButton>
+                        ) : null}
+                    </>
+                ) : (
+                    <div className="w-full flex flex-wrap gap-x-2 gap-y-2">
+                        {isCurrentlySelectingElement ? (
                             <LemonButton
                                 type="secondary"
                                 onClick={() => {
                                     disableElementSelector()
                                     setNewActionName(null)
-                                    setShowCustomEventField(true)
                                     setIsCurrentlySelectingElement(false)
                                 }}
-                                fullWidth
+                                icon={<Spinner textColored className="text-muted" />}
                                 center
-                                className="max-w-44"
+                                className="min-w-44"
                             >
-                                Use custom event
+                                Cancel selection
                             </LemonButton>
-                        </div>
-                    )}
-                </div>
-            )}
+                        ) : (
+                            <LemonButton
+                                type="primary"
+                                status="alt"
+                                onClick={() => {
+                                    setShowCustomEventField(false)
+                                    enableElementSelector()
+                                    setNewActionName(variable.name)
+                                    setIsCurrentlySelectingElement(true)
+                                }}
+                                icon={<IconTarget />}
+                                center
+                                className="min-w-44"
+                                disabledReason={!hasSelectedSite && 'Please select a site to continue'}
+                            >
+                                Select from site
+                            </LemonButton>
+                        )}
+                        <LemonButton
+                            type="secondary"
+                            onClick={() => {
+                                disableElementSelector()
+                                setNewActionName(null)
+                                setShowCustomEventField(true)
+                                setIsCurrentlySelectingElement(false)
+                            }}
+                            fullWidth
+                            center
+                            className="grow max-w-44"
+                        >
+                            Use custom event
+                        </LemonButton>
+                    </div>
+                )}
+            </div>
         </div>
     )
 }
