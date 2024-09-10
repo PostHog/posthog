@@ -1,3 +1,4 @@
+# type: ignore
 from django.db import models
 from posthog.models import Experiment
 
