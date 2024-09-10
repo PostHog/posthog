@@ -46,6 +46,7 @@ from posthog.models.event.sql import (
     DROP_EVENTS_TABLE_SQL,
     DROP_DISTRIBUTED_EVENTS_TABLE_SQL,
     EVENTS_TABLE_SQL,
+    EVENTS_NON_DELETED_VIEW_SQL
 )
 from posthog.models.event.util import bulk_create_events
 from posthog.models.group.sql import TRUNCATE_GROUPS_TABLE_SQL
@@ -1018,6 +1019,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 RAW_SESSIONS_TABLE_MV_SQL(),
                 SESSIONS_VIEW_SQL(),
                 RAW_SESSIONS_VIEW_SQL(),
+                EVENTS_NON_DELETED_VIEW_SQL(),
             ]
         )
 
@@ -1075,6 +1077,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 SESSIONS_VIEW_SQL(),
                 RAW_SESSIONS_VIEW_SQL(),
                 CHANNEL_DEFINITION_DATA_SQL(),
+                EVENTS_NON_DELETED_VIEW_SQL(),
             ]
         )
 

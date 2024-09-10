@@ -18,6 +18,7 @@ from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
 
 EVENTS_DATA_TABLE = lambda: "sharded_events"
 WRITABLE_EVENTS_DATA_TABLE = lambda: "writable_events"
+DISTRIBUTED_EVENTS_TABLE = lambda: "distributed_events"
 
 TRUNCATE_EVENTS_TABLE_SQL = (
     lambda: f"TRUNCATE TABLE IF EXISTS {EVENTS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
@@ -56,6 +57,13 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     {extra_fields}
     {indexes}
 ) ENGINE = {engine}
+"""
+
+EVENTS_VIEW_NON_DELETED_BASE_SQL = """
+CREATE VIEW {view} ON CLUSTER {cluster} AS
+SELECT *
+FROM {table}
+WHERE is_deleted = 0
 """
 
 EVENTS_TABLE_MATERIALIZED_COLUMNS = f"""
@@ -200,12 +208,19 @@ WRITABLE_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
 
 # This table is responsible for reading from events on a cluster setting
 DISTRIBUTED_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
-    table_name="events",
+    table_name=DISTRIBUTED_EVENTS_TABLE(),
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=Distributed(data_table=EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
     extra_fields=KAFKA_COLUMNS + INSERTED_AT_COLUMN,
     materialized_columns=EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS,
     indexes="",
+)
+
+# This view automatically filters out deleted events
+EVENTS_NON_DELETED_VIEW_SQL = lambda: EVENTS_VIEW_NON_DELETED_BASE_SQL.format(
+    view="events",
+    cluster=settings.CLICKHOUSE_CLUSTER,
+    table=DISTRIBUTED_EVENTS_TABLE(),
 )
 
 INSERT_EVENT_SQL = (
