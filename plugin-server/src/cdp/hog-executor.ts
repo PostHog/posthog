@@ -14,7 +14,7 @@ import {
     HogFunctionQueueParametersFetchResponse,
     HogFunctionType,
 } from './types'
-import { convertToHogFunctionFilterGlobal, queueBlobToString } from './utils'
+import { convertToHogFunctionFilterGlobal } from './utils'
 
 const MAX_ASYNC_STEPS = 2
 const MAX_HOG_LOGS = 10
@@ -153,33 +153,25 @@ export class HogExecutor {
         try {
             // If the queueParameter is set then we have an expected format that we want to parse and add to the stack
             if (invocation.queueParameters) {
-                // NOTE: This is all based around the only response type being fetch currently
                 const {
                     logs = [],
                     response = null,
                     error,
                     timings = [],
                 } = invocation.queueParameters as HogFunctionQueueParametersFetchResponse
-                let responseBody: any = undefined
-                if (response) {
-                    // Convert from buffer to string
-                    responseBody = queueBlobToString(invocation.queueBlob)
-                }
 
                 // Reset the queue parameters to be sure
                 invocation.queue = 'hog'
                 invocation.queueParameters = undefined
-                invocation.queueBlob = undefined
-
-                const status = typeof response?.status === 'number' ? response.status : 503
 
                 // Special handling for fetch
-                if (status >= 400) {
+                // TODO: Would be good to have a dedicated value in the fetch response for the status code
+                if (response?.status && response.status >= 400) {
                     // Generic warn log for bad status codes
                     logs.push({
                         level: 'warn',
                         timestamp: DateTime.now(),
-                        message: `Fetch returned bad status: ${status}`,
+                        message: `Fetch returned bad status: ${response.status}`,
                     })
                 }
 
@@ -191,22 +183,16 @@ export class HogExecutor {
                     throw new Error(error)
                 }
 
-                if (typeof responseBody === 'string') {
+                if (typeof response?.body === 'string') {
                     try {
-                        responseBody = JSON.parse(responseBody)
+                        response.body = JSON.parse(response.body)
                     } catch (e) {
                         // pass - if it isn't json we just pass it on
                     }
                 }
 
-                // Finally we create the response object as the VM expects
-                const fetchResponse = {
-                    status,
-                    body: responseBody,
-                }
-
                 // Add the response to the stack to continue execution
-                invocation.vmState!.stack.push(fetchResponse)
+                invocation.vmState!.stack.push(response)
                 invocation.timings.push(...timings)
                 result.logs = [...logs, ...result.logs]
             }
@@ -341,22 +327,18 @@ export class HogExecutor {
                             const headers = fetchOptions?.headers || {
                                 'Content-Type': 'application/json',
                             }
+                            let body = fetchOptions?.body
                             // Modify the body to ensure it is a string (we allow Hog to send an object to keep things simple)
-                            const body: string | undefined = fetchOptions?.body
-                                ? typeof fetchOptions.body === 'string'
-                                    ? fetchOptions.body
-                                    : JSON.stringify(fetchOptions.body)
-                                : fetchOptions?.body
+                            body = body ? (typeof body === 'string' ? body : JSON.stringify(body)) : body
 
                             result.invocation.queue = 'fetch'
                             result.invocation.queueParameters = {
                                 url,
                                 method,
                                 headers,
-                                return_queue: 'hog',
+                                body,
                             }
-                            // The payload is always blob encoded
-                            result.invocation.queueBlob = body ? Buffer.from(body) : undefined
+
                             break
                         default:
                             throw new Error(`Unknown async function '${execRes.asyncFunctionName}'`)
@@ -384,7 +366,6 @@ export class HogExecutor {
             }
         } catch (err) {
             result.error = err.message
-            result.finished = true // Explicitly set to true to prevent infinite loops
             status.error(
                 '🦔',
                 `[HogExecutor] Error executing function ${invocation.hogFunction.id} - ${invocation.hogFunction.name}`,

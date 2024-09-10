@@ -95,7 +95,6 @@ export class HogFunctionManager {
         if (!this.ready) {
             throw new Error('HogFunctionManager is not ready! Run HogFunctionManager.start() before this')
         }
-
         return this.cache.functions[id]
     }
 
@@ -103,7 +102,6 @@ export class HogFunctionManager {
         if (!this.ready) {
             throw new Error('HogFunctionManager is not ready! Run HogFunctionManager.start() before this')
         }
-
         const fn = this.cache.functions[hogFunctionId]
         if (fn?.team_id === teamId) {
             return fn

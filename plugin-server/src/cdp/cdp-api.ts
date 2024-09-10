@@ -9,7 +9,7 @@ import { HogExecutor } from './hog-executor'
 import { HogFunctionManager } from './hog-function-manager'
 import { HogWatcher, HogWatcherState } from './hog-watcher'
 import { HogFunctionInvocationResult, HogFunctionType, LogEntry } from './types'
-import { createInvocation, queueBlobToString } from './utils'
+import { createInvocation } from './utils'
 
 export class CdpApi {
     private hogExecutor: HogExecutor
@@ -144,19 +144,11 @@ export class CdpApi {
                 if (invocation.queue === 'fetch') {
                     if (mock_async_functions) {
                         // Add the state, simulating what executeAsyncResponse would do
-
-                        // Re-parse the fetch args for the logging
-                        const fetchArgs = {
-                            ...invocation.queueParameters,
-                            body: queueBlobToString(invocation.queueBlob),
-                        }
-
                         response = {
                             invocation: {
                                 ...invocation,
                                 queue: 'hog',
-                                queueParameters: { response: { status: 200 } },
-                                queueBlob: Buffer.from('{}'),
+                                queueParameters: { response: { status: 200, body: {} } },
                             },
                             finished: false,
                             logs: [
@@ -168,7 +160,7 @@ export class CdpApi {
                                 {
                                     level: 'info',
                                     timestamp: DateTime.now(),
-                                    message: `fetch(${JSON.stringify(fetchArgs, null, 2)})`,
+                                    message: `fetch(${JSON.stringify(invocation.queueParameters, null, 2)})`,
                                 },
                             ],
                         }

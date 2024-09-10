@@ -81,7 +81,6 @@ describe('HogFunctionManager', () => {
     })
 
     afterEach(async () => {
-        await manager.stop()
         await closeHub(hub)
     })
 

@@ -281,25 +281,16 @@ export function createInvocation(
         teamId: hogFunction.team_id,
         hogFunction,
         queue: 'hog',
-        priority: 1,
         timings: [],
     }
 }
 
-export function serializeHogFunctionInvocation(invocation: HogFunctionInvocation): HogFunctionInvocationSerialized {
+export function serializeInvocation(invocation: HogFunctionInvocation): HogFunctionInvocationSerialized {
     const serializedInvocation: HogFunctionInvocationSerialized = {
         ...invocation,
         hogFunctionId: invocation.hogFunction.id,
-        // We clear the params as they are never used in the serialized form
-        queueParameters: undefined,
-        queueBlob: undefined,
     }
 
     delete (serializedInvocation as any).hogFunction
-
-    return serializedInvocation
-}
-
-export function queueBlobToString(blob?: HogFunctionInvocation['queueBlob']): string | undefined {
-    return blob ? Buffer.from(blob).toString('utf-8') : undefined
+    return invocation
 }

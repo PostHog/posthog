@@ -80,7 +80,10 @@ const convertToKafkaMessage = (message: any): any => {
     }
 }
 
-describe('CDP Function Processor', () => {
+/**
+ * NOTE: This isn't fully e2e... We still mock kafka but we trigger one queue from the other in a loop
+ */
+describe('CDP Consumers E2E', () => {
     let processedEventsConsumer: CdpProcessedEventsConsumer
     let functionProcessor: CdpFunctionCallbackConsumer
     let hub: Hub
@@ -118,7 +121,7 @@ describe('CDP Function Processor', () => {
         jest.useRealTimers()
     })
 
-    describe('full fetch function', () => {
+    describe('e2e fetch function', () => {
         /**
          * Tests here are somewhat expensive so should mostly simulate happy paths and the more e2e scenarios
          */
