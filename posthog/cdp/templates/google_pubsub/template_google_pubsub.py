@@ -8,8 +8,8 @@ from posthog.models.integration import GoogleCloudIntegration
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
     id="template-google-pubsub",
-    name="Google PubSub",
-    description="Send data to a Google PubSub topic",
+    name="Google Pub/Sub",
+    description="Send data to a Google Pub/Sub topic",
     icon_url="/static/services/google-cloud.png",
     hog="""
 let headers := () -> {
