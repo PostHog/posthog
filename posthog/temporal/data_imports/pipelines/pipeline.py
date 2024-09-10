@@ -252,7 +252,7 @@ class DataImportPipeline:
             else:
                 self.logger.info("No table_counts, skipping validate_schema_and_update_table")
 
-        # Delete local state from the file system
+        # Cleanup: delete local state from the file system
         pipeline.drop()
 
         return dict(total_counts)
