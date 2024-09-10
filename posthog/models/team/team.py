@@ -212,6 +212,7 @@ class Team(UUIDClassicModel):
     ingested_event = models.BooleanField(default=False)
     autocapture_opt_out = models.BooleanField(null=True, blank=True)
     autocapture_web_vitals_opt_in = models.BooleanField(null=True, blank=True)
+    autocapture_web_vitals_allowed_metrics = models.JSONField(null=True, blank=True)
     autocapture_exceptions_opt_in = models.BooleanField(null=True, blank=True)
     autocapture_exceptions_errors_to_ignore = models.JSONField(null=True, blank=True)
     session_recording_opt_in = models.BooleanField(default=False)

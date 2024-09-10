@@ -1,10 +1,8 @@
 import { TZLabel } from '@posthog/apps-common'
-import { IconPerson } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonDivider, LemonSegmentedButton, ProfilePicture } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonDivider, LemonSegmentedButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { FeedbackNotice } from 'lib/components/FeedbackNotice'
-import { MemberSelect } from 'lib/components/MemberSelect'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -15,6 +13,7 @@ import { ErrorTrackingGroup } from '~/queries/schema'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
 import { InsightLogicProps } from '~/types'
 
+import { AssigneeSelect } from './AssigneeSelect'
 import { errorTrackingDataNodeLogic } from './errorTrackingDataNodeLogic'
 import ErrorTrackingFilters from './ErrorTrackingFilters'
 import { errorTrackingLogic } from './errorTrackingLogic'
@@ -40,8 +39,10 @@ export function ErrorTrackingScene(): JSX.Element {
                 render: CustomGroupTitleColumn,
             },
             occurrences: { align: 'center' },
+            sessions: { align: 'center' },
+            users: { align: 'center' },
             volume: { renderTitle: CustomVolumeColumnHeader },
-            assignee: { render: AssigneeColumn, align: 'center' },
+            assignee: { render: AssigneeColumn },
         },
         showOpenEditorButton: false,
         insightProps: insightProps,
@@ -151,26 +152,11 @@ const AssigneeColumn: QueryContextColumnComponent = (props) => {
     const record = props.record as ErrorTrackingGroup
 
     return (
-        <MemberSelect
-            defaultLabel="Unassigned"
-            value={record.assignee}
-            onChange={(user) => {
-                const assigneeId = user?.id || null
-                assignGroup(props.recordIndex, assigneeId)
-            }}
-        >
-            {(user) => (
-                <LemonButton
-                    tooltip={user?.first_name}
-                    icon={
-                        user ? (
-                            <ProfilePicture size="md" user={user} />
-                        ) : (
-                            <IconPerson className="rounded-full border border-dashed border-muted text-muted p-0.5" />
-                        )
-                    }
-                />
-            )}
-        </MemberSelect>
+        <div className="flex justify-center">
+            <AssigneeSelect
+                assignee={record.assignee}
+                onChange={(assigneeId) => assignGroup(props.recordIndex, assigneeId)}
+            />
+        </div>
     )
 }
