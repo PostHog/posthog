@@ -963,7 +963,35 @@ class _Printer(Visitor):
                 # TODO: can probably optimize chained operations here as well
                 return None
 
-            raise NotImplementedError
+            field_type = resolve_field_type(node.args[0])
+            field = field_type.resolve_database_field(self.context)
+
+            table = field_type.table_type
+            while isinstance(table, ast.TableAliasType):
+                table = table.table_type
+
+            if self.dialect == "clickhouse":
+                table_name = table.table.to_printed_clickhouse(self.context)
+            else:
+                table_name = table.table.to_printed_hogql()
+            if field is None:
+                raise QueryError(f"Can't resolve field {field_type.name} on table {table_name}")
+
+            field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
+
+            if not isinstance(node.args[1], ast.Constant):
+                return None
+
+            property_name = node.args[1].value
+            for property_group_column in property_groups.get_property_group_columns(
+                table_name, field_name, property_name
+            ):
+                # XXX: this is kind of a hack
+                return PrintableMaterializedPropertyGroupItem(
+                    self.visit(table),
+                    self._print_identifier(property_group_column),
+                    self.context.add_value(property_name),
+                ).has_expr
 
         return None  # nothing to optimize
 

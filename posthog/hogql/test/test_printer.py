@@ -518,13 +518,13 @@ class TestPrinter(BaseTest):
     def test_property_groups_optimized_has(self) -> None:
         self._test_property_group_comparison(
             "JSONHas(properties, 'key')",
-            "mapContains(events.properties_group_custom.keys, %(hogql_val_0)s)",
+            "has(events.properties_group_custom, %(hogql_val_0)s)",
             {"hogql_val_0": "key"},
             expected_skip_indexes_used={"properties_group_custom_keys_bf"},
         )
 
         # TODO: Chained operations/path traversal could be optimized further, but is left alone for now.
-        self._test_property_group_comparison("JSONHas(properties, 'foo', 'bar')")
+        self._test_property_group_comparison("JSONHas(properties, 'foo', 'bar')", None)
 
     def test_property_groups_optimized_in_comparisons(self) -> None:
         # The IN operator works much like equality when the right hand side of the expression is all constants. Like
