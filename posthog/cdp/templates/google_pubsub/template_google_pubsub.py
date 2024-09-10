@@ -35,7 +35,7 @@ if (res.status >= 200 and res.status < 300) {
         {
             "key": "oauth",
             "type": "integration",
-            "integration": "gcloud",
+            "integration": "gc-pubsub",
             "label": "Google Cloud service account",
             "secret": False,
             "required": True,

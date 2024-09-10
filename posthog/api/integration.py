@@ -29,7 +29,7 @@ class IntegrationSerializer(serializers.ModelSerializer):
         request = self.context["request"]
         team_id = self.context["team_id"]
 
-        if validated_data["kind"] == "gcloud":
+        if validated_data["kind"] in GoogleCloudIntegration.supported_kinds:
             key_file = request.FILES.get("key")
             if not key_file:
                 raise ValidationError("Key file not provided")

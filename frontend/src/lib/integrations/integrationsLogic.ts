@@ -19,7 +19,7 @@ const ICONS: Record<IntegrationKind, any> = {
     slack: IconSlack,
     salesforce: IconSalesforce,
     hubspot: IconHubspot,
-    gcloud: IconGoogleCloud,
+    'gc-pubsub': IconGoogleCloud,
 }
 
 export const integrationsLogic = kea<integrationsLogicType>([
@@ -30,7 +30,11 @@ export const integrationsLogic = kea<integrationsLogicType>([
 
     actions({
         handleOauthCallback: (kind: IntegrationKind, searchParams: any) => ({ kind, searchParams }),
-        newGoogleCloudKey: (key: File, callback?: (integration: IntegrationType) => void) => ({ key, callback }),
+        newGoogleCloudKey: (kind: string, key: File, callback?: (integration: IntegrationType) => void) => ({
+            kind,
+            key,
+            callback,
+        }),
         deleteIntegration: (id: number) => ({ id }),
     }),
 
@@ -51,25 +55,25 @@ export const integrationsLogic = kea<integrationsLogicType>([
                         }
                     })
                 },
-                newGoogleCloudKey: async ({ key, callback }) => {
+                newGoogleCloudKey: async ({ kind, key, callback }) => {
                     try {
                         const formData = new FormData()
-                        formData.append('kind', 'gcloud')
+                        formData.append('kind', kind)
                         formData.append('key', key)
                         const response = await api.integrations.create(formData)
-                        const responseWithIcon = { ...response, icon_url: ICONS.gcloud }
+                        const responseWithIcon = { ...response, icon_url: ICONS[kind] ?? ICONS['gc-pubsub'] }
 
                         // run onChange after updating the integrations loader
                         window.setTimeout(() => callback?.(responseWithIcon), 0)
 
                         if (
                             values.integrations?.find(
-                                (x) => x.kind === 'gcloud' && x.display_name === response.display_name
+                                (x) => x.kind === kind && x.display_name === response.display_name
                             )
                         ) {
                             lemonToast.success('Google Cloud key updated.')
                             return values.integrations.map((x) =>
-                                x.kind === 'gcloud' && x.display_name === response.display_name ? responseWithIcon : x
+                                x.kind === kind && x.display_name === response.display_name ? responseWithIcon : x
                             )
                         }
                         lemonToast.success('Google Cloud key created.')

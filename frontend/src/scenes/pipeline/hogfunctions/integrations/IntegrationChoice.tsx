@@ -34,7 +34,7 @@ export function IntegrationChoice({
         return <LemonSkeleton className="h-10" />
     }
 
-    const kindName = kind == 'gcloud' ? 'Google Cloud' : capitalizeFirstLetter(kind)
+    const kindName = kind == 'gc-pubsub' ? 'Google Cloud Pub/Sub' : capitalizeFirstLetter(kind)
 
     function uploadKey(): void {
         const input = document.createElement('input')
@@ -45,7 +45,7 @@ export function IntegrationChoice({
             if (!file) {
                 return
             }
-            newGoogleCloudKey(file, (integration) => onChange?.(integration.id))
+            newGoogleCloudKey(kind, file, (integration) => onChange?.(integration.id))
         }
         input.click()
     }
@@ -65,7 +65,7 @@ export function IntegrationChoice({
                           ],
                       }
                     : null,
-                kind === 'gcloud'
+                kind.startsWith('gc-')
                     ? {
                           items: [
                               {

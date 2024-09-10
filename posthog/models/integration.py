@@ -42,7 +42,7 @@ class Integration(models.Model):
         SLACK = "slack"
         SALESFORCE = "salesforce"
         HUBSPOT = "hubspot"
-        GCLOUD = "gcloud"
+        GC_PUBSUB = "gc-pubsub"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
@@ -73,7 +73,7 @@ class Integration(models.Model):
         if self.kind in OauthIntegration.supported_kinds:
             oauth_config = OauthIntegration.oauth_config_for_kind(self.kind)
             return dot_get(self.config, oauth_config.name_path, self.integration_id)
-        if self.kind == "gcloud":
+        if self.kind in GoogleCloudIntegration.supported_kinds:
             return self.integration_id or "unknown ID"
 
         return f"ID: {self.integration_id}"
@@ -393,33 +393,35 @@ class SlackIntegration:
 
 
 class GoogleCloudIntegration:
+    supported_kinds = ["gc-pubsub"]
     integration: Integration
 
     def __init__(self, integration: Integration) -> None:
         self.integration = integration
 
     @classmethod
-    def integration_from_key(cls, key_info: dict, team_id: int, request: Request) -> Integration:
-        credentials = service_account.Credentials.from_service_account_info(
-            key_info, scopes=["https://www.googleapis.com/auth/pubsub"]
-        )
+    def integration_from_key(cls, kind: str, key_info: dict, team_id: int, request: Request) -> Integration:
+        if kind == "gc-pubsub":
+            scope = "https://www.googleapis.com/auth/pubsub"
+        else:
+            raise NotImplementedError(f"Google Cloud integration kind {kind} not implemented")
 
         try:
+            credentials = service_account.Credentials.from_service_account_info(key_info, scopes=[scope])
             credentials.refresh(GoogleRequest())
         except Exception as e:
             raise ValidationError(f"Failed to authenticate with provided service account key: {str(e)}")
 
-        config = {}
-        config["expires_in"] = credentials.expiry.timestamp() - int(time.time())
-        config["refreshed_at"] = int(time.time())
-        config["access_token"] = credentials.token
-
         integration, created = Integration.objects.update_or_create(
             team_id=team_id,
-            kind="gcloud",
+            kind=kind,
             integration_id=credentials.service_account_email,
             defaults={
-                "config": config,
+                "config": {
+                    "expires_in": credentials.expiry.timestamp() - int(time.time()),
+                    "refreshed_at": int(time.time()),
+                    "access_token": credentials.token,
+                },
                 "sensitive_config": key_info,
                 "created_by": request.user,
             },
@@ -455,12 +457,11 @@ class GoogleCloudIntegration:
         except Exception as e:
             raise ValidationError(f"Failed to authenticate with provided service account key: {str(e)}")
 
-        config = {}
-        config["expires_in"] = credentials.expiry.timestamp() - int(time.time())
-        config["refreshed_at"] = int(time.time())
-        config["access_token"] = credentials.token
-
-        self.integration.config = config
+        self.integration.config = {
+            "expires_in": credentials.expiry.timestamp() - int(time.time()),
+            "refreshed_at": int(time.time()),
+            "access_token": credentials.token,
+        }
         self.integration.save()
         reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
 

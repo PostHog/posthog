@@ -16,7 +16,7 @@ def refresh_integrations() -> int:
         if oauth_integration.access_token_expired():
             refresh_integration.delay(integration.id)
 
-    gcloud_integrations = Integration.objects.filter(kind="gcloud").all()
+    gcloud_integrations = Integration.objects.filter(kind__in=GoogleCloudIntegration.supported_kinds).all()
 
     for integration in gcloud_integrations:
         gcloud_integration = GoogleCloudIntegration(integration)
@@ -36,7 +36,7 @@ def refresh_integration(id: int) -> int:
     if integration.kind in OauthIntegration.supported_kinds:
         oauth_integration = OauthIntegration(integration)
         oauth_integration.refresh_access_token()
-    elif integration.kind == "gcloud":
+    elif integration.kind in GoogleCloudIntegration.supported_kinds:
         gcloud_integration = GoogleCloudIntegration(integration)
         gcloud_integration.refresh_access_token()
 

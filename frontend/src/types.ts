@@ -3564,7 +3564,7 @@ export enum EventDefinitionType {
     EventPostHog = 'event_posthog',
 }
 
-export type IntegrationKind = 'slack' | 'salesforce' | 'hubspot' | 'gcloud'
+export type IntegrationKind = 'slack' | 'salesforce' | 'hubspot' | 'gc-pubsub'
 
 export interface IntegrationType {
     id: number
