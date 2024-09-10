@@ -64,6 +64,17 @@ export function PersonDisplay({
 
     const notebookNode = useNotebookNode()
 
+    const handleClick = (e: React.MouseEvent): void => {
+        if (visible && href && !noLink && person?.properties) {
+            router.actions.push(href)
+        } else if (visible && !person?.properties) {
+            e.preventDefault()
+        } else {
+            setVisible(true)
+        }
+        return
+    }
+
     let content = (
         <span className={clsx('flex items-center', isCentered && 'justify-center')}>
             {withIcon && <PersonIcon person={person} size={typeof withIcon === 'string' ? withIcon : 'md'} />}
@@ -72,26 +83,13 @@ export function PersonDisplay({
     )
 
     content = (
-        <span
-            className="PersonDisplay"
-            onClick={
-                !noPopover
-                    ? () => {
-                          if (visible && href && !noLink) {
-                              router.actions.push(href)
-                          } else {
-                              setVisible(true)
-                          }
-                      }
-                    : undefined
-            }
-        >
-            {noLink || !href ? (
+        <span className="PersonDisplay" onClick={!noPopover ? handleClick : undefined}>
+            {noLink || !href || (visible && !person?.properties) ? (
                 content
             ) : (
                 <Link
                     to={href}
-                    onClick={(e) => {
+                    onClick={(e: React.MouseEvent): void => {
                         if (!noPopover && !notebookNode) {
                             e.preventDefault()
                             return

@@ -27,15 +27,16 @@
 
 - Specify events manually, or use autocapture to get started quickly
 - Analyze data with ready-made visualizations, or do it yourself with SQL
+- Track website visitors separately with our GA4 alternative
 - Only capture properties on the people you want to track, save money when you don't
 - Gather insights by capturing session replays, console logs, and network monitoring
-- Improve your product with A/B testing that automatically analyzes performance
+- Improve your product with Experiments that automatically analyze performance
 - Safely roll out features to select users or cohorts with feature flags
 - Send out fully customizable surveys to specific cohorts of users
 - Connect to external services and manage data flows with PostHog CDP
 
 PostHog is available with hosting in the EU or US and is fully SOC 2 compliant. It's free to get started and comes with a generous monthly free tier:
-- 1 million product analytics events
+- 1 million events
 - 5k session replays
 - 1 million feature flag requests
 - 250 survey responses
@@ -81,7 +82,7 @@ PostHog brings all the tools and data you need to build better products.
 - **Session replays:** [Watch videos](https://posthog.com/docs/features/session-recording) of your users' behavior, with fine-grained filters and privacy controls, as well as network monitoring and captured console logs
 - **Heatmaps:** See where users click and get a visual representation of their behaviour with the [PostHog Toolbar](https://posthog.com/docs/features/toolbar)
 - **Feature flags:** Test and manage the rollout of [new features](https://posthog.com/docs/feature-flags/installation) to specific users and groups, or deploy flags as kill-switches
-- **A/B and multivariate experimentation:** run simple or complex changes as [experiments](https://posthog.com/manual/experimentation) and get automatic significance calculations
+- **Experiments:** run simple or complex changes as [experiments](https://posthog.com/manual/experimentation) and get automatic significance calculations
 - **Correlation analysis:** Discover what events and properties [correlate](https://posthog.com/manual/correlation) with success and failure
 - **Surveys:** Collect qualitative feedback from your users using fully customizable [surveys](https://posthog.com/docs/surveys/installation)
 

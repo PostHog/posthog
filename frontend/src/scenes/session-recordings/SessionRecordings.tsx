@@ -29,7 +29,7 @@ import { humanFriendlyTabName, sessionReplaySceneLogic } from './sessionReplaySc
 
 function Header(): JSX.Element {
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
-    const playlistsLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Recent })
+    const playlistsLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Home })
     const { playlists } = useValues(playlistsLogic)
     const { tab } = useValues(sessionReplaySceneLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -54,7 +54,7 @@ function Header(): JSX.Element {
         <PageHeader
             buttons={
                 <>
-                    {tab === ReplayTabs.Recent && !recordingsDisabled && (
+                    {tab === ReplayTabs.Home && !recordingsDisabled && (
                         <>
                             <LemonMenu
                                 items={[
@@ -184,7 +184,7 @@ function MainPanel(): JSX.Element {
 
             {!tab ? (
                 <Spinner />
-            ) : tab === ReplayTabs.Recent ? (
+            ) : tab === ReplayTabs.Home ? (
                 <div className="SessionRecordingPlaylistHeightWrapper">
                     <SessionRecordingsPlaylist updateSearchParams />
                 </div>

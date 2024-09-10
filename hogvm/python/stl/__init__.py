@@ -100,6 +100,12 @@ def ifNull(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]],
         return args[1]
 
 
+def empty(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float):
+    if isinstance(args[0], bool) or isinstance(args[0], int) or isinstance(args[0], float):
+        return False
+    return not bool(args[0])
+
+
 def sleep(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float):
     time.sleep(args[0])
     return None
@@ -314,6 +320,34 @@ def _formatDateTime(args: list[Any], team: Optional["Team"], stdout: Optional[li
     return formatDateTime(args[0], args[1], args[2] if len(args) > 2 else None)
 
 
+def _typeof(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> str:
+    if args[0] is None:
+        return "null"
+    elif is_hog_datetime(args[0]):
+        return "datetime"
+    elif is_hog_date(args[0]):
+        return "date"
+    elif is_hog_error(args[0]):
+        return "error"
+    elif is_hog_callable(args[0]) or is_hog_closure(args[0]):
+        return "function"
+    elif isinstance(args[0], list):
+        return "array"
+    elif isinstance(args[0], tuple):
+        return "tuple"
+    elif isinstance(args[0], dict):
+        return "object"
+    elif args[0] is True or args[0] is False:
+        return "boolean"
+    elif isinstance(args[0], int):
+        return "integer"
+    elif isinstance(args[0], float):
+        return "float"
+    elif isinstance(args[0], str):
+        return "string"
+    return "unknown"
+
+
 STL: dict[str, STLFunction] = {
     "concat": STLFunction(
         fn=lambda args, team, stdout, timeout: "".join(
@@ -339,8 +373,10 @@ STL: dict[str, STLFunction] = {
     "toFloat": STLFunction(fn=toFloat, minArgs=1, maxArgs=1),
     "ifNull": STLFunction(fn=ifNull, minArgs=2, maxArgs=2),
     "length": STLFunction(fn=lambda args, team, stdout, timeout: len(args[0]), minArgs=1, maxArgs=1),
-    "empty": STLFunction(fn=lambda args, team, stdout, timeout: not bool(args[0]), minArgs=1, maxArgs=1),
-    "notEmpty": STLFunction(fn=lambda args, team, stdout, timeout: bool(args[0]), minArgs=1, maxArgs=1),
+    "empty": STLFunction(fn=empty, minArgs=1, maxArgs=1),
+    "notEmpty": STLFunction(
+        fn=lambda args, team, stdout, timeout: not empty(args, team, stdout, timeout), minArgs=1, maxArgs=1
+    ),
     "tuple": STLFunction(fn=lambda args, team, stdout, timeout: tuple(args), minArgs=0, maxArgs=None),
     "lower": STLFunction(fn=lambda args, team, stdout, timeout: args[0].lower(), minArgs=1, maxArgs=1),
     "upper": STLFunction(fn=lambda args, team, stdout, timeout: args[0].upper(), minArgs=1, maxArgs=1),
@@ -358,6 +394,20 @@ STL: dict[str, STLFunction] = {
     "replaceAll": STLFunction(
         fn=lambda args, team, stdout, timeout: args[0].replace(args[1], args[2]), minArgs=3, maxArgs=3
     ),
+    "position": STLFunction(
+        fn=lambda args, team, stdout, timeout: (args[0].index(str(args[1])) + 1)
+        if isinstance(args[0], str) and str(args[1]) in args[0]
+        else 0,
+        minArgs=2,
+        maxArgs=2,
+    ),
+    "positionCaseInsensitive": STLFunction(
+        fn=lambda args, team, stdout, timeout: (args[0].lower().index(str(args[1]).lower()) + 1)
+        if isinstance(args[0], str) and str(args[1]).lower() in args[0].lower()
+        else 0,
+        minArgs=2,
+        maxArgs=2,
+    ),
     "trim": STLFunction(fn=trim, minArgs=1, maxArgs=2),
     "trimLeft": STLFunction(fn=trimLeft, minArgs=1, maxArgs=2),
     "trimRight": STLFunction(fn=trimRight, minArgs=1, maxArgs=2),
@@ -370,6 +420,13 @@ STL: dict[str, STLFunction] = {
     ),
     "keys": STLFunction(fn=keys, minArgs=1, maxArgs=1),
     "values": STLFunction(fn=values, minArgs=1, maxArgs=1),
+    "indexOf": STLFunction(
+        fn=lambda args, team, stdout, timeout: (args[0].index(args[1]) + 1)
+        if isinstance(args[0], list) and args[1] in args[0]
+        else 0,
+        minArgs=2,
+        maxArgs=2,
+    ),
     "arrayPushBack": STLFunction(fn=arrayPushBack, minArgs=2, maxArgs=2),
     "arrayPushFront": STLFunction(fn=arrayPushFront, minArgs=2, maxArgs=2),
     "arrayPopBack": STLFunction(fn=arrayPopBack, minArgs=1, maxArgs=1),
@@ -424,6 +481,7 @@ STL: dict[str, STLFunction] = {
         minArgs=0,
         maxArgs=2,
     ),
+    "typeof": STLFunction(fn=_typeof, minArgs=1, maxArgs=1),
     # only in python, async function in nodejs
     "sleep": STLFunction(fn=sleep, minArgs=1, maxArgs=1),
     "run": STLFunction(fn=run, minArgs=1, maxArgs=1),

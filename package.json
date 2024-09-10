@@ -66,7 +66,6 @@
         "mypy-baseline-sync": "mypy -p posthog | mypy-baseline sync"
     },
     "dependencies": {
-        "@ant-design/icons": "^4.7.0",
         "@babel/runtime": "^7.24.0",
         "@dnd-kit/core": "^6.0.8",
         "@dnd-kit/modifiers": "^6.0.1",
@@ -77,8 +76,8 @@
         "@medv/finder": "^3.1.0",
         "@microlink/react-json-view": "^1.21.3",
         "@monaco-editor/react": "4.6.0",
-        "@posthog/hogvm": "^1.0.42",
-        "@posthog/icons": "0.7.3",
+        "@posthog/hogvm": "^1.0.47",
+        "@posthog/icons": "0.8.1",
         "@posthog/plugin-scaffold": "^1.4.4",
         "@react-hook/size": "^2.1.2",
         "@rrweb/types": "2.0.0-alpha.13",
@@ -150,7 +149,7 @@
         "pmtiles": "^2.11.0",
         "postcss": "^8.4.31",
         "postcss-preset-env": "^9.3.0",
-        "posthog-js": "1.159.0",
+        "posthog-js": "1.161.1",
         "posthog-js-lite": "3.0.0",
         "prettier": "^2.8.8",
         "prop-types": "^15.7.2",

@@ -49,18 +49,10 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
     const notebookNode = useNotebookNode()
 
     const sections: PlaylistSection<SessionRecordingType>[] = []
-    const headerActions = []
 
     const onSummarizeClick = (recording: SessionRecordingType): void => {
         summarizeSession(recording.id)
     }
-
-    headerActions.push({
-        key: 'settings',
-        tooltip: 'Playlist settings',
-        content: <SessionRecordingsPlaylistSettings />,
-        icon: <IconGear />,
-    })
 
     if (pinnedRecordings.length) {
         sections.push({
@@ -112,11 +104,18 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
                 )}
                 <Playlist
                     data-attr="session-recordings-playlist"
-                    notebooksHref={urls.replay(ReplayTabs.Recent, filters)}
+                    notebooksHref={urls.replay(ReplayTabs.Home, filters)}
                     title="Recordings"
                     embedded={!!notebookNode}
                     sections={sections}
-                    headerActions={headerActions}
+                    headerActions={[
+                        {
+                            key: 'settings',
+                            tooltip: 'Playlist settings',
+                            content: <SessionRecordingsPlaylistSettings />,
+                            icon: <IconGear />,
+                        },
+                    ]}
                     loading={sessionRecordingsResponseLoading}
                     onScrollListEdge={(edge) => {
                         if (edge === 'top') {

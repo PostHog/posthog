@@ -59,6 +59,7 @@ export function DashboardItems(): JSX.Element {
                 <ReactGridLayout
                     width={gridWrapperWidth}
                     className={className}
+                    draggableHandle=".CardMeta,.TextCard__body"
                     isDraggable={dashboardMode === DashboardMode.Edit}
                     isResizable={dashboardMode === DashboardMode.Edit}
                     layouts={layouts}
@@ -98,7 +99,7 @@ export function DashboardItems(): JSX.Element {
                             isDragging.current = false
                         }, 250)
                     }}
-                    draggableCancel=".anticon,table,button,.Popover"
+                    draggableCancel="a,table,button,.Popover"
                 >
                     {tiles?.map((tile) => {
                         const { insight, text } = tile

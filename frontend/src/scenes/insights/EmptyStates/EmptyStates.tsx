@@ -1,8 +1,14 @@
 import './EmptyStates.scss'
 
-// eslint-disable-next-line no-restricted-imports
-import { PlusCircleOutlined, ThunderboltFilled } from '@ant-design/icons'
-import { IconArchive, IconInfo, IconPlus, IconWarning } from '@posthog/icons'
+import {
+    IconArchive,
+    IconInfo,
+    IconPieChart,
+    IconPlus,
+    IconPlusSmall,
+    IconPlusSquare,
+    IconWarning,
+} from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { AnimationType } from 'lib/animations/animations'
@@ -69,7 +75,7 @@ function SamplingLink({ insightProps }: { insightProps: InsightLogicProps }): JS
                     })
                 }}
             >
-                <ThunderboltFilled className="mt-1" /> {suggestedSamplingPercentage}% sampling
+                <IconPieChart className="mt-1" /> {suggestedSamplingPercentage}% sampling
             </Link>
         </Tooltip>
     )
@@ -341,10 +347,10 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
         <div className="insight-empty-state funnels-empty-state">
             <div className="empty-state-inner">
                 <div className="illustration-main">
-                    <PlusCircleOutlined />
+                    <IconPlusSquare />
                 </div>
                 <h2 className="text-xl leading-tight funnels-empty-state__title">Add another step!</h2>
-                <p className="text-sm text-center text-balance">
+                <p className="mb-0 text-sm text-center text-balance">
                     You’re almost there! Funnels require at least two steps before calculating.
                     {actionable &&
                         ' Once you have two steps defined, additional changes will recalculate automatically.'}
@@ -480,7 +486,7 @@ export function SavedInsightsEmptyState(): JSX.Element {
                             <LemonButton
                                 type="primary"
                                 data-attr="add-insight-button-empty-state"
-                                icon={<PlusCircleOutlined />}
+                                icon={<IconPlusSmall />}
                                 className="add-insight-button"
                             >
                                 New insight
