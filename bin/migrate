@@ -1,5 +1,11 @@
 #!/bin/bash
 set -e
+SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
+
+# NOTE when running in docker, rust might not exist so we need to check for it
+if [ -d "$SCRIPT_DIR/../rust" ]; then
+    bash $SCRIPT_DIR/../rust/bin/migrate-cyclotron
+fi
 
 python manage.py migrate
 python manage.py migrate_clickhouse
