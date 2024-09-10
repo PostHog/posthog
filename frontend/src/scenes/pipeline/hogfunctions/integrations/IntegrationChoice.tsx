@@ -65,7 +65,7 @@ export function IntegrationChoice({
                           ],
                       }
                     : null,
-                kind.startsWith('gc-')
+                kind.startsWith('google-')
                     ? {
                           items: [
                               {

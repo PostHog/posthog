@@ -30,7 +30,7 @@ let res := fetch(f'https://pubsub.googleapis.com/v1/{inputs.topicId}:publish', {
 if (res.status >= 200 and res.status < 300) {
   print('Event sent successfully!')
 } else {
-  print('Error sending event:', res.status, res.body)
+  throw Error('Error sending event', res)
 }
 """.strip(),
     inputs_schema=[
