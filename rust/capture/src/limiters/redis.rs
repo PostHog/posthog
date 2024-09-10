@@ -102,7 +102,10 @@ impl RedisLimiter {
                 match RedisLimiter::fetch_limited(&redis, &key).await {
                     Ok(set) => {
                         let set = HashSet::from_iter(set.iter().cloned());
-                        gauge!("capture_billing_limits_loaded_tokens",).set(set.len() as f64);
+                        gauge!(
+                            "capture_billing_limits_loaded_tokens",
+                            "cache_key" => key.clone(),
+                        ).set(set.len() as f64);
 
                         let mut limited_lock = limited.write().await;
                         *limited_lock = set;
