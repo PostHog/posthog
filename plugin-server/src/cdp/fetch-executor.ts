@@ -12,7 +12,7 @@ import {
     HogFunctionQueueParametersFetchRequest,
     HogFunctionQueueParametersFetchResponse,
 } from './types'
-import { gzipObject, queueBlobToString, serializeHogFunctionInvocation } from './utils'
+import { gzipObject, serializeHogFunctionInvocation } from './utils'
 
 export const BUCKETS_KB_WRITTEN = [0, 128, 512, 1024, 2024, 4096, 10240, Infinity]
 
@@ -46,9 +46,8 @@ export class FetchExecutor {
 
         const params = invocation.queueParameters as HogFunctionQueueParametersFetchRequest
 
-        const body = queueBlobToString(invocation.queueBlob)
-        if (body) {
-            histogramFetchPayloadSize.observe(body.length / 1024)
+        if (params.body) {
+            histogramFetchPayloadSize.observe(params.body.length / 1024)
         }
 
         try {
@@ -64,7 +63,6 @@ export class FetchExecutor {
                             params.url,
                             {
                                 ...params,
-                                body,
                             },
                         ],
                     },
@@ -92,7 +90,6 @@ export class FetchExecutor {
         }
 
         const params = invocation.queueParameters as HogFunctionQueueParametersFetchRequest
-        const body = queueBlobToString(invocation.queueBlob) || ''
         let responseBody = ''
 
         const resParams: HogFunctionQueueParametersFetchResponse = {
@@ -107,7 +104,7 @@ export class FetchExecutor {
             const start = performance.now()
             const fetchResponse = await trackedFetch(params.url, {
                 method: params.method,
-                body,
+                body: params.body,
                 headers: params.headers,
                 timeout: this.serverConfig.EXTERNAL_REQUEST_TIMEOUT_MS,
             })
@@ -123,6 +120,7 @@ export class FetchExecutor {
 
             resParams.response = {
                 status: fetchResponse.status,
+                body: responseBody,
             }
         } catch (err) {
             status.error('🦔', `[HogExecutor] Error during fetch`, { error: String(err) })
@@ -134,7 +132,6 @@ export class FetchExecutor {
                 ...invocation,
                 queue: 'hog',
                 queueParameters: resParams,
-                queueBlob: Buffer.from(responseBody),
             },
             finished: false,
             logs: [],

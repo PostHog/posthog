@@ -40,7 +40,6 @@ import { CdpRedis, createCdpRedisPool } from './redis'
 import {
     HogFunctionInvocation,
     HogFunctionInvocationGlobals,
-    HogFunctionInvocationQueueParameters,
     HogFunctionInvocationResult,
     HogFunctionInvocationSerialized,
     HogFunctionInvocationSerializedCompressed,
@@ -52,7 +51,9 @@ import {
     convertToCaptureEvent,
     convertToHogFunctionInvocationGlobals,
     createInvocation,
+    cyclotronJobToInvocation,
     gzipObject,
+    invocationToCyclotronJobUpdate,
     prepareLogEntriesForClickhouse,
     serializeHogFunctionInvocation,
     unGzipObject,
@@ -757,13 +758,10 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
                     this.cyclotronWorker?.updateJob(id, 'completed')
                 } else {
                     status.debug('⚡️', 'Updating job to available', id)
-                    this.cyclotronWorker?.updateJob(id, 'available', {
-                        priority: item.invocation.priority,
-                        vmState: serializeHogFunctionInvocation(item.invocation),
-                        queueName: item.invocation.queue,
-                        parameters: item.invocation.queueParameters ?? null,
-                        blob: item.invocation.queueBlob ?? null,
-                    })
+
+                    const updates = invocationToCyclotronJobUpdate(item.invocation)
+
+                    this.cyclotronWorker?.updateJob(id, 'available', updates)
                 }
                 await this.cyclotronWorker?.flushJob(id)
             })
@@ -791,20 +789,8 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
                 continue
             }
 
-            const parsedState = job.vmState as HogFunctionInvocationSerialized
-
-            invocations.push({
-                id: job.id,
-                globals: parsedState.globals,
-                teamId: hogFunction.team_id,
-                hogFunction,
-                priority: job.priority,
-                queue: (job.queueName as any) ?? 'hog',
-                queueParameters: job.parameters as HogFunctionInvocationQueueParameters | undefined,
-                queueBlob: job.blob ?? undefined,
-                vmState: parsedState.vmState,
-                timings: parsedState.timings,
-            })
+            const invocation = cyclotronJobToInvocation(job, hogFunction)
+            invocations.push(invocation)
         }
 
         await this.processBatch(invocations)

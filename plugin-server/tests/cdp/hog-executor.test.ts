@@ -22,9 +22,9 @@ const setupFetchResponse = (invocation: HogFunctionInvocation, options?: { statu
         ],
         response: {
             status: options?.status ?? 200,
+            body: options?.body ?? 'success',
         },
     }
-    invocation.queueBlob = Buffer.from(options?.body ?? 'success')
 }
 
 describe('Hog Executor', () => {
@@ -69,7 +69,6 @@ describe('Hog Executor', () => {
                     hogFunction: invocation.hogFunction,
                     queue: 'fetch',
                     queueParameters: expect.any(Object),
-                    queueBlob: expect.any(Buffer),
                     timings: [
                         {
                             kind: 'hog',
@@ -134,7 +133,7 @@ describe('Hog Executor', () => {
                 },
             })
 
-            const body = JSON.parse(Buffer.from(result.invocation.queueBlob!).toString())
+            const body = JSON.parse((result.invocation.queueParameters as any).body!)
             expect(body).toEqual({
                 event: {
                     uuid: 'uuid',
