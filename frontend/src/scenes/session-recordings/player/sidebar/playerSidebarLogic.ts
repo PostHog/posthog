@@ -1,4 +1,4 @@
-import { actions, kea, key, path, props, reducers } from 'kea'
+import { actions, kea, path, props, reducers } from 'kea'
 
 import { SessionRecordingSidebarTab } from '~/types'
 
@@ -6,17 +6,16 @@ import { SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic
 import type { playerSidebarLogicType } from './playerSidebarLogicType'
 
 export const playerSidebarLogic = kea<playerSidebarLogicType>([
-    path((key) => ['scenes', 'session-recordings', 'player', 'playerSidebarLogic', key]),
+    path(() => ['scenes', 'session-recordings', 'player', 'playerSidebarLogic']),
     props({} as SessionRecordingPlayerLogicProps),
-    key((props: SessionRecordingPlayerLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
 
     actions(() => ({
-        setTab: (tab: SessionRecordingSidebarTab | null) => ({ tab }),
+        setTab: (tab: SessionRecordingSidebarTab) => ({ tab }),
     })),
 
     reducers(() => ({
         activeTab: [
-            SessionRecordingSidebarTab.INSPECTOR as SessionRecordingSidebarTab | null,
+            SessionRecordingSidebarTab.INSPECTOR as SessionRecordingSidebarTab,
             { setTab: (_, { tab }) => tab },
         ],
     })),

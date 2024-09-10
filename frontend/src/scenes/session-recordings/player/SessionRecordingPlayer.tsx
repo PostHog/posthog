@@ -22,6 +22,7 @@ import { PlayerFrame } from './PlayerFrame'
 import { PlayerFrameOverlay } from './PlayerFrameOverlay'
 import { PlayerMeta } from './PlayerMeta'
 import { PlayerMetaLinks } from './PlayerMetaLinks'
+import { PlayerPersonMeta } from './PlayerPersonMeta'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { PlayerSidebar } from './PlayerSidebar'
 import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
@@ -95,7 +96,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         sessionRecordingPlayerLogic(logicProps)
     )
     const speedHotkeys = useMemo(() => createPlaybackSpeedKey(setSpeed), [setSpeed])
-    const { preferredSidebarStacking } = useValues(playerSettingsLogic)
+    const { preferredSidebarStacking, sidebarOpen } = useValues(playerSettingsLogic)
     const { setPreferredSidebarStacking } = useActions(playerSettingsLogic)
 
     useKeyboardHotkeys(
@@ -162,7 +163,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
 
     const compactLayout = size === 'small'
     const layoutStacking = compactLayout ? SessionRecordingSidebarStacking.Vertical : preferredSidebarStacking
-    const isVerticallyStacked = layoutStacking === SessionRecordingSidebarStacking.Vertical
+    const isVerticallyStacked = sidebarOpen && layoutStacking === SessionRecordingSidebarStacking.Vertical
 
     const lessThanFiveMinutesOld = dayjs().diff(start, 'minute') <= 5
     const cannotPlayback = snapshotsInvalid && lessThanFiveMinutesOld && !messageTooLargeWarnings
@@ -218,7 +219,8 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                 ) : (
                                     <>
                                         <div className="SessionRecordingPlayer__main">
-                                            <div className="flex justify-end items-center p-1 border-b">
+                                            <div className="flex justify-between items-center p-1 border-b">
+                                                <PlayerPersonMeta />
                                                 <PlayerMetaLinks iconsOnly={playerMainSize === 'small'} />
                                             </div>
                                             {!noMeta || isFullScreen ? <PlayerMeta /> : null}

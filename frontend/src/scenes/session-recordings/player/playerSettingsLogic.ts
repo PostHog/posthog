@@ -22,11 +22,6 @@ export enum TimestampFormat {
     Device = 'device',
 }
 
-export enum PlaybackViewMode {
-    Playback = 'playback',
-    Waterfall = 'waterfall',
-}
-
 const MiniFilters: SharedListMiniFilter[] = [
     {
         tab: SessionRecordingPlayerTab.ALL,
@@ -195,7 +190,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
         setQuickFilterProperties: (properties: string[]) => ({ properties }),
         setTimestampFormat: (format: TimestampFormat) => ({ format }),
-        setPlaybackViewMode: (mode: PlaybackViewMode) => ({ mode }),
+        setSidebarOpen: (open: boolean) => ({ open }),
         setPreferredSidebarStacking: (stacking: SessionRecordingSidebarStacking) => ({ stacking }),
         setShowMouseTail: (showMouseTail: boolean) => ({ showMouseTail }),
         setShowSeekbarTicks: (show: boolean) => ({ show }),
@@ -204,19 +199,8 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         values: [teamLogic, ['currentTeam']],
     }),
     reducers(({ values }) => ({
-        showFilters: [
-            true,
-            {
-                persist: true,
-            },
-            {
-                setShowFilters: (_, { showFilters }) => showFilters,
-            },
-        ],
-        playbackViewMode: [
-            PlaybackViewMode.Playback as PlaybackViewMode,
-            { setPlaybackViewMode: (_, { mode }) => mode },
-        ],
+        showFilters: [true, { persist: true }, { setShowFilters: (_, { showFilters }) => showFilters }],
+        sidebarOpen: [false, { persist: true }, { setSidebarOpen: (_, { open }) => open }],
         preferredSidebarStacking: [
             SessionRecordingSidebarStacking.Horizontal as SessionRecordingSidebarStacking,
             { persist: true },

@@ -1,4 +1,4 @@
-import { IconBottomPanel, IconPerson, IconSidePanel, IconX } from '@posthog/icons'
+import { IconBottomPanel, IconSidePanel, IconX } from '@posthog/icons'
 import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -14,6 +14,7 @@ import { SessionRecordingSidebarTab } from '~/types'
 import { NetworkView } from '../apm/NetworkView'
 import { PlayerInspectorControls, TabToIcon } from './inspector/PlayerInspectorControls'
 import { PlayerInspectorList } from './inspector/PlayerInspectorList'
+import { playerSettingsLogic } from './playerSettingsLogic'
 import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
 import { playerSidebarLogic } from './sidebar/playerSidebarLogic'
 
@@ -27,10 +28,11 @@ export function PlayerSidebar({
     const ref = useRef<HTMLDivElement>(null)
 
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const sidebarLogic = playerSidebarLogic(logicProps)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { activeTab } = useValues(sidebarLogic)
-    const { setTab } = useActions(sidebarLogic)
+    const { activeTab } = useValues(playerSidebarLogic)
+    const { setTab } = useActions(playerSidebarLogic)
+    const { sidebarOpen } = useValues(playerSettingsLogic)
+    const { setSidebarOpen } = useActions(playerSettingsLogic)
 
     const logicKey = `player-sidebar-${isVerticallyStacked ? 'vertical' : 'horizontal'}`
 
@@ -40,33 +42,27 @@ export function PlayerSidebar({
         persistent: true,
         closeThreshold: 100,
         placement: isVerticallyStacked ? 'top' : 'left',
-        onToggleClosed: (shouldBeClosed) => setTab(shouldBeClosed ? null : SessionRecordingSidebarTab.SESSION),
+        onToggleClosed: (shouldBeClosed) => setSidebarOpen(!shouldBeClosed),
     }
 
     const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
 
-    const sidebarTabs = [
-        SessionRecordingSidebarTab.SESSION,
-        SessionRecordingSidebarTab.INSPECTOR,
-        SessionRecordingSidebarTab.WATERFALL,
-    ]
+    const sidebarTabs = [SessionRecordingSidebarTab.INSPECTOR, SessionRecordingSidebarTab.WATERFALL]
 
     if (window.IMPERSONATED_SESSION || featureFlags[FEATURE_FLAGS.SESSION_REPLAY_DOCTOR]) {
         sidebarTabs.push(SessionRecordingSidebarTab.DEBUGGER)
     }
 
-    const collapsed = activeTab === null
-
     return (
         <div
             className={clsx(
                 'SessionRecordingPlayer__sidebar',
-                collapsed && 'SessionRecordingPlayer__sidebar--collapsed'
+                !sidebarOpen && 'SessionRecordingPlayer__sidebar--collapsed'
             )}
             ref={ref}
             // eslint-disable-next-line react/forbid-dom-props
             style={
-                collapsed
+                !sidebarOpen
                     ? {}
                     : isVerticallyStacked
                     ? { height: desiredSize ?? undefined, minHeight: 110 }
@@ -79,12 +75,11 @@ export function PlayerSidebar({
                 containerRef={ref}
                 closeThreshold={100}
             />
-            {activeTab ? (
+            {sidebarOpen ? (
                 <>
                     <div className="flex bg-bg-light">
                         <div className="w-2.5 border-b shrink-0" />
                         <LemonTabs
-                            // size="small"
                             activeKey={activeTab}
                             onChange={(tabId) => setTab(tabId)}
                             tabs={sidebarTabs.map((tabId) => ({
@@ -102,7 +97,7 @@ export function PlayerSidebar({
                                     onClick={toggleLayoutStacking}
                                 />
                             )}
-                            <LemonButton size="xsmall" icon={<IconX />} onClick={() => setTab(null)} />
+                            <LemonButton size="xsmall" icon={<IconX />} onClick={() => setSidebarOpen(false)} />
                         </div>
                     </div>
                     {activeTab === SessionRecordingSidebarTab.INSPECTOR ? (
@@ -112,21 +107,12 @@ export function PlayerSidebar({
                         </>
                     ) : activeTab === SessionRecordingSidebarTab.WATERFALL ? (
                         <NetworkView sessionRecordingId={logicProps.sessionRecordingId} />
-                    ) : activeTab === SessionRecordingSidebarTab.SESSION ? (
-                        <div>New session tab</div>
                     ) : (
                         <div>Debugger tab</div>
                     )}
                 </>
             ) : (
                 <div className="flex flex-col items-center gap-1 p-1">
-                    <LemonButton
-                        size="small"
-                        icon={<IconPerson />}
-                        onClick={() => {
-                            setTab(SessionRecordingSidebarTab.SESSION)
-                        }}
-                    />
                     {Object.values(TabToIcon).map((Icon, idx) => {
                         return Icon ? (
                             <LemonButton
@@ -134,6 +120,7 @@ export function PlayerSidebar({
                                 size="small"
                                 icon={<Icon />}
                                 onClick={() => {
+                                    setSidebarOpen(true)
                                     setTab(SessionRecordingSidebarTab.INSPECTOR)
                                 }}
                             />
