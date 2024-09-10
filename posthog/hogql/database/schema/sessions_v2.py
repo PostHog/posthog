@@ -93,6 +93,9 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "$is_bounce": BooleanDatabaseField(name="$is_bounce"),
     "$last_external_click_url": StringDatabaseField(name="$last_external_click_url"),
     "$page_screen_autocapture_count_up_to": DatabaseField(name="$$page_screen_autocapture_count_up_to"),
+    # some aliases for people upgrading from v1 to v2
+    "$exit_current_url": StringDatabaseField(name="$exit_current_url"),
+    "$exit_pathname": StringDatabaseField(name="$exit_pathname"),
 }
 
 
@@ -306,6 +309,9 @@ def select_from_sessions_table_v2(
         gclid=aggregate_fields["$entry_gclid"],
         gad_source=aggregate_fields["$entry_gad_source"],
     )
+    # some aliases for people upgrading from v1 to v2
+    aggregate_fields["$exit_current_url"] = aggregate_fields["$end_current_url"]
+    aggregate_fields["$exit_pathname"] = aggregate_fields["$end_pathname"]
 
     select_fields: list[ast.Expr] = []
     group_by_fields: list[ast.Expr] = [ast.Field(chain=[table_name, "session_id_v7"])]
@@ -351,6 +357,9 @@ class SessionsTableV2(LazyTable):
             "session_id_v7",  # HogQL insights currently don't support returning uint128s due to json serialisation
             "id",  # prefer to use session_id
             "duration",  # alias of $session_duration, deprecated but included for backwards compatibility
+            # aliases for people upgrading from v1 to v2
+            "$exit_current_url",
+            "$exit_pathname",
         ]
 
 
@@ -396,6 +405,9 @@ def get_lazy_session_table_properties_v2(search: Optional[str]):
         "duration",
         "$num_uniq_urls",
         "$page_screen_autocapture_count_up_to",
+        # aliases for people upgrading from v1 to v2
+        "$exit_current_url",
+        "$exit_pathname",
     }
 
     # some fields should have a specific property type which isn't derivable from the type of database field
