@@ -40,7 +40,6 @@ import { CdpRedis, createCdpRedisPool } from './redis'
 import {
     HogFunctionInvocation,
     HogFunctionInvocationGlobals,
-    HogFunctionInvocationQueueParameters,
     HogFunctionInvocationResult,
     HogFunctionInvocationSerialized,
     HogFunctionInvocationSerializedCompressed,
@@ -49,13 +48,13 @@ import {
     HogHooksFetchResponse,
 } from './types'
 import {
-    blobToString,
     convertToCaptureEvent,
     convertToHogFunctionInvocationGlobals,
     createInvocation,
+    cyclotronJobToInvocation,
     gzipObject,
+    invocationToCyclotronJobUpdate,
     prepareLogEntriesForClickhouse,
-    prepareQueueParams,
     serializeHogFunctionInvocation,
     unGzipObject,
 } from './utils'
@@ -760,12 +759,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
                 } else {
                     status.debug('⚡️', 'Updating job to available', id)
 
-                    const updates = {
-                        priority: item.invocation.priority,
-                        vmState: serializeHogFunctionInvocation(item.invocation),
-                        queueName: item.invocation.queue,
-                        ...prepareQueueParams(item.invocation.queueParameters),
-                    }
+                    const updates = invocationToCyclotronJobUpdate(item.invocation)
 
                     this.cyclotronWorker?.updateJob(id, 'available', updates)
                 }
@@ -795,31 +789,8 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
                 continue
             }
 
-            const parsedState = job.vmState as HogFunctionInvocationSerialized
-
-            const params = parsedState.queueParameters as HogFunctionInvocationQueueParameters | undefined
-
-            if (params && 'response' in params && params.response && job.blob) {
-                // Deserialize the blob into the params
-                try {
-                    params.response.body = blobToString(job.blob)
-                } catch (e) {
-                    status.error('Error parsing blob', e, job.blob)
-                    captureException(e)
-                }
-            }
-
-            invocations.push({
-                id: job.id,
-                globals: parsedState.globals,
-                teamId: hogFunction.team_id,
-                hogFunction,
-                priority: job.priority,
-                queue: (job.queueName as any) ?? 'hog',
-                queueParameters: params,
-                vmState: parsedState.vmState,
-                timings: parsedState.timings,
-            })
+            const invocation = cyclotronJobToInvocation(job, hogFunction)
+            invocations.push(invocation)
         }
 
         await this.processBatch(invocations)
