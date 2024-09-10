@@ -18,6 +18,7 @@ type PersonPropType =
 export interface PersonDisplayProps {
     person?: PersonPropType | null
     withIcon?: boolean | ProfilePictureProps['size']
+    withDisplay?: boolean
     href?: string
     noLink?: boolean
     noEllipsis?: boolean
@@ -53,6 +54,7 @@ export function PersonIcon({
 export function PersonDisplay({
     person,
     withIcon,
+    withDisplay = true,
     noEllipsis,
     noPopover,
     noLink,
@@ -78,7 +80,7 @@ export function PersonDisplay({
     let content = (
         <span className={clsx('flex items-center', isCentered && 'justify-center')}>
             {withIcon && <PersonIcon person={person} size={typeof withIcon === 'string' ? withIcon : 'md'} />}
-            <span className={clsx('ph-no-capture', !noEllipsis && 'truncate')}>{display}</span>
+            {withDisplay && <span className={clsx('ph-no-capture', !noEllipsis && 'truncate')}>{display}</span>}
         </span>
     )
 

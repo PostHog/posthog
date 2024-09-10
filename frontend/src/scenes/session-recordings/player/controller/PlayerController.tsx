@@ -8,11 +8,12 @@ import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/se
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { SessionPlayerState } from '~/types'
 
+import { PlayerMetaLinks } from '../PlayerMetaLinks'
 import { PlayerSettings } from '../PlayerSettings'
 import { SeekSkip, Timestamp } from './PlayerControllerTime'
 import { Seekbar } from './Seekbar'
 
-export function PlayerController(): JSX.Element {
+export function PlayerController({ iconsOnly }: { iconsOnly: boolean }): JSX.Element {
     const { playingState, isFullScreen, endReached } = useValues(sessionRecordingPlayerLogic)
     const { togglePlayPause, setIsFullScreen } = useActions(sessionRecordingPlayerLogic)
 
@@ -45,16 +46,19 @@ export function PlayerController(): JSX.Element {
                         </LemonButton>
                         <SeekSkip direction="backward" />
                         <SeekSkip direction="forward" />
+                        <LemonButton
+                            size="small"
+                            onClick={() => setIsFullScreen(!isFullScreen)}
+                            tooltip={`${!isFullScreen ? 'Go' : 'Exit'} full screen (F)`}
+                        >
+                            <IconFullScreen
+                                className={clsx('text-2xl', isFullScreen ? 'text-link' : 'text-primary-alt')}
+                            />
+                        </LemonButton>
                     </div>
                     <PlayerSettings />
                 </div>
-                <LemonButton
-                    size="small"
-                    onClick={() => setIsFullScreen(!isFullScreen)}
-                    tooltip={`${!isFullScreen ? 'Go' : 'Exit'} full screen (F)`}
-                >
-                    <IconFullScreen className={clsx('text-2xl', isFullScreen ? 'text-link' : 'text-primary-alt')} />
-                </LemonButton>
+                <PlayerMetaLinks iconsOnly={iconsOnly} />
             </div>
         </div>
     )
