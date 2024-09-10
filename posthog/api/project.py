@@ -76,6 +76,7 @@ class ProjectSerializer(ProjectBasicSerializer, UserPermissionsSerializerMixin):
             "autocapture_opt_out",  # Compat with TeamSerializer
             "autocapture_exceptions_opt_in",  # Compat with TeamSerializer
             "autocapture_web_vitals_opt_in",  # Compat with TeamSerializer
+            "autocapture_web_vitals_allowed_metrics",  # Compat with TeamSerializer
             "autocapture_exceptions_errors_to_ignore",  # Compat with TeamSerializer
             "capture_console_log_opt_in",  # Compat with TeamSerializer
             "capture_performance_opt_in",  # Compat with TeamSerializer
