@@ -18,12 +18,18 @@ const UrlInput = ({ iframeRef }: { iframeRef: React.RefObject<HTMLIFrameElement>
     const { setBrowserUrl, setCurrentPath } = useActions(
         iframedToolbarBrowserLogic({ iframeRef, clearBrowserUrlOnUnmount: true })
     )
-    const { browserUrl, currentPath } = useValues(
+    const { browserUrl, currentPath, currentFullUrl } = useValues(
         iframedToolbarBrowserLogic({ iframeRef, clearBrowserUrlOnUnmount: true })
     )
     const { snippetHosts } = useValues(sdksLogic)
     const { addUrl } = useActions(authorizedUrlListLogic({ actionId: null, type: AuthorizedUrlListType.TOOLBAR_URLS }))
     const [inputValue, setInputValue] = useState(currentPath)
+    const { activeDashboardTemplate } = useValues(newDashboardLogic)
+    const theDashboardTemplateVariablesLogic = dashboardTemplateVariablesLogic({
+        variables: activeDashboardTemplate?.variables || [],
+    })
+    const { setVariableForPageview } = useActions(theDashboardTemplateVariablesLogic)
+    const { activeVariable } = useValues(theDashboardTemplateVariablesLogic)
 
     useEffect(() => {
         setInputValue(currentPath)
@@ -70,7 +76,12 @@ const UrlInput = ({ iframeRef }: { iframeRef: React.RefObject<HTMLIFrameElement>
                     setCurrentPath(inputValue || '', true)
                 }}
             />
-            <LemonButton size="small" type="primary">
+            <LemonButton
+                size="small"
+                type="primary"
+                status="alt"
+                onClick={() => setVariableForPageview(activeVariable.name, currentFullUrl)}
+            >
                 Select pageview
             </LemonButton>
         </div>

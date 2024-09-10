@@ -140,6 +140,12 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
                 return iframeWidth ? calculateViewportRange(heatmapFilters, iframeWidth) : { min: 0, max: 1800 }
             },
         ],
+        currentFullUrl: [
+            (s) => [s.browserUrl, s.currentPath],
+            (browserUrl, currentPath) => {
+                return browserUrl + '/' + currentPath
+            },
+        ],
     }),
 
     listeners(({ actions, cache, props, values }) => ({
