@@ -49,7 +49,7 @@ function VariableSelector({
                     <IconInfo /> {variable.description}
                 </p>
             </div>
-            {!showCustomEventField && activeVariableIndex == 0 && hasSelectedSite && (
+            {!showCustomEventField && activeVariableIndex == 0 && hasSelectedSite && !variable.touched && (
                 <LemonBanner type="info" className="mb-4">
                     <p>
                         <strong>Tip:</strong> Navigate to the page you want before you start selecting.

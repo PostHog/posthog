@@ -14,11 +14,25 @@ import { actionStepToActionStepFormItem, elementToActionStep, stepToDatabaseForm
 import { ActionType, ElementType } from '~/types'
 
 import type { actionsTabLogicType } from './actionsTabLogicType'
+import { ActionStepPropertyKey } from './ActionStep'
 
-function newAction(element: HTMLElement | null, dataAttributes: string[] = [], name: string | null): ActionDraftType {
+function newAction(
+    element: HTMLElement | null,
+    dataAttributes: string[] = [],
+    name: string | null,
+    includedPropertyKeys?: ActionStepPropertyKey[]
+): ActionDraftType {
     return {
         name: name || '',
-        steps: [element ? actionStepToActionStepFormItem(elementToActionStep(element, dataAttributes), true) : {}],
+        steps: [
+            element
+                ? actionStepToActionStepFormItem(
+                      elementToActionStep(element, dataAttributes),
+                      true,
+                      includedPropertyKeys
+                  )
+                : {},
+        ],
         pinned_at: null,
     }
 }
@@ -69,6 +83,9 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
         setElementSelector: (selector: string, index: number) => ({ selector, index }),
         setAutomaticActionCreationEnabled: (enabled: boolean, name?: string) => ({ enabled, name }),
         actionCreatedSuccess: (action: ActionType) => ({ action }),
+        setautomaticCreationIncludedPropertyKeys: (keys: ActionStepPropertyKey[]) => ({ keys }),
+        removeAutomaticCreationIncludedPropertyKey: (key: ActionStepPropertyKey) => ({ key }),
+        addAutomaticCreationIncludedPropertyKey: (key: ActionStepPropertyKey) => ({ key }),
     }),
 
     connect(() => ({
@@ -157,6 +174,17 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
                 setAutomaticActionCreationEnabled: (_, { enabled, name }) => (enabled && name ? name : null),
             },
         ],
+        automaticCreationIncludedPropertyKeys: [
+            [] as ActionStepPropertyKey[],
+            {
+                setAutomaticActionCreationEnabled: (_, { enabled }) =>
+                    enabled ? ['text', 'href', 'name', 'selector', 'url'] : [],
+                setautomaticCreationIncludedPropertyKeys: (_, { keys }) => keys || [],
+                removeAutomaticCreationIncludedPropertyKey: (state, { key }) => state.filter((k) => k !== key),
+                addAutomaticCreationIncludedPropertyKey: (state, { key }) =>
+                    !state.includes(key) ? [...state, key] : state,
+            },
+        ],
     }),
 
     forms(({ values, actions }) => ({
@@ -243,16 +271,29 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
             },
         ],
         selectedAction: [
-            (s) => [s.selectedActionId, s.newActionForElement, s.allActions, s.dataAttributes, s.newActionName],
+            (s) => [
+                s.selectedActionId,
+                s.newActionForElement,
+                s.allActions,
+                s.dataAttributes,
+                s.newActionName,
+                s.automaticCreationIncludedPropertyKeys,
+            ],
             (
                 selectedActionId,
                 newActionForElement,
                 allActions,
                 dataAttributes,
-                newActionName
+                newActionName,
+                automaticCreationIncludedPropertyKeys
             ): ActionType | ActionDraftType | null => {
                 if (selectedActionId === 'new') {
-                    return newAction(newActionForElement, dataAttributes, newActionName)
+                    return newAction(
+                        newActionForElement,
+                        dataAttributes,
+                        newActionName,
+                        automaticCreationIncludedPropertyKeys
+                    )
                 }
                 return allActions.find((a) => a.id === selectedActionId) || null
             },
