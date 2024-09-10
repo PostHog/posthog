@@ -1,6 +1,7 @@
 import { Meta } from '@storybook/react'
+import { FEATURE_FLAGS } from 'lib/constants'
 
-import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
+import { mswDecorator, setFeatureFlags, useStorybookMocks } from '~/mocks/browser'
 import { billingJson } from '~/mocks/fixtures/_billing'
 import billingJsonWith100PercentDiscount from '~/mocks/fixtures/_billing_with_100_percent_discount.json'
 import billingJsonWithDiscount from '~/mocks/fixtures/_billing_with_discount.json'
@@ -57,6 +58,27 @@ export const BillingWithDiscount = (): JSX.Element => {
     return <Billing />
 }
 
+export const BillingWithCreditCTA = (): JSX.Element => {
+    setFeatureFlags([FEATURE_FLAGS.PURCHASE_CREDITS])
+    useStorybookMocks({
+        get: {
+            '/api/billing/': {
+                ...billingJson,
+            },
+            '/api/billing/credits/overview': {
+                status: 'none',
+                eligible: true,
+                estimated_monthly_credit_amount_usd: '1200',
+                email: 'test@posthog.com',
+                cc_last_four: '1234',
+                cc_brand: 'Visa',
+            },
+        },
+    })
+
+    return <Billing />
+}
+
 export const BillingWithLimitAnd100PercentDiscount = (): JSX.Element => {
     useStorybookMocks({
         get: {
@@ -74,6 +96,14 @@ export const BillingPurchaseCreditsModal = (): JSX.Element => {
         get: {
             '/api/billing/': {
                 ...billingJson,
+            },
+            '/api/billing/credits/overview': {
+                status: 'none',
+                eligible: true,
+                estimated_monthly_credit_amount_usd: '1200',
+                email: 'test@posthog.com',
+                cc_last_four: '1234',
+                cc_brand: 'Visa',
             },
         },
     })
