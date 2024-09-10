@@ -19,7 +19,7 @@ let headers := () -> {
 let message := () -> {
   'messageId': event.uuid,
   'data': base64Encode(jsonStringify(inputs.payload)),
-  'attributes': {},
+  'attributes': inputs.attributes
 }
 let res := fetch(f'https://pubsub.googleapis.com/v1/{inputs.topicId}:publish', {
   'method': 'POST',
@@ -57,6 +57,14 @@ if (res.status >= 200 and res.status < 300) {
             "secret": False,
             "required": False,
         },
+        {
+            "key": "attributes",
+            "type": "json",
+            "label": "Attributes",
+            "default": {},
+            "secret": False,
+            "required": False,
+        },
     ],
 )
 
@@ -73,7 +81,9 @@ class TemplateGooglePubSubMigrator(HogFunctionTemplateMigrator):
 
         from posthog.models.plugin import PluginAttachment
 
-        attachment = PluginAttachment.objects.filter(plugin_config=obj, key="googleCloudKeyJson").first()
+        attachment: PluginAttachment | None = PluginAttachment.objects.filter(
+            plugin_config=obj, key="googleCloudKeyJson"
+        ).first()
         if not attachment:
             raise Exception("Google Cloud Key JSON not found")
 
