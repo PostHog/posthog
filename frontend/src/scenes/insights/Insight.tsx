@@ -58,7 +58,7 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
                             <span>You are viewing this insight with filters from a dashboard</span>
 
                             <LemonButton type="secondary" to={urls.insightView(insightId as InsightShortId)}>
-                                Remove filters
+                                Discard dashboard filters
                             </LemonButton>
                         </div>
                     </LemonBanner>

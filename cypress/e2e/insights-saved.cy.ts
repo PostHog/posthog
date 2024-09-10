@@ -20,7 +20,9 @@ chai.Assertion.addMethod('neverHaveChild', function (childSelector) {
 describe('Insights - saved', () => {
     it('Data is available immediately', () => {
         createInsight('saved insight').then((newInsightId) => {
+            cy.wait(2000)
             cy.get('[data-attr=trend-line-graph]').should('exist') // Results cached
+            cy.wait(2000)
             cy.visit(urls.insightView(newInsightId)) // Full refresh
             cy.wait(2000)
             cy.get('.InsightViz').should('exist').should('neverHaveChild', '.insight-empty-state') // Only cached data
