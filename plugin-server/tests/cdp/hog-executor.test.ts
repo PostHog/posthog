@@ -4,12 +4,7 @@ import { HogExecutor } from '../../src/cdp/hog-executor'
 import { HogFunctionManager } from '../../src/cdp/hog-function-manager'
 import { HogFunctionInvocation, HogFunctionType } from '../../src/cdp/types'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './examples'
-import {
-    createHogExecutionGlobals,
-    createHogFunction,
-    createInvocation,
-    insertHogFunction as _insertHogFunction,
-} from './fixtures'
+import { createHogExecutionGlobals, createHogFunction, createInvocation } from './fixtures'
 
 const setupFetchResponse = (invocation: HogFunctionInvocation, options?: { status?: number; body?: string }): void => {
     invocation.queue = 'hog'
