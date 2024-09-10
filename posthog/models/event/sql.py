@@ -18,7 +18,6 @@ from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
 
 EVENTS_DATA_TABLE = lambda: "sharded_events"
 WRITABLE_EVENTS_DATA_TABLE = lambda: "writable_events"
-DISTRIBUTED_EVENTS_TABLE = lambda: "distributed_events"
 
 TRUNCATE_EVENTS_TABLE_SQL = (
     lambda: f"TRUNCATE TABLE IF EXISTS {EVENTS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
@@ -207,8 +206,8 @@ WRITABLE_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
 )
 
 # This table is responsible for reading from events on a cluster setting
-DISTRIBUTED_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
-    table_name=DISTRIBUTED_EVENTS_TABLE(),
+DISTRIBUTED_EVENTS_TABLE_SQL = lambda name="events": EVENTS_TABLE_BASE_SQL.format(
+    table_name=name,
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=Distributed(data_table=EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
     extra_fields=KAFKA_COLUMNS + INSERTED_AT_COLUMN,
@@ -220,7 +219,7 @@ DISTRIBUTED_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
 EVENTS_NON_DELETED_VIEW_SQL = lambda: EVENTS_VIEW_NON_DELETED_BASE_SQL.format(
     view="events",
     cluster=settings.CLICKHOUSE_CLUSTER,
-    table=DISTRIBUTED_EVENTS_TABLE(),
+    table="distributed_events", # This is the DISTRIBUTED_EVENTS_TABLE_SQL name after its rename in migration 0079
 )
 
 INSERT_EVENT_SQL = (
