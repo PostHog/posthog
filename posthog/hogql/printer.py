@@ -958,6 +958,12 @@ class _Printer(Visitor):
                     return property_source.has_expr
                 else:
                     raise ValueError("unexpected node name")
+        elif node.name == "JSONHas":
+            if len(node.args) > 2:
+                # TODO: can probably optimize chained operations here as well
+                return None
+
+            raise NotImplementedError
 
         return None  # nothing to optimize
 
