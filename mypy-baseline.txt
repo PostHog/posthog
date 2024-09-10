@@ -75,7 +75,6 @@ posthog/warehouse/data_load/service.py:0: error: Incompatible return value type 
 posthog/tasks/tasks.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "timedelta"  [attr-defined]
 posthog/models/subscription.py:0: error: Argument 2 to "SubscriptionResourceInfo" has incompatible type "str | None"; expected "str"  [arg-type]
 posthog/models/exported_asset.py:0: error: Value of type variable "_StrOrPromiseT" of "slugify" cannot be "str | None"  [type-var]
-posthog/models/web_experiment.py:11: error: Cannot override class variable (previously declared on base class "Experiment") with instance variable  [misc]
 posthog/models/action/action.py:0: error: Need type annotation for "events"  [var-annotated]
 posthog/models/action/action.py:0: error: Argument 1 to "len" has incompatible type "str | None"; expected "Sized"  [arg-type]
 posthog/hogql/visitor.py:0: error: Incompatible types in assignment (expression has type "Expr", variable has type "CTE")  [assignment]
