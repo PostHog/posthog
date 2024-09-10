@@ -1,6 +1,6 @@
 import { Meta, StoryFn } from '@storybook/react'
 import { router } from 'kea-router'
-import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+import { MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from 'lib/api.mock'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
@@ -26,6 +26,13 @@ const meta: Meta = {
                     realm: 'cloud',
                 },
                 '/api/projects/:id/integrations': { results: [] },
+            },
+            patch: {
+                '/api/projects/:id': async (req, res, ctx) => {
+                    // bounce the setting back as is
+                    const newTeamSettings = { ...MOCK_DEFAULT_TEAM, ...(await req.json()) }
+                    return res(ctx.json(newTeamSettings))
+                },
             },
         }),
     ],
@@ -70,6 +77,16 @@ SettingsUser.parameters = {
 export const SettingsOrganization: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.settings('organization'))
+    }, [])
+    return <App />
+}
+SettingsOrganization.parameters = {
+    testOptions: { waitForSelector: '.Settings__sections button' },
+}
+
+export const SettingsWebVitals: StoryFn = () => {
+    useEffect(() => {
+        router.actions.push(urls.settings('project-autocapture', 'web-vitals-autocapture'))
     }, [])
     return <App />
 }

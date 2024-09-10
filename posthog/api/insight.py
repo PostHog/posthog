@@ -11,7 +11,7 @@ from django.utils.text import slugify
 from django.utils.timezone import now
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema_view
 from loginas.utils import is_impersonated_session
 from prometheus_client import Counter
 from rest_framework import request, serializers, status, viewsets
@@ -64,7 +64,11 @@ from posthog.hogql_queries.legacy_compatibility.feature_flag import (
 from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import (
     conversion_to_query_based,
 )
-from posthog.hogql_queries.query_runner import execution_mode_from_refresh, shared_insights_execution_mode
+from posthog.hogql_queries.query_runner import (
+    ExecutionMode,
+    execution_mode_from_refresh,
+    shared_insights_execution_mode,
+)
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
 from posthog.models import DashboardTile, Filter, Insight, User
 from posthog.models.activity_logging.activity_log import (
@@ -627,6 +631,21 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
         return dashboard_tile
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="refresh",
+                enum=list(ExecutionMode),
+                default=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
+                description="""
+Whether to refresh the retrieved insights and how aggressively. (The default `force_cache` value never refreshes.)
+If an `_async` mode is chosen, this request kicks off a background query and returns immediately.
+Background calculation can be tracked using the `query_status` response field.""",
+            )
+        ]
+    ),
+)
 class InsightViewSet(
     TeamAndOrgViewSetMixin,
     TaggedItemViewSetMixin,
@@ -783,24 +802,19 @@ class InsightViewSet(
         parameters=[
             OpenApiParameter(
                 name="refresh",
-                type=OpenApiTypes.BOOL,
+                enum=list(ExecutionMode),
+                default=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
                 description="""
-                The client can request that an insight be refreshed by setting the `refresh=true` parameter.
-                The server will then decide if the data should or not be refreshed based on a set of heuristics
-                meant to determine the staleness of cached data. The result will contain as `is_cached` field
-                that indicates whether the insight was actually refreshed or not through the request.""",
+Whether to refresh the insight and how aggressively. (The default `force_cache` value never refreshes.)
+If an `_async` mode is chosen, this request kicks off a background query and returns immediately.
+Background calculation can be tracked using the `query_status` response field.""",
             ),
             OpenApiParameter(
                 name="from_dashboard",
                 type=OpenApiTypes.INT,
                 description="""
-When loading an insight for a dashboard pass a `from_dashboard` query parameter containing the dashboard ID
-
-e.g. `"/api/projects/{team_id}/insights/{insight_id}?from_dashboard={dashboard_id}"`
-
-Insights can be added to more than one dashboard, this allows the insight to be loaded in the correct context.
-
-Using the correct cache and enriching the response with dashboard specific config (e.g. layouts or colors)""",
+Only if loading an insight in the context of a dashboard: The relevant dashboard's ID.
+When set, the specified dashboard's filters and date range override will be applied.""",
             ),
         ],
     )
@@ -895,12 +909,12 @@ Using the correct cache and enriching the response with dashboard specific confi
                 export = "{}/insights/{}/\n".format(SITE_URL, request.GET["export_insight_id"]).encode() + export
 
             response = HttpResponse(export)
-            response["Content-Disposition"] = (
-                'attachment; filename="{name} ({date_from} {date_to}) from PostHog.csv"'.format(
-                    name=slugify(request.GET.get("export_name", "export")),
-                    date_from=filter.date_from.strftime("%Y-%m-%d -") if filter.date_from else "up until",
-                    date_to=filter.date_to.strftime("%Y-%m-%d"),
-                )
+            response[
+                "Content-Disposition"
+            ] = 'attachment; filename="{name} ({date_from} {date_to}) from PostHog.csv"'.format(
+                name=slugify(request.GET.get("export_name", "export")),
+                date_from=filter.date_from.strftime("%Y-%m-%d -") if filter.date_from else "up until",
+                date_to=filter.date_to.strftime("%Y-%m-%d"),
             )
             return response
 

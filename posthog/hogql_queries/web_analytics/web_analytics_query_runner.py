@@ -25,10 +25,13 @@ from posthog.schema import (
     SamplingRate,
     SessionPropertyFilter,
     WebGoalsQuery,
+    WebExternalClicksTableQuery,
 )
 from posthog.utils import generate_cache_key, get_safe_cache
 
-WebQueryNode = Union[WebOverviewQuery, WebTopClicksQuery, WebStatsTableQuery, WebGoalsQuery]
+WebQueryNode = Union[
+    WebOverviewQuery, WebTopClicksQuery, WebStatsTableQuery, WebGoalsQuery, WebExternalClicksTableQuery
+]
 
 
 class WebAnalyticsQueryRunner(QueryRunner, ABC):
