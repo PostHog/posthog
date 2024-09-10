@@ -15,7 +15,7 @@ export const dataModelSceneLogic = kea<dataModelSceneLogicType>([
         values: [databaseTableListLogic, ['posthogTablesMap', 'viewsMapById']],
     })),
     actions({
-        traverseAncestors: (viewId: DataWarehouseSavedQuery['id']) => ({ viewId }),
+        traverseAncestors: (viewId: DataWarehouseSavedQuery['id'], level: number) => ({ viewId, level }),
         setNodes: (nodes: Record<string, Node>) => ({ nodes }),
     }),
     reducers({
@@ -27,8 +27,8 @@ export const dataModelSceneLogic = kea<dataModelSceneLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
-        traverseAncestors: async ({ viewId }) => {
-            const result = await api.dataWarehouseSavedQueries.ancestors(viewId)
+        traverseAncestors: async ({ viewId, level }) => {
+            const result = await api.dataWarehouseSavedQueries.ancestors(viewId, level)
 
             result.ancestors.forEach((ancestor) => {
                 actions.setNodes({
@@ -39,6 +39,7 @@ export const dataModelSceneLogic = kea<dataModelSceneLogicType>([
                         leaf: [...(values.nodeMap[ancestor]?.leaf || []), viewId],
                     },
                 })
+                actions.traverseAncestors(ancestor, 1)
             })
         },
     })),
@@ -85,12 +86,12 @@ export const dataModelSceneLogic = kea<dataModelSceneLogicType>([
                 actions.setNodes({
                     ...values.nodeMap,
                     [field.id || field.name]: {
-                        nodeId: field.id,
-                        name: values.viewsMapById[field.id]?.name || field.id,
+                        nodeId: field.id || field.name,
+                        name: values.viewsMapById[field.id || field.name]?.name || field.id || field.name,
                         leaf: [`${field.name}_joined`],
                     },
                 })
-                field.id && actions.traverseAncestors(field.id)
+                field.id && actions.traverseAncestors(field.id, 1)
             })
         },
     })),
