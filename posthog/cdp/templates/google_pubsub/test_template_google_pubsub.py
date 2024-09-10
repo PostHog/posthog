@@ -142,6 +142,7 @@ class TestTemplateMigration(BaseTest):
         assert template["filters"] == {}
 
         integration = Integration.objects.last()
+        assert integration is not None
         assert integration.kind == "google-pubsub"
         assert integration.sensitive_config == {"cloud": "key"}
         assert integration.config.get("access_token") == "ACCESS_TOKEN"
