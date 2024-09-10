@@ -1,6 +1,7 @@
 // NOTE: PostIngestionEvent is our context event - it should never be sent directly to an output, but rather transformed into a lightweight schema
 
 import { DateTime } from 'luxon'
+import RE2 from 're2'
 import { gunzip, gzip } from 'zlib'
 
 import { RawClickHouseEvent, Team, TimestampFormat } from '../types'
@@ -15,7 +16,6 @@ import {
     HogFunctionInvocationSerialized,
     HogFunctionLogEntrySerialized,
     HogFunctionType,
-    ParsedClickhouseEvent,
 } from './types'
 
 export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
@@ -37,26 +37,6 @@ const getPersonDisplayName = (team: Team, distinctId: string, properties: Record
         typeof propertyIdentifier !== 'string' ? JSON.stringify(propertyIdentifier) : propertyIdentifier
 
     return (customIdentifier || distinctId)?.trim()
-}
-
-export function convertToParsedClickhouseEvent(event: RawClickHouseEvent): ParsedClickhouseEvent {
-    const properties = event.properties ? JSON.parse(event.properties) : {}
-    if (event.elements_chain) {
-        properties['$elements_chain'] = event.elements_chain
-    }
-
-    return {
-        uuid: event.uuid,
-        event: event.event,
-        team_id: event.team_id,
-        distinct_id: event.distinct_id,
-        person_id: event.person_id,
-        timestamp: clickHouseTimestampToISO(event.timestamp),
-        created_at: clickHouseTimestampToISO(event.created_at),
-        properties: properties,
-        person_created_at: event.person_created_at ? clickHouseTimestampToISO(event.person_created_at) : undefined,
-        person_properties: event.person_properties ? JSON.parse(event.person_properties) : {},
-    }
 }
 
 // that we can keep to as a contract
@@ -108,6 +88,46 @@ export function convertToHogFunctionInvocationGlobals(
     return context
 }
 
+function getElementsChainHref(elementsChain: string): string {
+    // Adapted from SQL: extract(elements_chain, '(?::|\")href="(.*?)"'),
+    const hrefRegex = new RE2(/(?::|")href="(.*?)"/)
+    const hrefMatch = hrefRegex.exec(elementsChain)
+    return hrefMatch ? hrefMatch[1] : ''
+}
+
+function getElementsChainTexts(elementsChain: string): string[] {
+    // Adapted from SQL: arrayDistinct(extractAll(elements_chain, '(?::|\")text="(.*?)"')),
+    const textRegex = new RE2(/(?::|")text="(.*?)"/g)
+    const textMatches = new Set<string>()
+    let textMatch
+    while ((textMatch = textRegex.exec(elementsChain)) !== null) {
+        textMatches.add(textMatch[1])
+    }
+    return Array.from(textMatches)
+}
+
+function getElementsChainIds(elementsChain: string): string[] {
+    // Adapted from SQL: arrayDistinct(extractAll(elements_chain, '(?::|\")attr_id="(.*?)"')),
+    const idRegex = new RE2(/(?::|")attr_id="(.*?)"/g)
+    const idMatches = new Set<string>()
+    let idMatch
+    while ((idMatch = idRegex.exec(elementsChain)) !== null) {
+        idMatches.add(idMatch[1])
+    }
+    return Array.from(idMatches)
+}
+
+function getElementsChainElements(elementsChain: string): string[] {
+    // Adapted from SQL: arrayDistinct(extractAll(elements_chain, '(?:^|;)(a|button|form|input|select|textarea|label)(?:\\.|$|:)'))
+    const elementRegex = new RE2(/(?:^|;)(a|button|form|input|select|textarea|label)(?:\.|$|:)/g)
+    const elementMatches = new Set<string>()
+    let elementMatch
+    while ((elementMatch = elementRegex.exec(elementsChain)) !== null) {
+        elementMatches.add(elementMatch[1])
+    }
+    return Array.from(elementMatches)
+}
+
 export function convertToHogFunctionFilterGlobal(globals: HogFunctionInvocationGlobals): HogFunctionFilterGlobals {
     const groups: Record<string, any> = {}
 
@@ -117,14 +137,53 @@ export function convertToHogFunctionFilterGlobal(globals: HogFunctionInvocationG
         }
     }
 
-    return {
+    const elementsChain = globals.event.properties['$elements_chain']
+    const response = {
         event: globals.event.name,
-        elements_chain: globals.event.properties['$elements_chain'],
+        elements_chain: elementsChain,
+        elements_chain_href: '',
+        elements_chain_texts: [] as string[],
+        elements_chain_ids: [] as string[],
+        elements_chain_elements: [] as string[],
         timestamp: globals.event.timestamp,
         properties: globals.event.properties,
         person: globals.person ? { properties: globals.person.properties } : undefined,
         ...groups,
+    } satisfies HogFunctionFilterGlobals
+
+    // The elements_chain_* fields are stored as materialized columns in ClickHouse.
+    // We use the same formula to calculate them here.
+    if (elementsChain) {
+        const cache: Record<string, any> = {}
+        Object.defineProperties(response, {
+            elements_chain_href: {
+                get: () => {
+                    cache.elements_chain_href ??= getElementsChainHref(elementsChain)
+                    return cache.elements_chain_href
+                },
+            },
+            elements_chain_texts: {
+                get: () => {
+                    cache.elements_chain_texts ??= getElementsChainTexts(elementsChain)
+                    return cache.elements_chain_texts
+                },
+            },
+            elements_chain_ids: {
+                get: () => {
+                    cache.elements_chain_ids ??= getElementsChainIds(elementsChain)
+                    return cache.elements_chain_ids
+                },
+            },
+            elements_chain_elements: {
+                get: () => {
+                    cache.elements_chain_elements ??= getElementsChainElements(elementsChain)
+                    return cache.elements_chain_elements
+                },
+            },
+        })
     }
+
+    return response
 }
 
 export const convertToCaptureEvent = (event: HogFunctionCapturedEvent, team: Team): any => {
@@ -222,16 +281,25 @@ export function createInvocation(
         teamId: hogFunction.team_id,
         hogFunction,
         queue: 'hog',
+        priority: 1,
         timings: [],
     }
 }
 
-export function serializeInvocation(invocation: HogFunctionInvocation): HogFunctionInvocationSerialized {
+export function serializeHogFunctionInvocation(invocation: HogFunctionInvocation): HogFunctionInvocationSerialized {
     const serializedInvocation: HogFunctionInvocationSerialized = {
         ...invocation,
         hogFunctionId: invocation.hogFunction.id,
+        // We clear the params as they are never used in the serialized form
+        queueParameters: undefined,
+        queueBlob: undefined,
     }
 
     delete (serializedInvocation as any).hogFunction
-    return invocation
+
+    return serializedInvocation
+}
+
+export function queueBlobToString(blob?: HogFunctionInvocation['queueBlob']): string | undefined {
+    return blob ? Buffer.from(blob).toString('utf-8') : undefined
 }

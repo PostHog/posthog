@@ -10,11 +10,9 @@ import { groupsModel } from '~/models/groupsModel'
 import { DashboardMode } from '~/types'
 
 export function DashboardEditBar(): JSX.Element {
-    const { dashboard, canEditDashboard, temporaryFilters, dashboardMode } = useValues(dashboardLogic)
+    const { dashboard, temporaryFilters, dashboardMode } = useValues(dashboardLogic)
     const { setDates, setProperties, setDashboardMode } = useActions(dashboardLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
-
-    const disabledReason = !canEditDashboard ? "You don't have permission to edit this dashboard" : undefined
 
     return (
         <div
@@ -35,7 +33,6 @@ export function DashboardEditBar(): JSX.Element {
                     }
                     setDates(from_date, to_date)
                 }}
-                disabledReason={disabledReason}
                 makeLabel={(key) => (
                     <>
                         <IconCalendar />
@@ -44,7 +41,6 @@ export function DashboardEditBar(): JSX.Element {
                 )}
             />
             <PropertyFilters
-                disabledReason={disabledReason}
                 onChange={(properties) => {
                     if (dashboardMode !== DashboardMode.Edit) {
                         setDashboardMode(DashboardMode.Edit, null)

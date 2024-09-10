@@ -2,7 +2,7 @@ import { DateTime } from 'luxon'
 
 import { HogExecutor } from '../../src/cdp/hog-executor'
 import { HogFunctionManager } from '../../src/cdp/hog-function-manager'
-import { HogFunctionAsyncFunctionResponse, HogFunctionType } from '../../src/cdp/types'
+import { HogFunctionInvocation, HogFunctionType } from '../../src/cdp/types'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './examples'
 import {
     createHogExecutionGlobals,
@@ -11,8 +11,9 @@ import {
     insertHogFunction as _insertHogFunction,
 } from './fixtures'
 
-const createAsyncFunctionResponse = (response?: Record<string, any>): HogFunctionAsyncFunctionResponse => {
-    return {
+const setupFetchResponse = (invocation: HogFunctionInvocation, options?: { status?: number; body?: string }): void => {
+    invocation.queue = 'hog'
+    invocation.queueParameters = {
         timings: [
             {
                 kind: 'async_function',
@@ -20,11 +21,10 @@ const createAsyncFunctionResponse = (response?: Record<string, any>): HogFunctio
             },
         ],
         response: {
-            status: 200,
-            body: 'success',
-            ...response,
+            status: options?.status ?? 200,
         },
     }
+    invocation.queueBlob = Buffer.from(options?.body ?? 'success')
 }
 
 describe('Hog Executor', () => {
@@ -69,6 +69,7 @@ describe('Hog Executor', () => {
                     hogFunction: invocation.hogFunction,
                     queue: 'fetch',
                     queueParameters: expect.any(Object),
+                    queueBlob: expect.any(Buffer),
                     timings: [
                         {
                             kind: 'hog',
@@ -133,7 +134,8 @@ describe('Hog Executor', () => {
                 },
             })
 
-            expect(JSON.parse(result.invocation.queueParameters!.body)).toEqual({
+            const body = JSON.parse(Buffer.from(result.invocation.queueBlob!).toString())
+            expect(body).toEqual({
                 event: {
                     uuid: 'uuid',
                     name: 'test',
@@ -163,8 +165,7 @@ describe('Hog Executor', () => {
             expect(result.invocation.vmState).toBeDefined()
 
             // Simulate what the callback does
-            result.invocation.queue = 'hog'
-            result.invocation.queueParameters = createAsyncFunctionResponse()
+            setupFetchResponse(result.invocation)
 
             const secondResult = executor.execute(result.invocation)
             logs.push(...secondResult.logs)
@@ -185,10 +186,7 @@ describe('Hog Executor', () => {
         it('parses the responses body if a string', () => {
             const result = executor.execute(createInvocation(hogFunction))
             const logs = result.logs.splice(0, 100)
-            result.invocation.queue = 'hog'
-            result.invocation.queueParameters = createAsyncFunctionResponse({
-                body: JSON.stringify({ foo: 'bar' }),
-            })
+            setupFetchResponse(result.invocation, { body: JSON.stringify({ foo: 'bar' }) })
 
             const secondResult = executor.execute(result.invocation)
             logs.push(...secondResult.logs)
@@ -233,6 +231,156 @@ describe('Hog Executor', () => {
             expect(resultsShouldMatch.matchingFunctions).toHaveLength(1)
             expect(resultsShouldMatch.nonMatchingFunctions).toHaveLength(0)
         })
+
+        it('can use elements_chain_texts', () => {
+            const fn = createHogFunction({
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.elements_text_filter,
+            })
+
+            mockFunctionManager.getTeamHogFunctions.mockReturnValue([fn])
+            const elementsChain = (buttonText: string) =>
+                `span.LemonButton__content:attr__class="LemonButton__content"nth-child="2"nth-of-type="2"text="${buttonText}";span.LemonButton__chrome:attr__class="LemonButton__chrome"nth-child="1"nth-of-type="1";button.LemonButton.LemonButton--has-icon.LemonButton--secondary.LemonButton--status-default:attr__class="LemonButton LemonButton--secondary LemonButton--status-default LemonButton--has-icon"attr__type="button"nth-child="1"nth-of-type="1"text="${buttonText}";div.flex.gap-4.items-center:attr__class="flex gap-4 items-center"nth-child="1"nth-of-type="1";div.flex.flex-wrap.gap-4.justify-between:attr__class="flex gap-4 justify-between flex-wrap"nth-child="3"nth-of-type="3";div.flex.flex-1.flex-col.gap-4.h-full.relative.w-full:attr__class="relative w-full flex flex-col gap-4 flex-1 h-full"nth-child="1"nth-of-type="1";div.LemonTabs__content:attr__class="LemonTabs__content"nth-child="2"nth-of-type="1";div.LemonTabs.LemonTabs--medium:attr__class="LemonTabs LemonTabs--medium"attr__style="--lemon-tabs-slider-width: 48px; --lemon-tabs-slider-offset: 0px;"nth-child="1"nth-of-type="1";div.Navigation3000__scene:attr__class="Navigation3000__scene"nth-child="2"nth-of-type="2";main:nth-child="2"nth-of-type="1";div.Navigation3000:attr__class="Navigation3000"nth-child="1"nth-of-type="1";div:attr__id="root"attr_id="root"nth-child="3"nth-of-type="1";body.overflow-hidden:attr__class="overflow-hidden"attr__theme="light"nth-child="2"nth-of-type="1"`
+
+            const hogGlobals1 = createHogExecutionGlobals({
+                groups: {},
+                event: {
+                    uuid: 'uuid',
+                    name: '$autocapture',
+                    distinct_id: 'distinct_id',
+                    url: 'http://localhost:8000/events/1',
+                    properties: {
+                        $lib_version: '1.2.3',
+                        $elements_chain: elementsChain('Not our text'),
+                    },
+                    timestamp: new Date().toISOString(),
+                },
+            })
+
+            const resultsShouldntMatch = executor.findMatchingFunctions(hogGlobals1)
+            expect(resultsShouldntMatch.matchingFunctions).toHaveLength(0)
+            expect(resultsShouldntMatch.nonMatchingFunctions).toHaveLength(1)
+
+            const hogGlobals2 = createHogExecutionGlobals({
+                groups: {},
+                event: {
+                    uuid: 'uuid',
+                    name: '$autocapture',
+                    distinct_id: 'distinct_id',
+                    url: 'http://localhost:8000/events/1',
+                    properties: {
+                        $lib_version: '1.2.3',
+                        $elements_chain: elementsChain('Reload'),
+                    },
+                    timestamp: new Date().toISOString(),
+                },
+            })
+
+            const resultsShouldMatch = executor.findMatchingFunctions(hogGlobals2)
+            expect(resultsShouldMatch.matchingFunctions).toHaveLength(1)
+            expect(resultsShouldMatch.nonMatchingFunctions).toHaveLength(0)
+        })
+
+        it('can use elements_chain_href', () => {
+            const fn = createHogFunction({
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.elements_href_filter,
+            })
+
+            mockFunctionManager.getTeamHogFunctions.mockReturnValue([fn])
+            const elementsChain = (link: string) =>
+                `span.LemonButton__content:attr__class="LemonButton__content"attr__href="${link}"href="${link}"nth-child="2"nth-of-type="2"text="Activity";span.LemonButton__chrome:attr__class="LemonButton__chrome"nth-child="1"nth-of-type="1";a.LemonButton.LemonButton--full-width.LemonButton--has-icon.LemonButton--secondary.LemonButton--status-alt.Link.NavbarButton:attr__class="Link LemonButton LemonButton--secondary LemonButton--status-alt LemonButton--full-width LemonButton--has-icon NavbarButton"attr__data-attr="menu-item-activity"attr__href="${link}"href="${link}"nth-child="1"nth-of-type="1"text="Activity";li.w-full:attr__class="w-full"nth-child="6"nth-of-type="6";ul:nth-child="1"nth-of-type="1";div.Navbar3000__top.ScrollableShadows__inner:attr__class="ScrollableShadows__inner Navbar3000__top"nth-child="1"nth-of-type="1";div.ScrollableShadows.ScrollableShadows--vertical:attr__class="ScrollableShadows ScrollableShadows--vertical"nth-child="1"nth-of-type="1";div.Navbar3000__content:attr__class="Navbar3000__content"nth-child="1"nth-of-type="1";nav.Navbar3000:attr__class="Navbar3000"nth-child="1"nth-of-type="1";div.Navigation3000:attr__class="Navigation3000"nth-child="1"nth-of-type="1";div:attr__id="root"attr_id="root"nth-child="3"nth-of-type="1";body.overflow-hidden:attr__class="overflow-hidden"attr__theme="light"nth-child="2"nth-of-type="1"`
+
+            const hogGlobals1 = createHogExecutionGlobals({
+                groups: {},
+                event: {
+                    uuid: 'uuid',
+                    name: '$autocapture',
+                    distinct_id: 'distinct_id',
+                    url: 'http://localhost:8000/events/1',
+                    properties: {
+                        $lib_version: '1.2.3',
+                        $elements_chain: elementsChain('/project/1/not-a-link'),
+                    },
+                    timestamp: new Date().toISOString(),
+                },
+            })
+
+            const resultsShouldntMatch = executor.findMatchingFunctions(hogGlobals1)
+            expect(resultsShouldntMatch.matchingFunctions).toHaveLength(0)
+            expect(resultsShouldntMatch.nonMatchingFunctions).toHaveLength(1)
+
+            const hogGlobals2 = createHogExecutionGlobals({
+                groups: {},
+                event: {
+                    uuid: 'uuid',
+                    name: '$autocapture',
+                    distinct_id: 'distinct_id',
+                    url: 'http://localhost:8000/events/1',
+                    properties: {
+                        $lib_version: '1.2.3',
+                        $elements_chain: elementsChain('/project/1/activity/explore'),
+                    },
+                    timestamp: new Date().toISOString(),
+                },
+            })
+
+            const resultsShouldMatch = executor.findMatchingFunctions(hogGlobals2)
+            expect(resultsShouldMatch.matchingFunctions).toHaveLength(1)
+            expect(resultsShouldMatch.nonMatchingFunctions).toHaveLength(0)
+        })
+
+        it('can use elements_chain_tags and _ids', () => {
+            const fn = createHogFunction({
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.elements_tag_and_id_filter,
+            })
+
+            mockFunctionManager.getTeamHogFunctions.mockReturnValue([fn])
+            const elementsChain = (id: string) =>
+                `a.Link.font-semibold.text-text-3000.text-xl:attr__class="Link font-semibold text-xl text-text-3000"attr__href="/project/1/dashboard/1"attr__id="${id}"attr_id="${id}"href="/project/1/dashboard/1"nth-child="1"nth-of-type="1"text="My App Dashboard";div.ProjectHomepage__dashboardheader__title:attr__class="ProjectHomepage__dashboardheader__title"nth-child="1"nth-of-type="1";div.ProjectHomepage__dashboardheader:attr__class="ProjectHomepage__dashboardheader"nth-child="2"nth-of-type="2";div.ProjectHomepage:attr__class="ProjectHomepage"nth-child="1"nth-of-type="1";div.Navigation3000__scene:attr__class="Navigation3000__scene"nth-child="2"nth-of-type="2";main:nth-child="2"nth-of-type="1";div.Navigation3000:attr__class="Navigation3000"nth-child="1"nth-of-type="1";div:attr__id="root"attr_id="root"nth-child="3"nth-of-type="1";body.overflow-hidden:attr__class="overflow-hidden"attr__theme="light"nth-child="2"nth-of-type="1"`
+
+            const hogGlobals1 = createHogExecutionGlobals({
+                groups: {},
+                event: {
+                    uuid: 'uuid',
+                    name: '$autocapture',
+                    distinct_id: 'distinct_id',
+                    url: 'http://localhost:8000/events/1',
+                    properties: {
+                        $lib_version: '1.2.3',
+                        $elements_chain: elementsChain('notfound'),
+                    },
+                    timestamp: new Date().toISOString(),
+                },
+            })
+
+            const resultsShouldntMatch = executor.findMatchingFunctions(hogGlobals1)
+            expect(resultsShouldntMatch.matchingFunctions).toHaveLength(0)
+            expect(resultsShouldntMatch.nonMatchingFunctions).toHaveLength(1)
+
+            const hogGlobals2 = createHogExecutionGlobals({
+                groups: {},
+                event: {
+                    uuid: 'uuid',
+                    name: '$autocapture',
+                    distinct_id: 'distinct_id',
+                    url: 'http://localhost:8000/events/1',
+                    properties: {
+                        $lib_version: '1.2.3',
+                        $elements_chain: elementsChain('homelink'),
+                    },
+                    timestamp: new Date().toISOString(),
+                },
+            })
+
+            const resultsShouldMatch = executor.findMatchingFunctions(hogGlobals2)
+            expect(resultsShouldMatch.matchingFunctions).toHaveLength(1)
+            expect(resultsShouldMatch.nonMatchingFunctions).toHaveLength(0)
+        })
     })
 
     describe('async functions', () => {
@@ -249,18 +397,16 @@ describe('Hog Executor', () => {
             // Start the function
             const result1 = executor.execute(invocation)
             // Run the response one time simulating a successful fetch
-            result1.invocation.queue = 'hog'
-            result1.invocation.queueParameters = createAsyncFunctionResponse()
+            setupFetchResponse(result1.invocation)
             const result2 = executor.execute(result1.invocation)
             expect(result2.finished).toBe(false)
             expect(result2.error).toBe(undefined)
             expect(result2.invocation.queue).toBe('fetch')
 
             // This time we should see an error for hitting the loop limit
-            result2.invocation.queue = 'hog'
-            result2.invocation.queueParameters = createAsyncFunctionResponse()
+            setupFetchResponse(result2.invocation)
             const result3 = executor.execute(result1.invocation)
-            expect(result3.finished).toBe(false)
+            expect(result3.finished).toBe(true)
             expect(result3.error).toEqual('Exceeded maximum number of async steps: 2')
             expect(result3.logs.map((log) => log.message)).toEqual([
                 'Resuming function',

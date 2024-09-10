@@ -59,6 +59,7 @@ paramiko==3.4.0
 Pillow==10.2.0
 pdpyras==5.2.0
 posthoganalytics==3.5.0
+psutil==6.0.0
 psycopg2-binary==2.9.7
 pymssql==2.3.0
 PyMySQL==1.1.1
@@ -90,7 +91,7 @@ sshtunnel==0.4.0
 statshog==1.0.6
 structlog==23.2.0
 sqlparse==0.4.4
-temporalio==1.6.0
+temporalio==1.7.0
 token-bucket==0.3.0
 toronado==0.1.0
 webdriver_manager==4.0.1

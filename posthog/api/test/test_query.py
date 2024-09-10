@@ -11,8 +11,10 @@ from posthog.models.property_definition import PropertyDefinition, PropertyType
 from posthog.models.utils import UUIDT
 from posthog.schema import (
     CachedEventsQueryResponse,
+    DataWarehouseNode,
     EventPropertyFilter,
     EventsQuery,
+    FunnelsQuery,
     HogQLPropertyFilter,
     HogQLQuery,
     PersonPropertyFilter,
@@ -729,6 +731,39 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             "Input tag 'Tomato Soup' found using 'kind' does not match any of the expected tags",
             api_response.json()["detail"],
             api_response.content,
+        )
+
+    def test_funnel_query_with_data_warehouse_node_temporarily_raises(self):
+        # As of September 2024, funnels don't support data warehouse tables YET, so we want a helpful error message
+        api_response = self.client.post(
+            f"/api/projects/{self.team.id}/query/",
+            {
+                "query": FunnelsQuery(
+                    series=[
+                        DataWarehouseNode(
+                            id="xyz",
+                            table_name="xyz",
+                            id_field="id",
+                            distinct_id_field="customer_email",
+                            timestamp_field="created",
+                        ),
+                        DataWarehouseNode(
+                            id="abc",
+                            table_name="abc",
+                            id_field="id",
+                            distinct_id_field="customer_email",
+                            timestamp_field="timestamp",
+                        ),
+                    ],
+                ).model_dump()
+            },
+        )
+        self.assertEqual(api_response.status_code, 400)
+        self.assertDictEqual(
+            api_response.json(),
+            self.validation_error_response(
+                "Data warehouse tables are not supported in funnels just yet. For now, please try this funnel without the data warehouse-based step."
+            ),
         )
 
     def test_missing_query(self):

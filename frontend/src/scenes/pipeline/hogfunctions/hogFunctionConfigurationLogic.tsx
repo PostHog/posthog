@@ -36,6 +36,7 @@ import {
     PipelineTab,
     PropertyFilterType,
     PropertyGroupFilter,
+    PropertyGroupFilterValue,
 } from '~/types'
 
 import { EmailTemplate } from './email-templater/emailTemplaterLogic'
@@ -448,9 +449,13 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         sparklineQuery: [
             (s) => [s.configuration],
             (configuration): TrendsQuery => {
-                const properties: PropertyGroupFilter = {
+                const seriesProperties: PropertyGroupFilterValue = {
                     type: FilterLogicalOperator.Or,
                     values: [],
+                }
+                const properties: PropertyGroupFilter = {
+                    type: FilterLogicalOperator.And,
+                    values: [seriesProperties],
                 }
                 for (const event of configuration.filters?.events ?? []) {
                     const eventProperties: AnyPropertyFilter[] = [...(event.properties ?? [])]
@@ -466,7 +471,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                             key: 'true',
                         })
                     }
-                    properties.values.push({
+                    seriesProperties.values.push({
                         type: FilterLogicalOperator.And,
                         values: eventProperties,
                     })
@@ -479,10 +484,20 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                             key: hogql`matchesAction(${parseInt(action.id)})`,
                         })
                     }
-                    properties.values.push({
+                    seriesProperties.values.push({
                         type: FilterLogicalOperator.And,
                         values: actionProperties,
                     })
+                }
+                if ((configuration.filters?.properties?.length ?? 0) > 0) {
+                    const globalProperties: PropertyGroupFilterValue = {
+                        type: FilterLogicalOperator.And,
+                        values: [],
+                    }
+                    for (const property of configuration.filters?.properties ?? []) {
+                        globalProperties.values.push(property as AnyPropertyFilter)
+                    }
+                    properties.values.push(globalProperties)
                 }
 
                 return {

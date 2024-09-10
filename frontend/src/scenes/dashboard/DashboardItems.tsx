@@ -60,7 +60,7 @@ export function DashboardItems(): JSX.Element {
                 <ReactGridLayout
                     width={gridWrapperWidth}
                     className={className}
-                    draggableHandle=".CardMeta"
+                    draggableHandle=".CardMeta,.TextCard__body"
                     isDraggable={dashboardMode === DashboardMode.Edit}
                     isResizable={dashboardMode === DashboardMode.Edit}
                     layouts={layouts}

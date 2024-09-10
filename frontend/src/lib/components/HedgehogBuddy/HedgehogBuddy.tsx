@@ -1,6 +1,6 @@
 import './HedgehogBuddy.scss'
 
-import { ProfilePicture } from '@posthog/lemon-ui'
+import { lemonToast, ProfilePicture } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -18,13 +18,18 @@ import { COLOR_TO_FILTER_MAP, hedgehogBuddyLogic } from './hedgehogBuddyLogic'
 import { HedgehogOptions } from './HedgehogOptions'
 import {
     AccessoryInfo,
-    baseSpriteAccessoriesPath,
-    baseSpritePath,
+    AnimationName,
+    OverlayAnimationName,
+    overlayAnimations,
     SHADOW_HEIGHT,
+    skins,
     SPRITE_SHEET_WIDTH,
     SPRITE_SIZE,
+    spriteAccessoryUrl,
+    SpriteInfo,
+    spriteOverlayUrl,
+    spriteUrl,
     standardAccessories,
-    standardAnimations,
 } from './sprites/sprites'
 
 export const X_FRAMES = SPRITE_SHEET_WIDTH / SPRITE_SIZE
@@ -32,17 +37,14 @@ export const FPS = 24
 const GRAVITY_PIXELS = 10
 const MAX_JUMP_COUNT = 2
 
-const randomChoiceList: string[] = Object.keys(standardAnimations).reduce((acc: string[], key: string) => {
-    return [...acc, ...range(standardAnimations[key].randomChance || 0).map(() => key)]
-}, [])
-
 export type HedgehogBuddyProps = {
     onActorLoaded?: (actor: HedgehogActor) => void
-    onClose?: () => void
-    onClick?: () => void
+    onClose?: (actor: HedgehogActor) => void
+    onClick?: (actor: HedgehogActor) => void
     onPositionChange?: (actor: HedgehogActor) => void
     hedgehogConfig?: HedgehogConfig
     tooltip?: JSX.Element
+    static?: boolean
 }
 
 type Box = {
@@ -73,46 +75,62 @@ const elementToBox = (element: Element): Box => {
     }
 }
 
+type AnimationState = {
+    name: string
+    frame: number
+    iterations: number | null
+    spriteInfo: SpriteInfo
+    onComplete?: () => boolean | void
+}
+
 export class HedgehogActor {
     element?: HTMLDivElement | null
-    animations = standardAnimations
     direction: 'left' | 'right' = 'right'
-    startX = Math.min(Math.max(0, Math.floor(Math.random() * window.innerWidth)), window.innerWidth - SPRITE_SIZE)
-    startY = Math.min(Math.max(0, Math.floor(Math.random() * window.innerHeight)), window.innerHeight - SPRITE_SIZE)
+    startX = 0
+    startY = 0
     x = this.startX
     y = this.startY
+    followMouse = false
+    lastKnownMousePosition: [number, number] | null = null
     isDragging = false
     isControlledByUser = false
     yVelocity = -30 // Appears as if jumping out of thin air
     xVelocity = 0
     ground: Element | null = null
     jumpCount = 0
-    animationName: string = 'fall'
-    animation = this.animations[this.animationName]
-    animationFrame = 0
-    animationIterations: number | null = null
-    animationCompletionHandler?: () => boolean | void
+    mainAnimation: AnimationState | null = null
+    overlayAnimation: AnimationState | null = null
+    gravity = GRAVITY_PIXELS
     ignoreGroundAboveY?: number
     showTooltip = false
     lastScreenPosition = [window.screenX, window.screenY + window.innerHeight]
+    static = false
 
     // properties synced with the logic
     hedgehogConfig: Partial<HedgehogConfig> = {}
     tooltip?: JSX.Element
 
     constructor() {
+        this.log('Created new HedgehogActor')
+
+        this.startX = Math.min(
+            Math.max(0, Math.floor(Math.random() * window.innerWidth)),
+            window.innerWidth - SPRITE_SIZE
+        )
+        this.startY = Math.min(
+            Math.max(0, Math.floor(Math.random() * window.innerHeight)),
+            window.innerHeight - SPRITE_SIZE
+        )
         this.setAnimation('fall')
+    }
+
+    animations(): { [key: string]: SpriteInfo } {
+        const animations = skins[this.hedgehogConfig.skin || 'default']
+        return animations
     }
 
     private accessories(): AccessoryInfo[] {
         return this.hedgehogConfig.accessories?.map((acc) => standardAccessories[acc]) ?? []
-    }
-
-    private getAnimationOptions(): string[] {
-        if (!this.hedgehogConfig.walking_enabled) {
-            return randomChoiceList.filter((x) => x !== 'walk')
-        }
-        return randomChoiceList
     }
 
     private log(message: string, ...args: any[]): void {
@@ -124,21 +142,68 @@ export class HedgehogActor {
 
     setOnFire(times = 3): void {
         this.log('setting on fire, iterations remaining:', times)
-        this.setAnimation('heatmaps', {
+        this.setOverlayAnimation('fire', {
             onComplete: () => {
                 if (times == 1) {
-                    return
+                    this.setOverlayAnimation(null)
+                } else {
+                    this.setOnFire(times - 1)
                 }
-                this.setOnFire(times - 1)
-                return true
             },
         })
+
+        this.setAnimation('stop', {})
         this.direction = sampleOne(['left', 'right'])
         this.xVelocity = this.direction === 'left' ? -5 : 5
         this.jump()
     }
 
     setupKeyboardListeners(): () => void {
+        const lastKeys: string[] = []
+
+        const secretMap: {
+            keys: string[]
+            action: () => void
+        }[] = [
+            {
+                keys: ['f', 'f', 'f'],
+                action: () => this.setOnFire(),
+            },
+            {
+                keys: ['f', 'i', 'r', 'e'],
+                action: () => this.setOnFire(),
+            },
+            {
+                keys: ['s', 'p', 'i', 'd', 'e', 'r', 'h', 'o', 'g'],
+                action: () => {
+                    this.hedgehogConfig.skin = 'spiderhog'
+                },
+            },
+            {
+                keys: [
+                    'arrowup',
+                    'arrowup',
+                    'arrowdown',
+                    'arrowdown',
+                    'arrowleft',
+                    'arrowright',
+                    'arrowleft',
+                    'arrowright',
+                    'b',
+                    'a',
+                ],
+                action: () => {
+                    this.setOnFire()
+                    this.gravity = -2
+
+                    lemonToast.info('I must leave. My people need me!')
+                    setTimeout(() => {
+                        this.gravity = GRAVITY_PIXELS
+                    }, 2000)
+                },
+            },
+        ]
+
         const keyDownListener = (e: KeyboardEvent): void => {
             if (shouldIgnoreInput(e) || !this.hedgehogConfig.controls_enabled) {
                 return
@@ -146,13 +211,25 @@ export class HedgehogActor {
 
             const key = e.key.toLowerCase()
 
+            lastKeys.push(key)
+            if (lastKeys.length > 20) {
+                lastKeys.shift()
+            }
+
             if ([' ', 'w', 'arrowup'].includes(key)) {
                 this.jump()
             }
 
+            secretMap.forEach((secret) => {
+                if (lastKeys.slice(-secret.keys.length).join('') === secret.keys.join('')) {
+                    secret.action()
+                    lastKeys.splice(-secret.keys.length)
+                }
+            })
+
             if (['arrowdown', 's'].includes(key)) {
                 if (this.ground === document.body) {
-                    if (this.animationName !== 'wave') {
+                    if (this.mainAnimation?.name !== 'wave') {
                         this.setAnimation('wave')
                     }
                 } else if (this.ground) {
@@ -165,7 +242,7 @@ export class HedgehogActor {
 
             if (['arrowleft', 'a', 'arrowright', 'd'].includes(key)) {
                 this.isControlledByUser = true
-                if (this.animationName !== 'walk') {
+                if (this.mainAnimation?.name !== 'walk') {
                     this.setAnimation('walk')
                 }
 
@@ -178,8 +255,6 @@ export class HedgehogActor {
                     // Moonwalking is hard so he moves slightly slower of course
                     this.xVelocity *= 0.8
                 }
-
-                this.animationIterations = null
             }
         }
 
@@ -191,14 +266,51 @@ export class HedgehogActor {
             const key = e.key.toLowerCase()
 
             if (['arrowleft', 'a', 'arrowright', 'd'].includes(key)) {
-                this.setAnimation('stop')
-                this.animationIterations = FPS * 2 // Wait 2 seconds before doing something else
+                this.setAnimation('stop', {
+                    iterations: FPS * 2,
+                })
                 this.isControlledByUser = false
             }
         }
 
+        const onMouseDown = (e: MouseEvent): void => {
+            if (!this.hedgehogConfig.controls_enabled || this.hedgehogConfig.skin !== 'spiderhog') {
+                return
+            }
+
+            // Whilst the mouse is down we will move the hedgehog towards it
+            // First check that we haven't clicked the hedgehog
+            const elementBounds = this.element?.getBoundingClientRect()
+            if (
+                elementBounds &&
+                e.clientX >= elementBounds.left &&
+                e.clientX <= elementBounds.right &&
+                e.clientY >= elementBounds.top &&
+                e.clientY <= elementBounds.bottom
+            ) {
+                return
+            }
+
+            this.setAnimation('fall')
+            this.followMouse = true
+            this.lastKnownMousePosition = [e.clientX, e.clientY]
+
+            const onMouseMove = (e: MouseEvent): void => {
+                this.lastKnownMousePosition = [e.clientX, e.clientY]
+            }
+
+            const onMouseUp = (): void => {
+                this.followMouse = false
+                window.removeEventListener('mousemove', onMouseMove)
+            }
+
+            window.addEventListener('mousemove', onMouseMove)
+            window.addEventListener('mouseup', onMouseUp)
+        }
+
         window.addEventListener('keydown', keyDownListener)
         window.addEventListener('keyup', keyUpListener)
+        window.addEventListener('mousedown', onMouseDown)
 
         return () => {
             window.removeEventListener('keydown', keyDownListener)
@@ -206,28 +318,27 @@ export class HedgehogActor {
         }
     }
 
-    setAnimation(
-        animationName: string,
-        options?: {
-            onComplete: () => boolean | void
-        }
-    ): void {
-        this.animationName = animationName
-        this.animation = this.animations[animationName]
-        this.animationFrame = 0
-        this.animationCompletionHandler = () => {
-            this.animationCompletionHandler = undefined
+    setAnimation(animationName: AnimationName, options?: Partial<AnimationState>): void {
+        const availableAnimations = this.animations()
+        animationName = availableAnimations[animationName] ? animationName : 'stop'
+        const spriteInfo = availableAnimations[animationName]
 
-            return options?.onComplete()
-        }
-        if (this.animationName !== 'stop') {
-            this.direction = this.animation.forceDirection || sampleOne(['left', 'right'])
+        this.mainAnimation = {
+            name: animationName,
+            frame: 0,
+            iterations: spriteInfo.maxIteration ?? null,
+            spriteInfo,
+            onComplete: options?.onComplete,
         }
 
         // Set a random number of iterations or infinite for certain situations
-        this.animationIterations = this.animation.maxIteration
-            ? Math.max(1, Math.floor(Math.random() * this.animation.maxIteration))
-            : null
+        this.mainAnimation.iterations =
+            options?.iterations ??
+            (spriteInfo.maxIteration ? Math.max(1, Math.floor(Math.random() * spriteInfo.maxIteration)) : null)
+
+        if (this.mainAnimation.name !== 'stop') {
+            this.direction = this.mainAnimation.spriteInfo.forceDirection || sampleOne(['left', 'right'])
+        }
 
         if (animationName === 'walk') {
             this.xVelocity = this.direction === 'left' ? -1 : 1
@@ -236,19 +347,52 @@ export class HedgehogActor {
         }
 
         if ((window as any)._posthogDebugHedgehog) {
-            const duration = this.animationIterations
-                ? this.animationIterations * this.animation.frames * (1000 / FPS)
-                : '∞'
+            const duration =
+                this.mainAnimation.iterations !== null
+                    ? this.mainAnimation.iterations * spriteInfo.frames * (1000 / FPS)
+                    : '∞'
 
-            this.log(`Will '${this.animationName}' for ${duration}ms`)
+            this.log(`Will '${this.mainAnimation.name}' for ${duration}ms`)
+        }
+    }
+
+    setOverlayAnimation(
+        animationName: OverlayAnimationName | null,
+        options?: {
+            onComplete: () => boolean | void
+        }
+    ): void {
+        if (!animationName) {
+            this.overlayAnimation = null
+            return
+        }
+        const spriteInfo = overlayAnimations[animationName]
+        if (!spriteInfo) {
+            this.log(`Overlay animation '${animationName}' not found`)
+            return
+        }
+
+        this.overlayAnimation = {
+            name: animationName,
+            frame: 0,
+            iterations: 1,
+            spriteInfo,
+            onComplete: options?.onComplete ?? (() => this.setOverlayAnimation(null)),
         }
     }
 
     setRandomAnimation(): void {
-        if (this.animationName !== 'stop') {
+        if (this.mainAnimation?.name !== 'stop') {
             this.setAnimation('stop')
         } else {
-            this.setAnimation(sampleOne(this.getAnimationOptions()))
+            let randomChoiceList = Object.keys(this.animations()).reduce((acc, key) => {
+                return [...acc, ...range(this.animations()[key].randomChance || 0).map(() => key)] as AnimationName[]
+            }, [] as AnimationName[])
+
+            randomChoiceList = this.hedgehogConfig.walking_enabled
+                ? randomChoiceList
+                : randomChoiceList.filter((x) => x !== 'walk')
+            this.setAnimation(sampleOne(randomChoiceList))
         }
     }
 
@@ -258,7 +402,7 @@ export class HedgehogActor {
         }
         this.ground = null
         this.jumpCount += 1
-        this.yVelocity = GRAVITY_PIXELS * 5
+        this.yVelocity = this.gravity * 5
     }
 
     update(): void {
@@ -283,11 +427,11 @@ export class HedgehogActor {
 
             if (screenMoveY < 0) {
                 // If the ground has moved up relative to the hedgehog we need to make him jump
-                this.yVelocity = Math.max(this.yVelocity + screenMoveY * 10, -GRAVITY_PIXELS * 20)
+                this.yVelocity = Math.max(this.yVelocity + screenMoveY * 10, -this.gravity * 20)
             }
 
             if (screenMoveX !== 0) {
-                if (this.animationName !== 'stop') {
+                if (this.mainAnimation?.name !== 'stop') {
                     this.setAnimation('stop')
                 }
                 // Somewhat random numbers here to find what felt fun
@@ -297,30 +441,53 @@ export class HedgehogActor {
 
         this.applyVelocity()
 
-        // Ensure we are falling or not
-        if (this.animationName === 'fall' && !this.isFalling()) {
-            this.setAnimation('stop')
-        }
-
-        this.animationFrame++
-
-        if (this.animationFrame >= this.animation.frames) {
-            // End of the animation
-            if (this.animationIterations !== null) {
-                this.animationIterations -= 1
+        if (this.mainAnimation) {
+            // Ensure we are falling or not
+            if (this.mainAnimation.name === 'fall' && !this.isFalling()) {
+                this.setAnimation('stop')
             }
 
-            if (this.animationIterations === 0) {
-                this.animationIterations = null
-                // End of the animation, set the next one
+            this.mainAnimation.frame++
 
-                const preventNextAnimation = this.animationCompletionHandler?.()
-                if (!preventNextAnimation) {
-                    this.setRandomAnimation()
+            if (this.mainAnimation.frame >= this.mainAnimation.spriteInfo.frames) {
+                this.mainAnimation.frame = 0
+                // End of the animation
+                if (this.mainAnimation.iterations !== null) {
+                    this.mainAnimation.iterations -= 1
+                }
+
+                if (this.mainAnimation.iterations === 0) {
+                    this.mainAnimation.iterations = null
+                    // End of the animation, set the next one
+
+                    const preventNextAnimation = this.mainAnimation.onComplete?.()
+
+                    if (!preventNextAnimation) {
+                        if (this.static) {
+                            this.setAnimation('stop')
+                        } else {
+                            this.setRandomAnimation()
+                        }
+                    }
                 }
             }
+        }
 
-            this.animationFrame = 0
+        if (this.overlayAnimation) {
+            this.overlayAnimation.frame++
+
+            if (this.overlayAnimation.frame >= this.overlayAnimation.spriteInfo.frames) {
+                this.overlayAnimation.frame = 0
+                // End of the animation
+                if (this.overlayAnimation.iterations !== null) {
+                    this.overlayAnimation.iterations -= 1
+                }
+
+                if (this.overlayAnimation.iterations === 0) {
+                    this.overlayAnimation.iterations = null
+                    this.overlayAnimation.onComplete?.()
+                }
+            }
         }
 
         if (this.isDragging) {
@@ -352,11 +519,39 @@ export class HedgehogActor {
             return
         }
 
+        if (this.followMouse) {
+            this.ground = null
+            const [clientX, clientY] = this.lastKnownMousePosition ?? [0, 0]
+
+            const xDiff = clientX - this.x
+            const yDiff = window.innerHeight - clientY - this.y
+
+            const distance = Math.sqrt(xDiff ** 2 + yDiff ** 2)
+            const speed = 3
+            const ratio = speed / distance
+
+            if (yDiff < 0) {
+                this.yVelocity -= this.gravity
+            }
+
+            this.yVelocity += yDiff * ratio
+            this.xVelocity += xDiff * ratio
+            this.y = this.y + this.yVelocity
+            if (this.y < 0) {
+                this.y = 0
+                this.yVelocity = -this.yVelocity * 0.4
+            }
+            this.x = this.x + this.xVelocity
+            this.direction = this.xVelocity > 0 ? 'right' : 'left'
+
+            return
+        }
+
         this.ground = this.findGround()
-        this.yVelocity -= GRAVITY_PIXELS
+        this.yVelocity -= this.gravity
 
         // We decelerate the x velocity if the hedgehog is stopped
-        if (['stop'].includes(this.animationName) && !this.isControlledByUser) {
+        if (!this.isControlledByUser && this.mainAnimation?.name !== 'walk' && this.onGround()) {
             this.xVelocity = this.xVelocity * 0.6
         }
 
@@ -445,6 +640,9 @@ export class HedgehogActor {
     }
 
     private onGround(): boolean {
+        if (this.static) {
+            return true
+        }
         if (this.ground) {
             const groundLevel = elementToBox(this.ground).y + elementToBox(this.ground).height
             return this.y <= groundLevel
@@ -457,15 +655,45 @@ export class HedgehogActor {
         return !this.onGround() && Math.abs(this.yVelocity) > 1
     }
 
+    renderRope(): JSX.Element | null {
+        if (!this.lastKnownMousePosition) {
+            return null
+        }
+
+        // We position the rope to roughly where the hand should be
+        const x = this.x + SPRITE_SIZE / 2
+        const y = this.y + SPRITE_SIZE / 2
+        const mouseX = this.lastKnownMousePosition[0]
+        // Y coords are inverted
+        const mouseY = window.innerHeight - this.lastKnownMousePosition[1]
+
+        return (
+            <div
+                className="border rounded bg-white pointer-events-none"
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{
+                    position: 'fixed',
+                    left: x,
+                    bottom: y,
+                    width: this.followMouse ? Math.sqrt((mouseX - x) ** 2 + (mouseY - y) ** 2) : 0,
+                    height: 3,
+                    zIndex: 1000,
+                    transformOrigin: '0 0',
+                    transform: `rotate(${Math.atan2(y - mouseY, mouseX - x)}rad)`,
+                }}
+            />
+        )
+    }
+
     render({ onClick, ref }: { onClick: () => void; ref: ForwardedRef<HTMLDivElement> }): JSX.Element {
-        const accessoryPosition = this.animation.accessoryPositions?.[this.animationFrame]
+        const accessoryPosition = this.mainAnimation?.spriteInfo.accessoryPositions?.[this.mainAnimation.frame]
         const preloadContent =
-            Object.values(this.animations)
-                .map((x) => `url(${baseSpritePath()}/${x.img}.png)`)
+            Object.values(this.animations())
+                .map((x) => `url(${spriteUrl(this.hedgehogConfig.skin ?? 'default', x.img)})`)
                 .join(' ') +
             ' ' +
             this.accessories()
-                .map((accessory) => `url(${baseSpriteAccessoriesPath}/${accessory.img}.png)`)
+                .map((accessory) => `url(${spriteAccessoryUrl(accessory.img)})`)
                 .join(' ')
 
         const imageFilter = this.hedgehogConfig.color ? COLOR_TO_FILTER_MAP[this.hedgehogConfig.color] : undefined
@@ -549,16 +777,17 @@ export class HedgehogActor {
                     }}
                     className="HedgehogBuddy"
                     data-content={preloadContent}
-                    onTouchStart={() => onTouchOrMouseStart()}
-                    onMouseDown={() => onTouchOrMouseStart()}
+                    onTouchStart={this.static ? undefined : () => onTouchOrMouseStart()}
+                    onMouseDown={this.static ? undefined : () => onTouchOrMouseStart()}
                     onMouseOver={() => (this.showTooltip = true)}
                     onMouseOut={() => (this.showTooltip = false)}
+                    onClick={this.static ? onClick : undefined}
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
-                        position: 'fixed',
-                        left: this.x,
-                        bottom: this.y - SHADOW_HEIGHT * 0.5,
-                        transition: !this.isDragging ? `all ${1000 / FPS}ms` : undefined,
+                        position: this.static ? 'relative' : 'fixed',
+                        left: this.static ? undefined : this.x,
+                        bottom: this.static ? undefined : this.y - SHADOW_HEIGHT * 0.5,
+                        transition: !(this.isDragging || this.followMouse) ? `all ${1000 / FPS}ms` : undefined,
                         cursor: 'pointer',
                         margin: 0,
                     }}
@@ -585,19 +814,27 @@ export class HedgehogActor {
                             transform: `scaleX(${this.direction === 'right' ? 1 : -1})`,
                         }}
                     >
-                        <div
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{
-                                imageRendering: 'pixelated',
-                                width: SPRITE_SIZE,
-                                height: SPRITE_SIZE,
-                                backgroundImage: `url(${baseSpritePath()}/${this.animation.img}.png)`,
-                                backgroundPosition: `-${(this.animationFrame % X_FRAMES) * SPRITE_SIZE}px -${
-                                    Math.floor(this.animationFrame / X_FRAMES) * SPRITE_SIZE
-                                }px`,
-                                filter: imageFilter as any,
-                            }}
-                        />
+                        {this.mainAnimation ? (
+                            <div
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{
+                                    imageRendering: 'pixelated',
+                                    width: SPRITE_SIZE,
+                                    height: SPRITE_SIZE,
+                                    backgroundImage: `url(${spriteUrl(
+                                        this.hedgehogConfig.skin ?? 'default',
+                                        this.mainAnimation.spriteInfo.img
+                                    )})`,
+                                    backgroundPosition: `-${(this.mainAnimation.frame % X_FRAMES) * SPRITE_SIZE}px -${
+                                        Math.floor(this.mainAnimation.frame / X_FRAMES) * SPRITE_SIZE
+                                    }px`,
+                                    backgroundSize: (SPRITE_SIZE / SPRITE_SIZE) * X_FRAMES * 100 + '%',
+                                    filter: imageFilter as any,
+                                    ...(this.mainAnimation.spriteInfo.style ?? {}),
+                                }}
+                            />
+                        ) : null}
+
                         {this.accessories().map((accessory, index) => (
                             <div
                                 key={index}
@@ -609,7 +846,7 @@ export class HedgehogActor {
                                     imageRendering: 'pixelated',
                                     width: SPRITE_SIZE,
                                     height: SPRITE_SIZE,
-                                    backgroundImage: `url(${baseSpriteAccessoriesPath()}/${accessory.img}.png)`,
+                                    backgroundImage: `url(${spriteAccessoryUrl(accessory.img)})`,
                                     transform: accessoryPosition
                                         ? `translate3d(${accessoryPosition[0]}px, ${accessoryPosition[1]}px, 0)`
                                         : undefined,
@@ -617,8 +854,28 @@ export class HedgehogActor {
                                 }}
                             />
                         ))}
+                        {this.overlayAnimation ? (
+                            <div
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{
+                                    position: 'absolute',
+                                    top: 0,
+                                    left: 0,
+                                    imageRendering: 'pixelated',
+                                    width: SPRITE_SIZE,
+                                    height: SPRITE_SIZE,
+                                    backgroundImage: `url(${spriteOverlayUrl(this.overlayAnimation.spriteInfo.img)})`,
+                                    backgroundPosition: `-${
+                                        (this.overlayAnimation.frame % X_FRAMES) * SPRITE_SIZE
+                                    }px -${Math.floor(this.overlayAnimation.frame / X_FRAMES) * SPRITE_SIZE}px`,
+                                    ...(this.overlayAnimation.spriteInfo.style ?? {}),
+                                }}
+                            />
+                        ) : null}
                     </div>
                 </div>
+                {this.renderRope()}
+
                 {(window as any)._posthogDebugHedgehog && (
                     <>
                         {[this.element && elementToBox(this.element), this.ground && elementToBox(this.ground)].map(
@@ -651,7 +908,7 @@ export class HedgehogActor {
 }
 
 export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps>(function HedgehogBuddy(
-    { onActorLoaded, onClick: _onClick, onPositionChange, hedgehogConfig, tooltip },
+    { onActorLoaded, onClick: _onClick, onPositionChange, hedgehogConfig, tooltip, static: staticMode },
     ref
 ): JSX.Element {
     const actorRef = useRef<HedgehogActor>()
@@ -683,6 +940,10 @@ export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps
     }, [tooltip])
 
     useEffect(() => {
+        actor.static = staticMode ?? false
+    }, [staticMode])
+
+    useEffect(() => {
         let timer: any = null
 
         const loop = (): void => {
@@ -712,7 +973,7 @@ export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps
     }, [actor.x, actor.y])
 
     const onClick = (): void => {
-        !actor.isDragging && _onClick?.()
+        !actor.isDragging && _onClick?.(actor)
     }
 
     return actor.render({ onClick, ref })
@@ -734,16 +995,19 @@ export function MyHedgehogBuddy({
 
     const [popoverVisible, setPopoverVisible] = useState(false)
 
-    const onClick = (): void => {
+    const onClick = (actor: HedgehogActor): void => {
         setPopoverVisible(!popoverVisible)
-        _onClick?.()
+        _onClick?.(actor)
     }
     const disappear = (): void => {
         setPopoverVisible(false)
-        actor?.setAnimation('wave')
-        setTimeout(() => onClose?.(), (actor!.animations.wave.frames * 1000) / FPS)
+        actor?.setAnimation('wave', {
+            onComplete() {
+                onClose?.(actor)
+                return true
+            },
+        })
     }
-
     return (
         <Popover
             onClickOutside={() => setPopoverVisible(false)}
@@ -797,7 +1061,11 @@ export function MemberHedgehogBuddy({ member }: { member: OrganizationMemberType
     const memberHedgehogConfig: HedgehogConfig = useMemo(
         () => ({
             ...hedgehogConfig,
+            // Reset some params to default
+            skin: 'default',
+            // Then apply the user's config
             ...member.user.hedgehog_config,
+            // Finally some settings are forced
             controls_enabled: false,
         }),
         [hedgehogConfig, member.user.hedgehog_config]

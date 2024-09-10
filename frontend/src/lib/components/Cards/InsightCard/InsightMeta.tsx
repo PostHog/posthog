@@ -1,5 +1,3 @@
-// eslint-disable-next-line no-restricted-imports
-import { PieChartFilled } from '@ant-design/icons'
 import { useValues } from 'kea'
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
@@ -130,13 +128,7 @@ export function InsightMeta({
                 </>
             }
             metaDetails={<InsightDetails insight={insight} />}
-            samplingNotice={
-                samplingFactor && samplingFactor < 1 ? (
-                    <Tooltip title={`Results calculated from ${100 * samplingFactor}% of users`}>
-                        <PieChartFilled className="mr-2" style={{ color: 'var(--primary-3000-hover)' }} />
-                    </Tooltip>
-                ) : null
-            }
+            samplingFactor={samplingFactor}
             moreButtons={
                 <>
                     <>
