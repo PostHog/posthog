@@ -37,7 +37,7 @@ if (res.status >= 200 and res.status < 300) {
         {
             "key": "auth",
             "type": "integration",
-            "integration": "gc-pubsub",
+            "integration": "google-pubsub",
             "label": "Google Cloud service account",
             "secret": False,
             "required": True,
@@ -88,7 +88,7 @@ class TemplateGooglePubSubMigrator(HogFunctionTemplateMigrator):
             raise Exception("Google Cloud Key JSON not found")
 
         keyFile = json.loads(attachment.contents.decode("UTF-8"))  # type: ignore
-        integration = GoogleCloudIntegration.integration_from_key("gc-pubsub", keyFile, obj.team.pk)
+        integration = GoogleCloudIntegration.integration_from_key("google-pubsub", keyFile, obj.team.pk)
 
         hf["filters"] = {}
         if exportEventsToIgnore:

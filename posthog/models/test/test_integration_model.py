@@ -268,7 +268,7 @@ class TestGoogleCloudIntegrationModel(BaseTest):
 
         with freeze_time("2024-01-01T12:00:00Z"):
             integration = GoogleCloudIntegration.integration_from_key(
-                "gc-pubsub",
+                "google-pubsub",
                 self.mock_keyfile,
                 self.team.id,
                 self.user,
@@ -294,7 +294,7 @@ class TestGoogleCloudIntegrationModel(BaseTest):
 
         with freeze_time("2024-01-01T12:00:00Z"):
             integration = GoogleCloudIntegration.integration_from_key(
-                "gc-pubsub",
+                "google-pubsub",
                 self.mock_keyfile,
                 self.team.id,
                 self.user,

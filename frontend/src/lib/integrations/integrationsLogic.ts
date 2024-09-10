@@ -19,7 +19,7 @@ const ICONS: Record<IntegrationKind, any> = {
     slack: IconSlack,
     salesforce: IconSalesforce,
     hubspot: IconHubspot,
-    'gc-pubsub': IconGoogleCloud,
+    'google-pubsub': IconGoogleCloud,
 }
 
 export const integrationsLogic = kea<integrationsLogicType>([
@@ -61,7 +61,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
                         formData.append('kind', kind)
                         formData.append('key', key)
                         const response = await api.integrations.create(formData)
-                        const responseWithIcon = { ...response, icon_url: ICONS[kind] ?? ICONS['gc-pubsub'] }
+                        const responseWithIcon = { ...response, icon_url: ICONS[kind] ?? ICONS['google-pubsub'] }
 
                         // run onChange after updating the integrations loader
                         window.setTimeout(() => callback?.(responseWithIcon), 0)

@@ -42,12 +42,12 @@ class Integration(models.Model):
         SLACK = "slack"
         SALESFORCE = "salesforce"
         HUBSPOT = "hubspot"
-        GC_PUBSUB = "gc-pubsub"
+        GOOGLE_PUBSUB = "google-pubsub"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
     # The integration type identifier
-    kind = models.CharField(max_length=10, choices=IntegrationKind.choices)
+    kind = models.CharField(max_length=20, choices=IntegrationKind.choices)
     # The ID of the integration in the external system
     integration_id = models.TextField(null=True, blank=True)
     # Any config that COULD be passed to the frontend
@@ -393,7 +393,7 @@ class SlackIntegration:
 
 
 class GoogleCloudIntegration:
-    supported_kinds = ["gc-pubsub"]
+    supported_kinds = ["google-pubsub"]
     integration: Integration
 
     def __init__(self, integration: Integration) -> None:
@@ -403,7 +403,7 @@ class GoogleCloudIntegration:
     def integration_from_key(
         cls, kind: str, key_info: dict, team_id: int, created_by: Optional[User] = None
     ) -> Integration:
-        if kind == "gc-pubsub":
+        if kind == "google-pubsub":
             scope = "https://www.googleapis.com/auth/pubsub"
         else:
             raise NotImplementedError(f"Google Cloud integration kind {kind} not implemented")
