@@ -164,6 +164,7 @@ class OauthIntegration:
                 id_path="hub_id",
                 name_path="hub_domain",
             )
+
         raise NotImplementedError(f"Oauth config for kind {kind} not implemented")
 
     @classmethod
@@ -172,11 +173,8 @@ class OauthIntegration:
         return f"{settings.SITE_URL.replace('http://', 'https://')}/integrations/{kind}/callback"
 
     @classmethod
-    def authorize_url(cls, kind: str, oauth_config: Optional[OauthConfig] = None, next="") -> str:
-        if not oauth_config:
-            oauth_config = cls.oauth_config_for_kind(kind)
-
-        assert oauth_config is not None
+    def authorize_url(cls, kind: str, next="") -> str:
+        oauth_config = cls.oauth_config_for_kind(kind)
 
         query_params = {
             "client_id": oauth_config.client_id,
