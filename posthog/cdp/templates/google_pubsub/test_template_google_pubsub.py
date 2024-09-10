@@ -1,8 +1,16 @@
+from datetime import datetime
+from unittest.mock import patch
+
+from inline_snapshot import snapshot
+
+from posthog.cdp.templates.google_pubsub.template_google_pubsub import TemplateGooglePubSubMigrator
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.hubspot.template_hubspot import template as template_hubspot
+from posthog.models import PluginConfig, PluginAttachment, Plugin, Integration
+from posthog.test.base import BaseTest
 
 
-class TestTemplatePubSub(BaseHogFunctionTemplateTest):
+class TestTemplateGooglePubSub(BaseHogFunctionTemplateTest):
     template = template_hubspot
 
     def _inputs(self, **kwargs):
@@ -81,4 +89,123 @@ class TestTemplatePubSub(BaseHogFunctionTemplateTest):
                 "headers": {"Authorization": "Bearer TOKEN", "Content-Type": "application/json"},
                 "body": {"properties": {"company": "PostHog", "email": "example@posthog.com"}},
             },
+        )
+
+
+class TestTemplateMigration(BaseTest):
+    def get_plugin_config(self, config: dict):
+        _config = {
+            "topicId": "TOPIC_ID",
+            "exportEventsToIgnore": "",
+        }
+        _config.update(config)
+        return PluginConfig(enabled=True, order=0, config=_config)
+
+    @patch("google.oauth2.service_account.Credentials.from_service_account_info")
+    def test_integration(self, mock_credentials):
+        mock_credentials.return_value.project_id = "posthog-616"
+        mock_credentials.return_value.service_account_email = "posthog@"
+        mock_credentials.return_value.token = "ACCESS_TOKEN"
+        mock_credentials.return_value.expiry = datetime.fromtimestamp(1704110400 + 3600)
+        mock_credentials.return_value.refresh = lambda _: None
+
+        plugin = Plugin()
+        plugin.save()
+        obj = self.get_plugin_config({})
+        obj.plugin = plugin
+        obj.team = self.team
+        obj.save()
+        PluginAttachment.objects.create(
+            plugin_config=obj, contents=b'{"cloud": "key"}', key="googleCloudKeyJson", file_size=10
+        )
+
+        template = TemplateGooglePubSubMigrator.migrate(obj)
+        template["inputs"]["auth"]["value"] = 1  # mock the ID
+        assert template["inputs"] == snapshot(
+            {
+                "auth": {"value": 1},
+                "topicId": {"value": "TOPIC_ID"},
+                "payload": {
+                    "value": {
+                        "event": "{event.event}",
+                        "distinct_id": "{event.distinct_id}",
+                        "team_id": "{event.team_id}",
+                        "ip": "{event.ip}",
+                        "site_url": "{event.site_url}",
+                        "timestamp": "{event.timestamp}",
+                        "uuid": "{event.uuid}",
+                        "properties": "{event.properties}",
+                        "elements": [],
+                        "people_set": "{person.properties}",
+                        "people_set_once": {},
+                    }
+                },
+                "attributes": {"value": {}},
+            }
+        )
+        assert template["filters"] == {}
+
+        integration = Integration.objects.last()
+        assert integration.kind == "gc-pubsub"
+        assert integration.sensitive_config == {"cloud": "key"}
+        assert integration.config.get("access_token") == "ACCESS_TOKEN"
+
+    @patch("google.oauth2.service_account.Credentials.from_service_account_info")
+    def test_ignore_events(self, mock_credentials):
+        mock_credentials.return_value.project_id = "posthog-616"
+        mock_credentials.return_value.service_account_email = "posthog@"
+        mock_credentials.return_value.token = "ACCESS_TOKEN"
+        mock_credentials.return_value.expiry = datetime.fromtimestamp(1704110400 + 3600)
+        mock_credentials.return_value.refresh = lambda _: None
+
+        plugin = Plugin()
+        plugin.save()
+        obj = self.get_plugin_config(
+            {
+                "exportEventsToIgnore": "event1, event2",
+            }
+        )
+        obj.plugin = plugin
+        obj.team = self.team
+        obj.save()
+        PluginAttachment.objects.create(
+            plugin_config=obj, contents=b'{"cloud": "key"}', key="googleCloudKeyJson", file_size=10
+        )
+
+        template = TemplateGooglePubSubMigrator.migrate(obj)
+        template["inputs"]["auth"]["value"] = 1  # mock the ID
+        assert template["inputs"] == snapshot(
+            {
+                "auth": {"value": 1},
+                "topicId": {"value": "TOPIC_ID"},
+                "payload": {
+                    "value": {
+                        "event": "{event.event}",
+                        "distinct_id": "{event.distinct_id}",
+                        "team_id": "{event.team_id}",
+                        "ip": "{event.ip}",
+                        "site_url": "{event.site_url}",
+                        "timestamp": "{event.timestamp}",
+                        "uuid": "{event.uuid}",
+                        "properties": "{event.properties}",
+                        "elements": [],
+                        "people_set": "{person.properties}",
+                        "people_set_once": {},
+                    }
+                },
+                "attributes": {"value": {}},
+            }
+        )
+        assert template["filters"] == snapshot(
+            {
+                "events": [
+                    {
+                        "id": None,
+                        "name": "All events",
+                        "type": "events",
+                        "order": 0,
+                        "properties": [{"key": "event not in ('event1', 'event2')", "type": "hogql"}],
+                    }
+                ]
+            }
         )

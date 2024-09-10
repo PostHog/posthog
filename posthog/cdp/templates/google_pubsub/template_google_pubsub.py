@@ -87,7 +87,7 @@ class TemplateGooglePubSubMigrator(HogFunctionTemplateMigrator):
         if not attachment:
             raise Exception("Google Cloud Key JSON not found")
 
-        keyFile = json.loads(attachment.contents.decode("UTF-8"))
+        keyFile = json.loads(attachment.contents.decode("UTF-8"))  # type: ignore
         integration = GoogleCloudIntegration.integration_from_key("gc-pubsub", keyFile, obj.team.pk)
 
         hf["filters"] = {}
@@ -124,6 +124,7 @@ class TemplateGooglePubSubMigrator(HogFunctionTemplateMigrator):
                 }
             },
             "auth": {"value": integration.id},
+            "attributes": {"value": {}},
         }
 
         return hf
