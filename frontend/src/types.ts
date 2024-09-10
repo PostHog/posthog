@@ -937,6 +937,18 @@ export enum SessionRecordingUsageType {
     LOADED = 'loaded',
 }
 
+export enum SessionRecordingSidebarTab {
+    SESSION = 'session',
+    INSPECTOR = 'inspector',
+    WATERFALL = 'waterfall',
+    DEBUGGER = 'debugger',
+}
+
+export enum SessionRecordingSidebarStacking {
+    Vertical = 'vertical',
+    Horizontal = 'horizontal',
+}
+
 export enum SessionRecordingPlayerTab {
     ALL = 'all',
     EVENTS = 'events',

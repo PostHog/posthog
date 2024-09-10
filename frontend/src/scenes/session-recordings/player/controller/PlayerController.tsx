@@ -8,12 +8,11 @@ import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/se
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { SessionPlayerState } from '~/types'
 
-import { PlayerMetaLinks } from '../PlayerMetaLinks'
 import { PlayerSettings } from '../PlayerSettings'
 import { SeekSkip, Timestamp } from './PlayerControllerTime'
 import { Seekbar } from './Seekbar'
 
-export function PlayerController({ linkIconsOnly }: { linkIconsOnly: boolean }): JSX.Element {
+export function PlayerController(): JSX.Element {
     const { playingState, isFullScreen, endReached } = useValues(sessionRecordingPlayerLogic)
     const { togglePlayPause, setIsFullScreen } = useActions(sessionRecordingPlayerLogic)
 
@@ -46,20 +45,16 @@ export function PlayerController({ linkIconsOnly }: { linkIconsOnly: boolean }):
                         </LemonButton>
                         <SeekSkip direction="backward" />
                         <SeekSkip direction="forward" />
-                        <LemonButton
-                            size="small"
-                            onClick={() => setIsFullScreen(!isFullScreen)}
-                            tooltip={`${!isFullScreen ? 'Go' : 'Exit'} full screen (F)`}
-                        >
-                            <IconFullScreen
-                                className={clsx('text-2xl', isFullScreen ? 'text-link' : 'text-primary-alt')}
-                            />
-                        </LemonButton>
                     </div>
                     <PlayerSettings />
                 </div>
-
-                <PlayerMetaLinks iconsOnly={linkIconsOnly} />
+                <LemonButton
+                    size="small"
+                    onClick={() => setIsFullScreen(!isFullScreen)}
+                    tooltip={`${!isFullScreen ? 'Go' : 'Exit'} full screen (F)`}
+                >
+                    <IconFullScreen className={clsx('text-2xl', isFullScreen ? 'text-link' : 'text-primary-alt')} />
+                </LemonButton>
             </div>
         </div>
     )
