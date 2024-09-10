@@ -1,4 +1,4 @@
-import { IconPencil, IconPlus, IconSearch, IconTrash } from '@posthog/icons'
+import { IconPlus, IconSearch, IconTrash } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
@@ -8,8 +8,6 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
 import { WebExperimentTransformField } from '~/toolbar/experiments/WebExperimentTransformField'
-import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
-import { ExperimentForm, WebExperimentTransform } from '~/toolbar/types'
 
 export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
     const { selectedExperimentId, inspectingElement, experimentForm } = useValues(experimentsTabLogic)
@@ -19,18 +17,11 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
         selectVariant,
         inspectForElementWithIndex,
         deleteExperiment,
-        editSelectorWithIndex,
+        newVariant,
+        newElement,
+        removeElement,
+        removeVariant,
     } = useActions(experimentsTabLogic)
-
-    const rebalanceRolloutPercentage = (experimentForm: ExperimentForm): void => {
-        const perVariantRollout = 100 / Object.keys(experimentForm.variants || {}).length
-        for (const existingVariant in experimentForm.variants) {
-            if (experimentForm.variants[existingVariant]) {
-                experimentForm.variants[existingVariant].rollout_percentage = Number(perVariantRollout)
-            }
-        }
-        setExperimentFormValue('variants', experimentForm.variants)
-    }
 
     return (
         <ToolbarMenu>
@@ -66,21 +57,7 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                 size="small"
                                 className="ml-3"
                                 sideIcon={<IconPlus />}
-                                onClick={() => {
-                                    if (experimentForm.variants) {
-                                        const nextVariantName = `variant #${
-                                            Object.keys(experimentForm.variants).length
-                                        }`
-                                        experimentForm.variants[nextVariantName] = {
-                                            transforms: [],
-                                            conditions: null,
-                                            rollout_percentage: 0,
-                                        }
-
-                                        rebalanceRolloutPercentage(experimentForm)
-                                    }
-                                    setExperimentFormValue('variants', experimentForm.variants)
-                                }}
+                                onClick={newVariant}
                             >
                                 Add Variant
                             </LemonButton>
@@ -89,7 +66,7 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                             <LemonDivider />
 
                             <div className="mt-2">
-                                {Object.keys(experimentForm.variants).map((variant, index) => (
+                                {Object.keys(experimentForm.variants || {}).map((variant, index) => (
                                     <Group key={variant} name={['variants', index]}>
                                         <div className="flex flex-col">
                                             {selectedExperimentId === 'new' ? (
@@ -128,19 +105,9 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                                     size="small"
                                                     className="ml-2"
                                                     sideIcon={<IconPlus />}
-                                                    onClick={() => {
-                                                        if (experimentForm.variants) {
-                                                            const webVariant = experimentForm.variants[variant]
-                                                            if (webVariant) {
-                                                                if (webVariant.transforms) {
-                                                                    webVariant.transforms.push({
-                                                                        text: '',
-                                                                        html: '',
-                                                                    } as unknown as WebExperimentTransform)
-                                                                }
-                                                            }
-                                                            setExperimentFormValue('variants', experimentForm.variants)
-                                                        }
+                                                    onClick={(e) => {
+                                                        e.stopPropagation()
+                                                        newElement(variant)
                                                     }}
                                                 >
                                                     Add Element
@@ -152,10 +119,7 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                                     className="ml-2"
                                                     onClick={(e) => {
                                                         e.stopPropagation()
-                                                        if (experimentForm.variants) {
-                                                            delete experimentForm.variants[variant]
-                                                            rebalanceRolloutPercentage(experimentForm)
-                                                        }
+                                                        removeVariant(variant)
                                                     }}
                                                     sideIcon={<IconTrash />}
                                                 >
@@ -195,17 +159,7 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                                             className="ml-2"
                                                             onClick={(e) => {
                                                                 e.stopPropagation()
-                                                                if (experimentForm.variants) {
-                                                                    const webVariant = experimentForm.variants[variant]
-                                                                    if (webVariant) {
-                                                                        webVariant.transforms.splice(tIndex, 1)
-                                                                        setExperimentFormValue(
-                                                                            'variants',
-                                                                            experimentForm.variants
-                                                                        )
-                                                                    }
-                                                                    rebalanceRolloutPercentage(experimentForm)
-                                                                }
+                                                                removeElement(variant, tIndex)
                                                             }}
                                                             sideIcon={<IconTrash />}
                                                         >
@@ -217,30 +171,6 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                                         variant={variant}
                                                         transform={transform}
                                                     />
-
-                                                    {inspectingElement === tIndex ? (
-                                                        <>
-                                                            <div className="flex flex-row justify-end mb-2">
-                                                                <LemonButton
-                                                                    size="small"
-                                                                    type="secondary"
-                                                                    icon={<IconPencil />}
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation()
-                                                                        toolbarPosthogJS.capture(
-                                                                            'toolbar_manual_selector_modal_opened',
-                                                                            {
-                                                                                selector: transform.selector,
-                                                                            }
-                                                                        )
-                                                                        editSelectorWithIndex(variant, tIndex)
-                                                                    }}
-                                                                >
-                                                                    Edit the selector
-                                                                </LemonButton>
-                                                            </div>
-                                                        </>
-                                                    ) : null}
                                                 </div>
                                             ))}
                                         </div>

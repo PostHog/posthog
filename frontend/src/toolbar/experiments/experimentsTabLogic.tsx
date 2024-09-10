@@ -9,9 +9,15 @@ import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { experimentsLogic } from '~/toolbar/experiments/experimentsLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
-import { ExperimentDraftType, ExperimentForm, WebExperiment, WebExperimentVariant } from '~/toolbar/types'
+import {
+    ExperimentDraftType,
+    ExperimentForm,
+    WebExperiment,
+    WebExperimentTransform,
+    WebExperimentVariant,
+} from '~/toolbar/types'
 import { elementToQuery } from '~/toolbar/utils'
-import { ElementType, Experiment } from '~/types'
+import { Experiment } from '~/types'
 
 import type { experimentsTabLogicType } from './experimentsTabLogicType'
 
@@ -19,33 +25,6 @@ function newExperiment(): ExperimentDraftType {
     return {
         name: 'new experiment',
     } as unknown as ExperimentDraftType
-}
-
-function toElementsChain(element: HTMLElement): ElementType[] {
-    const chain: HTMLElement[] = []
-    let currentElement: HTMLElement | null | undefined = element
-    while (currentElement && currentElement !== document.documentElement) {
-        chain.push(currentElement)
-        currentElement = currentElement.parentElement
-    }
-    return chain.map(
-        (element, index) =>
-            ({
-                attr_class: element.getAttribute('class')?.split(' '),
-                attr_id: element.getAttribute('id') || undefined,
-                attributes: Array.from(element.attributes).reduce((acc, attr) => {
-                    if (!acc[attr.name]) {
-                        acc[attr.name] = attr.value
-                    } else {
-                        acc[attr.name] += ` ${attr.value}`
-                    }
-                    return acc
-                }, {} as Record<string, string>),
-                href: element.getAttribute('href') || undefined,
-                tag_name: element.tagName.toLowerCase(),
-                text: index === 0 ? element.innerText : undefined,
-            } as ElementType)
-    )
 }
 
 export const experimentsTabLogic = kea<experimentsTabLogicType>([
@@ -56,6 +35,13 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
         newExperiment: (element?: HTMLElement) => ({
             element: element || null,
         }),
+        newVariant: () => ({}),
+        rebalanceRolloutPercentage: () => ({}),
+        removeVariant: (variant: string) => ({
+            variant,
+        }),
+        newElement: (variant: string) => ({ variant }),
+        removeElement: (variant: string, index: number) => ({ variant, index }),
         inspectForElementWithIndex: (variant: string, index: number | null) => ({ variant, index }),
         editSelectorWithIndex: (variant: string, index: number | null) => ({ variant, index }),
         inspectElementSelected: (element: HTMLElement, variant: string, index: number | null) => ({
@@ -82,21 +68,6 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
     })),
 
     reducers({
-        experimentFormElementsChains: [
-            {} as Record<number, ElementType[]>,
-            {
-                inspectElementSelected: (state, { element, index }) =>
-                    index === null
-                        ? []
-                        : {
-                              ...state,
-                              [index]: toElementsChain(element),
-                          },
-                newExperiment: (_, { element }) => ({
-                    0: element ? toElementsChain(element) : [],
-                }),
-            },
-        ],
         buttonExperimentsVisible: [
             false,
             {
@@ -199,26 +170,6 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
     })),
 
     selectors({
-        editingSelectorValue: [
-            (s) => [s.editingSelector],
-            (editingSelector): string | null => {
-                if (editingSelector === null) {
-                    return null
-                }
-                const selector = '#set-user-properties'
-                // experimentForm.variants?.[editingSelector].transforms[0].selector
-                return selector || null
-            },
-        ],
-        elementsChainBeingEdited: [
-            (s) => [s.editingSelector, s.experimentFormElementsChains],
-            (editingSelector, elementChains): ElementType[] => {
-                if (editingSelector === null) {
-                    return []
-                }
-                return elementChains[editingSelector] || []
-            },
-        ],
         selectedExperiment: [
             (s) => [s.selectedExperimentId, s.allExperiments],
             (selectedExperimentId, allExperiments: WebExperiment[]): Experiment | ExperimentDraftType | null => {
@@ -246,15 +197,6 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
     })),
 
     listeners(({ actions, values }) => ({
-        setElementSelector: ({ selector, index }) => {
-            if (values.experimentForm) {
-                const steps = [...(values.experimentForm.steps || [])]
-                if (steps && steps[index]) {
-                    steps[index].selector = selector
-                }
-                actions.setExperimentFormValue('steps', steps)
-            }
-        },
         selectExperiment: ({ id }) => {
             if (id) {
                 if (!values.buttonVisible) {
@@ -289,6 +231,69 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                     }
                 }
                 actions.incrementVariantCounter()
+            }
+        },
+        removeVariant: ({ variant }) => {
+            if (values.experimentForm && values.experimentForm.variants) {
+                delete values.experimentForm.variants[variant]
+                actions.setExperimentFormValue('variants', values.experimentForm.variants)
+                actions.rebalanceRolloutPercentage()
+            }
+        },
+        rebalanceRolloutPercentage: () => {
+            const perVariantRollout = Math.round(100 / Object.keys(values.experimentForm.variants || {}).length)
+            for (const existingVariant in values.experimentForm.variants) {
+                if (values.experimentForm.variants[existingVariant]) {
+                    values.experimentForm.variants[existingVariant].rollout_percentage = Number(perVariantRollout)
+                }
+            }
+            actions.setExperimentFormValue('variants', values.experimentForm.variants)
+        },
+        newVariant: () => {
+            if (values.experimentForm) {
+                const nextVariantName = `variant #${Object.keys(values.experimentForm.variants || {}).length}`
+
+                if (values.experimentForm.variants == undefined) {
+                    values.experimentForm.variants = {}
+                }
+
+                values.experimentForm.variants[nextVariantName] = {
+                    transforms: [
+                        {
+                            text: '',
+                            html: '',
+                        } as unknown as WebExperimentTransform,
+                    ],
+                    conditions: null,
+                    rollout_percentage: 0,
+                }
+
+                actions.setExperimentFormValue('variants', values.experimentForm.variants)
+                actions.rebalanceRolloutPercentage()
+            }
+        },
+        newElement: ({ variant }) => {
+            if (values.experimentForm.variants) {
+                const webVariant = values.experimentForm.variants[variant]
+                if (webVariant) {
+                    if (webVariant.transforms) {
+                        webVariant.transforms.push({
+                            text: '',
+                            html: '',
+                        } as unknown as WebExperimentTransform)
+                    }
+
+                    actions.setExperimentFormValue('variants', values.experimentForm.variants)
+                }
+            }
+        },
+        removeElement: ({ index, variant }) => {
+            if (values.experimentForm.variants) {
+                const webVariant = values.experimentForm.variants[variant]
+                if (webVariant) {
+                    webVariant.transforms.splice(index, 1)
+                    actions.setExperimentFormValue('variants', values.experimentForm.variants)
+                }
             }
         },
         deleteExperiment: async () => {
