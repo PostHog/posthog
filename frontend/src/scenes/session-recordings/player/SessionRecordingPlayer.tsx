@@ -196,79 +196,75 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                     {explorerMode ? (
                         <SessionRecordingPlayerExplorer {...explorerMode} onClose={() => closeExplorer()} />
                     ) : (
-                        <div className="flex flex-col h-full w-full">
-                            <div className={clsx('flex w-full h-full')} ref={playerMainRef}>
-                                {cannotPlayback ? (
-                                    <div className="flex flex-1 flex-col items-center justify-center">
-                                        <BuilderHog2 height={200} />
-                                        <h1>We're still working on it</h1>
-                                        <p>
-                                            This recording hasn't been fully ingested yet. It should be ready to watch
-                                            in a few minutes.
-                                        </p>
-                                        <LemonButton type="secondary" onClick={loadSnapshots}>
-                                            Reload
-                                        </LemonButton>
+                        <div className="SessionRecordingPlayer__main flex flex-col h-full w-full" ref={playerMainRef}>
+                            {cannotPlayback ? (
+                                <div className="flex flex-1 flex-col items-center justify-center">
+                                    <BuilderHog2 height={200} />
+                                    <h1>We're still working on it</h1>
+                                    <p>
+                                        This recording hasn't been fully ingested yet. It should be ready to watch in a
+                                        few minutes.
+                                    </p>
+                                    <LemonButton type="secondary" onClick={loadSnapshots}>
+                                        Reload
+                                    </LemonButton>
+                                </div>
+                            ) : (
+                                <>
+                                    <div className="flex justify-between items-center px-2 py-1 border-b pr-[3px]">
+                                        <LemonSegmentedButton
+                                            value="playback"
+                                            options={[
+                                                {
+                                                    value: 'playback',
+                                                    label: 'Playback',
+                                                },
+                                                {
+                                                    value: 'waterfall',
+                                                    label: 'Waterfall',
+                                                },
+                                            ]}
+                                            size="xsmall"
+                                        />
+                                        <PlayerPersonMeta />
                                     </div>
-                                ) : (
-                                    <>
-                                        <div className="SessionRecordingPlayer__main">
-                                            <div className="flex justify-between items-center px-2 py-1 border-b pr-[3px]">
-                                                <LemonSegmentedButton
-                                                    value="playback"
-                                                    options={[
-                                                        {
-                                                            value: 'playback',
-                                                            label: 'Playback',
-                                                        },
-                                                        {
-                                                            value: 'waterfall',
-                                                            label: 'Waterfall',
-                                                        },
-                                                    ]}
-                                                    size="xsmall"
-                                                />
-                                                <PlayerPersonMeta />
-                                            </div>
-                                            <div
-                                                className={clsx('flex w-full h-full', {
-                                                    'SessionRecordingPlayer--stacked-vertically': isVerticallyStacked,
-                                                })}
-                                            >
-                                                <div className="flex flex-col flex-1">
-                                                    {!noMeta || isFullScreen ? <PlayerMeta /> : null}
+                                    <div
+                                        className={clsx('flex flex-1', {
+                                            'SessionRecordingPlayer--stacked-vertically': isVerticallyStacked,
+                                        })}
+                                    >
+                                        <div className="flex flex-col flex-1">
+                                            {!noMeta || isFullScreen ? <PlayerMeta /> : null}
 
-                                                    <div
-                                                        className="SessionRecordingPlayer__body"
-                                                        draggable={draggable}
-                                                        {...elementProps}
-                                                    >
-                                                        <PlayerFrame />
-                                                        <PlayerFrameOverlay />
-                                                    </div>
-                                                    <PlayerController iconsOnly={playerMainSize === 'small'} />
-                                                </div>
-                                                {!noInspector && (
-                                                    <PlayerSidebar
-                                                        isVerticallyStacked={isVerticallyStacked}
-                                                        toggleLayoutStacking={
-                                                            compactLayout
-                                                                ? undefined
-                                                                : () =>
-                                                                      setPreferredSidebarStacking(
-                                                                          preferredSidebarStacking ===
-                                                                              SessionRecordingSidebarStacking.Vertical
-                                                                              ? SessionRecordingSidebarStacking.Horizontal
-                                                                              : SessionRecordingSidebarStacking.Vertical
-                                                                      )
-                                                        }
-                                                    />
-                                                )}
+                                            <div
+                                                className="SessionRecordingPlayer__body"
+                                                draggable={draggable}
+                                                {...elementProps}
+                                            >
+                                                <PlayerFrame />
+                                                <PlayerFrameOverlay />
                                             </div>
+                                            <PlayerController iconsOnly={playerMainSize === 'small'} />
                                         </div>
-                                    </>
-                                )}
-                            </div>
+                                        {!noInspector && (
+                                            <PlayerSidebar
+                                                isVerticallyStacked={isVerticallyStacked}
+                                                toggleLayoutStacking={
+                                                    compactLayout
+                                                        ? undefined
+                                                        : () =>
+                                                              setPreferredSidebarStacking(
+                                                                  preferredSidebarStacking ===
+                                                                      SessionRecordingSidebarStacking.Vertical
+                                                                      ? SessionRecordingSidebarStacking.Horizontal
+                                                                      : SessionRecordingSidebarStacking.Vertical
+                                                              )
+                                                }
+                                            />
+                                        )}
+                                    </div>
+                                </>
+                            )}
                         </div>
                     )}
                 </FloatingContainerContext.Provider>
