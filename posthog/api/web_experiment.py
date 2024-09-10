@@ -13,7 +13,7 @@ from posthog.auth import (
     TemporaryTokenAuthentication,
 )
 from posthog.exceptions import generate_exception_response
-from posthog.models import Team, WebExperiment, Experiment
+from posthog.models import Team, WebExperiment
 from posthog.utils_cors import cors_response
 
 
@@ -104,7 +104,7 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
         feature_flag_serializer.is_valid(raise_exception=True)
         feature_flag = feature_flag_serializer.save()
 
-        experiment = Experiment.objects.create(
+        experiment = WebExperiment.objects.create(
             team_id=self.context["team_id"], feature_flag=feature_flag, **create_params
         )
         return experiment
