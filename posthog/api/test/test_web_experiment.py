@@ -15,14 +15,12 @@ class TestWebExperiment(APIBaseTest):
                         "transforms": [
                             {"html": "", "text": "There goes Superman!", "selector": "#page > #body > .header h1"}
                         ],
-                        "variant_name": "variant #0",
                         "rollout_percentage": 70,
                     },
                     "test": {
                         "transforms": [
                             {"html": "", "text": "Up, UP and Away!", "selector": "#page > #body > .header h1"}
                         ],
-                        "variant_name": "variant #1",
                         "rollout_percentage": 30,
                     },
                 },

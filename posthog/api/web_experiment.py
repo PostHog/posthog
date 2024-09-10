@@ -51,6 +51,8 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
             raise ValidationError("Experiment does not have any variants")
         if variants and not isinstance(variants, dict):
             raise ValidationError("Experiment variants should be a dictionary of keys -> transforms")
+        if "control" not in variants:
+            raise ValidationError("Experiment should contain a control variant")
         for name, variant in variants.items():
             if variant.get("rollout_percentage") is None:
                 raise ValidationError(f"Experiment variant '{name}' does not have any rollout percentage")
@@ -65,7 +67,7 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
 
         return attrs
 
-    def create(self, validated_data: dict[str, Any]) -> Any:
+    def create(self, validated_data: dict[str, Any]) -> WebExperiment:
         create_params = {
             "name": validated_data.get("name", ""),
             "description": "",
@@ -86,12 +88,12 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
 
         filters = {
             "groups": [{"properties": [], "rollout_percentage": 100}],
-            "multivariate": self.get_variant_names(validated_data),
+            "multivariate": self.get_variants_for_feature_flag(validated_data),
         }
 
         feature_flag_serializer = FeatureFlagSerializer(
             data={
-                "key": f'{validated_data.get("name")}-feature',
+                "key": self.get_feature_flag_name(validated_data.get("name", "")),
                 "name": f'Feature Flag for Experiment {validated_data["name"]}',
                 "filters": filters,
                 "active": False,
@@ -107,13 +109,13 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
         )
         return experiment
 
-    def update(self, instance: WebExperiment, validated_data: dict[str, Any]) -> Any:
+    def update(self, instance: WebExperiment, validated_data: dict[str, Any]) -> WebExperiment:
         variants = validated_data.get("variants", None)
         if variants is not None and isinstance(variants, dict):
             feature_flag = instance.feature_flag
             filters = {
                 "groups": feature_flag.filters.get("groups", None),
-                "multivariate": self.get_variant_names(validated_data),
+                "multivariate": self.get_variants_for_feature_flag(validated_data),
             }
 
             existing_flag_serializer = FeatureFlagSerializer(
@@ -128,13 +130,16 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
         instance = super().update(instance, validated_data)
         return instance
 
-    def get_variant_names(self, validated_data: dict[str, Any]):
+    def get_variants_for_feature_flag(self, validated_data: dict[str, Any]):
         variant_names = []
         variants = validated_data.get("variants", None)
         if variants is not None and isinstance(variants, dict):
             for variant, transforms in variants.items():
                 variant_names.append({"key": variant, "rollout_percentage": transforms.get("rollout_percentage", 0)})
         return {"variants": variant_names}
+
+    def get_feature_flag_name(self, experiment_name: str) -> str:
+        return experiment_name.replace(" ", "-").lower() + "-web-experiment-feature"
 
 
 class WebExperimentViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
