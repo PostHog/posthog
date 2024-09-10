@@ -1,10 +1,10 @@
 import { IconArrowRight } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonInput, LemonInputSelect, LemonSkeleton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { IframedToolbarBrowser } from 'lib/components/IframedToolbarBrowser/IframedToolbarBrowser'
 import { iframedToolbarBrowserLogic } from 'lib/components/IframedToolbarBrowser/iframedToolbarBrowserLogic'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { dashboardTemplateVariablesLogic } from 'scenes/dashboard/dashboardTemplateVariablesLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
@@ -13,6 +13,69 @@ import { OnboardingStep } from '../OnboardingStep'
 import { sdksLogic } from '../sdks/sdksLogic'
 import { DashboardTemplateVariables } from './DashboardTemplateVariables'
 import { onboardingTemplateConfigLogic } from './onboardingTemplateConfigLogic'
+
+const UrlInput = ({ iframeRef }: { iframeRef: React.RefObject<HTMLIFrameElement> }): JSX.Element => {
+    const { setBrowserUrl, setCurrentPath } = useActions(
+        iframedToolbarBrowserLogic({ iframeRef, clearBrowserUrlOnUnmount: true })
+    )
+    const { browserUrl, currentPath } = useValues(
+        iframedToolbarBrowserLogic({ iframeRef, clearBrowserUrlOnUnmount: true })
+    )
+    const { snippetHosts } = useValues(sdksLogic)
+    const { addUrl } = useActions(authorizedUrlListLogic({ actionId: null, type: AuthorizedUrlListType.TOOLBAR_URLS }))
+    const [inputValue, setInputValue] = useState(currentPath)
+
+    useEffect(() => {
+        setInputValue(currentPath)
+    }, [currentPath])
+
+    return (
+        <div className="w-full flex gap-x-2 border-b border-1 border-border-bold p-2">
+            <LemonInput
+                size="small"
+                className="grow font-mono text-sm"
+                defaultValue={currentPath}
+                value={inputValue}
+                onChange={(v) => setInputValue(v)}
+                onPressEnter={() => {
+                    setCurrentPath(inputValue || '', true)
+                }}
+                prefix={
+                    <span className="-mr-2 flex items-center">
+                        <div className="bg-bg-3000 rounded">
+                            <LemonInputSelect
+                                mode="single"
+                                value={[browserUrl || 'my-website.com']}
+                                options={snippetHosts.map((host) => ({ key: host, label: host }))}
+                                allowCustomValues={false}
+                                onChange={(v) => {
+                                    addUrl(v[0])
+                                    setBrowserUrl(v[0])
+                                    setCurrentPath('', false)
+                                }}
+                                size="xsmall"
+                                transparentBackground
+                                borderless
+                            />
+                        </div>
+                        /
+                    </span>
+                }
+            />
+            <LemonButton
+                size="small"
+                type="primary"
+                icon={<IconArrowRight />}
+                onClick={() => {
+                    setCurrentPath(inputValue || '', true)
+                }}
+            />
+            <LemonButton size="small" type="primary">
+                Select pageview
+            </LemonButton>
+        </div>
+    )
+}
 
 export const OnboardingDashboardTemplateConfigureStep = ({
     stepKey = OnboardingStepKey.DASHBOARD_TEMPLATE,
@@ -50,8 +113,11 @@ export const OnboardingDashboardTemplateConfigureStep = ({
                     <div className="grid grid-cols-6 space-x-6 min-h-[80vh]">
                         <div className="col-span-4 relative">
                             {browserUrl ? (
-                                <div className="border border-1 border-border-bold p-2 rounded h-full w-full">
-                                    <IframedToolbarBrowser iframeRef={iframeRef} userIntent="add-action" />
+                                <div className="border border-1 border-border-bold rounded h-full w-full flex flex-col">
+                                    <UrlInput iframeRef={iframeRef} />
+                                    <div className="m-2 grow rounded">
+                                        <IframedToolbarBrowser iframeRef={iframeRef} userIntent="add-action" />
+                                    </div>
                                 </div>
                             ) : (
                                 <>

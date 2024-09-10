@@ -57,6 +57,7 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
         disableElementSelector: true,
         setNewActionName: (name: string | null) => ({ name }),
         toolbarMessageReceived: (type: PostHogAppToolbarEvent, payload: Record<string, any>) => ({ type, payload }),
+        setCurrentPath: (path: string, navigateIframe: boolean) => ({ path, navigateIframe }),
     }),
 
     reducers(({ props }) => ({
@@ -97,6 +98,12 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
             { persist: props.userIntent == 'heatmaps' },
             {
                 setBrowserUrl: (_, { url }) => url,
+            },
+        ],
+        currentPath: [
+            '' as string,
+            {
+                setCurrentPath: (_, { path }) => path,
             },
         ],
         loading: [
@@ -255,6 +262,9 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
                         actions.setNewActionName(null)
                         actions.disableElementSelector()
                         return
+                    case PostHogAppToolbarEvent.PH_TOOLBAR_NAVIGATED:
+                        // remove leading / from path
+                        return actions.setCurrentPath(payload.path.replace(/^\/+/, ''), false)
                     default:
                         console.warn(`[PostHog Heatmaps] Received unknown child window message: ${type}`)
                 }
@@ -268,6 +278,12 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
         setBrowserUrl: ({ url }) => {
             if (url?.trim().length) {
                 actions.startTrackingLoading()
+            }
+        },
+
+        setCurrentPath: ({ path, navigateIframe }) => {
+            if (navigateIframe) {
+                actions.sendToolbarMessage(PostHogAppToolbarEvent.PH_NAVIGATE, { url: values.browserUrl + '/' + path })
             }
         },
 
