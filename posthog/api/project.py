@@ -135,6 +135,7 @@ class ProjectSerializer(ProjectBasicSerializer, UserPermissionsSerializerMixin):
             "autocapture_opt_out",
             "autocapture_exceptions_opt_in",
             "autocapture_web_vitals_opt_in",
+            "autocapture_web_vitals_allowed_metrics",
             "autocapture_exceptions_errors_to_ignore",
             "capture_console_log_opt_in",
             "capture_performance_opt_in",
