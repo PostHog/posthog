@@ -127,7 +127,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         EXTERNAL_REQUEST_TIMEOUT_MS: 10 * 1000, // 10 seconds
         DROP_EVENTS_BY_TOKEN_DISTINCT_ID: '',
         DROP_EVENTS_BY_TOKEN: '',
-        SKIP_DEFINITIONS_FOR_TEAM_IDS: '',
         PIPELINE_STEP_STALLED_LOG_TIMEOUT: 30,
         RELOAD_PLUGIN_JITTER_MAX_MS: 60000,
         RUSTY_HOOK_FOR_TEAMS: '',
@@ -184,14 +183,20 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_WATCHER_REFILL_RATE: 10,
         CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT: 3,
         CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS: '',
-        CDP_ASYNC_FUNCTIONS_CYCLOTRON_TEAMS: '',
+        CDP_CYCLOTRON_ENABLED_TEAMS: '',
         CDP_REDIS_PASSWORD: '',
         CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: true,
         CDP_REDIS_HOST: '',
         CDP_REDIS_PORT: 6479,
+        CDP_CYCLOTRON_BATCH_DELAY_MS: 50,
+        CDP_CYCLOTRON_BATCH_SIZE: 500,
 
         // Cyclotron
-        CYCLOTRON_DATABASE_URL: '',
+        CYCLOTRON_DATABASE_URL: isTestEnv()
+            ? 'postgres://posthog:posthog@localhost:5432/test_cyclotron'
+            : isDevEnv()
+            ? 'postgres://posthog:posthog@localhost:5432/cyclotron'
+            : '',
     }
 }
 
