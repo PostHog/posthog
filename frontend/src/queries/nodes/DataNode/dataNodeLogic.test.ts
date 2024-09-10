@@ -472,7 +472,8 @@ describe('dataNodeLogic', () => {
             false,
             expect.any(String),
             expect.any(Function),
-            filtersOverride
+            filtersOverride,
+            false
         )
     })
 
@@ -495,7 +496,8 @@ describe('dataNodeLogic', () => {
             false,
             expect.any(String),
             expect.any(Function),
-            undefined
+            undefined,
+            false
         )
     })
 })
