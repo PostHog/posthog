@@ -1,8 +1,8 @@
-from enum import Enum
+from enum import StrEnum
 from typing import TypedDict
 
 
-class IncrementalFieldType(Enum):
+class IncrementalFieldType(StrEnum):
     Integer = "integer"
     Numeric = "numeric"  # For snowflake
     DateTime = "datetime"

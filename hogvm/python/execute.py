@@ -9,6 +9,7 @@ from hogvm.python.debugger import debugger, color_bytecode
 from hogvm.python.objects import is_hog_error, new_hog_closure, CallFrame, ThrowFrame, new_hog_callable, is_hog_upvalue
 from hogvm.python.operation import Operation, HOGQL_BYTECODE_IDENTIFIER, HOGQL_BYTECODE_IDENTIFIER_V0
 from hogvm.python.stl import STL
+from hogvm.python.stl.bytecode import BYTECODE_STL
 from dataclasses import dataclass
 
 from hogvm.python.utils import (
@@ -18,6 +19,7 @@ from hogvm.python.utils import (
     like,
     set_nested_value,
     calculate_cost,
+    unify_comparison_types,
 )
 
 if TYPE_CHECKING:
@@ -67,6 +69,7 @@ def execute_bytecode(
         call_stack.append(
             CallFrame(
                 ip=2 if bytecode[0] == HOGQL_BYTECODE_IDENTIFIER else 1,
+                chunk="root",
                 stack_start=0,
                 arg_len=0,
                 closure=new_hog_closure(
@@ -75,15 +78,30 @@ def execute_bytecode(
                         arg_count=0,
                         upvalue_count=0,
                         ip=2 if bytecode[0] == HOGQL_BYTECODE_IDENTIFIER else 1,
+                        chunk="root",
                         name="",
                     )
                 ),
             )
         )
     frame = call_stack[-1]
+    chunk_bytecode: list[Any] = bytecode
 
-    def stack_keep_first_elements(count: int):
+    def set_chunk_bytecode():
+        nonlocal chunk_bytecode, last_op
+        if not frame.chunk or frame.chunk == "root":
+            chunk_bytecode = bytecode
+            last_op = len(bytecode) - 1
+        elif frame.chunk.startswith("stl/") and frame.chunk[4:] in BYTECODE_STL:
+            chunk_bytecode = BYTECODE_STL[frame.chunk[4:]][1]
+            last_op = len(bytecode) - 1
+        else:
+            raise HogVMException(f"Unknown chunk: {frame.chunk}")
+
+    def stack_keep_first_elements(count: int) -> list[Any]:
         nonlocal stack, mem_stack, mem_used
+        if count < 0 or len(stack) < count:
+            raise HogVMException("Stack underflow")
         for upvalue in reversed(upvalues):
             if upvalue["location"] >= count:
                 if not upvalue["closed"]:
@@ -91,16 +109,18 @@ def execute_bytecode(
                     upvalue["value"] = stack[upvalue["location"]]
             else:
                 break
+        removed = stack[count:]
         stack = stack[0:count]
         mem_used -= sum(mem_stack[count:])
         mem_stack = mem_stack[0:count]
+        return removed
 
     def next_token():
-        nonlocal frame
+        nonlocal frame, chunk_bytecode
         if frame.ip >= last_op:
             raise HogVMException("Unexpected end of bytecode")
         frame.ip += 1
-        return bytecode[frame.ip]
+        return chunk_bytecode[frame.ip]
 
     def pop_stack():
         if not stack:
@@ -145,7 +165,7 @@ def execute_bytecode(
     symbol: Any = None
     while frame.ip <= last_op:
         ops += 1
-        symbol = bytecode[frame.ip]
+        symbol = chunk_bytecode[frame.ip]
         if (ops & 127) == 0:  # every 128th operation
             check_timeout()
         elif debug:
@@ -182,17 +202,23 @@ def execute_bytecode(
             case Operation.MOD:
                 push_stack(pop_stack() % pop_stack())
             case Operation.EQ:
-                push_stack(pop_stack() == pop_stack())
+                var1, var2 = unify_comparison_types(pop_stack(), pop_stack())
+                push_stack(var1 == var2)
             case Operation.NOT_EQ:
-                push_stack(pop_stack() != pop_stack())
+                var1, var2 = unify_comparison_types(pop_stack(), pop_stack())
+                push_stack(var1 != var2)
             case Operation.GT:
-                push_stack(pop_stack() > pop_stack())
+                var1, var2 = unify_comparison_types(pop_stack(), pop_stack())
+                push_stack(var1 > var2)
             case Operation.GT_EQ:
-                push_stack(pop_stack() >= pop_stack())
+                var1, var2 = unify_comparison_types(pop_stack(), pop_stack())
+                push_stack(var1 >= var2)
             case Operation.LT:
-                push_stack(pop_stack() < pop_stack())
+                var1, var2 = unify_comparison_types(pop_stack(), pop_stack())
+                push_stack(var1 < var2)
             case Operation.LT_EQ:
-                push_stack(pop_stack() <= pop_stack())
+                var1, var2 = unify_comparison_types(pop_stack(), pop_stack())
+                push_stack(var1 <= var2)
             case Operation.LIKE:
                 push_stack(like(pop_stack(), pop_stack()))
             case Operation.ILIKE:
@@ -232,6 +258,7 @@ def execute_bytecode(
                                 arg_count=0,
                                 upvalue_count=0,
                                 ip=-1,
+                                chunk="stl",
                             )
                         )
                     )
@@ -244,6 +271,20 @@ def execute_bytecode(
                                 arg_count=STL[chain[0]].maxArgs or 0,
                                 upvalue_count=0,
                                 ip=-1,
+                                chunk="stl",
+                            )
+                        )
+                    )
+                elif chain[0] in BYTECODE_STL and len(chain) == 1:
+                    push_stack(
+                        new_hog_closure(
+                            new_hog_callable(
+                                type="stl",
+                                name=chain[0],
+                                arg_count=len(BYTECODE_STL[chain[0]][0]),
+                                upvalue_count=0,
+                                ip=0,
+                                chunk=f"stl/{chain[0]}",
                             )
                         )
                     )
@@ -262,6 +303,7 @@ def execute_bytecode(
                 stack_keep_first_elements(stack_start)
                 push_stack(response)
                 frame = call_stack[-1]
+                set_chunk_bytecode()
                 continue  # resume the loop without incrementing frame.ip
 
             case Operation.GET_LOCAL:
@@ -343,6 +385,7 @@ def execute_bytecode(
                     new_hog_callable(
                         type="local",
                         name=name,
+                        chunk=frame.chunk,
                         arg_count=arg_count,
                         upvalue_count=upvalue_count,
                         ip=frame.ip + 1,
@@ -402,30 +445,59 @@ def execute_bytecode(
                             push_stack(None)
                     frame = CallFrame(
                         ip=func_ip,
+                        chunk=frame.chunk,
                         stack_start=len(stack) - arg_len,
                         arg_len=arg_len,
                         closure=new_hog_closure(
                             new_hog_callable(
-                                type="stl",
+                                type="local",
                                 name=name,
                                 arg_count=arg_len,
                                 upvalue_count=0,
-                                ip=-1,
+                                ip=func_ip,
+                                chunk=frame.chunk,
                             )
                         ),
                     )
                     call_stack.append(frame)
                     continue  # resume the loop without incrementing frame.ip
                 else:
-                    # Shortcut for calling STL functions (can also be done with an STL function closure)
-                    if version == 0:
-                        args = [pop_stack() for _ in range(arg_count)]
-                    else:
-                        args = list(reversed([pop_stack() for _ in range(arg_count)]))
                     if functions is not None and name in functions:
+                        if version == 0:
+                            args = [pop_stack() for _ in range(arg_count)]
+                        else:
+                            args = stack_keep_first_elements(len(stack) - arg_count)
                         push_stack(functions[name](*args))
                     elif name in STL:
+                        if version == 0:
+                            args = [pop_stack() for _ in range(arg_count)]
+                        else:
+                            args = stack_keep_first_elements(len(stack) - arg_count)
                         push_stack(STL[name].fn(args, team, stdout, timeout.total_seconds()))
+                    elif name in BYTECODE_STL:
+                        arg_names = BYTECODE_STL[name][0]
+                        if len(arg_names) != arg_count:
+                            raise HogVMException(f"Function {name} requires exactly {len(arg_names)} arguments")
+                        frame.ip += 1  # advance for when we return
+                        frame = CallFrame(
+                            ip=0,
+                            chunk=f"stl/{name}",
+                            stack_start=len(stack) - arg_count,
+                            arg_len=arg_count,
+                            closure=new_hog_closure(
+                                new_hog_callable(
+                                    type="stl",
+                                    name=name,
+                                    arg_count=arg_count,
+                                    upvalue_count=0,
+                                    ip=0,
+                                    chunk=f"stl/{name}",
+                                )
+                            ),
+                        )
+                        set_chunk_bytecode()
+                        call_stack.append(frame)
+                        continue  # resume the loop without incrementing frame.ip
                     else:
                         raise HogVMException(f"Unsupported function call: {name}")
             case Operation.CALL_LOCAL:
@@ -452,10 +524,12 @@ def execute_bytecode(
                     frame.ip += 1  # advance for when we return
                     frame = CallFrame(
                         ip=callable["ip"],
+                        chunk=callable["chunk"],
                         stack_start=len(stack) - callable["argCount"],
                         arg_len=callable["argCount"],
                         closure=closure,
                     )
+                    set_chunk_bytecode()
                     call_stack.append(frame)
                     continue  # resume the loop without incrementing frame.ip
 
@@ -509,6 +583,7 @@ def execute_bytecode(
                     call_stack = call_stack[0:call_stack_len]
                     push_stack(exception)
                     frame = call_stack[-1]
+                    set_chunk_bytecode()
                     frame.ip = catch_ip
                     continue
                 else:
@@ -517,6 +592,10 @@ def execute_bytecode(
                         message=exception.get("message"),
                         payload=exception.get("payload"),
                     )
+            case _:
+                raise HogVMException(
+                    f'Unexpected node while running bytecode in chunk "{frame.chunk}": {chunk_bytecode[frame.ip]}'
+                )
 
         frame.ip += 1
     if debug:

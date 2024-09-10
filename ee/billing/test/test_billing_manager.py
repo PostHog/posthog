@@ -18,7 +18,7 @@ def create_default_products_response(**kwargs) -> dict[str, list[Product]]:
             Product(
                 name="Product analytics",
                 headline="Product analytics with autocapture",
-                description="A comprehensive product analytics platform built to natively work with session replay, feature flags, A/B testing, and surveys.",
+                description="A comprehensive product analytics platform built to natively work with session replay, feature flags, experiments, and surveys.",
                 usage_key="events",
                 image_url="https://posthog.com/images/products/product-analytics/product-analytics.png",
                 docs_url="https://posthog.com/docs/product-analytics",

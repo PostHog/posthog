@@ -1,10 +1,9 @@
 import { toHogDate, toHogDateTime } from './stl/date'
-import { HogUpValue } from './objects'
 
 export class HogVMException extends Error {
     constructor(message: string) {
         super(message)
-        this.name = this.constructor.name
+        this.name = 'HogVMException'
     }
 }
 
@@ -14,6 +13,7 @@ export class UncaughtHogVMException extends HogVMException {
 
     constructor(type: string, message: string, payload: any = null) {
         super(message)
+        this.name = 'UncaughtHogVMException'
         this.type = type
         this.payload = payload
     }
@@ -163,4 +163,26 @@ export function calculateCost(object: any, marked: Set<any> | undefined = undefi
         return COST_PER_UNIT + object.length
     }
     return COST_PER_UNIT
+}
+
+export function unifyComparisonTypes(left: any, right: any): [any, any] {
+    if (typeof left === 'number' && typeof right === 'string') {
+        return [left, Number(right)]
+    }
+    if (typeof left === 'string' && typeof right === 'number') {
+        return [Number(left), right]
+    }
+    if (typeof left === 'boolean' && typeof right === 'string') {
+        return [left, right === 'true']
+    }
+    if (typeof left === 'string' && typeof right === 'boolean') {
+        return [left === 'true', right]
+    }
+    if (typeof left === 'boolean' && typeof right === 'number') {
+        return [left ? 1 : 0, right]
+    }
+    if (typeof left === 'number' && typeof right === 'boolean') {
+        return [left, right ? 1 : 0]
+    }
+    return [left, right]
 }

@@ -11,6 +11,7 @@ aiohttp==3.9.3
     #   -r requirements.in
     #   aiobotocore
     #   geoip2
+    #   langchain
     #   s3fs
 aioitertools==0.11.0
     # via aiobotocore
@@ -129,7 +130,7 @@ defusedxml==0.6.0
     # via
     #   python3-openid
     #   social-auth-core
-deltalake==0.18.2
+deltalake==0.19.1
     # via dlt
 distro==1.9.0
     # via openai
@@ -206,7 +207,7 @@ djangorestframework-csv==2.1.1
     # via -r requirements.in
 djangorestframework-dataclasses==1.2.0
     # via -r requirements.in
-dlt==0.5.3
+dlt==0.5.4
     # via -r requirements.in
 dnspython==2.2.1
     # via -r requirements.in
@@ -214,7 +215,7 @@ drf-exceptions-hog==0.4.0
     # via -r requirements.in
 drf-extensions==0.7.0
     # via -r requirements.in
-drf-spectacular==0.27.1
+drf-spectacular==0.27.2
     # via -r requirements.in
 et-xmlfile==1.1.0
     # via openpyxl
@@ -258,8 +259,6 @@ googleapis-common-protos==1.60.0
     # via
     #   google-api-core
     #   grpcio-status
-greenlet==3.0.3
-    # via sqlalchemy
 grpcio==1.57.0
     # via
     #   google-api-core
@@ -275,12 +274,14 @@ h11==0.13.0
     #   wsproto
 hexbytes==1.0.0
     # via dlt
-hogql-parser==1.0.38
+hogql-parser==1.0.40
     # via -r requirements.in
 httpcore==1.0.2
     # via httpx
 httpx==0.26.0
-    # via openai
+    # via
+    #   langsmith
+    #   openai
 humanize==4.9.0
     # via dlt
 idna==2.8
@@ -302,14 +303,20 @@ isodate==0.6.1
     # via
     #   python3-saml
     #   zeep
+jiter==0.5.0
+    # via openai
 jmespath==1.0.0
     # via
     #   boto3
     #   botocore
 joblib==1.3.2
     # via scikit-learn
+jsonpatch==1.33
+    # via langchain-core
 jsonpath-ng==1.6.0
     # via dlt
+jsonpointer==3.0.0
+    # via jsonpatch
 jsonschema==4.20.0
     # via drf-spectacular
 jsonschema-specifications==2023.12.1
@@ -322,6 +329,22 @@ kombu==5.3.2
     # via
     #   -r requirements.in
     #   celery
+langchain==0.2.15
+    # via -r requirements.in
+langchain-core==0.2.36
+    # via
+    #   langchain
+    #   langchain-openai
+    #   langchain-text-splitters
+langchain-openai==0.1.23
+    # via -r requirements.in
+langchain-text-splitters==0.2.2
+    # via langchain
+langsmith==0.1.106
+    # via
+    #   -r requirements.in
+    #   langchain
+    #   langchain-core
 lxml==4.9.4
     # via
     #   -r requirements.in
@@ -356,6 +379,7 @@ nh3==0.2.14
 numpy==1.23.3
     # via
     #   -r requirements.in
+    #   langchain
     #   pandas
     #   pyarrow
     #   scikit-learn
@@ -364,23 +388,26 @@ oauthlib==3.1.0
     # via
     #   requests-oauthlib
     #   social-auth-core
-openai==1.10.0
+openai==1.43.0
     # via
     #   -r requirements.in
+    #   langchain-openai
     #   sentry-sdk
 openpyxl==3.1.2
     # via -r requirements.in
-orjson==3.9.10
+orjson==3.10.7
     # via
     #   -r requirements.in
     #   dlt
+    #   langsmith
 outcome==1.3.0.post0
     # via trio
-packaging==23.1
+packaging==24.1
     # via
     #   aiokafka
     #   dlt
     #   google-cloud-bigquery
+    #   langchain-core
     #   snowflake-connector-python
     #   webdriver-manager
 pandas==2.2.0
@@ -405,7 +432,7 @@ platformdirs==3.11.0
     #   zeep
 ply==3.11
     # via jsonpath-ng
-posthoganalytics==3.5.0
+posthoganalytics==3.6.5
     # via -r requirements.in
 prometheus-client==0.14.1
     # via django-prometheus
@@ -421,6 +448,8 @@ protobuf==4.22.1
     #   grpcio-status
     #   proto-plus
     #   temporalio
+psutil==6.0.0
+    # via -r requirements.in
 psycopg==3.1.20
     # via -r requirements.in
 psycopg-binary==3.1.20
@@ -434,8 +463,6 @@ pyarrow==17.0.0
     #   -r requirements.in
     #   deltalake
     #   dlt
-pyarrow-hotfix==0.6
-    # via deltalake
 pyasn1==0.5.0
     # via
     #   pyasn1-modules
@@ -447,6 +474,9 @@ pycparser==2.20
 pydantic==2.5.3
     # via
     #   -r requirements.in
+    #   langchain
+    #   langchain-core
+    #   langsmith
     #   openai
 pydantic-core==2.14.6
     # via pydantic
@@ -506,6 +536,8 @@ pyyaml==6.0.1
     # via
     #   dlt
     #   drf-spectacular
+    #   langchain
+    #   langchain-core
 qrcode==7.4.2
     # via django-two-factor-auth
 redis==4.5.4
@@ -527,6 +559,8 @@ requests==2.32.0
     #   google-api-core
     #   google-cloud-bigquery
     #   infi-clickhouse-orm
+    #   langchain
+    #   langsmith
     #   pdpyras
     #   posthoganalytics
     #   requests-file
@@ -617,6 +651,7 @@ sortedcontainers==2.4.0
 sqlalchemy==2.0.31
     # via
     #   -r requirements.in
+    #   langchain
     #   snowflake-sqlalchemy
 sqlparse==0.4.4
     # via
@@ -632,17 +667,20 @@ structlog==23.2.0
     # via
     #   -r requirements.in
     #   django-structlog
-temporalio==1.6.0
+temporalio==1.7.0
     # via -r requirements.in
 tenacity==8.2.3
     # via
     #   celery-redbeat
     #   dlt
+    #   langchain
+    #   langchain-core
 threadpoolctl==3.3.0
     # via scikit-learn
-tiktoken==0.6.0
+tiktoken==0.7.0
     # via
     #   -r requirements.in
+    #   langchain-openai
     #   sentry-sdk
 token-bucket==0.3.0
     # via -r requirements.in
@@ -667,6 +705,7 @@ types-setuptools==69.0.0.0
 typing-extensions==4.12.2
     # via
     #   dlt
+    #   langchain-core
     #   openai
     #   psycopg
     #   pydantic

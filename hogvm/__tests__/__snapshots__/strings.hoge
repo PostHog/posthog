@@ -8,4 +8,9 @@
 "print", 1, 35, 32, "banana", 32, "n", 2, "like", 2, 2, "print", 1, 35, 32, "banana", 32, "naan", 2, "like", 2, 2,
 "print", 1, 35, 32, "banana", 32, "N", 2, "ilike", 2, 2, "print", 1, 35, 32, "banana", 32, "n", 2, "ilike", 2, 2,
 "print", 1, 35, 32, "banana", 32, "naan", 2, "ilike", 2, 2, "print", 1, 35, 32, "banana", 32, "N", 2, "notLike", 2, 2,
-"print", 1, 35, 32, "banana", 32, "NO", 2, "notILike", 2, 2, "print", 1, 35]
+"print", 1, 35, 32, "banana", 32, "NO", 2, "notILike", 2, 2, "print", 1, 35, 32, "abc", 32, "a", 2, "position", 2, 2,
+"print", 1, 35, 32, "abc", 32, "b", 2, "position", 2, 2, "print", 1, 35, 32, "abc", 32, "c", 2, "position", 2, 2,
+"print", 1, 35, 32, "abc", 32, "d", 2, "position", 2, 2, "print", 1, 35, 32, "AbC", 32, "a", 2,
+"positionCaseInsensitive", 2, 2, "print", 1, 35, 32, "AbC", 32, "b", 2, "positionCaseInsensitive", 2, 2, "print", 1, 35,
+32, "AbC", 32, "c", 2, "positionCaseInsensitive", 2, 2, "print", 1, 35, 32, "AbC", 32, "d", 2,
+"positionCaseInsensitive", 2, 2, "print", 1, 35]

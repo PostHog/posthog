@@ -16,7 +16,7 @@ from posthog.warehouse.data_load.service import (
     delete_external_data_schedule,
     cancel_external_data_workflow,
     delete_data_import_folder,
-    is_any_external_data_job_paused,
+    is_any_external_data_schema_paused,
     trigger_external_data_source_workflow,
 )
 from posthog.warehouse.models import ExternalDataSource, ExternalDataSchema, ExternalDataJob
@@ -24,6 +24,7 @@ from posthog.warehouse.api.external_data_schema import ExternalDataSchemaSeriali
 from posthog.hogql.database.database import create_hogql_database
 from posthog.temporal.data_imports.pipelines.stripe import validate_credentials as validate_stripe_credentials
 from posthog.temporal.data_imports.pipelines.zendesk import validate_credentials as validate_zendesk_credentials
+from posthog.temporal.data_imports.pipelines.vitally import validate_credentials as validate_vitally_credentials
 from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING,
     PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING,
@@ -57,6 +58,8 @@ logger = structlog.get_logger(__name__)
 def get_generic_sql_error(source_type: ExternalDataSource.Type):
     if source_type == ExternalDataSource.Type.MYSQL:
         name = "MySQL"
+    elif source_type == ExternalDataSource.Type.MSSQL:
+        name = "SQL database"
     else:
         name = "Postgres"
 
@@ -78,10 +81,16 @@ SnowflakeErrors = {
     "This session does not have a current database": "Database specified not found",
     "Verify the account name is correct": "Can't find an account with the specified account ID",
 }
+MSSQLErrors = {
+    "Login failed for user": "Login failed for database",
+    "Adaptive Server is unavailable or does not exist": "Could not connect to SQL server - check server host and port",
+    "connection timed out": "Could not connect to SQL server - check server firewall settings",
+}
 
 
 class ExternalDataJobSerializers(serializers.ModelSerializer):
     schema = serializers.SerializerMethodField(read_only=True)
+    status = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = ExternalDataJob
@@ -105,6 +114,12 @@ class ExternalDataJobSerializers(serializers.ModelSerializer):
             "latest_error",
             "workflow_run_id",
         ]
+
+    def get_status(self, instance: ExternalDataJob):
+        if instance.status == ExternalDataJob.Status.CANCELLED:
+            return "Billing limits"
+
+        return instance.status
 
     def get_schema(self, instance: ExternalDataJob):
         return SimpleExternalDataSchemaSerializer(
@@ -160,7 +175,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
         if any_failures:
             return ExternalDataSchema.Status.ERROR
         elif any_cancelled:
-            return ExternalDataSchema.Status.CANCELLED
+            return "Billing limits"
         elif any_paused:
             return ExternalDataSchema.Status.PAUSED
         elif any_running:
@@ -251,10 +266,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             elif self.prefix_exists(source_type, prefix):
                 return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Prefix already exists"})
 
-        if is_any_external_data_job_paused(self.team_id):
+        if is_any_external_data_schema_paused(self.team_id):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Monthly sync limit reached. Please contact PostHog support to increase your limit."},
+                data={"message": "Monthly sync limit reached. Please increase your billing limit to resume syncing."},
             )
 
         # TODO: remove dummy vars
@@ -266,6 +281,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             new_source_model = self._handle_zendesk_source(request, *args, **kwargs)
         elif source_type == ExternalDataSource.Type.SALESFORCE:
             new_source_model = self._handle_salesforce_source(request, *args, **kwargs)
+        elif source_type == ExternalDataSource.Type.VITALLY:
+            new_source_model = self._handle_vitally_source(request, *args, **kwargs)
         elif source_type in [
             ExternalDataSource.Type.POSTGRES,
             ExternalDataSource.Type.MYSQL,
@@ -376,6 +393,28 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             status="Running",
             source_type=source_type,
             job_inputs={"stripe_secret_key": client_secret, "stripe_account_id": account_id},
+            prefix=prefix,
+        )
+
+        return new_source_model
+
+    def _handle_vitally_source(self, request: Request, *args: Any, **kwargs: Any) -> ExternalDataSource:
+        payload = request.data["payload"]
+        secret_token = payload.get("secret_token")
+        region = payload.get("region")
+        subdomain = payload.get("subdomain", None)
+        prefix = request.data.get("prefix", None)
+        source_type = request.data["source_type"]
+
+        # TODO: remove dummy vars
+        new_source_model = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            team=self.team,
+            status="Running",
+            source_type=source_type,
+            job_inputs={"secret_token": secret_token, "region": region, "subdomain": subdomain},
             prefix=prefix,
         )
 
@@ -628,10 +667,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def reload(self, request: Request, *args: Any, **kwargs: Any):
         instance: ExternalDataSource = self.get_object()
 
-        if is_any_external_data_job_paused(self.team_id):
+        if is_any_external_data_schema_paused(self.team_id):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Monthly sync limit reached. Please contact PostHog support to increase your limit."},
+                data={"message": "Monthly sync limit reached. Please increase your billing limit to resume syncing."},
             )
 
         try:
@@ -676,6 +715,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": "Invalid credentials: Zendesk credentials are incorrect"},
                 )
+        elif source_type == ExternalDataSource.Type.VITALLY:
+            secret_token = request.data.get("secret_token", "")
+            region = request.data.get("region", "")
+            subdomain = request.data.get("subdomain", "")
+            if not validate_vitally_credentials(subdomain=subdomain, secret_token=secret_token, region=region):
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Invalid credentials: Zendesk credentials are incorrect"},
+                )
 
         # Get schemas and validate SQL credentials
         if source_type in [
@@ -683,6 +731,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ExternalDataSource.Type.MYSQL,
             ExternalDataSource.Type.MSSQL,
         ]:
+            # Importing pymssql requires mssql drivers to be installed locally - see posthog/warehouse/README.md
+            from pymssql import OperationalError as MSSQLOperationalError
+
             host = request.data.get("host", None)
             port = request.data.get("port", None)
             database = request.data.get("dbname", None)
@@ -775,6 +826,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": exposed_error or get_generic_sql_error(source_type)},
                 )
+            except MSSQLOperationalError as e:
+                error_msg = " ".join(str(n) for n in e.args)
+                exposed_error = self._expose_mssql_error(error_msg)
+
+                if exposed_error is None:
+                    capture_exception(e)
+
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": exposed_error or get_generic_sql_error(source_type)},
+                )
             except BaseSSHTunnelForwarderError as e:
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
@@ -782,7 +844,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
             except Exception as e:
                 capture_exception(e)
-                logger.exception("Could not fetch Postgres schemas", exc_info=e)
+                logger.exception("Could not fetch schemas", exc_info=e)
 
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
@@ -959,6 +1021,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         for key, value in PostgresErrors.items():
             if key in error_msg:
+                return value
+        return None
+
+    def _expose_mssql_error(self, error: str) -> str | None:
+        for key, value in MSSQLErrors.items():
+            if key in error:
                 return value
         return None
 

@@ -291,6 +291,27 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
             schema=schema,
             reset_pipeline=reset_pipeline,
         )
+    elif model.pipeline.source_type == ExternalDataSource.Type.VITALLY:
+        from posthog.temporal.data_imports.pipelines.vitally import vitally_source
+
+        source = vitally_source(
+            secret_token=model.pipeline.job_inputs.get("secret_token"),
+            region=model.pipeline.job_inputs.get("region"),
+            subdomain=model.pipeline.job_inputs.get("subdomain"),
+            endpoint=schema.name,
+            team_id=inputs.team_id,
+            job_id=inputs.run_id,
+            is_incremental=schema.is_incremental,
+        )
+
+        return await _run(
+            job_inputs=job_inputs,
+            source=source,
+            logger=logger,
+            inputs=inputs,
+            schema=schema,
+            reset_pipeline=reset_pipeline,
+        )
     else:
         raise ValueError(f"Source type {model.pipeline.source_type} not supported")
 

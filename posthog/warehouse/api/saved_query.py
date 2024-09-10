@@ -15,6 +15,7 @@ from posthog.hogql.metadata import is_valid_view
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.warehouse.models import DataWarehouseJoin, DataWarehouseModelPath, DataWarehouseSavedQuery
+import uuid
 
 logger = structlog.get_logger(__name__)
 
@@ -160,25 +161,25 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         look further back into the ancestor tree. If `level` overshoots (i.e. points to only
         ancestors beyond the root), we return an empty list.
         """
-        level = request.data.get("level", 1)
+        up_to_level = request.data.get("level", None)
 
         saved_query = self.get_object()
         saved_query_id = saved_query.id.hex
-        lquery = f"*{{{level},}}.{saved_query_id}"
+        lquery = f"*{{1,}}.{saved_query_id}"
 
         paths = DataWarehouseModelPath.objects.filter(team=saved_query.team, path__lquery=lquery)
 
         if not paths:
             return response.Response({"ancestors": []})
 
-        ancestors = set()
+        ancestors: set[str | uuid.UUID] = set()
         for model_path in paths:
-            offset = len(model_path.path) - level - 1  # -1 corrects for level being 1-indexed
+            if up_to_level is None:
+                start = 0
+            else:
+                start = (int(up_to_level) * -1) - 1
 
-            if offset < 0:
-                continue
-
-            ancestors.add(model_path.path[offset])
+            ancestors = ancestors.union(map(try_convert_to_uuid, model_path.path[start:-1]))
 
         return response.Response({"ancestors": ancestors})
 
@@ -190,25 +191,32 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         look further ahead into the descendants tree. If `level` overshoots (i.e. points to only
         descendants further than a leaf), we return an empty list.
         """
-        level = request.data.get("level", 1)
+        up_to_level = request.data.get("level", None)
 
         saved_query = self.get_object()
         saved_query_id = saved_query.id.hex
 
-        lquery = f"*.{saved_query_id}.*{{{level},}}"
+        lquery = f"*.{saved_query_id}.*{{1,}}"
         paths = DataWarehouseModelPath.objects.filter(team=saved_query.team, path__lquery=lquery)
 
         if not paths:
             return response.Response({"descendants": []})
 
-        descendants = set()
-
+        descendants: set[str | uuid.UUID] = set()
         for model_path in paths:
-            offset = model_path.path.index(saved_query_id) + level
+            start = model_path.path.index(saved_query_id) + 1
+            if up_to_level is None:
+                end = len(model_path.path)
+            else:
+                end = start + up_to_level
 
-            if offset > len(model_path.path):
-                continue
-
-            descendants.add(model_path.path[offset])
+            descendants = descendants.union(map(try_convert_to_uuid, model_path.path[start:end]))
 
         return response.Response({"descendants": descendants})
+
+
+def try_convert_to_uuid(s: str) -> uuid.UUID | str:
+    try:
+        return str(uuid.UUID(s))
+    except ValueError:
+        return s

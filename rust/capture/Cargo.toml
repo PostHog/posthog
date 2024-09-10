@@ -17,6 +17,7 @@ envconfig = { workspace = true }
 flate2 = { workspace = true }
 governor = { workspace = true }
 health = { path = "../common/health" }
+common-alloc = { path = "../common/alloc" }
 metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
 opentelemetry = { workspace = true }
@@ -36,6 +37,7 @@ thiserror = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true }
 tower-http = { workspace = true }
+tower = { workspace = true }
 tracing = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 tracing-subscriber = { workspace = true }

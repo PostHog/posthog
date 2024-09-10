@@ -43,6 +43,7 @@ class Action(models.Model):
     bytecode = models.JSONField(null=True, blank=True)
     bytecode_error = models.TextField(blank=True, null=True)
     steps_json = models.JSONField(null=True, blank=True)
+    pinned_at = models.DateTimeField(blank=True, null=True, default=None)
 
     # DEPRECATED: these were used before ClickHouse was our database
     is_calculating = models.BooleanField(default=False)
@@ -71,6 +72,8 @@ class Action(models.Model):
             "match_url_count": sum(1 if step.url else 0 for step in self.steps),
             "has_properties": any(step.properties for step in self.steps),
             "deleted": self.deleted,
+            "pinned": bool(self.pinned_at),
+            "pinned_at": self.pinned_at,
         }
 
     @property

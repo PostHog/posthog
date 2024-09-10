@@ -12,7 +12,13 @@ export interface ItemDoctorProps {
 export function ItemDoctor({ item, expanded, setExpanded }: ItemDoctorProps): JSX.Element {
     return (
         <>
-            <LemonButton noPadding onClick={() => setExpanded(!expanded)} fullWidth data-attr="item-doctor-item">
+            <LemonButton
+                noPadding
+                onClick={() => setExpanded(!expanded)}
+                fullWidth
+                data-attr="item-doctor-item"
+                className="font-normal"
+            >
                 <div className="p-2 text-xs cursor-pointer truncate font-mono flex-1">{item.tag}</div>
             </LemonButton>
 

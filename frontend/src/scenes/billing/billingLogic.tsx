@@ -191,10 +191,16 @@ export const billingLogic = kea<billingLogicType>([
                 },
 
                 updateBillingLimits: async (limits: { [key: string]: number | null }) => {
-                    const response = await api.update('api/billing', { custom_limits_usd: limits })
-
-                    lemonToast.success('Billing limits updated')
-                    return parseBillingResponse(response)
+                    try {
+                        const response = await api.update('api/billing', { custom_limits_usd: limits })
+                        lemonToast.success('Billing limits updated')
+                        return parseBillingResponse(response)
+                    } catch (error: any) {
+                        lemonToast.error(
+                            'There was an error updating your billing limits. Please try again or contact support.'
+                        )
+                        throw error
+                    }
                 },
 
                 deactivateProduct: async (key: string) => {
@@ -471,7 +477,11 @@ export const billingLogic = kea<billingLogicType>([
                     title: 'Usage limit exceeded',
                     message: `You have exceeded the usage limit for ${productOverLimit.name}. Please 
                         ${productOverLimit.subscribed ? 'increase your billing limit' : 'upgrade your plan'}
-                        or data loss may occur.`,
+                        or ${
+                            productOverLimit.name === 'Data warehouse'
+                                ? 'data will not be synced'
+                                : 'data loss may occur'
+                        }.`,
                     dismissKey: 'usage-limit-exceeded',
                 })
                 return

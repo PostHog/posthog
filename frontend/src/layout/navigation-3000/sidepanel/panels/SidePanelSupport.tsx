@@ -60,7 +60,7 @@ const PRODUCTS = [
         icon: <IconToggle className="text-success h-5 w-5" />,
     },
     {
-        name: 'A/B testing',
+        name: 'Experiments',
         slug: 'experiments',
         icon: <IconFlask className="text-purple h-5 w-5" />,
     },

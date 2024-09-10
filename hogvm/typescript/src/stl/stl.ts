@@ -1,6 +1,8 @@
 import { DateTime } from 'luxon'
 
-import { isHogDate, isHogDateTime, isHogError, newHogError } from '../objects'
+import { isHogCallable, isHogClosure, isHogDate, isHogDateTime, isHogError, newHogError } from '../objects'
+import { AsyncSTLFunction, STLFunction } from '../types'
+import { like } from '../utils'
 import { md5Hex, sha256Hex, sha256HmacChainHex } from './crypto'
 import {
     formatDateTime,
@@ -16,7 +18,6 @@ import {
     toUnixTimestampMilli,
 } from './date'
 import { printHogStringOutput } from './print'
-import { like } from '../utils'
 
 function STLToString(args: any[]): string {
     if (isHogDate(args[0])) {
@@ -30,18 +31,6 @@ function STLToString(args: any[]): string {
     return printHogStringOutput(args[0])
 }
 
-export interface STLFunction {
-    fn: (args: any[], name: string, timeout: number) => any
-    minArgs?: number
-    maxArgs?: number
-}
-
-export interface AsyncSTLFunction {
-    fn: (args: any[], name: string, timeout: number) => Promise<any>
-    minArgs?: number
-    maxArgs?: number
-}
-
 export const STL: Record<string, STLFunction> = {
     concat: {
         fn: (args) => {
@@ -51,9 +40,11 @@ export const STL: Record<string, STLFunction> = {
         maxArgs: undefined,
     },
     match: {
-        fn: (args) => {
-            const regex = new RegExp(args[1])
-            return regex.test(args[0])
+        fn: (args, _name, options) => {
+            if (!options?.external?.regex?.match) {
+                throw new Error('Set options.external.regex.match for RegEx support')
+            }
+            return options.external.regex.match(args[1], args[0])
         },
         minArgs: 2,
         maxArgs: 2,
@@ -124,6 +115,8 @@ export const STL: Record<string, STLFunction> = {
                     return args[0].size === 0
                 }
                 return Object.keys(args[0]).length === 0
+            } else if (typeof args[0] === 'number' || typeof args[0] === 'boolean') {
+                return false
             }
             return !args[0]
         },
@@ -132,7 +125,7 @@ export const STL: Record<string, STLFunction> = {
     },
     notEmpty: {
         fn: (args) => {
-            return !STL.empty.fn(args, 'empty', 0)
+            return !STL.empty.fn(args, 'empty')
         },
         minArgs: 1,
         maxArgs: 1,
@@ -230,6 +223,11 @@ export const STL: Record<string, STLFunction> = {
                         if (isHogDateTime(x) || isHogDate(x) || isHogError(x)) {
                             return x
                         }
+                        if (isHogCallable(x) || isHogClosure(x)) {
+                            // we don't support serializing callables
+                            const callable = isHogCallable(x) ? x : x.callable
+                            return `fn<${callable.name || 'lambda'}(${callable.argCount})>`
+                        }
                         const obj: Record<string, any> = {}
                         for (const key in x) {
                             obj[key] = convert(x[key], marked)
@@ -297,6 +295,28 @@ export const STL: Record<string, STLFunction> = {
         },
         minArgs: 3,
         maxArgs: 3,
+    },
+    position: {
+        fn: ([str, elem]) => {
+            if (typeof str === 'string') {
+                return str.indexOf(String(elem)) + 1
+            } else {
+                return 0
+            }
+        },
+        minArgs: 2,
+        maxArgs: 2,
+    },
+    positionCaseInsensitive: {
+        fn: ([str, elem]) => {
+            if (typeof str === 'string') {
+                return str.toLowerCase().indexOf(String(elem).toLowerCase()) + 1
+            } else {
+                return 0
+            }
+        },
+        minArgs: 2,
+        maxArgs: 2,
     },
     trim: {
         fn: ([str, char]) => {
@@ -378,21 +398,17 @@ export const STL: Record<string, STLFunction> = {
         maxArgs: 0,
     },
     sha256Hex: {
-        fn: ([str]) => {
-            return sha256Hex(str)
-        },
+        fn: ([str], _, options) => sha256Hex(str, options),
         minArgs: 1,
         maxArgs: 1,
     },
     md5Hex: {
-        fn: ([str]) => {
-            return md5Hex(str)
-        },
+        fn: ([str], _, options) => md5Hex(str, options),
         minArgs: 1,
         maxArgs: 1,
     },
     sha256HmacChainHex: {
-        fn: ([data]) => sha256HmacChainHex(data),
+        fn: ([data], _, options) => sha256HmacChainHex(data, options),
         minArgs: 1,
         maxArgs: 1,
     },
@@ -425,6 +441,17 @@ export const STL: Record<string, STLFunction> = {
         },
         minArgs: 1,
         maxArgs: 1,
+    },
+    indexOf: {
+        fn: ([arrOrString, elem]) => {
+            if (Array.isArray(arrOrString)) {
+                return arrOrString.indexOf(elem) + 1
+            } else {
+                return 0
+            }
+        },
+        minArgs: 2,
+        maxArgs: 2,
     },
     arrayPushBack: {
         fn: ([arr, item]) => {
@@ -598,6 +625,37 @@ export const STL: Record<string, STLFunction> = {
         fn: (args, name) => newHogError(name, args[0], args[1]),
         minArgs: 0,
         maxArgs: 2,
+    },
+    typeof: {
+        fn: (args) => {
+            if (args[0] === null || args[0] === undefined) {
+                return 'null'
+            } else if (isHogDateTime(args[0])) {
+                return 'datetime'
+            } else if (isHogDate(args[0])) {
+                return 'date'
+            } else if (isHogError(args[0])) {
+                return 'error'
+            } else if (isHogCallable(args[0]) || isHogClosure(args[0])) {
+                return 'function'
+            } else if (Array.isArray(args[0])) {
+                if ((args[0] as any).__isHogTuple) {
+                    return 'tuple'
+                }
+                return 'array'
+            } else if (typeof args[0] === 'object') {
+                return 'object'
+            } else if (typeof args[0] === 'number') {
+                return Number.isInteger(args[0]) ? 'integer' : 'float'
+            } else if (typeof args[0] === 'string') {
+                return 'string'
+            } else if (typeof args[0] === 'boolean') {
+                return 'boolean'
+            }
+            return 'unknown'
+        },
+        minArgs: 1,
+        maxArgs: 1,
     },
 }
 

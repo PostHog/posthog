@@ -389,7 +389,7 @@ export function flattenedStepsByBreakdown(
                     breakdown_value: 'Baseline',
                 })),
                 conversionRates: {
-                    total: (lastStep?.count ?? 0) / (baseStep?.count ?? 1),
+                    total: (lastStep?.count || 0) / (baseStep?.count || 1),
                 },
             })
         }

@@ -98,8 +98,11 @@ export const urls = {
     savedInsights: (tab?: string): string => `/insights${tab ? `?tab=${tab}` : ''}`,
     webAnalytics: (): string => `/web`,
 
-    replay: (tab?: ReplayTabs, filters?: Partial<RecordingUniversalFilters>): string =>
-        combineUrl(tab ? `/replay/${tab}` : '/replay/recent', filters ? { filters } : {}).url,
+    replay: (tab?: ReplayTabs, filters?: Partial<RecordingUniversalFilters>, sessionRecordingId?: string): string =>
+        combineUrl(tab ? `/replay/${tab}` : '/replay/home', {
+            ...(filters ? { filters } : {}),
+            ...(sessionRecordingId ? { sessionRecordingId } : {}),
+        }).url,
     replayPlaylist: (id: string): string => `/replay/playlists/${id}`,
     replaySingle: (id: string): string => `/replay/${id}`,
     replayFilePlayback: (): string => '/replay/file-playback',
@@ -142,6 +145,7 @@ export const urls = {
     /** @param id A UUID or 'new'. ':id' for routing. */
     survey: (id: string): string => `/surveys/${id}`,
     surveyTemplates: (): string => '/survey_templates',
+    dataModel: (): string => '/data-model',
     dataWarehouse: (query?: string | Record<string, any>): string =>
         combineUrl(`/data-warehouse`, {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {})
             .url,
@@ -153,6 +157,7 @@ export const urls = {
     organizationCreateFirst: (): string => '/create-organization',
     projectCreateFirst: (): string => '/organization/create-project',
     projectHomepage: (): string => '/',
+    max: (): string => '/max',
     settings: (section: SettingSectionId | SettingLevelId = 'project', setting?: SettingId): string =>
         combineUrl(`/settings/${section}`, undefined, setting).url,
     organizationCreationConfirm: (): string => '/organization/confirm-creation',

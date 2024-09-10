@@ -31,6 +31,7 @@ regex = "1.10.4"
 maxminddb = "0.17"
 sqlx = { workspace = true }
 uuid = { workspace = true }
+common-alloc = { path = "../common/alloc" }
 
 [lints]
 workspace = true
