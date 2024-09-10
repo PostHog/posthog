@@ -34,7 +34,9 @@ class IntegrationSerializer(serializers.ModelSerializer):
             if not key_file:
                 raise ValidationError("Key file not provided")
             key_info = json.loads(key_file.read().decode("utf-8"))
-            instance = GoogleCloudIntegration.integration_from_key(key_info, team_id, request)
+            instance = GoogleCloudIntegration.integration_from_key(
+                validated_data["kind"], key_info, team_id, request.user
+            )
             return instance
 
         elif validated_data["kind"] in OauthIntegration.supported_kinds:

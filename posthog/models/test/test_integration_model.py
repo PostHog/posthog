@@ -6,7 +6,7 @@ from unittest.mock import patch
 from freezegun import freeze_time
 import pytest
 from posthog.models.instance_setting import set_instance_setting
-from posthog.models.integration import Integration, OauthIntegration, SlackIntegration
+from posthog.models.integration import Integration, OauthIntegration, SlackIntegration, GoogleCloudIntegration
 from posthog.test.base import BaseTest
 
 
@@ -231,3 +231,88 @@ class TestOauthIntegrationModel(BaseTest):
         assert integration.errors == "TOKEN_REFRESH_FAILED"
 
         mock_reload.assert_not_called()
+
+
+class TestGoogleCloudIntegrationModel(BaseTest):
+    mock_keyfile = {
+        "type": "service_account",
+        "project_id": "posthog-616",
+        "private_key_id": "df3e129a722a865cc3539b4e69507bad",
+        "private_key": "-----BEGIN PRIVATE KEY-----\nTHISISTHEKEY==\n-----END PRIVATE KEY-----\n",
+        "client_email": "hog-pubsub-test@posthog-301601.iam.gserviceaccount.com",
+        "client_id": "11223344556677889900",
+        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+        "token_uri": "https://oauth2.googleapis.com/token",
+        "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+        "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/not-a-topic%40posthog-616.iam.gserviceaccount.com",
+        "universe_domain": "googleapis.com",
+    }
+
+    def create_integration(
+        self, kind: str, config: Optional[dict] = None, sensitive_config: Optional[dict] = None
+    ) -> Integration:
+        _config = {"refreshed_at": int(time.time()), "expires_in": 3600}
+        _sensitive_config = self.mock_keyfile
+        _config.update(config or {})
+        _sensitive_config.update(sensitive_config or {})
+
+        return Integration.objects.create(team=self.team, kind=kind, config=_config, sensitive_config=_sensitive_config)
+
+    @patch("google.oauth2.service_account.Credentials.from_service_account_info")
+    def test_integration_from_key(self, mock_credentials):
+        mock_credentials.return_value.project_id = "posthog-616"
+        mock_credentials.return_value.service_account_email = "posthog@"
+        mock_credentials.return_value.token = "ACCESS_TOKEN"
+        mock_credentials.return_value.expiry = datetime.fromtimestamp(1704110400 + 3600)
+        mock_credentials.return_value.refresh = lambda _: None
+
+        with freeze_time("2024-01-01T12:00:00Z"):
+            integration = GoogleCloudIntegration.integration_from_key(
+                "gc-pubsub",
+                self.mock_keyfile,
+                self.team.id,
+                self.user,
+            )
+
+        assert integration.team == self.team
+        assert integration.created_by == self.user
+
+        assert integration.config == {
+            "access_token": "ACCESS_TOKEN",
+            "refreshed_at": 1704110400,
+            "expires_in": 3600,
+        }
+        assert integration.sensitive_config == self.mock_keyfile
+
+    @patch("google.oauth2.service_account.Credentials.from_service_account_info")
+    def test_integration_refresh_token(self, mock_credentials):
+        mock_credentials.return_value.project_id = "posthog-616"
+        mock_credentials.return_value.service_account_email = "posthog@"
+        mock_credentials.return_value.token = "ACCESS_TOKEN"
+        mock_credentials.return_value.expiry = datetime.fromtimestamp(1704110400 + 3600)
+        mock_credentials.return_value.refresh = lambda _: None
+
+        with freeze_time("2024-01-01T12:00:00Z"):
+            integration = GoogleCloudIntegration.integration_from_key(
+                "gc-pubsub",
+                self.mock_keyfile,
+                self.team.id,
+                self.user,
+            )
+
+        with freeze_time("2024-01-01T12:00:00Z"):
+            assert GoogleCloudIntegration(integration).access_token_expired() is False
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            assert GoogleCloudIntegration(integration).access_token_expired() is True
+
+            mock_credentials.return_value.expiry = datetime.fromtimestamp(1704110400 + 3600 * 3)
+
+            GoogleCloudIntegration(integration).refresh_access_token()
+            assert GoogleCloudIntegration(integration).access_token_expired() is False
+
+        assert integration.config == {
+            "access_token": "ACCESS_TOKEN",
+            "refreshed_at": 1704110400 + 3600 * 2,
+            "expires_in": 3600,
+        }
