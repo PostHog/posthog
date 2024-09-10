@@ -49,11 +49,13 @@ import {
     HogHooksFetchResponse,
 } from './types'
 import {
+    blobToString,
     convertToCaptureEvent,
     convertToHogFunctionInvocationGlobals,
     createInvocation,
     gzipObject,
     prepareLogEntriesForClickhouse,
+    prepareQueueParams,
     serializeHogFunctionInvocation,
     unGzipObject,
 } from './utils'
@@ -757,13 +759,15 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
                     this.cyclotronWorker?.updateJob(id, 'completed')
                 } else {
                     status.debug('⚡️', 'Updating job to available', id)
-                    this.cyclotronWorker?.updateJob(id, 'available', {
+
+                    const updates = {
                         priority: item.invocation.priority,
                         vmState: serializeHogFunctionInvocation(item.invocation),
                         queueName: item.invocation.queue,
-                        parameters: item.invocation.queueParameters ?? null,
-                        blob: item.invocation.queueBlob ?? null,
-                    })
+                        ...prepareQueueParams(item.invocation.queueParameters),
+                    }
+
+                    this.cyclotronWorker?.updateJob(id, 'available', updates)
                 }
                 await this.cyclotronWorker?.flushJob(id)
             })
@@ -793,6 +797,18 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
 
             const parsedState = job.vmState as HogFunctionInvocationSerialized
 
+            const params = parsedState.queueParameters as HogFunctionInvocationQueueParameters | undefined
+
+            if (params && 'response' in params && params.response && job.blob) {
+                // Deserialize the blob into the params
+                try {
+                    params.response.body = blobToString(job.blob)
+                } catch (e) {
+                    status.error('Error parsing blob', e, job.blob)
+                    captureException(e)
+                }
+            }
+
             invocations.push({
                 id: job.id,
                 globals: parsedState.globals,
@@ -800,8 +816,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
                 hogFunction,
                 priority: job.priority,
                 queue: (job.queueName as any) ?? 'hog',
-                queueParameters: job.parameters as HogFunctionInvocationQueueParameters | undefined,
-                queueBlob: job.blob ?? undefined,
+                queueParameters: params,
                 vmState: parsedState.vmState,
                 timings: parsedState.timings,
             })

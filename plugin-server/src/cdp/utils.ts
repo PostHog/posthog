@@ -1,5 +1,6 @@
 // NOTE: PostIngestionEvent is our context event - it should never be sent directly to an output, but rather transformed into a lightweight schema
 
+import { CyclotronJobUpdate } from '@posthog/cyclotron'
 import { DateTime } from 'luxon'
 import RE2 from 're2'
 import { gunzip, gzip } from 'zlib'
@@ -292,7 +293,6 @@ export function serializeHogFunctionInvocation(invocation: HogFunctionInvocation
         hogFunctionId: invocation.hogFunction.id,
         // We clear the params as they are never used in the serialized form
         queueParameters: undefined,
-        queueBlob: undefined,
     }
 
     delete (serializedInvocation as any).hogFunction
@@ -300,6 +300,19 @@ export function serializeHogFunctionInvocation(invocation: HogFunctionInvocation
     return serializedInvocation
 }
 
-export function queueBlobToString(blob?: HogFunctionInvocation['queueBlob']): string | undefined {
+export function blobToString(blob?: CyclotronJobUpdate['blob']): string | undefined {
     return blob ? Buffer.from(blob).toString('utf-8') : undefined
+}
+
+export function prepareQueueParams(
+    params?: HogFunctionInvocation['queueParameters']
+): Pick<CyclotronJobUpdate, 'parameters' | 'blob'> {
+    if (!params || !('body' in params)) {
+        return {}
+    }
+    const { body, ...rest } = params
+    return {
+        parameters: rest,
+        blob: body ? Buffer.from(body) : undefined,
+    }
 }
