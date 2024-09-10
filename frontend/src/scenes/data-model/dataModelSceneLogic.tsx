@@ -85,9 +85,9 @@ export const dataModelSceneLogic = kea<dataModelSceneLogicType>([
             joinedFields.forEach((field: DatabaseSchemaTable) => {
                 actions.setNodes({
                     ...values.nodeMap,
-                    [field.id || field.name]: {
-                        nodeId: field.id || field.name,
-                        name: values.viewsMapById[field.id || field.name]?.name || field.id || field.name,
+                    [field.id]: {
+                        nodeId: field.id,
+                        name: values.viewsMapById[field.id]?.name || field.id,
                         leaf: [`${field.name}_joined`],
                     },
                 })
