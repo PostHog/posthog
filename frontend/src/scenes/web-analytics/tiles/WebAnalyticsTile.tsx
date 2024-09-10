@@ -190,6 +190,11 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
             render: NumericCell,
             align: 'right',
         },
+        clicks: {
+            title: 'Clicks',
+            render: NumericCell,
+            align: 'right',
+        },
         visitors: {
             title: 'Visitors',
             render: NumericCell,
@@ -509,6 +514,33 @@ export const WebGoalsTile = ({
         </div>
     )
 }
+
+export const WebExternalClicksTile = ({
+    query,
+    insightProps,
+}: {
+    query: DataTableNode
+    insightProps: InsightLogicProps
+}): JSX.Element | null => {
+    const { shouldStripQueryParams } = useValues(webAnalyticsLogic)
+    const { setShouldStripQueryParams } = useActions(webAnalyticsLogic)
+    return (
+        <div className="border rounded bg-bg-light flex-1 flex flex-col">
+            <div className="flex flex-row items-center justify-end m-2 mr-4">
+                <div className="flex flex-row items-center space-x-2">
+                    <LemonSwitch
+                        label="Strip query parameters"
+                        checked={shouldStripQueryParams}
+                        onChange={setShouldStripQueryParams}
+                        className="h-full"
+                    />
+                </div>
+            </div>
+            <Query query={query} readOnly={true} context={{ ...webAnalyticsDataTableQueryContext, insightProps }} />
+        </div>
+    )
+}
+
 export const WebQuery = ({
     query,
     showIntervalSelect,
@@ -529,6 +561,9 @@ export const WebQuery = ({
                 showPathCleaningControls={showPathCleaningControls}
             />
         )
+    }
+    if (query.kind === NodeKind.DataTableNode && query.source.kind === NodeKind.WebExternalClicksTableQuery) {
+        return <WebExternalClicksTile query={query} insightProps={insightProps} />
     }
     if (query.kind === NodeKind.InsightVizNode) {
         return <WebStatsTrendTile query={query} showIntervalTile={showIntervalSelect} insightProps={insightProps} />
