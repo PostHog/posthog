@@ -400,7 +400,9 @@ class GoogleCloudIntegration:
         self.integration = integration
 
     @classmethod
-    def integration_from_key(cls, kind: str, key_info: dict, team_id: int, created_by: User) -> Integration:
+    def integration_from_key(
+        cls, kind: str, key_info: dict, team_id: int, created_by: Optional[User] = None
+    ) -> Integration:
         if kind == "gc-pubsub":
             scope = "https://www.googleapis.com/auth/pubsub"
         else:
