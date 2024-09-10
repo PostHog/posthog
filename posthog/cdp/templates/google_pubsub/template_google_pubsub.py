@@ -112,15 +112,11 @@ class TemplateGooglePubSubMigrator(HogFunctionTemplateMigrator):
                 "value": {
                     "event": "{event.event}",
                     "distinct_id": "{event.distinct_id}",
-                    "team_id": "{event.team_id}",
-                    "ip": "{event.ip}",
-                    "site_url": "{event.site_url}",
                     "timestamp": "{event.timestamp}",
                     "uuid": "{event.uuid}",
                     "properties": "{event.properties}",
-                    "elements": [],
-                    "people_set": "{person.properties}",
-                    "people_set_once": {},
+                    "person_id": "{person.id}",
+                    "person_properties": "{person.properties}",
                 }
             },
             "auth": {"value": integration.id},
