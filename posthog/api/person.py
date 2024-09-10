@@ -365,8 +365,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         try:
             person = self.get_object()
             person_id = person.id
-            self.perform_destroy(person)
             delete_person(person=person)
+            self.perform_destroy(person)
             log_activity(
                 organization_id=self.organization.id,
                 team_id=self.team_id,
