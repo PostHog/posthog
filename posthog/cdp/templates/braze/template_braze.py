@@ -9,29 +9,29 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     icon_url="/static/services/braze.png",
     hog="""
 let getEndpoint := () -> {
-    'US-01': 'https://rest.iad-01.braze.com',
-    'US-02': 'https://rest.iad-02.braze.com',
-    'US-03': 'https://rest.iad-03.braze.com',
-    'US-04': 'https://rest.iad-04.braze.com',
-    'US-05': 'https://rest.iad-05.braze.com',
-    'US-06': 'https://rest.iad-06.braze.com',
-    'US-08': 'https://rest.iad-08.braze.com',
-    'EU-01': 'https://rest.fra-01.braze.eu',
-    'EU-02': 'https://rest.fra-02.braze.eu',
+  'US-01': 'https://rest.iad-01.braze.com',
+  'US-02': 'https://rest.iad-02.braze.com',
+  'US-03': 'https://rest.iad-03.braze.com',
+  'US-04': 'https://rest.iad-04.braze.com',
+  'US-05': 'https://rest.iad-05.braze.com',
+  'US-06': 'https://rest.iad-06.braze.com',
+  'US-08': 'https://rest.iad-08.braze.com',
+  'EU-01': 'https://rest.fra-01.braze.eu',
+  'EU-02': 'https://rest.fra-02.braze.eu',
 }[inputs.brazeEndpoint]
 
 let getPayload := () -> [{
-    'attributes': inputs.attributes,
-    'events': [inputs.event]
+  'attributes': inputs.attributes,
+  'events': [inputs.event]
 }]
 
 let res := fetch(f'{getEndpoint()}/users/track', {
-    'method': 'POST',
-    'headers': {
-        'Authorization': f'Bearer {inputs.apiKey}',
-        'Content-Type': 'application/json'
-    },
-    'body': getPayload()
+  'method': 'POST',
+  'headers': {
+    'Authorization': f'Bearer {inputs.apiKey}',
+    'Content-Type': 'application/json'
+  },
+  'body': getPayload()
 })
 
 if (res.status >= 200 and res.status < 300) {
