@@ -9,6 +9,7 @@ import {
     IconNight,
     IconQuestion,
     IconSearch,
+    IconTestTube,
     IconToggle,
     IconX,
 } from '@posthog/icons'
@@ -22,9 +23,11 @@ import { useEffect, useRef } from 'react'
 import { ActionsToolbarMenu } from '~/toolbar/actions/ActionsToolbarMenu'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { EventDebugMenu } from '~/toolbar/debug/EventDebugMenu'
+import { ExperimentsToolbarMenu } from '~/toolbar/experiments/ExperimentsToolbarMenu'
 import { FlagsToolbarMenu } from '~/toolbar/flags/FlagsToolbarMenu'
 import { HeatmapToolbarMenu } from '~/toolbar/stats/HeatmapToolbarMenu'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { useToolbarFeatureFlag } from '~/toolbar/toolbarPosthogJS'
 
 import { HedgehogMenu } from '../hedgehog/HedgehogMenu'
 import { ToolbarButton } from './ToolbarButton'
@@ -91,7 +94,7 @@ export function ToolbarInfoMenu(): JSX.Element | null {
     const { visibleMenu, isDragging, menuProperties, minimized, isBlurred } = useValues(toolbarLogic)
     const { setMenu } = useActions(toolbarLogic)
     const { isAuthenticated } = useValues(toolbarConfigLogic)
-
+    const showExperiments = useToolbarFeatureFlag('web-experiments')
     const content = minimized ? null : visibleMenu === 'flags' ? (
         <FlagsToolbarMenu />
     ) : visibleMenu === 'heatmap' ? (
@@ -102,6 +105,8 @@ export function ToolbarInfoMenu(): JSX.Element | null {
         <HedgehogMenu />
     ) : visibleMenu === 'debugger' ? (
         <EventDebugMenu />
+    ) : visibleMenu === 'experiments' && showExperiments ? (
+        <ExperimentsToolbarMenu />
     ) : null
 
     useEffect(() => {
@@ -147,6 +152,7 @@ export function Toolbar(): JSX.Element | null {
     const { setVisibleMenu, toggleMinimized, onMouseOrTouchDown, setElement, setIsBlurred } = useActions(toolbarLogic)
     const { isAuthenticated, userIntent } = useValues(toolbarConfigLogic)
     const { authenticate } = useActions(toolbarConfigLogic)
+    const showExperiments = useToolbarFeatureFlag('web-experiments')
 
     useEffect(() => {
         setElement(ref.current)
@@ -219,6 +225,11 @@ export function Toolbar(): JSX.Element | null {
                         <ToolbarButton menuId="debugger" title="Event debugger">
                             <IconLive />
                         </ToolbarButton>
+                        {showExperiments && (
+                            <ToolbarButton menuId="experiments" title="Experiments">
+                                <IconTestTube />
+                            </ToolbarButton>
+                        )}
                     </>
                 ) : (
                     <ToolbarButton flex onClick={authenticate}>
