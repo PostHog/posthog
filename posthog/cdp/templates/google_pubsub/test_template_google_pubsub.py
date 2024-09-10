@@ -127,17 +127,13 @@ class TestTemplateMigration(BaseTest):
                 "topicId": {"value": "TOPIC_ID"},
                 "payload": {
                     "value": {
-                        "event": "{event.event}",
+                        "event": "{event.name}",
                         "distinct_id": "{event.distinct_id}",
-                        "team_id": "{event.team_id}",
-                        "ip": "{event.ip}",
-                        "site_url": "{event.site_url}",
                         "timestamp": "{event.timestamp}",
                         "uuid": "{event.uuid}",
                         "properties": "{event.properties}",
-                        "elements": [],
-                        "people_set": "{person.properties}",
-                        "people_set_once": {},
+                        "person_properties": "{person.properties}",
+                        "person_id": "{person.id}",
                     }
                 },
                 "attributes": {"value": {}},
@@ -180,17 +176,13 @@ class TestTemplateMigration(BaseTest):
                 "topicId": {"value": "TOPIC_ID"},
                 "payload": {
                     "value": {
-                        "event": "{event.event}",
+                        "event": "{event.name}",
                         "distinct_id": "{event.distinct_id}",
-                        "team_id": "{event.team_id}",
-                        "ip": "{event.ip}",
-                        "site_url": "{event.site_url}",
                         "timestamp": "{event.timestamp}",
                         "uuid": "{event.uuid}",
                         "properties": "{event.properties}",
-                        "elements": [],
-                        "people_set": "{person.properties}",
-                        "people_set_once": {},
+                        "person_id": "{person.id}",
+                        "person_properties": "{person.properties}",
                     }
                 },
                 "attributes": {"value": {}},
