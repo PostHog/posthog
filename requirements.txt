@@ -432,7 +432,7 @@ platformdirs==3.11.0
     #   zeep
 ply==3.11
     # via jsonpath-ng
-posthoganalytics==3.6.4
+posthoganalytics==3.6.5
     # via -r requirements.in
 prometheus-client==0.14.1
     # via django-prometheus
