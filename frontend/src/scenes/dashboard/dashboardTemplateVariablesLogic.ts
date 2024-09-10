@@ -117,6 +117,12 @@ export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLog
                 return variables.every((v) => v.touched)
             },
         ],
+        hasTouchedAnyVariable: [
+            (s) => [s.variables],
+            (variables: DashboardTemplateVariableType[]) => {
+                return variables.some((v) => v.touched)
+            },
+        ],
     })),
     listeners(({ actions, props, values }) => ({
         possiblyIncrementActiveVariableIndex: () => {

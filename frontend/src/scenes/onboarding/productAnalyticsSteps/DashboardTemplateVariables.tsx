@@ -159,7 +159,7 @@ function VariableSelector({
                             ) : null}
                         </>
                     ) : (
-                        <div className="flex gap-x-2">
+                        <div className="w-full flex flex-wrap gap-x-2 gap-y-2">
                             {isCurrentlySelectingElement ? (
                                 <LemonButton
                                     type="secondary"
@@ -169,6 +169,9 @@ function VariableSelector({
                                         setIsCurrentlySelectingElement(false)
                                     }}
                                     icon={<Spinner textColored className="text-muted" />}
+                                    fullWidth
+                                    center
+                                    className="max-w-44"
                                 >
                                     Cancel selection
                                 </LemonButton>
@@ -183,6 +186,9 @@ function VariableSelector({
                                         setIsCurrentlySelectingElement(true)
                                     }}
                                     icon={<IconTarget />}
+                                    fullWidth
+                                    center
+                                    className="max-w-44"
                                 >
                                     Select from site
                                 </LemonButton>
@@ -195,6 +201,9 @@ function VariableSelector({
                                     setShowCustomEventField(true)
                                     setIsCurrentlySelectingElement(false)
                                 }}
+                                fullWidth
+                                center
+                                className="max-w-44"
                             >
                                 Use custom event
                             </LemonButton>

@@ -8,7 +8,7 @@ import { useRef, useState } from 'react'
 import { dashboardTemplateVariablesLogic } from 'scenes/dashboard/dashboardTemplateVariablesLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
-import { OnboardingStepKey } from '../onboardingLogic'
+import { onboardingLogic, OnboardingStepKey } from '../onboardingLogic'
 import { OnboardingStep } from '../OnboardingStep'
 import { sdksLogic } from '../sdks/sdksLogic'
 import { DashboardTemplateVariables } from './DashboardTemplateVariables'
@@ -30,7 +30,8 @@ export const OnboardingDashboardTemplateConfigureStep = ({
     const theDashboardTemplateVariablesLogic = dashboardTemplateVariablesLogic({
         variables: activeDashboardTemplate?.variables || [],
     })
-    const { variables, allVariablesAreTouched } = useValues(theDashboardTemplateVariablesLogic)
+    const { variables, allVariablesAreTouched, hasTouchedAnyVariable } = useValues(theDashboardTemplateVariablesLogic)
+    const { goToNextStep } = useActions(onboardingLogic)
 
     const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -117,23 +118,34 @@ export const OnboardingDashboardTemplateConfigureStep = ({
                                 (no need to send it now) .
                             </p>
                             <DashboardTemplateVariables hasSelectedSite={!!browserUrl} iframeRef={iframeRef} />
-                            <LemonButton
-                                type="primary"
-                                status="alt"
-                                onClick={() => {
-                                    if (activeDashboardTemplate) {
-                                        setIsSubmitting(true)
-                                        createDashboardFromTemplate(activeDashboardTemplate, variables, false)
-                                    }
-                                }}
-                                loading={isLoading}
-                                fullWidth
-                                center
-                                className="mt-6"
-                                disabledReason={!allVariablesAreTouched && 'Please select an event for each variable'}
-                            >
-                                Create dashboard
-                            </LemonButton>
+                            <div className="flex flex-wrap mt-6 w-full gap-x-2 gap-y-2 justify-center">
+                                <div className="grow min-w-64">
+                                    <LemonButton
+                                        type="primary"
+                                        status="alt"
+                                        onClick={() => {
+                                            if (activeDashboardTemplate) {
+                                                setIsSubmitting(true)
+                                                createDashboardFromTemplate(activeDashboardTemplate, variables, false)
+                                            }
+                                        }}
+                                        loading={isLoading}
+                                        fullWidth
+                                        center
+                                        className="grow"
+                                        disabledReason={
+                                            !allVariablesAreTouched && 'Please select an event for each variable'
+                                        }
+                                    >
+                                        Create dashboard
+                                    </LemonButton>
+                                </div>
+                                <div className="max-w-56">
+                                    <LemonButton type="tertiary" onClick={() => goToNextStep()} fullWidth center>
+                                        {hasTouchedAnyVariable ? 'Discard dashboard & skip' : 'Skip for now'}
+                                    </LemonButton>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </>
