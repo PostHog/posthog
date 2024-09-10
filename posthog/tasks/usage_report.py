@@ -1,6 +1,6 @@
 import dataclasses
 import os
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import Sequence
 from datetime import datetime
 from typing import Any, Literal, Optional, TypedDict, Union, cast
@@ -478,68 +478,29 @@ def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datet
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_teams_with_event_count_from_helicone_in_period(begin: datetime, end: datetime) -> list[tuple[int, int]]:
+def get_teams_with_llm_integration_event_counts_in_period(begin: datetime, end: datetime) -> list[tuple[int, str, int]]:
     result = sync_execute(
         """
-        SELECT team_id, count(1) as count
+        SELECT
+            team_id,
+            multiIf(
+                event LIKE 'helicone%%', 'helicone',
+                event LIKE 'langfuse%%', 'langfuse',
+                event LIKE 'keywords_ai%%', 'keywords_ai',
+                event LIKE 'traceloop%%', 'traceloop',
+                'other'
+            ) AS integration,
+            count(1) as count
         FROM events
-        WHERE timestamp between %(begin)s AND %(end)s
-        AND event LIKE 'helicone%%'
-        GROUP BY team_id
-    """,
-        {"begin": begin, "end": end},
-        workload=Workload.OFFLINE,
-        settings=CH_BILLING_SETTINGS,
-    )
-    return result
-
-
-@timed_log()
-@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_teams_with_event_count_from_langfuse_in_period(begin: datetime, end: datetime) -> list[tuple[int, int]]:
-    result = sync_execute(
-        """
-        SELECT team_id, count(1) as count
-        FROM events
-        WHERE timestamp between %(begin)s AND %(end)s
-        AND event LIKE 'langfuse%%'
-        GROUP BY team_id
-    """,
-        {"begin": begin, "end": end},
-        workload=Workload.OFFLINE,
-        settings=CH_BILLING_SETTINGS,
-    )
-    return result
-
-
-@timed_log()
-@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_teams_with_event_count_from_keywords_ai_in_period(begin: datetime, end: datetime) -> list[tuple[int, int]]:
-    result = sync_execute(
-        """
-        SELECT team_id, count(1) as count
-        FROM events
-        WHERE timestamp between %(begin)s AND %(end)s
-        AND event LIKE 'keywords_ai%%'
-        GROUP BY team_id
-    """,
-        {"begin": begin, "end": end},
-        workload=Workload.OFFLINE,
-        settings=CH_BILLING_SETTINGS,
-    )
-    return result
-
-
-@timed_log()
-@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_teams_with_event_count_from_traceloop_in_period(begin: datetime, end: datetime) -> list[tuple[int, int]]:
-    result = sync_execute(
-        """
-        SELECT team_id, count(1) as count
-        FROM events
-        WHERE timestamp between %(begin)s AND %(end)s
-        AND event LIKE 'traceloop%%'
-        GROUP BY team_id
+        WHERE timestamp BETWEEN %(begin)s AND %(end)s
+        AND (
+            event LIKE 'helicone%%' OR
+            event LIKE 'langfuse%%' OR
+            event LIKE 'keywords_ai%%' OR
+            event LIKE 'traceloop%%'
+        )
+        GROUP BY team_id, integration
+        HAVING integration != 'other'
     """,
         {"begin": begin, "end": end},
         workload=Workload.OFFLINE,
@@ -727,10 +688,12 @@ def convert_team_usage_rows_to_dict(rows: list[Union[dict, tuple[int, int]]]) ->
         if isinstance(row, dict) and "team_id" in row:
             # Some queries return a dict with team_id and total
             team_id_map[row["team_id"]] = row["total"]
-        else:
+        elif isinstance(row, list | tuple) and len(row) == 2:
             # Others are just a tuple with team_id and total
             team_id_map[int(row[0])] = row[1]
-
+        else:
+            # Handle the case where row is an integer
+            team_id_map[row] = 1  # or some other default value
     return team_id_map
 
 
@@ -739,6 +702,20 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
     Gets all usage data for the specified period. Clickhouse is good at counting things so
     we count across all teams rather than doing it one by one
     """
+
+    integration_event_counts = get_teams_with_llm_integration_event_counts_in_period(period_start, period_end)
+
+    # Process the integration event counts
+    teams_with_event_count = {
+        "helicone": defaultdict(int),
+        "langfuse": defaultdict(int),
+        "keywords_ai": defaultdict(int),
+        "traceloop": defaultdict(int),
+    }
+
+    for team_id, integration, count in integration_event_counts:
+        teams_with_event_count[integration][team_id] = count
+
     return {
         "teams_with_event_count_in_period": get_teams_with_billable_event_count_in_period(
             period_start, period_end, count_distinct=True
@@ -752,18 +729,10 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_event_count_with_groups_in_period": get_teams_with_event_count_with_groups_in_period(
             period_start, period_end
         ),
-        "teams_with_event_count_from_helicone_in_period": get_teams_with_event_count_from_helicone_in_period(
-            period_start, period_end
-        ),
-        "teams_with_event_count_from_langfuse_in_period": get_teams_with_event_count_from_langfuse_in_period(
-            period_start, period_end
-        ),
-        "teams_with_event_count_from_keywords_ai_in_period": get_teams_with_event_count_from_keywords_ai_in_period(
-            period_start, period_end
-        ),
-        "teams_with_event_count_from_traceloop_in_period": get_teams_with_event_count_from_traceloop_in_period(
-            period_start, period_end
-        ),
+        "teams_with_event_count_from_helicone_in_period": dict(teams_with_event_count["helicone"]),
+        "teams_with_event_count_from_langfuse_in_period": dict(teams_with_event_count["langfuse"]),
+        "teams_with_event_count_from_keywords_ai_in_period": dict(teams_with_event_count["keywords_ai"]),
+        "teams_with_event_count_from_traceloop_in_period": dict(teams_with_event_count["traceloop"]),
         "teams_with_recording_count_in_period": get_teams_with_recording_count_in_period(
             period_start, period_end, snapshot_source="web"
         ),
