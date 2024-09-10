@@ -12,6 +12,14 @@ ENDPOINTS = ("BalanceTransaction", "Subscription", "Customer", "Product", "Price
 INCREMENTAL_ENDPOINTS = ("BalanceTransaction", "Subscription", "Customer", "Product", "Price", "Invoice", "Charge")
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
+    "Account": [
+        {
+            "label": "created_at",
+            "type": IncrementalFieldType.DateTime,
+            "field": "created",
+            "field_type": IncrementalFieldType.Integer,
+        }
+    ],
     "BalanceTransaction": [
         {
             "label": "created_at",

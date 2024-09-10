@@ -102,7 +102,11 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
             schema=schema,
             reset_pipeline=reset_pipeline,
         )
-    elif model.pipeline.source_type in [ExternalDataSource.Type.POSTGRES, ExternalDataSource.Type.MYSQL]:
+    elif model.pipeline.source_type in [
+        ExternalDataSource.Type.POSTGRES,
+        ExternalDataSource.Type.MYSQL,
+        ExternalDataSource.Type.MSSQL,
+    ]:
         from posthog.temporal.data_imports.pipelines.sql_database import sql_source_for_type
 
         host = model.pipeline.job_inputs.get("host")
@@ -273,6 +277,27 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
             subdomain=model.pipeline.job_inputs.get("zendesk_subdomain"),
             api_key=model.pipeline.job_inputs.get("zendesk_api_key"),
             email_address=model.pipeline.job_inputs.get("zendesk_email_address"),
+            endpoint=schema.name,
+            team_id=inputs.team_id,
+            job_id=inputs.run_id,
+            is_incremental=schema.is_incremental,
+        )
+
+        return await _run(
+            job_inputs=job_inputs,
+            source=source,
+            logger=logger,
+            inputs=inputs,
+            schema=schema,
+            reset_pipeline=reset_pipeline,
+        )
+    elif model.pipeline.source_type == ExternalDataSource.Type.VITALLY:
+        from posthog.temporal.data_imports.pipelines.vitally import vitally_source
+
+        source = vitally_source(
+            secret_token=model.pipeline.job_inputs.get("secret_token"),
+            region=model.pipeline.job_inputs.get("region"),
+            subdomain=model.pipeline.job_inputs.get("subdomain"),
             endpoint=schema.name,
             team_id=inputs.team_id,
             job_id=inputs.run_id,

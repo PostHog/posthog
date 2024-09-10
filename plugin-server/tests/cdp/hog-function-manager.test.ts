@@ -1,14 +1,13 @@
 import { HogFunctionManager } from '../../src/cdp/hog-function-manager'
 import { HogFunctionType, IntegrationType } from '../../src/cdp/types'
 import { Hub } from '../../src/types'
-import { createHub } from '../../src/utils/db/hub'
+import { closeHub, createHub } from '../../src/utils/db/hub'
 import { PostgresUse } from '../../src/utils/db/postgres'
 import { createTeam, resetTestDatabase } from '../helpers/sql'
 import { insertHogFunction, insertIntegration } from './fixtures'
 
 describe('HogFunctionManager', () => {
     let hub: Hub
-    let closeServer: () => Promise<void>
     let manager: HogFunctionManager
 
     let hogFunctions: HogFunctionType[]
@@ -18,7 +17,7 @@ describe('HogFunctionManager', () => {
     let teamId2: number
 
     beforeEach(async () => {
-        ;[hub, closeServer] = await createHub()
+        hub = await createHub()
         await resetTestDatabase()
         manager = new HogFunctionManager(hub.postgres, hub)
 
@@ -82,7 +81,8 @@ describe('HogFunctionManager', () => {
     })
 
     afterEach(async () => {
-        await closeServer()
+        await manager.stop()
+        await closeHub(hub)
     })
 
     it('returns the hog functions', async () => {
@@ -94,7 +94,7 @@ describe('HogFunctionManager', () => {
                 team_id: teamId1,
                 name: 'Test Hog Function team 1',
                 enabled: true,
-                bytecode: null,
+                bytecode: {},
                 filters: null,
                 inputs_schema: [
                     {

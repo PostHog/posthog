@@ -17,7 +17,12 @@ axum = { workspace = true }
 eyre = { workspace = true }
 cyclotron-core = { path = "../cyclotron-core" }
 common-metrics = { path = "../common/metrics" }
+common-kafka = { path = "../common/kafka" }
 health = { path = "../common/health" }
+common-alloc = { path = "../common/alloc" }
+time = { workspace = true }
+rdkafka = { workspace = true }
 
 [dev-dependencies]
 sqlx = { workspace = true }
+serde_json = { workspace = true }

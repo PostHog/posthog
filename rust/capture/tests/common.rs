@@ -26,7 +26,7 @@ use tokio::time::timeout;
 use tracing::{debug, warn};
 
 use capture::config::{CaptureMode, Config, KafkaConfig};
-use capture::limiters::billing::QuotaResource;
+use capture::limiters::redis::QuotaResource;
 use capture::server::serve;
 
 pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
@@ -50,6 +50,9 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
         kafka_exceptions_topic: "events_plugin_ingestion".to_string(),
         kafka_heatmaps_topic: "events_plugin_ingestion".to_string(),
         kafka_tls: false,
+        kafka_client_id: "".to_string(),
+        kafka_metadata_max_age_ms: 60000,
+        kafka_producer_max_retries: 2,
     },
     otel_url: None,
     otel_sampling_rate: 0.0,
@@ -57,6 +60,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     export_prometheus: false,
     redis_key_prefix: None,
     capture_mode: CaptureMode::Events,
+    concurrency_limit: None,
 });
 
 static TRACING_INIT: Once = Once::new();
@@ -153,7 +157,7 @@ impl EphemeralTopic {
         // TODO: check for name collision?
         let topic_name = random_string("events_", 16);
         let admin = AdminClient::from_config(&config).expect("failed to create admin client");
-        admin
+        let created = admin
             .create_topics(
                 &[NewTopic {
                     name: &topic_name,
@@ -165,6 +169,10 @@ impl EphemeralTopic {
             )
             .await
             .expect("failed to create topic");
+
+        for result in created {
+            result.expect("failed to create topic");
+        }
 
         let consumer: BaseConsumer = config.create().expect("failed to create consumer");
         let mut assignment = TopicPartitionList::new();

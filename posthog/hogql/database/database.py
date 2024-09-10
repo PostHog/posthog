@@ -748,15 +748,24 @@ def serialize_fields(
                     )
                 )
         elif isinstance(field, LazyJoin):
-            is_view = isinstance(field.resolve_table(context), SavedQuery)
+            resolved_table = field.resolve_table(context)
+
+            if isinstance(resolved_table, SavedQuery):
+                type = DatabaseSerializedFieldType.VIEW
+                id = str(resolved_table.id)
+            else:
+                type = DatabaseSerializedFieldType.LAZY_TABLE
+                id = None
+
             field_output.append(
                 DatabaseSchemaField(
                     name=field_key,
                     hogql_value=hogql_value,
-                    type=DatabaseSerializedFieldType.VIEW if is_view else DatabaseSerializedFieldType.LAZY_TABLE,
+                    type=type,
                     schema_valid=schema_valid,
                     table=field.resolve_table(context).to_printed_hogql(),
                     fields=list(field.resolve_table(context).fields.keys()),
+                    id=id,
                 )
             )
         elif isinstance(field, VirtualTable):

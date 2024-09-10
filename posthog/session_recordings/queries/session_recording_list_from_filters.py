@@ -208,12 +208,22 @@ class SessionRecordingListFromFilters:
             optional_exprs.append(property_to_expr(remaining_properties, team=self._team, scope="replay"))
 
         if self._filter.console_log_filters.values:
-            # print(self._filter.console_log_filters.type)
             console_logs_subquery = ast.SelectQuery(
                 select=[ast.Field(chain=["log_source_id"])],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["console_logs_log_entries"])),
-                where=self._filter.ast_operand(
-                    exprs=[property_to_expr(self._filter.console_log_filters, team=self._team)]
+                where=ast.And(
+                    exprs=[
+                        self._filter.ast_operand(
+                            exprs=[
+                                property_to_expr(self._filter.console_log_filters, team=self._team),
+                            ]
+                        ),
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=ast.Field(chain=["log_source"]),
+                            right=ast.Constant(value="session_replay"),
+                        ),
+                    ]
                 ),
             )
 
@@ -488,7 +498,8 @@ class ReplayFiltersEventsSubQuery:
 
         (event_where_exprs, _) = self._event_predicates
         if event_where_exprs:
-            exprs.append(self._filter.events_operand(exprs=event_where_exprs))
+            # we OR all events in the where and use hasAll / hasAny in the HAVING clause
+            exprs.append(ast.Or(exprs=event_where_exprs))
 
         if self._team.person_on_events_mode and self.person_properties:
             exprs.append(property_to_expr(self.person_properties, team=self._team, scope="event"))

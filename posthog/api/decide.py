@@ -207,10 +207,14 @@ def get_decide(request: HttpRequest):
 
             capture_network_timing = True if team.capture_performance_opt_in else False
             capture_web_vitals = True if team.autocapture_web_vitals_opt_in else False
+            autocapture_web_vitals_allowed_metrics = None
+            if capture_web_vitals:
+                autocapture_web_vitals_allowed_metrics = team.autocapture_web_vitals_allowed_metrics
             response["capturePerformance"] = (
                 {
                     "network_timing": capture_network_timing,
                     "web_vitals": capture_web_vitals,
+                    "web_vitals_allowed_metrics": autocapture_web_vitals_allowed_metrics,
                 }
                 if capture_network_timing or capture_web_vitals
                 else False

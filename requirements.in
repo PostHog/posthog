@@ -16,7 +16,7 @@ clickhouse-driver==0.2.7
 clickhouse-pool==0.5.3
 cryptography==39.0.2
 dj-database-url==0.5.0
-Django~=4.2.14
+Django~=4.2.15
 django-axes==5.9.0
 django-cors-headers==3.5.0
 django-deprecate-fields==0.1.1
@@ -33,8 +33,8 @@ djangorestframework==3.15.1
 djangorestframework-csv==2.1.1
 djangorestframework-dataclasses==1.2.0
 django-fernet-encrypted-fields==0.1.3
-dlt==0.5.3
-dlt[deltalake]==0.5.3
+dlt==0.5.4
+dlt[deltalake]==0.5.4
 dnspython==2.2.1
 drf-exceptions-hog==0.4.0
 drf-extensions==0.7.0
@@ -45,23 +45,28 @@ gunicorn==20.1.0
 infi-clickhouse-orm@ git+https://github.com/PostHog/infi.clickhouse_orm@9578c79f29635ee2c1d01b7979e89adab8383de2
 kafka-python==2.0.2
 kombu==5.3.2
+langchain==0.2.15
+langchain-openai==0.1.23
+langsmith==0.1.106
 lzstring==1.0.4
 natsort==8.4.0
 nanoid==2.0.0
 numpy==1.23.3
 openpyxl==3.1.2
-orjson==3.9.10
+orjson==3.10.7
 pandas==2.2.0
 paramiko==3.4.0
 Pillow==10.2.0
 pdpyras==5.2.0
 posthoganalytics==3.6.4
 psycopg2-binary==2.9.7
+pymssql==2.3.0
 PyMySQL==1.1.1
 psycopg[binary]==3.1.20
 pyarrow==17.0.0
 pydantic==2.5.3
 pyjwt==2.4.0
+pyodbc==5.1.0
 python-dateutil>=2.8.2
 python3-saml==1.12.0
 pytz==2023.3
@@ -85,7 +90,7 @@ sshtunnel==0.4.0
 statshog==1.0.6
 structlog==23.2.0
 sqlparse==0.4.4
-temporalio==1.6.0
+temporalio==1.7.0
 token-bucket==0.3.0
 toronado==0.1.0
 webdriver_manager==4.0.1
@@ -94,10 +99,10 @@ mimesis==5.2.1
 more-itertools==9.0.0
 django-two-factor-auth==1.14.0
 phonenumberslite==8.13.6
-openai==1.10.0
-tiktoken==0.6.0
+openai==1.43.0
+tiktoken==0.7.0
 nh3==0.2.14
-hogql-parser==1.0.38
+hogql-parser==1.0.40
 zxcvbn==4.4.28
 zstd==1.5.5.1
 xmlsec==1.3.13 # Do not change this version - it will break SAML

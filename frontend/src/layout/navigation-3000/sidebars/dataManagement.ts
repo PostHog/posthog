@@ -117,7 +117,7 @@ export const dataManagementSidebarLogic = kea<dataManagementSidebarLogicType>([
                                 menuItems: [
                                     {
                                         label: 'View recordings',
-                                        to: urls.replay(ReplayTabs.Recent, {
+                                        to: urls.replay(ReplayTabs.Home, {
                                             filter_group: {
                                                 type: FilterLogicalOperator.And,
                                                 values: [

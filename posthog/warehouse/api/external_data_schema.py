@@ -15,7 +15,7 @@ from posthog.api.log_entries import LogEntryMixin
 
 from posthog.warehouse.data_load.service import (
     external_data_workflow_exists,
-    is_any_external_data_job_paused,
+    is_any_external_data_schema_paused,
     sync_external_data_job_workflow,
     pause_external_data_schedule,
     trigger_external_data_workflow,
@@ -23,6 +23,7 @@ from posthog.warehouse.data_load.service import (
     cancel_external_data_workflow,
 )
 from posthog.warehouse.models.external_data_schema import (
+    filter_mssql_incremental_fields,
     filter_mysql_incremental_fields,
     filter_postgres_incremental_fields,
     filter_snowflake_incremental_fields,
@@ -45,6 +46,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     incremental_field = serializers.SerializerMethodField(read_only=True)
     incremental_field_type = serializers.SerializerMethodField(read_only=True)
     sync_frequency = serializers.SerializerMethodField(read_only=True)
+    status = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = ExternalDataSchema
@@ -72,6 +74,12 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "latest_error",
             "status",
         ]
+
+    def get_status(self, schema: ExternalDataSchema) -> str | None:
+        if schema.status == ExternalDataSchema.Status.CANCELLED:
+            return "Billing limits"
+
+        return schema.status
 
     def get_incremental(self, schema: ExternalDataSchema) -> bool:
         return schema.is_incremental
@@ -212,10 +220,10 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
     def reload(self, request: Request, *args: Any, **kwargs: Any):
         instance: ExternalDataSchema = self.get_object()
 
-        if is_any_external_data_job_paused(self.team_id):
+        if is_any_external_data_schema_paused(self.team_id):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Monthly sync limit reached. Please contact PostHog support to increase your limit."},
+                data={"message": "Monthly sync limit reached. Please increase your billing limit to resume syncing."},
             )
 
         try:
@@ -235,10 +243,10 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
     def resync(self, request: Request, *args: Any, **kwargs: Any):
         instance: ExternalDataSchema = self.get_object()
 
-        if is_any_external_data_job_paused(self.team_id):
+        if is_any_external_data_schema_paused(self.team_id):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Monthly sync limit reached. Please contact PostHog support to increase your limit."},
+                data={"message": "Monthly sync limit reached. Please increase your billing limit to resume syncing."},
             )
 
         latest_running_job = (
@@ -269,7 +277,11 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
         source: ExternalDataSource = instance.source
         incremental_columns: list[IncrementalField] = []
 
-        if source.source_type in [ExternalDataSource.Type.POSTGRES, ExternalDataSource.Type.MYSQL]:
+        if source.source_type in [
+            ExternalDataSource.Type.POSTGRES,
+            ExternalDataSource.Type.MYSQL,
+            ExternalDataSource.Type.MSSQL,
+        ]:
             # TODO(@Gilbert09): Move all this into a util and replace elsewhere
             host = source.job_inputs.get("host")
             port = source.job_inputs.get("port")
@@ -312,8 +324,10 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
             columns = db_schemas.get(instance.name, [])
             if source.source_type == ExternalDataSource.Type.POSTGRES:
                 incremental_fields_func = filter_postgres_incremental_fields
-            else:
+            elif source.source_type == ExternalDataSource.Type.MYSQL:
                 incremental_fields_func = filter_mysql_incremental_fields
+            elif source.source_type == ExternalDataSource.Type.MSSQL:
+                incremental_fields_func = filter_mssql_incremental_fields
 
             incremental_columns = [
                 {"field": name, "field_type": field_type, "label": name, "type": field_type}

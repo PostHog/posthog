@@ -54,6 +54,8 @@ class DataImportPipeline:
         self.should_chunk_pipeline = (
             incremental
             and inputs.job_type != ExternalDataSource.Type.POSTGRES
+            and inputs.job_type != ExternalDataSource.Type.MYSQL
+            and inputs.job_type != ExternalDataSource.Type.MSSQL
             and inputs.job_type != ExternalDataSource.Type.SNOWFLAKE
         )
 
@@ -94,9 +96,7 @@ class DataImportPipeline:
         destination = self._get_destination()
 
         return dlt.pipeline(
-            pipeline_name=pipeline_name,
-            destination=destination,
-            dataset_name=self.inputs.dataset_name,
+            pipeline_name=pipeline_name, destination=destination, dataset_name=self.inputs.dataset_name, progress="log"
         )
 
     async def _prepare_s3_files_for_querying(self, file_uris: list[str]):

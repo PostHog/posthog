@@ -113,7 +113,7 @@ class TableSerializer(serializers.ModelSerializer):
             )
         table = DataWarehouseTable(**validated_data)
         try:
-            table.columns = table.get_columns()
+            table.columns = table.get_columns()  # type: ignore
         except Exception as err:
             raise serializers.ValidationError(str(err))
         table.save()
@@ -237,6 +237,15 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             columns[key]["valid"] = table.validate_column_type(key)
 
         table.columns = columns
+        table.save()
+
+        return response.Response(status=status.HTTP_200_OK)
+
+    @action(methods=["POST"], detail=True)
+    def refresh_schema(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        table: DataWarehouseTable = self.get_object()
+
+        table.columns = table.get_columns()  # type: ignore
         table.save()
 
         return response.Response(status=status.HTTP_200_OK)

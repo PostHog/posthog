@@ -1,28 +1,36 @@
-import cyclotron from '@posthog/cyclotron'
+import { CyclotronJob, CyclotronManager, CyclotronWorker } from '@posthog/cyclotron'
 import { captureException } from '@sentry/node'
-import { features, librdkafkaVersion, Message } from 'node-rdkafka'
+import { Message } from 'node-rdkafka'
 import { Counter, Histogram } from 'prom-client'
 
+import { buildIntegerMatcher } from '../config/config'
 import {
     KAFKA_APP_METRICS_2,
     KAFKA_CDP_FUNCTION_CALLBACKS,
-    KAFKA_CDP_FUNCTION_OVERFLOW,
     KAFKA_EVENTS_JSON,
     KAFKA_EVENTS_PLUGIN_INGESTION,
     KAFKA_LOG_ENTRIES,
 } from '../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../kafka/batch-consumer'
-import { createRdConnectionConfigFromEnvVars, createRdProducerConfigFromEnvVars } from '../kafka/config'
-import { createKafkaProducer } from '../kafka/producer'
+import { createRdConnectionConfigFromEnvVars } from '../kafka/config'
 import { addSentryBreadcrumbsEventListeners } from '../main/ingestion-queues/kafka-metrics'
 import { runInstrumentedFunction } from '../main/utils'
-import { AppMetric2Type, Hub, RawClickHouseEvent, TeamId, TimestampFormat } from '../types'
+import {
+    AppMetric2Type,
+    Hub,
+    PluginServerService,
+    RawClickHouseEvent,
+    TeamId,
+    TimestampFormat,
+    ValueMatcher,
+} from '../types'
+import { createKafkaProducerWrapper } from '../utils/db/hub'
 import { KafkaProducerWrapper } from '../utils/db/kafka-producer-wrapper'
 import { captureTeamEvent } from '../utils/posthog'
 import { status } from '../utils/status'
 import { castTimestampOrNow } from '../utils/utils'
 import { RustyHook } from '../worker/rusty-hook'
-import { AsyncFunctionExecutor } from './async-function-executor'
+import { FetchExecutor } from './fetch-executor'
 import { GroupsManager } from './groups-manager'
 import { HogExecutor } from './hog-executor'
 import { HogFunctionManager } from './hog-function-manager'
@@ -30,22 +38,23 @@ import { HogMasker } from './hog-masker'
 import { HogWatcher, HogWatcherState } from './hog-watcher'
 import { CdpRedis, createCdpRedisPool } from './redis'
 import {
-    CdpOverflowMessage,
-    HogFunctionAsyncFunctionResponse,
     HogFunctionInvocation,
-    HogFunctionInvocationAsyncRequest,
-    HogFunctionInvocationAsyncResponse,
     HogFunctionInvocationGlobals,
+    HogFunctionInvocationQueueParameters,
     HogFunctionInvocationResult,
+    HogFunctionInvocationSerialized,
+    HogFunctionInvocationSerializedCompressed,
     HogFunctionMessageToProduce,
-    HogFunctionOverflowedGlobals,
     HogFunctionType,
+    HogHooksFetchResponse,
 } from './types'
 import {
     convertToCaptureEvent,
     convertToHogFunctionInvocationGlobals,
+    createInvocation,
     gzipObject,
     prepareLogEntriesForClickhouse,
+    serializeHogFunctionInvocation,
     unGzipObject,
 } from './utils'
 
@@ -70,12 +79,6 @@ const counterFunctionInvocation = new Counter({
     labelNames: ['outcome'], // One of 'failed', 'succeeded', 'overflowed', 'disabled', 'filtered'
 })
 
-const counterAsyncFunctionResponse = new Counter({
-    name: 'cdp_async_function_response',
-    help: 'An async function response was received with an outcome',
-    labelNames: ['outcome'], // One of 'failed', 'succeeded', 'overflowed', 'disabled', 'filtered'
-})
-
 export interface TeamIDWithConfig {
     teamId: TeamId | null
     consoleLogIngestionEnabled: boolean
@@ -84,7 +87,7 @@ export interface TeamIDWithConfig {
 abstract class CdpConsumerBase {
     batchConsumer?: BatchConsumer
     hogFunctionManager: HogFunctionManager
-    asyncFunctionExecutor: AsyncFunctionExecutor
+    fetchExecutor: FetchExecutor
     hogExecutor: HogExecutor
     hogWatcher: HogWatcher
     hogMasker: HogMasker
@@ -95,8 +98,6 @@ abstract class CdpConsumerBase {
 
     protected kafkaProducer?: KafkaProducerWrapper
     protected abstract name: string
-    protected abstract topic: string
-    protected abstract consumerGroupId: string
 
     protected heartbeat = () => {}
 
@@ -109,8 +110,17 @@ abstract class CdpConsumerBase {
         this.hogMasker = new HogMasker(this.redis)
         this.hogExecutor = new HogExecutor(this.hogFunctionManager)
         const rustyHook = this.hub?.rustyHook ?? new RustyHook(this.hub)
-        this.asyncFunctionExecutor = new AsyncFunctionExecutor(this.hub, rustyHook)
+        this.fetchExecutor = new FetchExecutor(this.hub, rustyHook)
         this.groupsManager = new GroupsManager(this.hub)
+    }
+
+    public get service(): PluginServerService {
+        return {
+            id: this.name,
+            onShutdown: async () => await this.stop(),
+            healthcheck: () => this.isHealthy() ?? false,
+            batchConsumer: this.batchConsumer,
+        }
     }
 
     private async captureInternalPostHogEvent(
@@ -154,29 +164,7 @@ abstract class CdpConsumerBase {
         return results
     }
 
-    public async handleEachBatch(messages: Message[], heartbeat: () => void): Promise<void> {
-        status.info('🔁', `${this.name} - handling batch`, {
-            size: messages.length,
-        })
-
-        this.heartbeat = heartbeat
-
-        histogramKafkaBatchSize.observe(messages.length)
-        histogramKafkaBatchSizeKb.observe(messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024)
-
-        return await runInstrumentedFunction({
-            statsKey: `cdpConsumer.handleEachBatch`,
-            sendTimeoutGuardToSentry: false,
-            func: async () => {
-                await this._handleEachBatch(messages)
-                await this.produceQueuedMessages()
-            },
-        })
-    }
-
-    protected abstract _handleEachBatch(messages: Message[]): Promise<void>
-
-    private async produceQueuedMessages() {
+    protected async produceQueuedMessages() {
         const messages = [...this.messagesToProduce]
         this.messagesToProduce = []
         await Promise.all(
@@ -223,21 +211,54 @@ abstract class CdpConsumerBase {
         })
     }
 
+    // NOTE: These will be removed once we are only on Cyclotron
+    protected async queueInvocationsToKafka(invocation: HogFunctionInvocation[]) {
+        await Promise.all(
+            invocation.map(async (item) => {
+                await this.queueInvocationToKafka(item)
+            })
+        )
+    }
+
+    protected async queueInvocationToKafka(invocation: HogFunctionInvocation) {
+        // NOTE: WE keep the queueParams args as kafka land still needs them
+        const serializedInvocation: HogFunctionInvocationSerialized = {
+            ...invocation,
+            hogFunctionId: invocation.hogFunction.id,
+        }
+
+        delete (serializedInvocation as any).hogFunction
+
+        const request: HogFunctionInvocationSerializedCompressed = {
+            state: await gzipObject(serializedInvocation),
+        }
+
+        // NOTE: This is very temporary as it is producing the response. the response will actually be produced by the 3rd party service
+        // Later this will actually be the _request_ which we will push to the async function topic if we make one
+        this.messagesToProduce.push({
+            topic: KAFKA_CDP_FUNCTION_CALLBACKS,
+            value: request,
+            key: `${invocation.hogFunction.id}:${invocation.id}`,
+        })
+    }
+
     protected async processInvocationResults(results: HogFunctionInvocationResult[]): Promise<void> {
-        await runInstrumentedFunction({
+        return await runInstrumentedFunction({
             statsKey: `cdpConsumer.handleEachBatch.produceResults`,
             func: async () => {
+                await this.hogWatcher.observeResults(results)
+
                 await Promise.all(
                     results.map(async (result) => {
-                        // Tricky: We want to pull all the logs out as we don't want them to be passed around to any subsequent functions
-
-                        this.produceAppMetric({
-                            team_id: result.invocation.teamId,
-                            app_source_id: result.invocation.hogFunctionId,
-                            metric_kind: result.error ? 'failure' : 'success',
-                            metric_name: result.error ? 'failed' : 'succeeded',
-                            count: 1,
-                        })
+                        if (result.finished || result.error) {
+                            this.produceAppMetric({
+                                team_id: result.invocation.teamId,
+                                app_source_id: result.invocation.hogFunction.id,
+                                metric_kind: result.error ? 'failure' : 'success',
+                                metric_name: result.error ? 'failed' : 'succeeded',
+                                count: 1,
+                            })
+                        }
 
                         this.produceLogs(result)
 
@@ -256,211 +277,20 @@ abstract class CdpConsumerBase {
                                 key: `${team!.api_token}:${event.distinct_id}`,
                             })
                         }
-
-                        if (result.asyncFunctionRequest) {
-                            const request: HogFunctionInvocationAsyncRequest = {
-                                state: await gzipObject(result.invocation),
-                                teamId: result.invocation.teamId,
-                                hogFunctionId: result.invocation.hogFunctionId,
-                                asyncFunctionRequest: result.asyncFunctionRequest,
-                            }
-                            const res = await this.runWithHeartbeat(() => this.asyncFunctionExecutor.execute(request))
-
-                            // NOTE: This is very temporary as it is producing the response. the response will actually be produced by the 3rd party service
-                            // Later this will actually be the _request_ which we will push to the async function topic if we make one
-                            if (res) {
-                                this.messagesToProduce.push({
-                                    topic: KAFKA_CDP_FUNCTION_CALLBACKS,
-                                    value: res,
-                                    key: res.hogFunctionId,
-                                })
-                            }
-                        }
                     })
                 )
             },
         })
     }
 
-    protected async executeAsyncResponses(
-        asyncResponses: HogFunctionInvocationAsyncResponse[]
-    ): Promise<HogFunctionInvocationResult[]> {
-        return await runInstrumentedFunction({
-            statsKey: `cdpConsumer.handleEachBatch.executeAsyncResponses`,
-            func: async () => {
-                asyncResponses.forEach((x) => {
-                    counterAsyncFunctionResponse.inc({
-                        outcome: x.asyncFunctionResponse.error ? 'failed' : 'succeeded',
-                    })
-                })
-
-                const invocationsWithResponses: [HogFunctionInvocation, HogFunctionAsyncFunctionResponse][] = []
-
-                // Deserialize the compressed data
-                await Promise.all(
-                    asyncResponses.map(async (item) => {
-                        try {
-                            const invocation = await unGzipObject<HogFunctionInvocation>(item.state)
-                            invocationsWithResponses.push([invocation, item.asyncFunctionResponse])
-                        } catch (e) {
-                            status.error('Error unzipping message', e, item.state)
-                            captureException(e, {
-                                extra: { hogFunctionId: item.hogFunctionId, teamId: item.teamId },
-                            })
-                        }
-                    })
-                )
-
-                const results = await this.runManyWithHeartbeat(invocationsWithResponses, (item) =>
-                    this.hogExecutor.executeAsyncResponse(...item)
-                )
-
-                await this.hogWatcher.observeResults(results)
-                return results
-            },
-        })
-    }
-
-    protected async executeMatchingFunctions(
-        invocationGlobals: HogFunctionInvocationGlobals[]
-    ): Promise<HogFunctionInvocationResult[]> {
-        return await runInstrumentedFunction({
-            statsKey: `cdpConsumer.handleEachBatch.executeMatchingFunctions`,
-            func: async () => {
-                const possibleInvocations: { globals: HogFunctionInvocationGlobals; hogFunction: HogFunctionType }[] =
-                    []
-
-                // TODO: Add a helper to hog functions to determine if they require groups or not and then only load those
-                await this.groupsManager.enrichGroups(invocationGlobals)
-
-                // Find all functions that could need running
-                invocationGlobals.forEach((globals) => {
-                    const { matchingFunctions, nonMatchingFunctions } = this.hogExecutor.findMatchingFunctions(globals)
-
-                    possibleInvocations.push(
-                        ...matchingFunctions.map((hogFunction) => ({
-                            globals,
-                            hogFunction,
-                        }))
-                    )
-
-                    nonMatchingFunctions.forEach((item) =>
-                        this.produceAppMetric({
-                            team_id: item.team_id,
-                            app_source_id: item.id,
-                            metric_kind: 'other',
-                            metric_name: 'filtered',
-                            count: 1,
-                        })
-                    )
-                })
-
-                const states = await this.hogWatcher.getStates(possibleInvocations.map((x) => x.hogFunction.id))
-
-                const notDisabledInvocations = possibleInvocations.filter((item) => {
-                    const state = states[item.hogFunction.id].state
-                    if (state >= HogWatcherState.disabledForPeriod) {
-                        this.produceAppMetric({
-                            team_id: item.globals.project.id,
-                            app_source_id: item.hogFunction.id,
-                            metric_kind: 'failure',
-                            metric_name:
-                                state === HogWatcherState.disabledForPeriod
-                                    ? 'disabled_temporarily'
-                                    : 'disabled_permanently',
-                            count: 1,
-                        })
-                        return false
-                    }
-
-                    return true
-                })
-
-                // Now we can filter by masking configs
-                const { masked, notMasked: notMaskedInvocations } = await this.hogMasker.filterByMasking(
-                    notDisabledInvocations
-                )
-
-                masked.forEach((item) => {
-                    this.produceAppMetric({
-                        team_id: item.globals.project.id,
-                        app_source_id: item.hogFunction.id,
-                        metric_kind: 'other',
-                        metric_name: 'masked',
-                        count: 1,
-                    })
-                })
-
-                const overflowGlobalsAndFunctions: Record<string, HogFunctionOverflowedGlobals> = {}
-
-                const notOverflowedInvocations = notMaskedInvocations.filter((item) => {
-                    const state = states[item.hogFunction.id].state
-
-                    if (state === HogWatcherState.degraded) {
-                        const key = `${item.globals.project.id}-${item.globals.event.uuid}`
-                        overflowGlobalsAndFunctions[key] = overflowGlobalsAndFunctions[key] || {
-                            globals: item.globals,
-                            hogFunctionIds: [],
-                        }
-
-                        overflowGlobalsAndFunctions[key].hogFunctionIds.push(item.hogFunction.id)
-                        counterFunctionInvocation.inc({ outcome: 'overflowed' }, 1)
-                        return false
-                    }
-
-                    return true
-                })
-
-                Object.values(overflowGlobalsAndFunctions).forEach((item) => {
-                    this.messagesToProduce.push({
-                        topic: KAFKA_CDP_FUNCTION_OVERFLOW,
-                        value: {
-                            source: 'event_invocations',
-                            payload: item,
-                        },
-                        key: item.globals.event.uuid,
-                    })
-                })
-
-                const results = (
-                    await this.runManyWithHeartbeat(notOverflowedInvocations, (item) =>
-                        this.hogExecutor.executeFunction(item.globals, item.hogFunction)
-                    )
-                ).filter((x) => !!x) as HogFunctionInvocationResult[]
-
-                await this.hogWatcher.observeResults(results)
-                return results
-            },
-        })
-    }
-
-    public async start(): Promise<void> {
-        status.info('🔁', `${this.name} - starting`, {
-            librdKafkaVersion: librdkafkaVersion,
-            kafkaCapabilities: features,
-        })
-
-        // NOTE: This is the only place where we need to use the shared server config
-        const globalConnectionConfig = createRdConnectionConfigFromEnvVars(this.hub)
-        const globalProducerConfig = createRdProducerConfigFromEnvVars(this.hub)
-
-        await Promise.all([
-            this.hogFunctionManager.start(),
-            this.hub.CYCLOTRON_DATABASE_URL
-                ? cyclotron.initManager({ shards: [{ dbUrl: this.hub.CYCLOTRON_DATABASE_URL }] })
-                : Promise.resolve(),
-        ])
-
-        this.kafkaProducer = new KafkaProducerWrapper(
-            await createKafkaProducer(globalConnectionConfig, globalProducerConfig)
-        )
-
-        this.kafkaProducer.producer.connect()
-
+    protected async startKafkaConsumer(options: {
+        topic: string
+        groupId: string
+        handleBatch: (messages: Message[]) => Promise<void>
+    }): Promise<void> {
         this.batchConsumer = await startBatchConsumer({
+            ...options,
             connectionConfig: createRdConnectionConfigFromEnvVars(this.hub),
-            groupId: this.consumerGroupId,
-            topic: this.topic,
             autoCommit: true,
             sessionTimeout: this.hub.KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS,
             maxPollIntervalMs: this.hub.KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS,
@@ -478,7 +308,22 @@ abstract class CdpConsumerBase {
             topicCreationTimeoutMs: this.hub.KAFKA_TOPIC_CREATION_TIMEOUT_MS,
             topicMetadataRefreshInterval: this.hub.KAFKA_TOPIC_METADATA_REFRESH_INTERVAL_MS,
             eachBatch: async (messages, { heartbeat }) => {
-                return await this.handleEachBatch(messages, heartbeat)
+                status.info('🔁', `${this.name} - handling batch`, {
+                    size: messages.length,
+                })
+
+                this.heartbeat = heartbeat
+
+                histogramKafkaBatchSize.observe(messages.length)
+                histogramKafkaBatchSizeKb.observe(messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024)
+
+                return await runInstrumentedFunction({
+                    statsKey: `cdpConsumer.handleEachBatch`,
+                    sendTimeoutGuardToSentry: false,
+                    func: async () => {
+                        await options.handleBatch(messages)
+                    },
+                })
             },
             callEachBatchWhenEmpty: false,
         })
@@ -486,11 +331,25 @@ abstract class CdpConsumerBase {
         addSentryBreadcrumbsEventListeners(this.batchConsumer.consumer)
 
         this.batchConsumer.consumer.on('disconnected', async (err) => {
+            if (!this.isStopping) {
+                return
+            }
             // since we can't be guaranteed that the consumer will be stopped before some other code calls disconnect
             // we need to listen to disconnect and make sure we're stopped
             status.info('🔁', `${this.name} batch consumer disconnected, cleaning up`, { err })
             await this.stop()
         })
+    }
+
+    public async start(): Promise<void> {
+        // NOTE: This is only for starting shared services
+        await Promise.all([
+            this.hogFunctionManager.start(),
+            createKafkaProducerWrapper(this.hub).then((producer) => {
+                this.kafkaProducer = producer
+                this.kafkaProducer.producer.connect()
+            }),
+        ])
     }
 
     public async stop(): Promise<void> {
@@ -515,241 +374,468 @@ abstract class CdpConsumerBase {
 
 /**
  * This consumer handles incoming events from the main clickhouse topic
+ * Currently it produces to both kafka and Cyclotron based on the team
  */
-
 export class CdpProcessedEventsConsumer extends CdpConsumerBase {
     protected name = 'CdpProcessedEventsConsumer'
-    protected topic = KAFKA_EVENTS_JSON
-    protected consumerGroupId = 'cdp-processed-events-consumer'
+    private cyclotronMatcher: ValueMatcher<number>
+    private cyclotronManager?: CyclotronManager
 
-    public async _handleEachBatch(messages: Message[]): Promise<void> {
-        const invocationGlobals = await this.runWithHeartbeat(() =>
-            runInstrumentedFunction({
-                statsKey: `cdpConsumer.handleEachBatch.parseKafkaMessages`,
-                func: async () => await this.parseMessages(messages),
-            })
-        )
+    constructor(hub: Hub) {
+        super(hub)
+        this.cyclotronMatcher = buildIntegerMatcher(hub.CDP_CYCLOTRON_ENABLED_TEAMS, true)
+    }
 
+    private cyclotronEnabled(invocation: HogFunctionInvocation): boolean {
+        return !!(this.cyclotronManager && this.cyclotronMatcher(invocation.globals.project.id))
+    }
+
+    public async processBatch(invocationGlobals: HogFunctionInvocationGlobals[]): Promise<HogFunctionInvocation[]> {
         if (!invocationGlobals.length) {
-            return
+            return []
         }
 
-        const invocationResults = await this.runWithHeartbeat(() => this.executeMatchingFunctions(invocationGlobals))
+        const invocationsToBeQueued = await this.runWithHeartbeat(() =>
+            this.createHogFunctionInvocations(invocationGlobals)
+        )
 
-        await this.processInvocationResults(invocationResults)
-    }
-
-    private async parseMessages(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
-        const events: HogFunctionInvocationGlobals[] = []
-        await Promise.all(
-            messages.map(async (message) => {
-                try {
-                    const clickHouseEvent = JSON.parse(message.value!.toString()) as RawClickHouseEvent
-
-                    if (!this.hogFunctionManager.teamHasHogFunctions(clickHouseEvent.team_id)) {
-                        // No need to continue if the team doesn't have any functions
-                        return
-                    }
-
-                    const team = await this.hub.teamManager.fetchTeam(clickHouseEvent.team_id)
-                    if (!team) {
-                        return
-                    }
-                    events.push(
-                        convertToHogFunctionInvocationGlobals(
-                            clickHouseEvent,
-                            team,
-                            this.hub.SITE_URL ?? 'http://localhost:8000'
-                        )
-                    )
-                } catch (e) {
-                    status.error('Error parsing message', e)
+        // Split out the cyclotron invocations
+        const [cyclotronInvocations, kafkaInvocations] = invocationsToBeQueued.reduce(
+            (acc, item) => {
+                if (this.cyclotronEnabled(item)) {
+                    acc[0].push(item)
+                } else {
+                    acc[1].push(item)
                 }
-            })
+
+                return acc
+            },
+            [[], []] as [HogFunctionInvocation[], HogFunctionInvocation[]]
         )
 
-        return events
-    }
-}
-
-/**
- * This consumer handles callbacks from async functions.
- */
-export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
-    protected name = 'CdpFunctionCallbackConsumer'
-    protected topic = KAFKA_CDP_FUNCTION_CALLBACKS
-    protected consumerGroupId = 'cdp-function-callback-consumer'
-
-    public async _handleEachBatch(messages: Message[]): Promise<void> {
-        const events = await this.runWithHeartbeat(() =>
-            runInstrumentedFunction({
-                statsKey: `cdpConsumer.handleEachBatch.parseKafkaMessages`,
-                func: () => Promise.resolve(this.parseMessages(messages)),
-            })
+        // For the cyclotron ones we simply create the jobs
+        await Promise.all(
+            cyclotronInvocations.map((item) =>
+                this.cyclotronManager?.createJob({
+                    teamId: item.globals.project.id,
+                    functionId: item.hogFunction.id,
+                    queueName: 'hog',
+                    priority: item.priority,
+                    vmState: serializeHogFunctionInvocation(item),
+                })
+            )
         )
 
-        if (!events.length) {
-            return
+        if (kafkaInvocations.length) {
+            // As we don't want to over-produce to kafka we invoke the hog functions and then queue the results
+            const invocationResults = await runInstrumentedFunction({
+                statsKey: `cdpConsumer.handleEachBatch.executeInvocations`,
+                func: async () => {
+                    const hogResults = await this.runManyWithHeartbeat(kafkaInvocations, (item) =>
+                        this.hogExecutor.execute(item)
+                    )
+                    return [...hogResults]
+                },
+            })
+
+            await this.processInvocationResults(invocationResults)
+            const newInvocations = invocationResults.filter((r) => !r.finished).map((r) => r.invocation)
+            await this.queueInvocationsToKafka(newInvocations)
         }
 
-        const invocationResults = await this.runWithHeartbeat(() => this.executeAsyncResponses(events))
+        await this.produceQueuedMessages()
 
-        await this.processInvocationResults(invocationResults)
+        return invocationsToBeQueued
     }
 
-    private parseMessages(messages: Message[]): HogFunctionInvocationAsyncResponse[] {
-        const events: HogFunctionInvocationAsyncResponse[] = []
-        messages.map((message) => {
-            try {
-                const event = JSON.parse(message.value!.toString())
-                events.push(event as HogFunctionInvocationAsyncResponse)
-            } catch (e) {
-                status.error('Error parsing message', e)
-            }
-        })
-
-        return events
-    }
-}
-
-/**
- * This consumer handles overflow for both incoming events as well as callbacks.
- * In the future we might want multiple consumers but for now this is fine.
- */
-
-export class CdpOverflowConsumer extends CdpConsumerBase {
-    protected name = 'CdpOverflowConsumer'
-    protected topic = KAFKA_CDP_FUNCTION_OVERFLOW
-    protected consumerGroupId = 'cdp-overflow-consumer'
-
-    public async _handleEachBatch(messages: Message[]): Promise<void> {
-        const overflowedGlobals = await this.runWithHeartbeat(() =>
-            runInstrumentedFunction({
-                statsKey: `cdpConsumer.handleEachBatch.parseKafkaMessages`,
-                func: () => Promise.resolve(this.parseMessages(messages)),
-            })
-        )
-
-        const invocationResults = await this.executeOverflowedFunctions(overflowedGlobals)
-
-        await this.processInvocationResults(invocationResults)
-    }
-
-    protected async executeOverflowedFunctions(
-        invocationGlobals: HogFunctionOverflowedGlobals[]
-    ): Promise<HogFunctionInvocationResult[]> {
+    /**
+     * Finds all matching hog functions for the given globals.
+     * Filters them for their disabled state as well as masking configs
+     */
+    protected async createHogFunctionInvocations(
+        invocationGlobals: HogFunctionInvocationGlobals[]
+    ): Promise<HogFunctionInvocation[]> {
         return await runInstrumentedFunction({
-            statsKey: `cdpConsumer.handleEachBatch.executeOverflowedFunctions`,
+            statsKey: `cdpConsumer.handleEachBatch.queueMatchingFunctions`,
             func: async () => {
+                const possibleInvocations: HogFunctionInvocation[] = []
+
                 // TODO: Add a helper to hog functions to determine if they require groups or not and then only load those
-                await this.groupsManager.enrichGroups(invocationGlobals.map((x) => x.globals))
+                await this.groupsManager.enrichGroups(invocationGlobals)
 
-                const invocations = invocationGlobals
-                    .map((item) =>
-                        item.hogFunctionIds.map((hogFunctionId) => ({
-                            globals: item.globals,
-                            hogFunctionId,
-                        }))
+                // Find all functions that could need running
+                invocationGlobals.forEach((globals) => {
+                    const { matchingFunctions, nonMatchingFunctions } = this.hogExecutor.findMatchingFunctions(globals)
+
+                    possibleInvocations.push(
+                        ...matchingFunctions.map((hogFunction) => createInvocation(globals, hogFunction))
                     )
-                    .flat()
 
-                const states = await this.hogWatcher.getStates(invocationGlobals.map((x) => x.hogFunctionIds).flat())
+                    nonMatchingFunctions.forEach((item) =>
+                        this.produceAppMetric({
+                            team_id: item.team_id,
+                            app_source_id: item.id,
+                            metric_kind: 'other',
+                            metric_name: 'filtered',
+                            count: 1,
+                        })
+                    )
+                })
 
-                const results = (
-                    await this.runManyWithHeartbeat(invocations, (item) => {
-                        const state = states[item.hogFunctionId].state
-                        if (state >= HogWatcherState.disabledForPeriod) {
-                            this.produceAppMetric({
-                                team_id: item.globals.project.id,
-                                app_source_id: item.hogFunctionId,
-                                metric_kind: 'failure',
-                                metric_name:
-                                    state === HogWatcherState.disabledForPeriod
-                                        ? 'disabled_temporarily'
-                                        : 'disabled_permanently',
-                                count: 1,
-                            })
-                            return
-                        }
-                        return this.hogExecutor.executeFunction(item.globals, item.hogFunctionId)
+                const states = await this.hogWatcher.getStates(possibleInvocations.map((x) => x.hogFunction.id))
+                const validInvocations: HogFunctionInvocation[] = []
+
+                // Iterate over adding them to the list and updating their priority
+                possibleInvocations.forEach((item) => {
+                    const state = states[item.hogFunction.id].state
+                    if (state >= HogWatcherState.disabledForPeriod) {
+                        this.produceAppMetric({
+                            team_id: item.globals.project.id,
+                            app_source_id: item.hogFunction.id,
+                            metric_kind: 'failure',
+                            metric_name:
+                                state === HogWatcherState.disabledForPeriod
+                                    ? 'disabled_temporarily'
+                                    : 'disabled_permanently',
+                            count: 1,
+                        })
+                        return
+                    }
+
+                    if (state === HogWatcherState.degraded) {
+                        item.priority = 2
+                    }
+
+                    validInvocations.push(item)
+                })
+
+                // Now we can filter by masking configs
+                const { masked, notMasked: notMaskedInvocations } = await this.hogMasker.filterByMasking(
+                    validInvocations
+                )
+
+                masked.forEach((item) => {
+                    this.produceAppMetric({
+                        team_id: item.globals.project.id,
+                        app_source_id: item.hogFunction.id,
+                        metric_kind: 'other',
+                        metric_name: 'masked',
+                        count: 1,
                     })
-                ).filter((x) => !!x) as HogFunctionInvocationResult[]
+                })
 
-                await this.hogWatcher.observeResults(results)
-                return results
+                return notMaskedInvocations
             },
         })
     }
 
-    private parseMessages(messages: Message[]): HogFunctionOverflowedGlobals[] {
-        const invocationGlobals: HogFunctionOverflowedGlobals[] = []
-        messages.map((message) => {
-            try {
-                const parsed = JSON.parse(message.value!.toString()) as CdpOverflowMessage
+    // This consumer always parses from kafka
+    public async _handleKafkaBatch(messages: Message[]): Promise<void> {
+        const invocationGlobals = await this.runWithHeartbeat(() =>
+            runInstrumentedFunction({
+                statsKey: `cdpConsumer.handleEachBatch.parseKafkaMessages`,
+                func: async () => {
+                    const events: HogFunctionInvocationGlobals[] = []
+                    await Promise.all(
+                        messages.map(async (message) => {
+                            try {
+                                const clickHouseEvent = JSON.parse(message.value!.toString()) as RawClickHouseEvent
 
-                if (parsed.source === 'event_invocations') {
-                    invocationGlobals.push(parsed.payload)
-                }
-            } catch (e) {
-                // TODO: We probably want to crash here right as this means something went really wrong and needs investigating?
-                status.error('Error parsing message', e)
-            }
+                                if (!this.hogFunctionManager.teamHasHogFunctions(clickHouseEvent.team_id)) {
+                                    // No need to continue if the team doesn't have any functions
+                                    return
+                                }
+
+                                const team = await this.hub.teamManager.fetchTeam(clickHouseEvent.team_id)
+                                if (!team) {
+                                    return
+                                }
+                                events.push(
+                                    convertToHogFunctionInvocationGlobals(
+                                        clickHouseEvent,
+                                        team,
+                                        this.hub.SITE_URL ?? 'http://localhost:8000'
+                                    )
+                                )
+                            } catch (e) {
+                                status.error('Error parsing message', e)
+                            }
+                        })
+                    )
+
+                    return events
+                },
+            })
+        )
+
+        await this.processBatch(invocationGlobals)
+    }
+
+    public async start(): Promise<void> {
+        await super.start()
+        await this.startKafkaConsumer({
+            topic: KAFKA_EVENTS_JSON,
+            groupId: 'cdp-processed-events-consumer',
+            handleBatch: (messages) => this._handleKafkaBatch(messages),
         })
 
-        return invocationGlobals
+        this.cyclotronManager = this.hub.CYCLOTRON_DATABASE_URL
+            ? new CyclotronManager({ shards: [{ dbUrl: this.hub.CYCLOTRON_DATABASE_URL }] })
+            : undefined
+
+        await this.cyclotronManager?.connect()
     }
 }
 
-// TODO: Split out non-Kafka specific parts of CdpConsumerBase so that it can be used by the
-// Cyclotron worker below. Or maybe we can just wait, and rip the Kafka bits out once Cyclotron is
-// shipped (and rename it something other than consomer, probably). For now, this is an easy way to
-// use existing code and get an end-to-end demo shipped.
-export class CdpCyclotronWorker extends CdpConsumerBase {
-    protected name = 'CdpCyclotronWorker'
-    protected topic = 'UNUSED-CdpCyclotronWorker'
-    protected consumerGroupId = 'UNUSED-CdpCyclotronWorker'
-    private runningWorker: Promise<void> | undefined
-    private isUnhealthy = false
+/**
+ * This consumer only deals with kafka messages and will eventually be replaced by the Cyclotron worker
+ */
+export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
+    protected name = 'CdpFunctionCallbackConsumer'
 
-    public async _handleEachBatch(_: Message[]): Promise<void> {
-        // Not called, we override `start` below to use Cyclotron instead.
+    public async processBatch(invocations: HogFunctionInvocation[]): Promise<void> {
+        if (!invocations.length) {
+            return
+        }
+
+        const invocationResults = await runInstrumentedFunction({
+            statsKey: `cdpConsumer.handleEachBatch.executeInvocations`,
+            func: async () => {
+                // NOTE: In the future this service will never do fetching (unless we decide we want to do it in node at some point)
+                // This is just "for now" to support the transition to cyclotron
+                const fetchQueue = invocations.filter((item) => item.queue === 'fetch')
+
+                const fetchResults = await Promise.all(
+                    fetchQueue.map((item) => {
+                        return runInstrumentedFunction({
+                            statsKey: `cdpConsumer.handleEachBatch.fetchExecutor.execute`,
+                            func: () => this.fetchExecutor.execute(item),
+                            timeout: 1000,
+                        })
+                    })
+                )
+
+                const hogQueue = invocations.filter((item) => item.queue === 'hog')
+                const hogResults = await this.runManyWithHeartbeat(hogQueue, (item) => this.hogExecutor.execute(item))
+                return [...hogResults, ...(fetchResults.filter(Boolean) as HogFunctionInvocationResult[])]
+            },
+        })
+
+        await this.processInvocationResults(invocationResults)
+        const newInvocations = invocationResults.filter((r) => !r.finished).map((r) => r.invocation)
+        await this.queueInvocationsToKafka(newInvocations)
+        await this.produceQueuedMessages()
     }
 
-    private async innerStart() {
-        try {
-            const limit = 100 // TODO: Make configurable.
-            while (!this.isStopping) {
-                const jobs = await cyclotron.dequeueJobsWithVmState('hog', limit)
-                for (const job of jobs) {
-                    // TODO: Reassemble a HogFunctionInvocationAsyncResponse (or whatever proper type)
-                    // from the fields on the job, and then execute the next Hog step.
-                    console.log(job.id)
-                }
-            }
-        } catch (err) {
-            this.isUnhealthy = true
-            console.error('Error in Cyclotron worker', err)
-            throw err
+    public async _handleKafkaBatch(messages: Message[]): Promise<void> {
+        const events = await this.runWithHeartbeat(() =>
+            runInstrumentedFunction({
+                statsKey: `cdpConsumer.handleEachBatch.parseKafkaMessages`,
+                func: async () => {
+                    // TRICKY: In the future we won't use kafka. For now though we need to parse messages as Cyclotron style jobs
+                    // or hoghooks async callbacks
+
+                    const invocations: HogFunctionInvocation[] = []
+
+                    // Parse the base message value
+                    const entries: (HogHooksFetchResponse | HogFunctionInvocationSerializedCompressed)[] = messages
+                        .map((message) => {
+                            try {
+                                return JSON.parse(message.value!.toString())
+                            } catch (e) {
+                                status.error('Error parsing message', e)
+                            }
+
+                            return undefined
+                        })
+                        .filter(Boolean)
+
+                    // Deserialize the compressed data
+                    await Promise.all(
+                        entries.map(async (item) => {
+                            try {
+                                const invocationSerialized = await unGzipObject<HogFunctionInvocationSerialized>(
+                                    item.state
+                                )
+
+                                if ('asyncFunctionResponse' in item) {
+                                    // This means it is a callback from hoghooks so we need to add the response to the invocation
+                                    invocationSerialized.queue = 'hog'
+                                    invocationSerialized.queueParameters = item.asyncFunctionResponse
+                                }
+
+                                const hogFunctionId =
+                                    invocationSerialized.hogFunctionId ?? invocationSerialized.hogFunction?.id
+                                const hogFunction = hogFunctionId
+                                    ? this.hogFunctionManager.getHogFunction(hogFunctionId)
+                                    : undefined
+
+                                if (!hogFunction) {
+                                    status.error('Error finding hog function', {
+                                        id: invocationSerialized.hogFunctionId,
+                                    })
+                                    return
+                                }
+
+                                const invocation: HogFunctionInvocation = {
+                                    ...invocationSerialized,
+                                    hogFunction,
+                                }
+
+                                delete (invocation as any).hogFunctionId
+
+                                invocations.push(invocation)
+                            } catch (e) {
+                                status.error('Error unzipping message', e, item.state)
+                                captureException(e)
+                            }
+                        })
+                    )
+
+                    return invocations
+                },
+            })
+        )
+
+        await this.processBatch(events)
+    }
+
+    public async start(): Promise<void> {
+        await super.start()
+        await this.startKafkaConsumer({
+            topic: KAFKA_CDP_FUNCTION_CALLBACKS,
+            groupId: 'cdp-function-callback-consumer',
+            handleBatch: (messages) => this._handleKafkaBatch(messages),
+        })
+    }
+}
+
+/**
+ * The future of the CDP consumer. This will be the main consumer that will handle all hog jobs from Cyclotron
+ */
+export class CdpCyclotronWorker extends CdpConsumerBase {
+    protected name = 'CdpCyclotronWorker'
+    private cyclotronWorker?: CyclotronWorker
+    private runningWorker: Promise<void> | undefined
+    protected queue: 'hog' | 'fetch' = 'hog'
+
+    public async processBatch(invocations: HogFunctionInvocation[]): Promise<void> {
+        if (!invocations.length) {
+            return
         }
+
+        const invocationResults = await runInstrumentedFunction({
+            statsKey: `cdpConsumer.handleEachBatch.executeInvocations`,
+            func: async () => {
+                // NOTE: In the future this service will never do fetching (unless we decide we want to do it in node at some point)
+                // This is just "for now" to support the transition to cyclotron
+                const fetchQueue = invocations.filter((item) => item.queue === 'fetch')
+                const fetchResults = await this.runManyWithHeartbeat(fetchQueue, (item) =>
+                    this.fetchExecutor.execute(item)
+                )
+
+                const hogQueue = invocations.filter((item) => item.queue === 'hog')
+                const hogResults = await this.runManyWithHeartbeat(hogQueue, (item) => this.hogExecutor.execute(item))
+                return [...hogResults, ...(fetchResults.filter(Boolean) as HogFunctionInvocationResult[])]
+            },
+        })
+
+        await this.processInvocationResults(invocationResults)
+        await this.updateJobs(invocationResults)
+        await this.produceQueuedMessages()
+    }
+
+    private async updateJobs(invocations: HogFunctionInvocationResult[]) {
+        await Promise.all(
+            invocations.map(async (item) => {
+                const id = item.invocation.id
+                if (item.error) {
+                    status.debug('⚡️', 'Updating job to failed', id)
+                    this.cyclotronWorker?.updateJob(id, 'failed')
+                } else if (item.finished) {
+                    status.debug('⚡️', 'Updating job to completed', id)
+                    this.cyclotronWorker?.updateJob(id, 'completed')
+                } else {
+                    status.debug('⚡️', 'Updating job to available', id)
+                    this.cyclotronWorker?.updateJob(id, 'available', {
+                        priority: item.invocation.priority,
+                        vmState: serializeHogFunctionInvocation(item.invocation),
+                        queueName: item.invocation.queue,
+                        parameters: item.invocation.queueParameters ?? null,
+                        blob: item.invocation.queueBlob ?? null,
+                    })
+                }
+                await this.cyclotronWorker?.flushJob(id)
+            })
+        )
+    }
+
+    private async handleJobBatch(jobs: CyclotronJob[]) {
+        const invocations: HogFunctionInvocation[] = []
+
+        for (const job of jobs) {
+            // NOTE: This is all a bit messy and might be better to refactor into a helper
+            if (!job.functionId) {
+                throw new Error('Bad job: ' + JSON.stringify(job))
+            }
+            const hogFunction = this.hogFunctionManager.getHogFunction(job.functionId)
+
+            if (!hogFunction) {
+                // Here we need to mark the job as failed
+
+                status.error('Error finding hog function', {
+                    id: job.functionId,
+                })
+                this.cyclotronWorker?.updateJob(job.id, 'failed')
+                await this.cyclotronWorker?.flushJob(job.id)
+                continue
+            }
+
+            const parsedState = job.vmState as HogFunctionInvocationSerialized
+
+            invocations.push({
+                id: job.id,
+                globals: parsedState.globals,
+                teamId: hogFunction.team_id,
+                hogFunction,
+                priority: job.priority,
+                queue: (job.queueName as any) ?? 'hog',
+                queueParameters: job.parameters as HogFunctionInvocationQueueParameters | undefined,
+                queueBlob: job.blob ?? undefined,
+                vmState: parsedState.vmState,
+                timings: parsedState.timings,
+            })
+        }
+
+        await this.processBatch(invocations)
     }
 
     public async start() {
-        await cyclotron.initManager({ shards: [{ dbUrl: this.hub.CYCLOTRON_DATABASE_URL }] })
-        await cyclotron.initWorker({ dbUrl: this.hub.CYCLOTRON_DATABASE_URL })
+        await super.start()
 
-        // Consumer `start` expects an async task is started, and not that `start` itself blocks
-        // indefinitely.
-        this.runningWorker = this.innerStart()
-
-        return Promise.resolve()
+        this.cyclotronWorker = new CyclotronWorker({
+            pool: { dbUrl: this.hub.CYCLOTRON_DATABASE_URL },
+            queueName: this.queue,
+            includeVmState: true,
+            batchMaxSize: this.hub.CDP_CYCLOTRON_BATCH_SIZE,
+            pollDelayMs: this.hub.CDP_CYCLOTRON_BATCH_DELAY_MS,
+        })
+        await this.cyclotronWorker.connect((jobs) => this.handleJobBatch(jobs))
     }
 
     public async stop() {
         await super.stop()
+        await this.cyclotronWorker?.disconnect()
         await this.runningWorker
     }
 
     public isHealthy() {
-        return this.isUnhealthy
+        return this.cyclotronWorker?.isHealthy() ?? false
     }
+}
+
+// Mostly used for testing
+export class CdpCyclotronWorkerFetch extends CdpCyclotronWorker {
+    protected name = 'CdpCyclotronWorkerFetch'
+    protected queue = 'fetch' as const
 }

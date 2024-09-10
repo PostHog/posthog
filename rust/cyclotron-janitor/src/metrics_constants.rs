@@ -3,10 +3,8 @@ pub const RUN_TIME: &str = "cyclotron_janitor_total_run_ms";
 pub const RUN_ENDS: &str = "cyclotron_janitor_run_ends";
 
 pub const COMPLETED_COUNT: &str = "cyclotron_janitor_completed_jobs";
-pub const COMPLETED_TIME: &str = "cyclotron_janitor_completed_jobs_cleanup_ms";
-
 pub const FAILED_COUNT: &str = "cyclotron_janitor_failed_jobs";
-pub const FAILED_TIME: &str = "cyclotron_janitor_failed_jobs_cleanup_ms";
+pub const CLEANUP_TIME: &str = "cyclotron_janitor_completed_failed_jobs_cleanup_ms";
 
 pub const POISONED_COUNT: &str = "cyclotron_janitor_poison_pills";
 pub const POISONED_TIME: &str = "cyclotron_janitor_poison_pills_cleanup_ms";
