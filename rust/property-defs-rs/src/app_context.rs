@@ -1,6 +1,9 @@
 use health::{HealthHandle, HealthRegistry};
 use quick_cache::sync::Cache;
-use sqlx::{postgres::PgPoolOptions, PgPool};
+use sqlx::{
+    postgres::{PgConnectOptions, PgPoolOptions},
+    PgPool,
+};
 use time::Duration;
 
 use crate::{
@@ -26,7 +29,11 @@ pub struct AppContext {
 impl AppContext {
     pub async fn new(config: &Config) -> Result<Self, sqlx::Error> {
         let options = PgPoolOptions::new().max_connections(config.max_pg_connections);
-        let pool = options.connect(&config.database_url).await?;
+        let connect_options: PgConnectOptions = config.database_url.parse()?;
+        let connect_options = connect_options
+            .statement_cache_capacity(0) // pgbouncer mishandles prepared statements, which sqlx uses when doing transactions - see https://github.com/launchbadge/sqlx/issues/67
+            .application_name("property-defs-rs");
+        let pool = options.connect_with(connect_options).await?;
 
         let liveness: HealthRegistry = HealthRegistry::new("liveness");
         let worker_liveness = liveness

@@ -64,7 +64,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_derive = { version = "1.0" }
 serde_json = { version = "1.0" }
 serde_urlencoded = "0.7.1"
-sqlx = { version = "0.7", features = [
+sqlx = { version = "0.8", features = [
   "chrono",
   "json",
   "migrate",

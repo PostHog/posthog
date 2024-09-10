@@ -1,6 +1,5 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::postgres::{PgHasArrayType, PgTypeInfo};
 use std::str::FromStr;
 use uuid::Uuid;
 
@@ -30,13 +29,6 @@ impl FromStr for JobState {
             "failed" => Ok(JobState::Failed),
             _ => Err(()),
         }
-    }
-}
-
-impl PgHasArrayType for JobState {
-    fn array_type_info() -> sqlx::postgres::PgTypeInfo {
-        // Postgres default naming convention for array types is "_typename"
-        PgTypeInfo::with_name("_JobState")
     }
 }
 

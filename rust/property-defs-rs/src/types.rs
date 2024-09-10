@@ -7,7 +7,7 @@ use sqlx::{Executor, Postgres};
 use tracing::warn;
 use uuid::Uuid;
 
-use crate::metrics_consts::{EVENTS_SKIPPED, UPDATES_SKIPPED};
+use crate::metrics_consts::{EVENTS_SKIPPED, FAILED_TO_DESERIALIZE_PROPERTIES, UPDATES_SKIPPED};
 
 // We skip updates for events we generate
 pub const EVENTS_WITHOUT_PROPERTIES: [&str; 1] = ["$$plugin_metrics"];
@@ -187,10 +187,14 @@ impl Event {
         };
 
         let Ok(props) = Value::from_str(props) else {
+            metrics::counter!(FAILED_TO_DESERIALIZE_PROPERTIES, &[("stage", "to_value")])
+                .increment(1);
             return updates;
         };
 
         let Value::Object(props) = props else {
+            metrics::counter!(FAILED_TO_DESERIALIZE_PROPERTIES, &[("stage", "to_object")])
+                .increment(1);
             return updates;
         };
 
