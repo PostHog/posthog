@@ -17,12 +17,13 @@ import { urls } from 'scenes/urls'
 
 import { SessionRecordingSidebarStacking } from '~/types'
 
+import { NetworkView } from '../apm/NetworkView'
 import { PlayerController } from './controller/PlayerController'
 import { PlayerFrame } from './PlayerFrame'
 import { PlayerFrameOverlay } from './PlayerFrameOverlay'
 import { PlayerMeta } from './PlayerMeta'
 import { PlayerPersonMeta } from './PlayerPersonMeta'
-import { playerSettingsLogic } from './playerSettingsLogic'
+import { PlaybackViewMode, playerSettingsLogic } from './playerSettingsLogic'
 import { PlayerSidebar } from './PlayerSidebar'
 import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
 import {
@@ -95,8 +96,8 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         sessionRecordingPlayerLogic(logicProps)
     )
     const speedHotkeys = useMemo(() => createPlaybackSpeedKey(setSpeed), [setSpeed])
-    const { preferredSidebarStacking, sidebarOpen } = useValues(playerSettingsLogic)
-    const { setPreferredSidebarStacking } = useActions(playerSettingsLogic)
+    const { preferredSidebarStacking, sidebarOpen, playbackViewMode } = useValues(playerSettingsLogic)
+    const { setPreferredSidebarStacking, setPlaybackViewMode } = useActions(playerSettingsLogic)
 
     useKeyboardHotkeys(
         {
@@ -213,7 +214,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                 <>
                                     <div className="flex justify-between items-center p-2 border-b pr-[3px]">
                                         <LemonSegmentedButton
-                                            value="playback"
+                                            value={playbackViewMode}
                                             options={[
                                                 {
                                                     value: 'playback',
@@ -224,6 +225,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                                     label: 'Waterfall',
                                                 },
                                             ]}
+                                            onChange={setPlaybackViewMode}
                                             size="xsmall"
                                         />
                                         <PlayerPersonMeta />
@@ -234,17 +236,23 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                         })}
                                     >
                                         <div className="flex flex-col flex-1">
-                                            {!noMeta || isFullScreen ? <PlayerMeta /> : null}
+                                            {playbackViewMode === PlaybackViewMode.Playback ? (
+                                                <>
+                                                    {!noMeta || isFullScreen ? <PlayerMeta /> : null}
 
-                                            <div
-                                                className="SessionRecordingPlayer__body"
-                                                draggable={draggable}
-                                                {...elementProps}
-                                            >
-                                                <PlayerFrame />
-                                                <PlayerFrameOverlay />
-                                            </div>
-                                            <PlayerController iconsOnly={playerMainSize === 'small'} />
+                                                    <div
+                                                        className="SessionRecordingPlayer__body"
+                                                        draggable={draggable}
+                                                        {...elementProps}
+                                                    >
+                                                        <PlayerFrame />
+                                                        <PlayerFrameOverlay />
+                                                    </div>
+                                                    <PlayerController iconsOnly={playerMainSize === 'small'} />
+                                                </>
+                                            ) : (
+                                                <NetworkView sessionRecordingId={sessionRecordingId} />
+                                            )}
                                         </div>
                                         {!noInspector && (
                                             <PlayerSidebar
