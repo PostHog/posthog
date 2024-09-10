@@ -99,7 +99,7 @@ class TestTeam(BaseTest):
         user = User.objects.create(email="test@gmail.com")
         organization = Organization.objects.create()
         organization.members.set([user])
-        team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+        team = Team.objects.create_with_data(initiating_user=self.user, organization=organization)
         self.assertEqual(
             team.test_account_filters,
             [

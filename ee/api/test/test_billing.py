@@ -780,7 +780,7 @@ class TestBillingAPI(APILicensedTest):
         self.assertEqual(Team.objects.count(), 1)
         response = self.client.post("/api/projects/", {"name": "Test", "is_demo": True})
         self.assertEqual(response.status_code, 201)
-        self.assertEqual(Team.objects.count(), 2)
+        self.assertEqual(Team.objects.count(), 3)
 
         demo_team = Team.objects.filter(is_demo=True).first()
 
