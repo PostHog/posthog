@@ -214,7 +214,7 @@ drf-exceptions-hog==0.4.0
     # via -r requirements.in
 drf-extensions==0.7.0
     # via -r requirements.in
-drf-spectacular==0.27.1
+drf-spectacular==0.27.2
     # via -r requirements.in
 et-xmlfile==1.1.0
     # via openpyxl
@@ -258,8 +258,6 @@ googleapis-common-protos==1.60.0
     # via
     #   google-api-core
     #   grpcio-status
-greenlet==3.0.3
-    # via sqlalchemy
 grpcio==1.57.0
     # via
     #   google-api-core
@@ -405,7 +403,7 @@ platformdirs==3.11.0
     #   zeep
 ply==3.11
     # via jsonpath-ng
-posthoganalytics==3.5.0
+posthoganalytics==3.6.4
     # via -r requirements.in
 prometheus-client==0.14.1
     # via django-prometheus
