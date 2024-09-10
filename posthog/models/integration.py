@@ -409,8 +409,8 @@ class GoogleCloudIntegration:
         try:
             credentials = service_account.Credentials.from_service_account_info(key_info, scopes=[scope])
             credentials.refresh(GoogleRequest())
-        except Exception as e:
-            raise ValidationError(f"Failed to authenticate with provided service account key: {str(e)}")
+        except Exception:
+            raise ValidationError(f"Failed to authenticate with provided service account key")
 
         integration, created = Integration.objects.update_or_create(
             team_id=team_id,
@@ -454,8 +454,8 @@ class GoogleCloudIntegration:
 
         try:
             credentials.refresh(GoogleRequest())
-        except Exception as e:
-            raise ValidationError(f"Failed to authenticate with provided service account key: {str(e)}")
+        except Exception:
+            raise ValidationError(f"Failed to authenticate with provided service account key")
 
         self.integration.config = {
             "expires_in": credentials.expiry.timestamp() - int(time.time()),
