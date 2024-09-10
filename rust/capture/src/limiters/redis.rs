@@ -105,7 +105,8 @@ impl RedisLimiter {
                         gauge!(
                             "capture_billing_limits_loaded_tokens",
                             "cache_key" => key.clone(),
-                        ).set(set.len() as f64);
+                        )
+                        .set(set.len() as f64);
 
                         let mut limited_lock = limited.write().await;
                         *limited_lock = set;
