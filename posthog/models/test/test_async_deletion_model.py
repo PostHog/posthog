@@ -207,7 +207,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
 
         AsyncEventDeletion().run()
 
-        self.assertRowCount(0)
+        self.assertRowCount(0, "events", predicate="is_deleted = 0")
 
     @snapshot_clickhouse_alter_queries
     def test_delete_teams_unrelated(self):
@@ -260,7 +260,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
 
         AsyncEventDeletion().run()
 
-        self.assertRowCount(1)
+        self.assertRowCount(1, "events", predicate="is_deleted = 0")
 
     @snapshot_clickhouse_alter_queries
     def test_delete_person_unrelated(self):
@@ -317,7 +317,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
 
         AsyncEventDeletion().run()
 
-        self.assertRowCount(0)
+        self.assertRowCount(0, "events", predicate="is_deleted = 0")
 
     @snapshot_clickhouse_alter_queries
     def test_delete_group_unrelated(self):
@@ -463,8 +463,8 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
 
         self.assertRowCount(1, "cohortpeople")
 
-    def assertRowCount(self, expected, table="events"):
-        result = sync_execute(f"SELECT count() FROM {table}")[0][0]
+    def assertRowCount(self, expected, table="events", predicate=""):
+        result = sync_execute(f"SELECT count() FROM {table} {'WHERE ' + predicate if predicate else ''}")[0][0]
         self.assertEqual(result, expected)
 
     def _insert_cohortpeople_row(self, team: Team, person_id: UUID, cohort_id: int, version: int = 0):

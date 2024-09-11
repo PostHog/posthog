@@ -59,7 +59,11 @@ class AsyncEventDeletion(AsyncDeletionProcess):
 
             # Get estimated  byte size of the query
             str_predicate = " OR ".join(conditions)
-            query = f"DELETE FROM sharded_events ON CLUSTER '{CLICKHOUSE_CLUSTER}' WHERE {str_predicate}"
+            query = f"""
+            ALTER TABLE sharded_events ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+            UPDATE is_deleted = 1
+            WHERE {str_predicate}
+            """
             query_size = len(query.encode("utf-8"))
 
             logger.debug(f"Query size: {query_size}")

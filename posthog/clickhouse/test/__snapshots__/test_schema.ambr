@@ -25,7 +25,8 @@
       group2_created_at DateTime64,
       group3_created_at DateTime64,
       group4_created_at DateTime64,
-      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
+      is_deleted Boolean
       
       
       
@@ -126,7 +127,8 @@
       group2_created_at DateTime64,
       group3_created_at DateTime64,
       group4_created_at DateTime64,
-      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
+      is_deleted Boolean
       
       
       
@@ -586,7 +588,8 @@
       group2_created_at DateTime64,
       group3_created_at DateTime64,
       group4_created_at DateTime64,
-      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
+      is_deleted Boolean
       
       , $group_0 VARCHAR COMMENT 'column_materializer::$group_0'
       , $group_1 VARCHAR COMMENT 'column_materializer::$group_1'
@@ -930,7 +933,8 @@
       group2_created_at DateTime64,
       group3_created_at DateTime64,
       group4_created_at DateTime64,
-      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
+      is_deleted Boolean
       
       
       
@@ -2175,7 +2179,8 @@
       group2_created_at DateTime64,
       group3_created_at DateTime64,
       group4_created_at DateTime64,
-      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
+      is_deleted Boolean
       
       , $group_0 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^"|"$', '') COMMENT 'column_materializer::$group_0'
       , $group_1 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^"|"$', '') COMMENT 'column_materializer::$group_1'
@@ -2617,7 +2622,8 @@
       group2_created_at DateTime64,
       group3_created_at DateTime64,
       group4_created_at DateTime64,
-      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
+      is_deleted Boolean
       
       
   , _timestamp DateTime
@@ -3288,7 +3294,8 @@
       group2_created_at DateTime64,
       group3_created_at DateTime64,
       group4_created_at DateTime64,
-      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
+      is_deleted Boolean
       
       , $group_0 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^"|"$', '') COMMENT 'column_materializer::$group_0'
       , $group_1 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^"|"$', '') COMMENT 'column_materializer::$group_1'

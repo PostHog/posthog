@@ -51,7 +51,8 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     group2_created_at DateTime64,
     group3_created_at DateTime64,
     group4_created_at DateTime64,
-    person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
+    person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
+    is_deleted Boolean
     {materialized_columns}
     {extra_fields}
     {indexes}
@@ -125,6 +126,7 @@ ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64
     storage_policy=STORAGE_POLICY(),
 )
 
+
 EVENTS_TABLE_INSERTED_AT_INDEX_SQL = """
 ALTER TABLE {table_name} ON CLUSTER {cluster}
 ADD INDEX `minmax_inserted_at` COALESCE(`inserted_at`, `_timestamp`)
@@ -154,6 +156,7 @@ KAFKA_EVENTS_TABLE_JSON_SQL = lambda: (
     materialized_columns="",
     indexes="",
 )
+
 
 EVENTS_TABLE_JSON_MV_SQL = (
     lambda: """
@@ -214,13 +217,13 @@ DISTRIBUTED_EVENTS_TABLE_SQL = lambda name="events": EVENTS_TABLE_BASE_SQL.forma
     materialized_columns=EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS,
     indexes="",
 )
-
 # This view automatically filters out deleted events
 EVENTS_NON_DELETED_VIEW_SQL = lambda: EVENTS_VIEW_NON_DELETED_BASE_SQL.format(
     view="events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     table="distributed_events", # This is the DISTRIBUTED_EVENTS_TABLE_SQL name after its rename in migration 0079
 )
+
 
 INSERT_EVENT_SQL = (
     lambda: f"""

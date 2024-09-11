@@ -87,6 +87,9 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
         name="duration"
     ),  # alias of $session_duration, deprecated but included for backwards compatibility
     "$is_bounce": BooleanDatabaseField(name="$is_bounce"),
+    # some aliases for people reverting from v2 to v1
+    "$end_current_url": StringDatabaseField(name="$end_current_url"),
+    "$end_pathname": StringDatabaseField(name="$end_pathname"),
 }
 
 
@@ -240,6 +243,10 @@ def select_from_sessions_table_v1(
         gad_source=aggregate_fields["$entry_gad_source"],
     )
 
+    # aliases for people reverting from v2 to v1
+    aggregate_fields["$end_current_url"] = aggregate_fields["$exit_current_url"]
+    aggregate_fields["$end_pathname"] = aggregate_fields["$exit_pathname"]
+
     select_fields: list[ast.Expr] = []
     group_by_fields: list[ast.Expr] = [ast.Field(chain=[table_name, "session_id"])]
 
@@ -282,6 +289,9 @@ class SessionsTableV1(LazyTable):
     def avoid_asterisk_fields(self) -> list[str]:
         return [
             "duration",  # alias of $session_duration, deprecated but included for backwards compatibility
+            # aliases for people reverting from v2 to v1
+            "$end_current_url",
+            "$end_pathname",
         ]
 
 
@@ -318,6 +328,9 @@ def get_lazy_session_table_properties_v1(search: Optional[str]):
         "$urls",
         "duration",
         "$num_uniq_urls",
+        # aliases for people reverting from v2 to v1
+        "$end_current_url",
+        "$end_pathname",
     }
 
     # some fields should have a specific property type which isn't derivable from the type of database field
