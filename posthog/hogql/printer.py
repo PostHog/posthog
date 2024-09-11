@@ -943,38 +943,31 @@ class _Printer(Visitor):
                 expr_type = expr_type.type
             return expr_type
 
-        if node.name in ("isNull", "isNotNull"):
-            assert len(node.args) == 1, "expected unary call"
-            arg_type = resolve_field_type(node.args[0])
-            # TODO: can probably optimize chained operations, but will need more thought
-            if isinstance(arg_type, ast.PropertyType) and len(arg_type.chain) == 1:
-                property_source = self.__get_materialized_property_source_for_property_type(arg_type)
-                if not isinstance(property_source, PrintableMaterializedPropertyGroupItem):
+        match node:
+            case ast.Call(name="isNull" | "isNotNull", args=[field]):
+                # TODO: can probably optimize chained operations, but will need more thought
+                field_type = resolve_field_type(field)
+                if isinstance(field_type, ast.PropertyType) and len(field_type.chain) == 1:
+                    property_source = self.__get_materialized_property_source_for_property_type(field_type)
+                    if not isinstance(property_source, PrintableMaterializedPropertyGroupItem):
+                        return None
+
+                    match node.name:
+                        case "isNull":
+                            return f"not({property_source.has_expr})"
+                        case "isNotNull":
+                            return property_source.has_expr
+                        case _:
+                            raise ValueError(f"unexpected node name: {node.name}")
+            case ast.Call(name="JSONHas", args=[field, ast.Constant(value=property_name)]):
+                # TODO: can probably optimize chained operations here as well
+                field_type = resolve_field_type(node.args[0])
+                if not isinstance(field_type, ast.FieldType):
                     return None
 
-                if node.name == "isNull":
-                    return f"not({property_source.has_expr})"
-                elif node.name == "isNotNull":
+                property_source = self.__get_materialized_property_source(field_type, str(property_name))
+                if isinstance(property_source, PrintableMaterializedPropertyGroupItem):
                     return property_source.has_expr
-                else:
-                    raise ValueError("unexpected node name")
-        elif node.name == "JSONHas":
-            if len(node.args) > 2:
-                # TODO: can probably optimize chained operations here as well
-                return None
-
-            if not isinstance(node.args[1], ast.Constant):
-                return None
-
-            property_name = node.args[1].value
-
-            field_type = resolve_field_type(node.args[0])
-            if not isinstance(field_type, ast.FieldType):
-                return None
-
-            property_source = self.__get_materialized_property_source(field_type, property_name)
-            if isinstance(property_source, PrintableMaterializedPropertyGroupItem):
-                return property_source.has_expr
 
         return None  # nothing to optimize
 
