@@ -68,7 +68,18 @@ pub fn router<
         .allow_origin(AllowOrigin::mirror_request());
 
     let test_router = Router::new()
-        .route("/test_black_hole", post(test_endpoint::test_black_hole))
+        .route(
+            "/test/black_hole",
+            post(test_endpoint::test_black_hole)
+                .get(test_endpoint::test_black_hole)
+                .options(v0_endpoint::options),
+        )
+        .route(
+            "/test/black_hole/",
+            post(test_endpoint::test_black_hole)
+                .get(test_endpoint::test_black_hole)
+                .options(v0_endpoint::options),
+        )
         .layer(DefaultBodyLimit::max(BATCH_BODY_SIZE));
 
     let batch_router = Router::new()
