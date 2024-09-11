@@ -17,10 +17,8 @@ from posthog.batch_exports.service import (
     BatchExportSchema,
     acount_failed_batch_export_runs,
     apause_batch_export,
-    cancel_running_batch_export_backfill,
     create_batch_export_backfill,
     create_batch_export_run,
-    running_backfills_for_batch_export,
     update_batch_export_backfill_status,
     update_batch_export_run,
 )
@@ -521,21 +519,6 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
                     "The batch export can be unpaused after addressing any errors."
                 )
 
-        try:
-            total_cancelled = await cancel_running_backfills(
-                inputs.batch_export_id,
-            )
-        except Exception:
-            await logger.aexception("Ongoing backfills could not be automatically cancelled")
-        else:
-            if total_cancelled > 0:
-                await logger.awarning(
-                    f"{total_cancelled} ongoing batch export backfill{'s' if total_cancelled > 1 else ''} "
-                    f"{'were' if total_cancelled > 1 else 'was'} cancelled due to exceeding failure threshold "
-                    " and exhausting all automated retries."
-                    "The backfill can be triggered again after addressing any errors."
-                )
-
     elif batch_export_run.status == BatchExportRun.Status.CANCELLED:
         await logger.awarning("Batch export was cancelled")
 
@@ -603,36 +586,6 @@ async def pause_batch_export_over_failure_threshold(batch_export_id: str) -> boo
     )
 
     return was_paused
-
-
-async def cancel_running_backfills(batch_export_id: str) -> int:
-    """Cancel any running batch export backfills.
-
-    This is intended to be called once a batch export failure threshold has been exceeded.
-
-    Arguments:
-        batch_export_id: The ID of the batch export whose backfills will be cancelled.
-
-    Returns:
-        The number of cancelled backfills, if any.
-    """
-    client = await connect(
-        settings.TEMPORAL_HOST,
-        settings.TEMPORAL_PORT,
-        settings.TEMPORAL_NAMESPACE,
-        settings.TEMPORAL_CLIENT_ROOT_CA,
-        settings.TEMPORAL_CLIENT_CERT,
-        settings.TEMPORAL_CLIENT_KEY,
-    )
-
-    total_cancelled = 0
-
-    async for backfill in running_backfills_for_batch_export(uuid.UUID(batch_export_id)):
-        await cancel_running_batch_export_backfill(client, backfill)
-
-        total_cancelled += 1
-
-    return total_cancelled
 
 
 @dataclasses.dataclass

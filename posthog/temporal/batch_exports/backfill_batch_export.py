@@ -1,5 +1,4 @@
 import asyncio
-import collections.abc
 import dataclasses
 import datetime as dt
 import json
@@ -41,33 +40,15 @@ class HeartbeatDetails(typing.NamedTuple):
     schedule_id: str
     workflow_id: str
     last_batch_data_interval_end: str
+    failure_count: int = 0
 
-    def make_activity_heartbeat_while_running(
-        self, function_to_run: collections.abc.Callable, heartbeat_every: dt.timedelta
-    ) -> collections.abc.Callable[..., collections.abc.Coroutine]:
-        """Return a callable that returns a coroutine that heartbeats with these HeartbeatDetails.
-
-        The returned callable wraps 'function_to_run' while heartbeating every 'heartbeat_every'
-        seconds.
-        """
-
-        async def heartbeat() -> None:
-            """Heartbeat every 'heartbeat_every' seconds."""
-            while True:
-                await asyncio.sleep(heartbeat_every.total_seconds())
-                temporalio.activity.heartbeat(self)
-
-        async def heartbeat_while_running(*args, **kwargs):
-            """Wrap 'function_to_run' to asynchronously heartbeat while awaiting."""
-            heartbeat_task = asyncio.create_task(heartbeat())
-
-            try:
-                return await function_to_run(*args, **kwargs)
-            finally:
-                heartbeat_task.cancel()
-                await asyncio.wait([heartbeat_task])
-
-        return heartbeat_while_running
+    def add_to_failure_count(self, add: int) -> "HeartbeatDetails":
+        return HeartbeatDetails(
+            schedule_id=self.schedule_id,
+            workflow_id=self.workflow_id,
+            last_batch_data_interval_end=self.last_batch_data_interval_end,
+            failure_count=self.failure_count + add,
+        )
 
 
 @temporalio.activity.defn
@@ -111,6 +92,7 @@ class BackfillScheduleInputs:
     end_at: str | None
     frequency_seconds: float
     start_delay: float = 5.0
+    failure_threshold: int = 5
 
 
 def get_utcnow():
@@ -211,11 +193,17 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
                 schedule_id=inputs.schedule_id,
                 workflow_id=workflow_handle.id,
                 last_batch_data_interval_end=starting_details.last_batch_data_interval_end,
+                failure_count=starting_details.failure_count,
             )
 
             try:
                 await workflow_handle.result()
             except temporalio.client.WorkflowFailureError:
+                heartbeater.details = heartbeater.details.add_to_failure_count(1)
+
+                if heartbeater.details.failure_count > inputs.failure_threshold:
+                    raise temporalio.exceptions.CancelledError("Canceled due to exceeding failure threshold")
+
                 await asyncio.sleep(5.0)
 
             # Update start_at to resume from the end of the period we just waited for
@@ -290,12 +278,11 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
             try:
                 await workflow_handle.result()
             except temporalio.client.WorkflowFailureError:
-                # `WorkflowFailureError` includes cancellations, terminations, timeouts, and errors.
-                # Common errors should be handled by the workflow itself (i.e. by retrying an activity).
-                # We briefly sleep to allow heartbeating to potentially receive a cancellation request.
-                # TODO: Log anyways if we land here.
-                # TODO: Consider moving cancellation logic for backfills here. Maybe failure thresholds
-                # for backfills and for pausing a batch export should be separate?
+                heartbeater.details = heartbeater.details.add_to_failure_count(1)
+
+                if heartbeater.details.failure_count > inputs.failure_threshold:
+                    raise temporalio.exceptions.CancelledError("Canceled due to exceeding failure threshold")
+
                 await asyncio.sleep(5.0)
 
 
