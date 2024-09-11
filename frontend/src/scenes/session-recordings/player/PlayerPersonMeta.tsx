@@ -23,7 +23,7 @@ export function PlayerPersonMeta(): JSX.Element {
                     {!sessionPerson ? (
                         <LemonSkeleton.Circle className="w-8 h-8" />
                     ) : (
-                        <PersonDisplay person={sessionPerson} noEllipsis={true}>
+                        <PersonDisplay person={sessionPerson}>
                             <PersonIcon person={sessionPerson} size="md" className="mr-0" />
                         </PersonDisplay>
                     )}

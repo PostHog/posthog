@@ -18,7 +18,6 @@ type PersonPropType =
 export interface PersonDisplayProps {
     person?: PersonPropType | null
     withIcon?: boolean | ProfilePictureProps['size']
-    withDisplay?: boolean
     href?: string
     noLink?: boolean
     noEllipsis?: boolean
@@ -55,7 +54,6 @@ export function PersonIcon({
 export function PersonDisplay({
     person,
     withIcon,
-    withDisplay = true,
     noEllipsis,
     noPopover,
     noLink,
