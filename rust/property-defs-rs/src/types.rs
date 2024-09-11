@@ -439,8 +439,12 @@ impl PropertyDefinition {
     {
         let group_type_index = match &self.group_type_index {
             Some(GroupType::Resolved(_, i)) => Some(*i as i16),
-            _ => {
+            Some(GroupType::Unresolved(_)) => {
                 warn!("Group type not resolved for property definition, skipping");
+                None
+            }
+            _ => {
+                // We don't have a group type, so we don't have a group type index
                 None
             }
         };
