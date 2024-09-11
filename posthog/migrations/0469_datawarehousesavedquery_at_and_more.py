@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0466_alter_externaldatasource_source_type"),
+        ("posthog", "0468_integration_google_pubsub"),
     ]
 
     operations = [
