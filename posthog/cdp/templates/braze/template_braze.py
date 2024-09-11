@@ -8,24 +8,12 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Send events to Braze",
     icon_url="/static/services/braze.png",
     hog="""
-let getEndpoint := () -> {
-  'US-01': 'https://rest.iad-01.braze.com',
-  'US-02': 'https://rest.iad-02.braze.com',
-  'US-03': 'https://rest.iad-03.braze.com',
-  'US-04': 'https://rest.iad-04.braze.com',
-  'US-05': 'https://rest.iad-05.braze.com',
-  'US-06': 'https://rest.iad-06.braze.com',
-  'US-08': 'https://rest.iad-08.braze.com',
-  'EU-01': 'https://rest.fra-01.braze.eu',
-  'EU-02': 'https://rest.fra-02.braze.eu',
-}[inputs.brazeEndpoint]
-
 let getPayload := () -> [{
   'attributes': inputs.attributes,
   'events': [inputs.event]
 }]
 
-let res := fetch(f'{getEndpoint()}/users/track', {
+let res := fetch(f'{inputs.brazeEndpoint}/users/track', {
   'method': 'POST',
   'headers': {
     'Authorization': f'Bearer {inputs.apiKey}',
@@ -47,15 +35,15 @@ if (res.status >= 200 and res.status < 300) {
             "label": "Braze REST Endpoint",
             "description": "The endpoint identifier where your Braze instance is located, see the docs here: https://www.braze.com/docs/api/basics",
             "choices": [
-                {"label": "US-01", "value": "US-01"},
-                {"label": "US-02", "value": "US-02"},
-                {"label": "US-03", "value": "US-03"},
-                {"label": "US-04", "value": "US-04"},
-                {"label": "US-05", "value": "US-05"},
-                {"label": "US-06", "value": "US-06"},
-                {"label": "US-08", "value": "US-08"},
-                {"label": "EU-01", "value": "EU-01"},
-                {"label": "EU-02", "value": "EU-02"},
+                {"label": "US-01", "value": "https://rest.iad-01.braze.com"},
+                {"label": "US-02", "value": "https://rest.iad-02.braze.com"},
+                {"label": "US-03", "value": "https://rest.iad-03.braze.com"},
+                {"label": "US-04", "value": "https://rest.iad-04.braze.com"},
+                {"label": "US-05", "value": "https://rest.iad-05.braze.com"},
+                {"label": "US-06", "value": "https://rest.iad-06.braze.com"},
+                {"label": "US-08", "value": "https://rest.iad-08.braze.com"},
+                {"label": "EU-01", "value": "https://rest.fra-01.braze.eu"},
+                {"label": "EU-02", "value": "https://rest.fra-02.braze.eu"},
             ],
             "default": "",
             "secret": False,
@@ -81,7 +69,7 @@ if (res.status >= 200 and res.status < 300) {
         {
             "key": "event",
             "type": "json",
-            "label": "Event to send",
+            "label": "Event payload",
             "default": {
                 "properties": "{event.properties}",
                 "external_id": "{event.distinct_id}",
