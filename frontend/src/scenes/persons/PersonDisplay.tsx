@@ -80,7 +80,7 @@ export function PersonDisplay({
     let content = children || (
         <span className={clsx('flex items-center', isCentered && 'justify-center')}>
             {withIcon && <PersonIcon person={person} size={typeof withIcon === 'string' ? withIcon : 'md'} />}
-            {withDisplay && <span className={clsx('ph-no-capture', !noEllipsis && 'truncate')}>{display}</span>}
+            <span className={clsx('ph-no-capture', !noEllipsis && 'truncate')}>{display}</span>
         </span>
     )
 
