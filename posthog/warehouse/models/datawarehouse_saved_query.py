@@ -1,20 +1,21 @@
 import re
+from typing import Any, Optional
+
 from django.core.exceptions import ValidationError
 from django.db import models
-from typing import Optional, Any
 
-from posthog.hogql.database.database import Database
-from posthog.hogql.database.models import SavedQuery, FieldOrTable
 from posthog.hogql import ast
+from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import FieldOrTable, SavedQuery
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDModel
-from posthog.warehouse.models.util import (
-    remove_named_tuples,
-    CLICKHOUSE_HOGQL_MAPPING,
-    clean_type,
-    STR_TO_HOGQL_MAPPING,
-)
 from posthog.schema import HogQLQueryModifiers
+from posthog.warehouse.models.util import (
+    CLICKHOUSE_HOGQL_MAPPING,
+    STR_TO_HOGQL_MAPPING,
+    clean_type,
+    remove_named_tuples,
+)
 
 
 def validate_saved_query_name(value):
@@ -37,6 +38,14 @@ def validate_saved_query_name(value):
 
 
 class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
+    class Status(models.TextChoices):
+        """Possible states of this SavedQuery."""
+
+        CANCELLED = "Cancelled"
+        COMPLETED = "Completed"
+        FAILED = "Failed"
+        RUNNING = "Running"
+
     name = models.CharField(max_length=128, validators=[validate_saved_query_name])
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     columns = models.JSONField(
@@ -47,6 +56,13 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
     )
     external_tables = models.JSONField(default=list, null=True, blank=True, help_text="List of all external tables")
     query = models.JSONField(default=dict, null=True, blank=True, help_text="HogQL query")
+    status = models.CharField(
+        null=True, choices=Status.choices, max_length=64, help_text="The status of when this SavedQuery last ran."
+    )
+    last_run_at = models.DateTimeField(
+        null=True,
+        help_text="The timestamp of this SavedQuery's last run (if any).",
+    )
 
     class Meta:
         constraints = [

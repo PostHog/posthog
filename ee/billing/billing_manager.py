@@ -336,6 +336,7 @@ class BillingManager:
 
     def get_invoices(self, organization: Organization, status: Optional[str]):
         res = requests.get(
+            # TODO(@zach): update this to /api/invoices
             f"{BILLING_SERVICE_URL}/api/billing/get_invoices",
             params={"status": status},
             headers=self.get_auth_headers(organization),
@@ -346,3 +347,24 @@ class BillingManager:
         data = res.json()
 
         return data
+
+    def credits_overview(self, organization: Organization):
+        res = requests.get(
+            f"{BILLING_SERVICE_URL}/api/credits/overview",
+            headers=self.get_auth_headers(organization),
+        )
+
+        handle_billing_service_error(res)
+
+        return res.json()
+
+    def purchase_credits(self, organization: Organization, data: dict[str, Any]):
+        res = requests.post(
+            f"{BILLING_SERVICE_URL}/api/credits/purchase",
+            headers=self.get_auth_headers(organization),
+            json=data,
+        )
+
+        handle_billing_service_error(res)
+
+        return res.json()

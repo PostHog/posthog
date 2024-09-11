@@ -469,6 +469,12 @@ export interface SessionRecordingAIConfig {
     important_user_properties: string[]
 }
 
+export interface ProjectType {
+    id: number
+    name: string
+    organization_id: string
+    created_at: string
+}
 export interface TeamType extends TeamBasicType {
     created_at: string
     updated_at: string
@@ -568,6 +574,7 @@ export interface ActionStepType {
     url?: string | null
     /** @default StringMatching.Contains */
     url_matching?: ActionStepStringMatching | null
+    name?: string | null
 }
 
 export interface ElementType {
@@ -1805,6 +1812,9 @@ export interface DashboardTemplateVariableType {
     default: Record<string, JsonType>
     required: boolean
     touched?: boolean
+    selector?: string
+    href?: string
+    url?: string
 }
 
 export type DashboardLayoutSize = 'sm' | 'xs'
@@ -2134,6 +2144,17 @@ export interface FilterType {
     breakdown_hide_other_aggregation?: boolean | null
     breakdown_limit?: integer | null
     aggregation_group_type_index?: integer // Groups aggregation
+}
+
+export interface TemplateVariableStep {
+    id: string
+    math: BaseMathType
+    name: string | null
+    order: number
+    type: EntityTypes
+    selector?: string | null
+    href?: string | null
+    url?: string | null
 }
 
 export interface PropertiesTimelineFilterType {
@@ -3273,6 +3294,7 @@ export type EventOrPropType = EventDefinition & PropertyDefinition
 
 export interface AppContext {
     current_user: UserType | null
+    current_project: ProjectType | null
     current_team: TeamType | TeamPublicType | null
     preflight: PreflightStatus
     default_event_name: string
@@ -3564,7 +3586,7 @@ export enum EventDefinitionType {
     EventPostHog = 'event_posthog',
 }
 
-export type IntegrationKind = 'slack' | 'salesforce' | 'hubspot'
+export type IntegrationKind = 'slack' | 'salesforce' | 'hubspot' | 'google-pubsub'
 
 export interface IntegrationType {
     id: number
