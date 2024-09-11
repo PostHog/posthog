@@ -13,8 +13,8 @@ RENAME TABLE {table} TO {new_table} ON CLUSTER {cluster}
 
 def add_events_non_deleted_view(_):
     with ch_pool.get_client() as client:
-        client.execute(RENAME_EVENTS_TABLE.format(
-            table="events", new_table=f"distributed_events", cluster=CLICKHOUSE_CLUSTER)
+        client.execute(
+            RENAME_EVENTS_TABLE.format(table="events", new_table=f"distributed_events", cluster=CLICKHOUSE_CLUSTER)
         )
         client.execute(EVENTS_NON_DELETED_VIEW_SQL())
 

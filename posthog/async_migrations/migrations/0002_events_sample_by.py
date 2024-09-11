@@ -73,8 +73,9 @@ class Migration(AsyncMigrationDefinition):
     def operations(self):
         if self._events_table_engine() in ("Distributed", "View"):
             # Note: This _should_ be impossible but hard to ensure.
-            raise RuntimeError("Cannot run the migration as `events` table is already Distributed engine or a View (in this case, the distributed events table would be distributed_events).")
-
+            raise RuntimeError(
+                "Cannot run the migration as `events` table is already Distributed engine or a View (in this case, the distributed events table would be distributed_events)."
+            )
         create_table_op: list[AsyncMigrationOperation] = [
             AsyncMigrationOperationSQL(
                 database=AnalyticsDBMS.CLICKHOUSE,
