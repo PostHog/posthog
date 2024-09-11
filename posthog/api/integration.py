@@ -1,3 +1,5 @@
+import json
+
 from typing import Any
 
 from django.http import HttpResponse
@@ -10,7 +12,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.models.integration import Integration, OauthIntegration, SlackIntegration
+from posthog.models.integration import Integration, OauthIntegration, SlackIntegration, GoogleCloudIntegration
 
 
 class IntegrationSerializer(serializers.ModelSerializer):
@@ -27,7 +29,17 @@ class IntegrationSerializer(serializers.ModelSerializer):
         request = self.context["request"]
         team_id = self.context["team_id"]
 
-        if validated_data["kind"] in OauthIntegration.supported_kinds:
+        if validated_data["kind"] in GoogleCloudIntegration.supported_kinds:
+            key_file = request.FILES.get("key")
+            if not key_file:
+                raise ValidationError("Key file not provided")
+            key_info = json.loads(key_file.read().decode("utf-8"))
+            instance = GoogleCloudIntegration.integration_from_key(
+                validated_data["kind"], key_info, team_id, request.user
+            )
+            return instance
+
+        elif validated_data["kind"] in OauthIntegration.supported_kinds:
             try:
                 instance = OauthIntegration.integration_from_oauth_response(
                     validated_data["kind"], team_id, request.user, validated_data["config"]
