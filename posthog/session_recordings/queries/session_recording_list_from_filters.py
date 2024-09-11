@@ -463,7 +463,10 @@ class ReplayFiltersEventsSubQuery:
     def _select_from_events(self, select_expr: ast.Expr) -> ast.SelectQuery:
         return ast.SelectQuery(
             select=[select_expr],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            select_from=ast.JoinExpr(
+                table=ast.Field(chain=["events"]),
+                join_type="LEFT JOIN",
+            ),
             where=self._where_predicates(),
             having=self._having_predicates(),
             group_by=[ast.Field(chain=["$session_id"])],
