@@ -10,7 +10,7 @@ class TestTemplateBraze(BaseHogFunctionTemplateTest):
     def test_function_works(self):
         res = self.run_function(
             inputs={
-                "brazeEndpoint": "EU-01",
+                "brazeEndpoint": "https://rest.fra-01.braze.eu",
                 "apiKey": "my_secret_key",
                 "attributes": {"email": "{person.properties.email}"},
                 "event": {
