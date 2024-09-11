@@ -14,7 +14,7 @@ import {
     HogFunctionQueueParametersFetchResponse,
     HogFunctionType,
 } from './types'
-import { convertToHogFunctionFilterGlobal, queueBlobToString } from './utils'
+import { convertToHogFunctionFilterGlobal } from './utils'
 
 const MAX_ASYNC_STEPS = 2
 const MAX_HOG_LOGS = 10
@@ -160,16 +160,9 @@ export class HogExecutor {
                     error,
                     timings = [],
                 } = invocation.queueParameters as HogFunctionQueueParametersFetchResponse
-                let responseBody: any = undefined
-                if (response) {
-                    // Convert from buffer to string
-                    responseBody = queueBlobToString(invocation.queueBlob)
-                }
-
                 // Reset the queue parameters to be sure
                 invocation.queue = 'hog'
                 invocation.queueParameters = undefined
-                invocation.queueBlob = undefined
 
                 const status = typeof response?.status === 'number' ? response.status : 503
 
@@ -191,22 +184,19 @@ export class HogExecutor {
                     throw new Error(error)
                 }
 
-                if (typeof responseBody === 'string') {
+                if (typeof response?.body === 'string') {
                     try {
-                        responseBody = JSON.parse(responseBody)
+                        response.body = JSON.parse(response.body)
                     } catch (e) {
                         // pass - if it isn't json we just pass it on
                     }
                 }
 
                 // Finally we create the response object as the VM expects
-                const fetchResponse = {
+                invocation.vmState!.stack.push({
                     status,
-                    body: responseBody,
-                }
-
-                // Add the response to the stack to continue execution
-                invocation.vmState!.stack.push(fetchResponse)
+                    body: response?.body,
+                })
                 invocation.timings.push(...timings)
                 result.logs = [...logs, ...result.logs]
             }
@@ -352,11 +342,10 @@ export class HogExecutor {
                             result.invocation.queueParameters = {
                                 url,
                                 method,
+                                body,
                                 headers,
                                 return_queue: 'hog',
                             }
-                            // The payload is always blob encoded
-                            result.invocation.queueBlob = body ? Buffer.from(body) : undefined
                             break
                         default:
                             throw new Error(`Unknown async function '${execRes.asyncFunctionName}'`)
