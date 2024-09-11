@@ -108,7 +108,7 @@ export function PlayerSidebar({
                     )}
                 </>
             ) : (
-                <div className="flex flex-col items-center gap-1 p-1">
+                <div className="flex flex-col items-center gap-1 px-1 pt-2">
                     <PlayerPersonMeta />
                     {Object.values(TabToIcon).map((Icon, idx) => {
                         return Icon ? (
