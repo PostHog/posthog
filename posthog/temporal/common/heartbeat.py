@@ -29,7 +29,7 @@ class Heartbeater:
     @property
     def details(self) -> tuple[typing.Any, ...]:
         """Return details if available, otherwise an empty tuple."""
-        return self._details
+        return self._details or ()
 
     @details.setter
     def details(self, details: tuple[typing.Any, ...]) -> None:

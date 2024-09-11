@@ -551,7 +551,7 @@ async def check_if_over_failure_threshold(batch_export_id: str, check_window: in
     """Check if a given batch export is over failure threshold.
 
     A 'check_window' was added to account for batch exports that have a history of failures but have some
-    occassional successes in the middle. This is relevant particularly for low-volume exports:
+    occasional successes in the middle. This is relevant particularly for low-volume exports:
     A batch export without rows to export always succeeds, even if it's not properly configured. So, the failures
     could be scattered between these successes.
 
