@@ -14,6 +14,7 @@ import { urls } from 'scenes/urls'
 import {
     NodeKind,
     QuerySchema,
+    WebAnalyticsConversionGoal,
     WebAnalyticsPropertyFilter,
     WebAnalyticsPropertyFilters,
     WebStatsBreakdown,
@@ -182,10 +183,6 @@ export interface WebAnalyticsStatusCheck {
     isSendingPageLeavesScroll: boolean
 }
 
-export type WebAnalyticsConversionGoal = {
-    actionId: number
-}
-
 export const GEOIP_PLUGIN_URLS = [
     'https://github.com/PostHog/posthog-plugin-geoip',
     'https://www.npmjs.com/package/@posthog/geoip-plugin',
@@ -253,7 +250,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setShouldStripQueryParams: (shouldStripQueryParams: boolean) => ({
             shouldStripQueryParams,
         }),
-        setConversionGoal: (conversionGoal: WebAnalyticsConversionGoal) => ({ conversionGoal }),
+        setConversionGoal: (conversionGoal: WebAnalyticsConversionGoal | null) => ({ conversionGoal }),
         setStateFromUrl: (state: {
             filters: WebAnalyticsPropertyFilters
             dateFrom: string | null
@@ -486,41 +483,48 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         pathTab: [(s) => [s._pathTab], (pathTab: string | null) => pathTab || PathTab.PATH],
         geographyTab: [(s) => [s._geographyTab], (geographyTab: string | null) => geographyTab || GeographyTab.MAP],
         tabs: [
-            (s) => [s.graphsTab, s.sourceTab, s.deviceTab, s.pathTab, s.geographyTab],
-            (graphsTab, sourceTab, deviceTab, pathTab, geographyTab) => ({
+            (s) => [
+                s.graphsTab,
+                s.sourceTab,
+                s.deviceTab,
+                s.pathTab,
+                s.geographyTab,
+                () => values.shouldShowGeographyTile,
+            ],
+            (graphsTab, sourceTab, deviceTab, pathTab, geographyTab, shouldShowGeographyTile) => ({
                 graphsTab,
                 sourceTab,
                 deviceTab,
                 pathTab,
                 geographyTab,
+                shouldShowGeographyTile,
+            }),
+        ],
+        controls: [
+            (s) => [s.isPathCleaningEnabled, s.shouldFilterTestAccounts, s.shouldStripQueryParams],
+            (isPathCleaningEnabled, filterTestAccounts, shouldStripQueryParams) => ({
+                isPathCleaningEnabled,
+                filterTestAccounts,
+                shouldStripQueryParams,
+            }),
+        ],
+        filters: [
+            (s) => [s.webAnalyticsFilters, s.replayFilters, s.dateFilter, () => values.conversionGoal],
+            (webAnalyticsFilters, replayFilters, dateFilter, conversionGoal) => ({
+                webAnalyticsFilters,
+                replayFilters,
+                dateFilter,
+                conversionGoal: conversionGoal ?? undefined,
             }),
         ],
         tiles: [
-            (s) => [
-                s.webAnalyticsFilters,
-                s.replayFilters,
-                s.tabs,
-                s.dateFilter,
-                s.isPathCleaningEnabled,
-                s.shouldFilterTestAccounts,
-                () => values.statusCheck,
-                () => values.isGreaterThanMd,
-                () => values.shouldShowGeographyTile,
-                () => values.featureFlags,
-                () => values.shouldStripQueryParams,
-            ],
+            (s) => [s.tabs, s.controls, s.filters, () => values.featureFlags, () => values.isGreaterThanMd],
             (
-                webAnalyticsFilters,
-                replayFilters,
-                { graphsTab, sourceTab, deviceTab, pathTab, geographyTab },
-                { dateFrom, dateTo, interval },
-                isPathCleaningEnabled,
-                filterTestAccounts,
-                _statusCheck,
-                isGreaterThanMd,
-                shouldShowGeographyTile,
+                { graphsTab, sourceTab, deviceTab, pathTab, geographyTab, shouldShowGeographyTile },
+                { isPathCleaningEnabled, filterTestAccounts, shouldStripQueryParams },
+                { webAnalyticsFilters, replayFilters, dateFilter: { dateFrom, dateTo, interval }, conversionGoal },
                 featureFlags,
-                shouldStripQueryParams
+                isGreaterThanMd
             ): WebDashboardTile[] => {
                 const dateRange = {
                     date_from: dateFrom,
@@ -555,6 +559,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             sampling,
                             compare,
                             filterTestAccounts,
+                            conversionGoal,
                         },
                         insightProps: createInsightProps(TileId.OVERVIEW),
                         canOpenModal: false,
