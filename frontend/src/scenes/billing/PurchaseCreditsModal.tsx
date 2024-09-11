@@ -183,11 +183,15 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                                 options={[
                                     {
                                         value: 'charge_automatically',
-                                        label: `Pay with credit card on file (**** ${selfServeCreditOverview.cc_last_four})`,
+                                        label: selfServeCreditOverview.cc_last_four
+                                            ? `Pay with credit card on file (**** ${selfServeCreditOverview.cc_last_four})`
+                                            : 'Pay with credit card on file',
                                     },
                                     {
                                         value: 'send_invoice',
-                                        label: `Send me an invoice to ${selfServeCreditOverview.email}`,
+                                        label: selfServeCreditOverview.email
+                                            ? `Send me an invoice to ${selfServeCreditOverview.email}`
+                                            : 'Send me an invoice',
                                     },
                                 ]}
                             />
