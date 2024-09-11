@@ -13,6 +13,7 @@ import { SessionRecordingSidebarTab } from '~/types'
 
 import { PlayerInspectorControls, TabToIcon } from './inspector/PlayerInspectorControls'
 import { PlayerInspectorList } from './inspector/PlayerInspectorList'
+import { PlayerPersonMeta } from './PlayerPersonMeta'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { playerSidebarLogic } from './sidebar/playerSidebarLogic'
 
@@ -68,7 +69,7 @@ export function PlayerSidebar({
         >
             <Resizer
                 logicKey={logicKey}
-                placement={isVerticallyStacked ? 'top' : 'left'}
+                placement={sidebarOpen && isVerticallyStacked ? 'top' : 'left'}
                 containerRef={ref}
                 closeThreshold={100}
             />
@@ -108,6 +109,7 @@ export function PlayerSidebar({
                 </>
             ) : (
                 <div className="flex flex-col items-center gap-1 p-1">
+                    <PlayerPersonMeta />
                     {Object.values(TabToIcon).map((Icon, idx) => {
                         return Icon ? (
                             <LemonButton
