@@ -3,12 +3,14 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
 import React, { useState } from 'react'
 import { WebAnalyticsErrorTrackingTile } from 'scenes/web-analytics/tiles/WebAnalyticsErrorTracking'
@@ -40,6 +42,8 @@ const Filters = (): JSX.Element => {
     } = useValues(webAnalyticsLogic)
     const { setWebAnalyticsFilters, setDates } = useActions(webAnalyticsLogic)
     const { mobileLayout } = useValues(navigationLogic)
+    const { conversionGoal } = useValues(webAnalyticsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <div
@@ -54,7 +58,9 @@ const Filters = (): JSX.Element => {
                     setWebAnalyticsFilters={setWebAnalyticsFilters}
                     webAnalyticsFilters={webAnalyticsFilters}
                 />
-                <WebConversionGoal />
+                {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOALS] || conversionGoal ? (
+                    <WebConversionGoal />
+                ) : null}
                 <ReloadAll />
             </div>
             <div className="bg-border h-px w-full mt-2" />
