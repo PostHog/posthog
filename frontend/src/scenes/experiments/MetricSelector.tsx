@@ -170,7 +170,7 @@ export function AttributionSelect({ insightProps }: EditorFilterProps): JSX.Elem
                             <div>
                                 When breaking down funnels, it's possible that the same properties don't exist on every
                                 event. For example, if you want to break down by browser on a funnel that contains both
-                                of frontend and backend events.
+                                frontend and backend events.
                             </div>
                             <div>
                                 In this case, you can choose from which step the properties should be selected from by

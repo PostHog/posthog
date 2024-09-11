@@ -195,7 +195,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                                               <div>
                                                   When breaking down funnels, it's possible that the same properties
                                                   don't exist on every event. For example, if you want to break down by
-                                                  browser on a funnel that contains both of frontend and backend events.
+                                                  browser on a funnel that contains both frontend and backend events.
                                               </div>
                                               <div>
                                                   In this case, you can choose from which step the properties should be
