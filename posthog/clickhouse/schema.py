@@ -50,7 +50,6 @@ from posthog.models.event.sql import (
     WRITABLE_EVENTS_TABLE_SQL,
     KAFKA_EVENTS_TABLE_JSON_SQL,
     DISTRIBUTED_EVENTS_TABLE_SQL,
-    EVENTS_NON_DELETED_VIEW_SQL,
 )
 from posthog.models.group.sql import (
     GROUPS_TABLE_SQL,
@@ -213,7 +212,7 @@ CREATE_DICTIONARY_QUERIES = (PERSON_OVERRIDES_CREATE_DICTIONARY_SQL, CHANNEL_DEF
 
 CREATE_DATA_QUERIES = (CHANNEL_DEFINITION_DATA_SQL(),)
 
-CREATE_VIEW_QUERIES = (SESSIONS_VIEW_SQL, RAW_SESSIONS_VIEW_SQL, EVENTS_NON_DELETED_VIEW_SQL)
+CREATE_VIEW_QUERIES = (SESSIONS_VIEW_SQL, RAW_SESSIONS_VIEW_SQL)
 
 build_query = lambda query: query if isinstance(query, str) else query()
 get_table_name = lambda query: re.findall(r"[\.\s]`?([a-z0-9_]+)`?\s+ON CLUSTER", build_query(query))[0]

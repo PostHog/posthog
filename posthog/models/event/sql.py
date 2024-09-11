@@ -218,8 +218,8 @@ DISTRIBUTED_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
     indexes="",
 )
 # This view automatically filters out deleted events
-EVENTS_NON_DELETED_VIEW_SQL = lambda name="events": EVENTS_VIEW_NON_DELETED_BASE_SQL.format(
-    view=name,
+EVENTS_NON_DELETED_VIEW_SQL = lambda: EVENTS_VIEW_NON_DELETED_BASE_SQL.format(
+    view="events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     table="distributed_events",  # This is the DISTRIBUTED_EVENTS_TABLE_SQL name after its rename in migration 0079
 )
