@@ -944,7 +944,7 @@ class _Printer(Visitor):
             return expr_type
 
         match node:
-            case ast.Call(name="isNull" | "isNotNull", args=[field]):
+            case ast.Call(name="isNull" | "isNotNull" as function_name, args=[field]):
                 # TODO: can probably optimize chained operations, but will need more thought
                 field_type = resolve_field_type(field)
                 if isinstance(field_type, ast.PropertyType) and len(field_type.chain) == 1:
@@ -952,16 +952,16 @@ class _Printer(Visitor):
                     if not isinstance(property_source, PrintableMaterializedPropertyGroupItem):
                         return None
 
-                    match node.name:
+                    match function_name:
                         case "isNull":
                             return f"not({property_source.has_expr})"
                         case "isNotNull":
                             return property_source.has_expr
                         case _:
-                            raise ValueError(f"unexpected node name: {node.name}")
+                            raise ValueError(f"unexpected node name: {function_name}")
             case ast.Call(name="JSONHas", args=[field, ast.Constant(value=property_name)]):
                 # TODO: can probably optimize chained operations here as well
-                field_type = resolve_field_type(node.args[0])
+                field_type = resolve_field_type(field)
                 if not isinstance(field_type, ast.FieldType):
                     return None
 
