@@ -1,6 +1,5 @@
 # Web app specific settings/middleware/apps setup
 import os
-from typing import List
 from datetime import timedelta
 
 from corsheaders.defaults import default_headers
@@ -29,7 +28,8 @@ DECIDE_BUCKET_REPLENISH_RATE = get_from_env("DECIDE_BUCKET_REPLENISH_RATE", type
 
 # This is a list of team-ids that are prevented from using the /decide endpoint
 # until they fix an issue with their feature flags causing instability in posthog.
-DECIDE_SHORT_CIRCUITED_TEAM_IDS = []  # type: List[int]
+# DECIDE_SHORT_CIRCUITED_TEAM_IDS = []  # type: List[int]
+
 # Decide db settings
 
 DECIDE_SKIP_POSTGRES_FLAGS = get_from_env("DECIDE_SKIP_POSTGRES_FLAGS", False, type_cast=str_to_bool)
