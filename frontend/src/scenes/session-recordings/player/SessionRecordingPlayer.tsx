@@ -217,7 +217,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                 ) : (
                                     <div className="flex w-full h-full">
                                         <div className="flex flex-col flex-1 w-full">
-                                            {playbackViewMode === PlaybackViewMode.Playback ? (
+                                            {playbackViewMode === PlaybackViewMode.Recording ? (
                                                 <>
                                                     {!noMeta || isFullScreen ? <PlayerMeta /> : null}
 

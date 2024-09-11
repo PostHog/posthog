@@ -23,7 +23,7 @@ export enum TimestampFormat {
 }
 
 export enum PlaybackViewMode {
-    Playback = 'playback',
+    Recording = 'recording',
     Waterfall = 'waterfall',
 }
 
@@ -214,7 +214,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             },
         ],
         playbackViewMode: [
-            PlaybackViewMode.Playback as PlaybackViewMode,
+            PlaybackViewMode.Recording as PlaybackViewMode,
             { persist: true },
             {
                 setPlaybackViewMode: (_, { mode }) => mode,
