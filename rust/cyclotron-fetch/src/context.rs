@@ -1,7 +1,11 @@
 use std::sync::{Arc, RwLock};
 
+use common_kafka::config::KafkaConfig;
+use common_kafka::kafka_producer::create_kafka_producer;
+use common_kafka::kafka_producer::KafkaContext;
 use cyclotron_core::{PoolConfig, Worker, SHARD_ID_KEY};
 use health::HealthHandle;
+use rdkafka::producer::FutureProducer;
 use tokio::sync::Semaphore;
 
 use crate::{config::AppConfig, fetch::FetchError};
@@ -9,6 +13,7 @@ use crate::{config::AppConfig, fetch::FetchError};
 pub struct AppContext {
     pub worker: Worker,
     pub client: reqwest::Client,
+    pub kafka_producer: FutureProducer<KafkaContext>,
     pub concurrency_limit: Arc<Semaphore>,
     pub liveness: HealthHandle,
     pub config: AppConfig,
@@ -19,7 +24,9 @@ impl AppContext {
     pub async fn create(
         config: AppConfig,
         pool_config: PoolConfig,
+        kafka_config: KafkaConfig,
         liveness: HealthHandle,
+        kafka_liveness: HealthHandle,
     ) -> Result<Self, FetchError> {
         let concurrency_limit = Arc::new(Semaphore::new(config.concurrent_requests_limit as usize));
 
@@ -51,9 +58,14 @@ impl AppContext {
             ("queue_served".to_string(), config.queue_served.clone()),
         ];
 
+        let kafka_producer = create_kafka_producer(&kafka_config, kafka_liveness)
+            .await
+            .expect("failed to create kafka producer");
+
         Ok(Self {
             worker,
             client,
+            kafka_producer,
             concurrency_limit,
             liveness,
             config,

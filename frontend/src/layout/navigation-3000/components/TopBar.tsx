@@ -66,17 +66,13 @@ export function TopBar(): JSX.Element | null {
 
     return breadcrumbs.length ? (
         <div
-            className="TopBar3000"
+            className={clsx(
+                'TopBar3000',
+                effectiveCompactionRate === 0 && 'TopBar3000--full',
+                effectiveCompactionRate === 1 && 'TopBar3000--compact'
+            )}
             // eslint-disable-next-line react/forbid-dom-props
-            style={
-                {
-                    '--breadcrumbs-compaction-rate': effectiveCompactionRate,
-                    // It wouldn't be necessary to set visibility, but for some reason without this positioning
-                    // of breadcrumbs becomes borked when entering title editing mode
-                    '--breadcrumbs-title-large-visibility': effectiveCompactionRate === 1 ? 'hidden' : 'visible',
-                    '--breadcrumbs-title-small-visibility': effectiveCompactionRate === 0 ? 'hidden' : 'visible',
-                } as React.CSSProperties
-            }
+            style={{ '--breadcrumbs-compaction-rate': effectiveCompactionRate } as React.CSSProperties}
         >
             <div className="TopBar3000__content">
                 {mobileLayout && (

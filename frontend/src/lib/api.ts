@@ -766,6 +766,11 @@ class ApiRequest {
         return apiRequest
     }
 
+    // Chat
+    public chat(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('query').addPathComponent('chat')
+    }
+
     // Notebooks
     public notebooks(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('notebooks')
@@ -1736,7 +1741,7 @@ const api = {
     errorTracking: {
         async update(
             fingerprint: ErrorTrackingGroup['fingerprint'],
-            data: Partial<Pick<ErrorTrackingGroup, 'assignee'>>
+            data: Partial<Pick<ErrorTrackingGroup, 'assignee' | 'status'>>
         ): Promise<ErrorTrackingGroup> {
             return await new ApiRequest().errorTrackingGroup(fingerprint).update({ data })
         },
@@ -2067,6 +2072,18 @@ const api = {
         ): Promise<DataWarehouseSavedQuery> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).update({ data })
         },
+        async ancestors(viewId: DataWarehouseSavedQuery['id'], level?: number): Promise<Record<string, string[]>> {
+            return await new ApiRequest()
+                .dataWarehouseSavedQuery(viewId)
+                .withAction('ancestors')
+                .create({ data: { level } })
+        },
+        async descendants(viewId: DataWarehouseSavedQuery['id'], level?: number): Promise<Record<string, string[]>> {
+            return await new ApiRequest()
+                .dataWarehouseSavedQuery(viewId)
+                .withAction('descendants')
+                .create({ data: { level } })
+        },
     },
     externalDataSources: {
         async list(options?: ApiMethodOptions | undefined): Promise<PaginatedResponse<ExternalDataStripeSource>> {
@@ -2307,6 +2324,14 @@ const api = {
         return await new ApiRequest()
             .query()
             .create({ ...options, data: { query, client_query_id: queryId, refresh: refreshParam } })
+    },
+
+    chatURL: (): string => {
+        return new ApiRequest().chat().assembleFullUrl()
+    },
+
+    async chat(data: any): Promise<Response> {
+        return await api.createResponse(this.chatURL(), data)
     },
 
     /** Fetch data from specified URL. The result already is JSON-parsed. */

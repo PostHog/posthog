@@ -23,8 +23,6 @@ const extraServerConfig: Partial<PluginsServerConfig> = {
     WORKER_CONCURRENCY: 1,
     KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
     LOG_LEVEL: LogLevel.Log,
-    CONVERSION_BUFFER_ENABLED: true,
-    BUFFER_CONVERSION_SECONDS: 1,
 }
 
 // TODO: merge these tests with postgres/e2e.test.ts

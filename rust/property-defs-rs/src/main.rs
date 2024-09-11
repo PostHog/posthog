@@ -6,12 +6,13 @@ use envconfig::Envconfig;
 use futures::future::ready;
 use property_defs_rs::{
     app_context::AppContext,
-    config::Config,
+    config::{Config, TeamFilterMode, TeamList},
     message_to_event,
     metrics_consts::{
         BATCH_ACQUIRE_TIME, CACHE_CONSUMED, COMPACTED_UPDATES, EVENTS_RECEIVED, FORCED_SMALL_BATCH,
-        PERMIT_WAIT_TIME, RECV_DEQUEUED, TRANSACTION_LIMIT_SATURATION, UPDATES_FILTERED_BY_CACHE,
-        UPDATES_PER_EVENT, UPDATES_SEEN, UPDATE_ISSUE_TIME, WORKER_BLOCKED,
+        PERMIT_WAIT_TIME, RECV_DEQUEUED, SKIPPED_DUE_TO_TEAM_FILTER, TRANSACTION_LIMIT_SATURATION,
+        UPDATES_FILTERED_BY_CACHE, UPDATES_PER_EVENT, UPDATES_SEEN, UPDATE_ISSUE_TIME,
+        WORKER_BLOCKED,
     },
     types::Update,
 };
@@ -30,6 +31,8 @@ use tokio::{
 };
 use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
+
+common_alloc::used!();
 
 fn setup_tracing() {
     let log_layer: tracing_subscriber::filter::Filtered<
@@ -68,6 +71,8 @@ async fn spawn_producer_loop(
     shared_cache: Arc<Cache<Update, ()>>,
     skip_threshold: usize,
     compaction_batch_size: usize,
+    team_filter_mode: TeamFilterMode,
+    team_list: TeamList,
 ) {
     let mut batch = AHashSet::with_capacity(compaction_batch_size);
     let mut last_send = tokio::time::Instant::now();
@@ -81,6 +86,11 @@ async fn spawn_producer_loop(
             continue;
         };
 
+        if !team_filter_mode.should_process(&team_list.teams, event.team_id) {
+            metrics::counter!(SKIPPED_DUE_TO_TEAM_FILTER).increment(1);
+            continue;
+        }
+
         let updates = event.into_updates(skip_threshold);
 
         metrics::counter!(EVENTS_RECEIVED).increment(1);
@@ -93,27 +103,34 @@ async fn spawn_producer_loop(
                 continue;
             }
             batch.insert(update);
+        }
 
-            if batch.len() >= compaction_batch_size || last_send.elapsed() > Duration::from_secs(10)
-            {
-                last_send = tokio::time::Instant::now();
-                for update in batch.drain() {
-                    if shared_cache.get(&update).is_some() {
-                        metrics::counter!(UPDATES_FILTERED_BY_CACHE).increment(1);
-                        continue;
+        // We do the full batch insert before checking the time/batch size, because if we did this
+        // inside the for update in updates loop, under extremely low-load situations, we'd push a
+        // single update into the channel, then push the rest into the batch, and loop around to
+        // wait on the next event, which might come an arbitrary amount of time later. This bit me
+        // in testing, and while it's not a correctness problem and under normal load we'd never
+        // see it, we may as well just do the full batch insert first.
+        if batch.len() >= compaction_batch_size || last_send.elapsed() > Duration::from_secs(10) {
+            last_send = tokio::time::Instant::now();
+            for update in batch.drain() {
+                if shared_cache.get(&update).is_some() {
+                    metrics::counter!(UPDATES_FILTERED_BY_CACHE).increment(1);
+                    continue;
+                }
+                shared_cache.insert(update.clone(), ());
+                match channel.try_send(update) {
+                    Ok(_) => {}
+                    Err(TrySendError::Full(update)) => {
+                        warn!("Worker blocked");
+                        metrics::counter!(WORKER_BLOCKED).increment(1);
+                        // Workers should just die if the channel is dropped, since that indicates
+                        // the main loop is dead.
+                        channel.send(update).await.unwrap();
                     }
-                    shared_cache.insert(update.clone(), ());
-                    match channel.try_send(update) {
-                        Ok(_) => {}
-                        Err(TrySendError::Full(update)) => {
-                            warn!("Worker blocked");
-                            metrics::counter!(WORKER_BLOCKED).increment(1);
-                            channel.send(update).await.unwrap();
-                        }
-                        Err(e) => {
-                            warn!("Coordinator send failed: {:?}", e);
-                            return;
-                        }
+                    Err(e) => {
+                        warn!("Coordinator send failed: {:?}", e);
+                        return;
                     }
                 }
             }
@@ -151,6 +168,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             cache.clone(),
             config.update_count_skip_threshold,
             config.compaction_batch_size,
+            config.filter_mode.clone(),
+            config.filtered_teams.clone(),
         ));
     }
 
@@ -187,16 +206,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         batch_time.fin();
 
-        metrics::gauge!(CACHE_CONSUMED).set(cache.len() as f64);
-
         metrics::gauge!(TRANSACTION_LIMIT_SATURATION).set(
             (config.max_concurrent_transactions - transaction_limit.available_permits()) as f64,
         );
 
-        // We unconditionally wait to acquire a transaction permit - this is our backpressure mechanism. If we
+        let cache_utilization = cache.len() as f64 / config.cache_capacity as f64;
+        metrics::gauge!(CACHE_CONSUMED).set(cache_utilization);
+
+        // We unconditionally wait to wait for a transaction permit - this is our backpressure mechanism. If we
         // fail to acquire a permit for long enough, we will fail liveness checks (but that implies our ongoing
         // transactions are halted, at which point DB health is a concern).
         let permit_acquire_time = common_metrics::timing_guard(PERMIT_WAIT_TIME, &[]);
+        // This semaphore will never be closed.
         let permit = transaction_limit.clone().acquire_owned().await.unwrap();
         permit_acquire_time.fin();
 
@@ -204,7 +225,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tokio::spawn(async move {
             let _permit = permit;
             let issue_time = common_metrics::timing_guard(UPDATE_ISSUE_TIME, &[]);
-            context.issue(batch).await.unwrap();
+            if let Err(e) = context.issue(batch, cache_utilization).await {
+                warn!("Issue failed: {:?}", e);
+            }
             issue_time.fin();
         });
     }

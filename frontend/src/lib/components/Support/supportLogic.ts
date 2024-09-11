@@ -104,6 +104,11 @@ export const TARGET_AREA_TO_NAME = [
                 label: 'Onboarding',
             },
             {
+                value: 'sdk',
+                'data-attr': `support-form-target-area-onboarding`,
+                label: 'SDK / Implementation',
+            },
+            {
                 value: 'cohorts',
                 'data-attr': `support-form-target-area-cohorts`,
                 label: 'Cohorts',
@@ -131,7 +136,7 @@ export const TARGET_AREA_TO_NAME = [
             {
                 value: 'experiments',
                 'data-attr': `support-form-target-area-experiments`,
-                label: 'A/B testing',
+                label: 'Experiments',
             },
             {
                 value: 'data_warehouse',

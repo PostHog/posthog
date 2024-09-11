@@ -150,6 +150,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             fields[column] = hogql_type(name=column)
 
         return SavedQuery(
+            id=str(self.id),
             name=self.name,
             query=self.query["query"],
             fields=fields,
