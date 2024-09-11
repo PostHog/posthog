@@ -297,6 +297,44 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
         )
         self.assertEqual(len(responses), 1)
 
+    def test_ignores_empty_lcp(self):
+        distinct_id = create_distinct_id()
+        session_id = create_session_id()
+
+        # it should read the first valid non-null value
+        _create_event(
+            team=self.team,
+            event="$web_vitals",
+            distinct_id=distinct_id,
+            properties={"$session_id": session_id},
+            timestamp="2024-03-08",
+        )
+        _create_event(
+            team=self.team,
+            event="$web_vitals",
+            distinct_id=distinct_id,
+            properties={"$session_id": session_id, "$web_vitals": "notafloat"},
+            timestamp="2024-03-08",
+        )
+        _create_event(
+            team=self.team,
+            event="$web_vitals",
+            distinct_id=distinct_id,
+            properties={"$session_id": session_id, "$web_vitals_LCP_value": 42},
+            timestamp="2024-03-08",
+        )
+        _create_event(
+            team=self.team,
+            event="$web_vitals",
+            distinct_id=distinct_id,
+            properties={"$session_id": session_id, "$web_vitals_LCP_value": 43},
+            timestamp="2024-03-08",
+        )
+
+        responses = self.select_by_session_id(session_id)
+        self.assertEqual(len(responses), 1)
+        self.assertEqual(responses[0]["vitals_lcp"], 42)
+
     def test_backfill_sql(self):
         distinct_id = create_distinct_id()
         session_id = create_session_id()
