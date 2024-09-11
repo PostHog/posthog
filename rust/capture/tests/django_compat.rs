@@ -6,8 +6,7 @@ use base64::engine::general_purpose;
 use base64::Engine;
 use capture::api::{CaptureError, CaptureResponse, CaptureResponseCode, DataType, ProcessedEvent};
 use capture::config::CaptureMode;
-use capture::limiters::redis::QuotaResource;
-use capture::limiters::redis::RedisLimiter;
+use capture::limiters::redis::{QuotaResource, RedisLimiter, QUOTA_LIMITER_CACHE_KEY};
 use capture::redis::MockRedisClient;
 use capture::router::router;
 use capture::sinks::Event;
@@ -105,6 +104,7 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
         let billing_limiter = RedisLimiter::new(
             Duration::weeks(1),
             redis.clone(),
+            QUOTA_LIMITER_CACHE_KEY.to_string(),
             None,
             QuotaResource::Events,
         )

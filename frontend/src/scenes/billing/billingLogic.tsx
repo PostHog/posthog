@@ -479,8 +479,8 @@ export const billingLogic = kea<billingLogicType>([
                         ${productOverLimit.subscribed ? 'increase your billing limit' : 'upgrade your plan'}
                         or ${
                             productOverLimit.name === 'Data warehouse'
-                                ? 'data will not be synced.'
-                                : 'data loss may occur.'
+                                ? 'data will not be synced'
+                                : 'data loss may occur'
                         }.`,
                     dismissKey: 'usage-limit-exceeded',
                 })

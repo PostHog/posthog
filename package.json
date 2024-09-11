@@ -66,7 +66,6 @@
         "mypy-baseline-sync": "mypy -p posthog | mypy-baseline sync"
     },
     "dependencies": {
-        "@ant-design/icons": "^4.7.0",
         "@babel/runtime": "^7.24.0",
         "@dnd-kit/core": "^6.0.8",
         "@dnd-kit/modifiers": "^6.0.1",
@@ -150,7 +149,7 @@
         "pmtiles": "^2.11.0",
         "postcss": "^8.4.31",
         "postcss-preset-env": "^9.3.0",
-        "posthog-js": "1.160.3",
+        "posthog-js": "1.161.1",
         "posthog-js-lite": "3.0.0",
         "prettier": "^2.8.8",
         "prop-types": "^15.7.2",

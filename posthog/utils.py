@@ -349,12 +349,14 @@ def render_template(
     if not request.GET.get("no-preloaded-app-context"):
         from posthog.api.shared import TeamPublicSerializer
         from posthog.api.team import TeamSerializer
+        from posthog.api.project import ProjectSerializer
         from posthog.api.user import UserSerializer
         from posthog.user_permissions import UserPermissions
         from posthog.views import preflight_check
 
         posthog_app_context = {
             "current_user": None,
+            "current_project": None,
             "current_team": None,
             "preflight": json.loads(preflight_check(request).getvalue()),
             "default_event_name": "$pageview",
@@ -386,6 +388,12 @@ def render_template(
                     many=False,
                 )
                 posthog_app_context["current_team"] = team_serialized.data
+                project_serialized = ProjectSerializer(
+                    user.team.project,
+                    context={"request": request, "user_permissions": user_permissions},
+                    many=False,
+                )
+                posthog_app_context["current_project"] = project_serialized.data
                 posthog_app_context["frontend_apps"] = get_frontend_apps(user.team.pk)
                 posthog_app_context["default_event_name"] = get_default_event_name(user.team)
 

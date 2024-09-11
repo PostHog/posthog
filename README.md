@@ -27,6 +27,7 @@
 
 - Specify events manually, or use autocapture to get started quickly
 - Analyze data with ready-made visualizations, or do it yourself with SQL
+- Track website visitors separately with our GA4 alternative
 - Only capture properties on the people you want to track, save money when you don't
 - Gather insights by capturing session replays, console logs, and network monitoring
 - Improve your product with Experiments that automatically analyze performance
@@ -35,7 +36,7 @@
 - Connect to external services and manage data flows with PostHog CDP
 
 PostHog is available with hosting in the EU or US and is fully SOC 2 compliant. It's free to get started and comes with a generous monthly free tier:
-- 1 million product analytics events
+- 1 million events
 - 5k session replays
 - 1 million feature flag requests
 - 250 survey responses

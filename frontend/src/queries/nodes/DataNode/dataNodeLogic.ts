@@ -122,7 +122,11 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         }
     }),
     actions({
-        loadData: (refresh = false, queryId?: string) => ({ refresh, queryId: queryId || uuid() }),
+        loadData: (refresh = false, alreadyRunningQueryId?: string) => ({
+            refresh,
+            queryId: alreadyRunningQueryId || uuid(),
+            pollOnly: !!alreadyRunningQueryId,
+        }),
         abortAnyRunningQuery: true,
         abortQuery: (payload: { queryId: string }) => payload,
         cancelQuery: true,
@@ -142,7 +146,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             {
                 setResponse: (response) => response,
                 clearResponse: () => null,
-                loadData: async ({ refresh: refreshArg, queryId }, breakpoint) => {
+                loadData: async ({ refresh: refreshArg, queryId, pollOnly }, breakpoint) => {
                     const refresh = props.alwaysRefresh || refreshArg
                     if (props.doNotLoad) {
                         return props.cachedResults
@@ -200,7 +204,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                             methodOptions,
                                             refresh,
                                             queryId,
-                                            actions.setPollResponse
+                                            actions.setPollResponse,
+                                            pollOnly
                                         )) ?? null
                                     const duration = performance.now() - now
                                     return { data, duration }

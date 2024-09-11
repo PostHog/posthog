@@ -1676,6 +1676,10 @@ export function inStorybookTestRunner(): boolean {
     return navigator.userAgent.includes('StorybookTestRunner')
 }
 
+export function inStorybook(): boolean {
+    return '__STORYBOOK_CLIENT_API__' in window
+}
+
 /** We issue a cancel request, when the request is aborted or times out (frontend side), since in these cases the backend query might still be running. */
 export function shouldCancelQuery(error: any): boolean {
     return isAbortedRequest(error) || isTimedOutRequest(error)
