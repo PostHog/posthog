@@ -17,6 +17,7 @@ from .mailgun.template_mailgun import template_mailgun_send_email as mailgun
 from .avo.template_avo import template as avo
 from .loops.template_loops import template as loops
 from .rudderstack.template_rudderstack import template as rudderstack
+from .gleap.template_gleap import template as gleap
 from .google_pubsub.template_google_pubsub import template as google_pubsub, TemplateGooglePubSubMigrator
 
 
@@ -39,6 +40,7 @@ HOG_FUNCTION_TEMPLATES = [
     loops,
     rudderstack,
     avo,
+    gleap,
     google_pubsub,
 ]
 
