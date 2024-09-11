@@ -10,9 +10,9 @@ use property_defs_rs::{
     message_to_event,
     metrics_consts::{
         BATCH_ACQUIRE_TIME, CACHE_CONSUMED, COMPACTED_UPDATES, EVENTS_RECEIVED, FORCED_SMALL_BATCH,
-        PERMIT_WAIT_TIME, RECV_DEQUEUED, SKIPPED_DUE_TO_TEAM_FILTER, TRANSACTION_LIMIT_SATURATION,
-        UPDATES_FILTERED_BY_CACHE, UPDATES_PER_EVENT, UPDATES_SEEN, UPDATE_ISSUE_TIME,
-        WORKER_BLOCKED,
+        ISSUE_FAILED, PERMIT_WAIT_TIME, RECV_DEQUEUED, SKIPPED_DUE_TO_TEAM_FILTER,
+        TRANSACTION_LIMIT_SATURATION, UPDATES_FILTERED_BY_CACHE, UPDATES_PER_EVENT, UPDATES_SEEN,
+        UPDATE_ISSUE_TIME, WORKER_BLOCKED,
     },
     types::Update,
 };
@@ -29,7 +29,7 @@ use tokio::{
     },
     task::JoinHandle,
 };
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
 common_alloc::used!();
@@ -226,7 +226,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let _permit = permit;
             let issue_time = common_metrics::timing_guard(UPDATE_ISSUE_TIME, &[]);
             if let Err(e) = context.issue(batch, cache_utilization).await {
-                warn!("Issue failed: {:?}", e);
+                metrics::counter!(ISSUE_FAILED).increment(1);
+                error!("Issue failed: {:?}", e);
             }
             issue_time.fin();
         });
