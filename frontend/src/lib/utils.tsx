@@ -220,8 +220,8 @@ export const selectorOperatorMap: Record<string, string> = {
 }
 
 export const cohortOperatorMap: Record<string, string> = {
-    in: 'contains person',
-    not_in: 'does not contain person',
+    in: 'contains users',
+    not_in: 'does not contain users',
 }
 
 export const allOperatorsMapping: Record<string, string> = {
