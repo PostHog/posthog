@@ -139,8 +139,6 @@ impl GroupTypeMappingCache {
             .get_connection()
             .await?;
 
-        println!("Fetching group type mappings for team_id: {}", self.team_id);
-
         let query = r#"
         SELECT group_type, group_type_index 
         FROM posthog_grouptypemapping 
@@ -152,17 +150,12 @@ impl GroupTypeMappingCache {
             .fetch_all(&mut *conn)
             .await?;
 
-        println!("Fetched {} group type mappings", rows.len());
-
         let mapping: HashMap<String, GroupTypeIndex> = rows
             .into_iter()
             .map(|row| (row.group_type, row.group_type_index))
             .collect();
 
-        println!("Group type mappings: {:?}", mapping);
-
         if mapping.is_empty() {
-            println!("No group type mappings found for team_id: {}", self.team_id);
             Err(FlagError::NoGroupTypeMappings)
         } else {
             Ok(mapping)
@@ -190,8 +183,6 @@ pub struct FeatureFlagMatcher {
     pub distinct_id: String,
     pub team_id: TeamId,
     pub database_client: Option<DatabaseClientArc>,
-    person_property_overrides: Option<HashMap<String, Value>>,
-    group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
     group_type_mapping_cache: Arc<GroupTypeMappingCache>,
     properties_cache: Arc<RwLock<PropertiesCache>>,
 }
@@ -203,8 +194,6 @@ impl FeatureFlagMatcher {
         distinct_id: String,
         team_id: TeamId,
         database_client: Option<DatabaseClientArc>,
-        person_property_overrides: Option<HashMap<String, Value>>,
-        group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
         group_type_mapping_cache: Option<Arc<GroupTypeMappingCache>>,
         properties_cache: Option<Arc<RwLock<PropertiesCache>>>,
     ) -> Self {
@@ -212,8 +201,6 @@ impl FeatureFlagMatcher {
             distinct_id,
             team_id,
             database_client: database_client.clone(),
-            person_property_overrides,
-            group_property_overrides,
             group_type_mapping_cache: group_type_mapping_cache
                 .unwrap_or_else(|| Arc::new(GroupTypeMappingCache::new(team_id, database_client))),
             properties_cache: properties_cache
@@ -227,7 +214,9 @@ impl FeatureFlagMatcher {
     pub async fn evaluate_feature_flags(
         &self,
         feature_flags: FeatureFlagList,
-        test_hash: Option<f64>,
+        person_property_overrides: Option<HashMap<String, Value>>,
+        group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
+        hard_coded_hash: Option<f64>,
     ) -> FlagsResponse {
         let mut result = HashMap::new();
         let mut error_while_computing_flags = false;
@@ -240,11 +229,11 @@ impl FeatureFlagMatcher {
             }
 
             match self
-                .evaluate_flag_with_overrides(
+                .match_flag_with_overrides(
                     flag,
-                    self.person_property_overrides.clone(), // TODO don't love this, why not just pass them in?
-                    self.group_property_overrides.clone(),
-                    test_hash,
+                    &person_property_overrides,
+                    &group_property_overrides,
+                    hard_coded_hash,
                 )
                 .await
             {
@@ -261,9 +250,6 @@ impl FeatureFlagMatcher {
                     "Error evaluating feature flag '{}' with overrides for distinct_id '{}': {:?}",
                     flag.key, self.distinct_id, e
                 );
-                    // Optionally, you can decide to add this flag to flags_needing_db_properties
-                    // if you want to try evaluating it again with DB properties
-                    // flags_needing_db_properties.push(flag);
                 }
             }
         }
@@ -275,13 +261,16 @@ impl FeatureFlagMatcher {
                 .filter_map(|flag| flag.get_group_type_index())
                 .collect();
 
-            if let Err(e) = self.fetch_and_cache_properties(&group_type_indexes).await {
+            if let Err(e) = self
+                .fetch_and_cache_all_properties(&group_type_indexes)
+                .await
+            {
                 error_while_computing_flags = true;
                 error!("Error fetching properties: {:?}", e);
             } else {
                 // Step 3: Evaluate remaining flags
                 for flag in flags_needing_db_properties {
-                    match self.get_match(flag, None, None, test_hash).await {
+                    match self.get_match(flag, None, hard_coded_hash).await {
                         Ok(flag_match) => {
                             let flag_value = self.flag_match_to_value(&flag_match);
                             result.insert(flag.key.clone(), flag_value);
@@ -304,12 +293,12 @@ impl FeatureFlagMatcher {
         }
     }
 
-    async fn evaluate_flag_with_overrides(
+    async fn match_flag_with_overrides(
         &self,
         flag: &FeatureFlag,
-        person_property_overrides: Option<HashMap<String, Value>>,
-        group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
-        test_hash: Option<f64>,
+        person_property_overrides: &Option<HashMap<String, Value>>,
+        group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
+        hard_coded_hash: Option<f64>,
     ) -> Result<Option<FeatureFlagMatch>, FlagError> {
         let flag_property_filters: Vec<PropertyFilter> = flag
             .get_conditions()
@@ -317,45 +306,60 @@ impl FeatureFlagMatcher {
             .flat_map(|c| c.properties.clone().unwrap_or_default())
             .collect();
 
-        if let Some(group_type_index) = flag.get_group_type_index() {
-            let index_to_type_map = self
-                .group_type_mapping_cache
-                .group_type_index_to_group_type_map()
-                .await?;
-            if let Some(group_type) = index_to_type_map.get(&group_type_index) {
-                if let Some(group_overrides) = group_property_overrides {
-                    if let Some(override_properties) = group_overrides.get(group_type) {
-                        if let Some(_) = can_compute_property_overrides_locally(
-                            &Some(override_properties.clone()),
-                            &flag_property_filters,
-                        ) {
-                            return self
-                                .get_match(flag, None, Some(group_overrides), test_hash)
-                                .await
-                                .map(Some);
-                        }
-                    }
-                }
-            }
-            // If we have group overrides but cannot use them, we return None to indicate we need to fetch from DB
-            return Ok(None);
-        } else {
-            // This is a person-based flag
-            if let Some(person_overrides) = person_property_overrides {
-                if let Some(person_overrides) = can_compute_property_overrides_locally(
-                    &Some(person_overrides.clone()),
+        let overrides = match flag.get_group_type_index() {
+            Some(group_type_index) => {
+                self.get_group_overrides(
+                    group_type_index,
+                    group_property_overrides,
                     &flag_property_filters,
-                ) {
-                    return self
-                        .get_match(flag, Some(person_overrides), None, test_hash)
-                        .await
-                        .map(Some);
+                )
+                .await?
+            }
+            None => self.get_person_overrides(person_property_overrides, &flag_property_filters),
+        };
+
+        match overrides {
+            Some(props) => self
+                .get_match(flag, Some(props), hard_coded_hash)
+                .await
+                .map(Some),
+            None => Ok(None),
+        }
+    }
+
+    async fn get_group_overrides(
+        &self,
+        group_type_index: GroupTypeIndex,
+        group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
+        flag_property_filters: &[PropertyFilter],
+    ) -> Result<Option<HashMap<String, Value>>, FlagError> {
+        let index_to_type_map = self
+            .group_type_mapping_cache
+            .group_type_index_to_group_type_map()
+            .await?;
+
+        if let Some(group_type) = index_to_type_map.get(&group_type_index) {
+            if let Some(group_overrides) = group_property_overrides {
+                if let Some(group_overrides_by_type) = group_overrides.get(group_type) {
+                    return Ok(locally_computable_property_overrides(
+                        &Some(group_overrides_by_type.clone()),
+                        flag_property_filters,
+                    ));
                 }
             }
         }
 
-        // If we can't use any overrides, we return None to indicate we need to fetch from DB
         Ok(None)
+    }
+
+    fn get_person_overrides(
+        &self,
+        person_property_overrides: &Option<HashMap<String, Value>>,
+        flag_property_filters: &[PropertyFilter],
+    ) -> Option<HashMap<String, Value>> {
+        person_property_overrides.as_ref().and_then(|overrides| {
+            locally_computable_property_overrides(&Some(overrides.clone()), flag_property_filters)
+        })
     }
 
     fn flag_match_to_value(&self, flag_match: &FeatureFlagMatch) -> FlagValue {
@@ -369,7 +373,7 @@ impl FeatureFlagMatcher {
         }
     }
 
-    async fn fetch_and_cache_properties(
+    async fn fetch_and_cache_all_properties(
         &self,
         group_type_indexes: &HashSet<GroupTypeIndex>,
     ) -> Result<(), FlagError> {
@@ -527,9 +531,8 @@ impl FeatureFlagMatcher {
     pub async fn get_match(
         &self,
         flag: &FeatureFlag,
-        person_property_overrides: Option<HashMap<String, Value>>,
-        group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
-        test_hash: Option<f64>,
+        property_overrides: Option<HashMap<String, Value>>,
+        hard_coded_hash: Option<f64>,
     ) -> Result<FeatureFlagMatch, FlagError> {
         if self.hashed_identifier(flag).await?.is_empty() {
             return Ok(FeatureFlagMatch {
@@ -543,13 +546,7 @@ impl FeatureFlagMatcher {
 
         for condition in flag.get_conditions().iter() {
             let (is_match, _evaluation_reason) = self
-                .is_condition_match(
-                    flag,
-                    condition,
-                    person_property_overrides.clone(),
-                    group_property_overrides.clone(),
-                    test_hash,
-                )
+                .is_condition_match(flag, condition, property_overrides.clone(), hard_coded_hash)
                 .await?;
 
             if is_match {
@@ -563,7 +560,7 @@ impl FeatureFlagMatcher {
                     {
                         Some(variant_override)
                     }
-                    _ => self.get_matching_variant(flag, test_hash).await?,
+                    _ => self.get_matching_variant(flag, hard_coded_hash).await?,
                 };
 
                 return Ok(FeatureFlagMatch {
@@ -583,10 +580,11 @@ impl FeatureFlagMatcher {
         &self,
         feature_flag: &FeatureFlag,
         rollout_percentage: f64,
-        test_hash: Option<f64>,
+        hard_coded_hash: Option<f64>,
     ) -> Result<(bool, String), FlagError> {
         if rollout_percentage == 100.0
-            || self.get_hash(feature_flag, "", test_hash).await? <= (rollout_percentage / 100.0)
+            || self.get_hash(feature_flag, "", hard_coded_hash).await?
+                <= (rollout_percentage / 100.0)
         {
             Ok((true, "CONDITION_MATCH".to_string())) // TODO enum, I'll implement this when I implement evaluation reasons
         } else {
@@ -598,63 +596,44 @@ impl FeatureFlagMatcher {
         &self,
         feature_flag: &FeatureFlag,
         condition: &FlagGroupType,
-        person_property_overrides: Option<HashMap<String, Value>>,
-        group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
-        test_hash: Option<f64>,
+        property_overrides: Option<HashMap<String, Value>>, // TODO need to guarantee that these props map to the correct type (person or group)
+        hard_coded_hash: Option<f64>,
     ) -> Result<(bool, String), FlagError> {
         let rollout_percentage = condition.rollout_percentage.unwrap_or(100.0);
 
         if let Some(flag_property_filters) = &condition.properties {
             if flag_property_filters.is_empty() {
                 return self
-                    .check_rollout(feature_flag, rollout_percentage, test_hash)
+                    .check_rollout(feature_flag, rollout_percentage, hard_coded_hash)
                     .await;
             }
 
             let properties_to_check =
+             // Group-based flag
                 if let Some(group_type_index) = feature_flag.get_group_type_index() {
-                    // Group-based flag
-                    if let Some(group_overrides) = group_property_overrides {
-                        let group_type = self
-                            .group_type_mapping_cache
-                            .group_type_index_to_group_type_map()
-                            .await?
-                            .get(&group_type_index)
-                            .cloned()
-                            .ok_or(FlagError::NoGroupTypeMappings)?;
-
-                        if let Some(override_properties) = group_overrides.get(&group_type) {
-                            if let Some(local_overrides) = can_compute_property_overrides_locally(
-                                &Some(override_properties.clone()),
+                            if let Some(local_overrides) = locally_computable_property_overrides(
+                                &property_overrides.clone(),
                                 flag_property_filters,
                             ) {
                                 local_overrides
                             } else {
-                                self.get_group_properties(group_type_index, flag_property_filters)
+                                self.get_group_properties_from_cache_or_db(group_type_index)
                                     .await?
                             }
-                        } else {
-                            self.get_group_properties(group_type_index, flag_property_filters)
-                                .await?
-                        }
-                    } else {
-                        self.get_group_properties(group_type_index, flag_property_filters)
-                            .await?
-                    }
                 } else {
                     // Person-based flag
-                    if let Some(person_overrides) = person_property_overrides {
-                        if let Some(local_overrides) = can_compute_property_overrides_locally(
+                    if let Some(person_overrides) = property_overrides {
+                        if let Some(local_overrides) = locally_computable_property_overrides(
                             &Some(person_overrides),
                             flag_property_filters,
                         ) {
                             local_overrides
                         } else {
-                            self.get_person_properties_from_cache_or_db(flag_property_filters)
+                            self.get_person_properties_from_cache_or_db()
                                 .await?
                         }
                     } else {
-                        self.get_person_properties_from_cache_or_db(flag_property_filters)
+                        self.get_person_properties_from_cache_or_db()
                             .await?
                     }
                 };
@@ -667,36 +646,34 @@ impl FeatureFlagMatcher {
             }
         }
 
-        self.check_rollout(feature_flag, rollout_percentage, test_hash)
+        self.check_rollout(feature_flag, rollout_percentage, hard_coded_hash)
             .await
     }
 
-    async fn get_group_properties(
+    async fn get_group_properties_from_cache_or_db(
         &self,
         group_type_index: GroupTypeIndex,
-        flag_property_filters: &[PropertyFilter],
     ) -> Result<HashMap<String, Value>, FlagError> {
-        let index_to_type_map = self
-            .group_type_mapping_cache
-            .group_type_index_to_group_type_map()
-            .await?;
+        // let index_to_type_map = self
+        //     .group_type_mapping_cache
+        //     .group_type_index_to_group_type_map()
+        //     .await?;
 
-        let group_type = index_to_type_map.get(&group_type_index).cloned();
+        // let group_type = index_to_type_map.get(&group_type_index).cloned();
 
-        if let Some(group_type) = group_type {
-            if let Some(override_properties) = self
-                .group_property_overrides
-                .as_ref()
-                .and_then(|overrides| overrides.get(&group_type))
-            {
-                if let Some(local_overrides) = can_compute_property_overrides_locally(
-                    &Some(override_properties.clone()),
-                    flag_property_filters,
-                ) {
-                    return Ok(local_overrides);
-                }
-            }
-        }
+        // if let Some(group_type) = group_type {
+        //     if let Some(override_properties) = group_property_overrides
+        //         .as_ref()
+        //         .and_then(|overrides| overrides.get(&group_type))
+        //     {
+        //         if let Some(local_overrides) = locally_computable_property_overrides(
+        //             &Some(override_properties.clone()),
+        //             flag_property_filters,
+        //         ) {
+        //             return Ok(local_overrides);
+        //         }
+        //     }
+        // }
 
         let cache = self.properties_cache.read().await;
         if let Some(properties) = cache.group_properties.get(&group_type_index).cloned() {
@@ -717,15 +694,7 @@ impl FeatureFlagMatcher {
 
     async fn get_person_properties_from_cache_or_db(
         &self,
-        flag_property_filters: &[PropertyFilter],
     ) -> Result<HashMap<String, Value>, FlagError> {
-        if let Some(overrides) = can_compute_property_overrides_locally(
-            &self.person_property_overrides,
-            flag_property_filters,
-        ) {
-            return Ok(overrides);
-        }
-
         let cache = self.properties_cache.read().await;
         if let Some(properties) = cache.person_properties.clone() {
             return Ok(properties);
@@ -741,7 +710,7 @@ impl FeatureFlagMatcher {
 
     /// This function takes a feature flag and returns the hashed identifier for the flag.
     /// If the flag has a group type index, it returns the group type name, otherwise it returns the distinct_id.
-    pub async fn hashed_identifier(&self, feature_flag: &FeatureFlag) -> Result<String, FlagError> {
+    async fn hashed_identifier(&self, feature_flag: &FeatureFlag) -> Result<String, FlagError> {
         if let Some(group_type_index) = feature_flag.get_group_type_index() {
             // TODO: Use hash key overrides for experience continuity
             let indexes_to_names = self
@@ -765,9 +734,9 @@ impl FeatureFlagMatcher {
         &self,
         feature_flag: &FeatureFlag,
         salt: &str,
-        test_hash: Option<f64>,
+        hard_coded_hash: Option<f64>,
     ) -> Result<f64, FlagError> {
-        if let Some(hash) = test_hash {
+        if let Some(hash) = hard_coded_hash {
             return Ok(hash);
         }
         let hashed_identifier = self.hashed_identifier(feature_flag).await?;
@@ -787,12 +756,14 @@ impl FeatureFlagMatcher {
     }
 
     /// This function takes a feature flag and returns the key of the variant that should be shown to the user.
-    pub async fn get_matching_variant(
+    async fn get_matching_variant(
         &self,
         feature_flag: &FeatureFlag,
-        test_hash: Option<f64>,
+        hard_coded_hash: Option<f64>,
     ) -> Result<Option<String>, FlagError> {
-        let hash = self.get_hash(feature_flag, "variant", test_hash).await?;
+        let hash = self
+            .get_hash(feature_flag, "variant", hard_coded_hash)
+            .await?;
         let mut cumulative_percentage = 0.0;
 
         for variant in feature_flag.get_variants() {
@@ -808,7 +779,7 @@ impl FeatureFlagMatcher {
 /// Check if all required properties are present in the overrides
 /// and none of them are of type "cohort" – if so, return the overrides,
 /// otherwise return None, because we can't locally compute cohort properties
-fn can_compute_property_overrides_locally(
+fn locally_computable_property_overrides(
     property_overrides: &Option<HashMap<String, Value>>,
     property_filters: &[PropertyFilter],
 ) -> Option<HashMap<String, Value>> {
@@ -923,16 +894,9 @@ mod tests {
         ))
         .unwrap();
 
-        let matcher = FeatureFlagMatcher::new(
-            distinct_id,
-            team.id,
-            Some(client.clone()),
-            None,
-            None,
-            None,
-            None,
-        );
-        let match_result = matcher.get_match(&flag, None, None, None).await.unwrap();
+        let matcher =
+            FeatureFlagMatcher::new(distinct_id, team.id, Some(client.clone()), None, None);
+        let match_result = matcher.get_match(&flag, None, None).await.unwrap();
         assert_eq!(match_result.matches, true);
         assert_eq!(match_result.variant, None);
 
@@ -943,10 +907,8 @@ mod tests {
             Some(client.clone()),
             None,
             None,
-            None,
-            None,
         );
-        let match_result = matcher.get_match(&flag, None, None, None).await.unwrap();
+        let match_result = matcher.get_match(&flag, None, None).await.unwrap();
         assert_eq!(match_result.matches, false);
         assert_eq!(match_result.variant, None);
 
@@ -957,10 +919,8 @@ mod tests {
             Some(client.clone()),
             None,
             None,
-            None,
-            None,
         );
-        let match_result = matcher.get_match(&flag, None, None, None).await.unwrap();
+        let match_result = matcher.get_match(&flag, None, None).await.unwrap();
         assert_eq!(match_result.matches, false);
         assert_eq!(match_result.variant, None);
     }
@@ -983,27 +943,24 @@ mod tests {
 
         let overrides = HashMap::from([("email".to_string(), json!("override@example.com"))]);
 
-        let matcher = FeatureFlagMatcher::new(
-            "test_user".to_string(),
-            1,
-            Some(client.clone()),
-            Some(overrides.clone()),
-            None,
-            None,
-            None,
+        let matcher =
+            FeatureFlagMatcher::new("test_user".to_string(), 1, Some(client.clone()), None, None);
+
+        let flags = FeatureFlagList { flags: vec![flag] };
+        let result = matcher
+            .evaluate_feature_flags(flags, Some(overrides), None, None)
+            .await;
+
+        assert!(!result.error_while_computing_flags);
+        assert_eq!(
+            result.feature_flags.get("test_flag"),
+            Some(&FlagValue::Boolean(true))
         );
-
-        let match_result = matcher
-            .get_match(&flag, Some(overrides.clone()), None, None)
-            .await
-            .unwrap();
-        assert_eq!(match_result.matches, true);
     }
-
     // TODO test group property overrides
 
     #[tokio::test]
-    async fn test_hashed_identifier() {
+    async fn hard_coded_hashed_identifier() {
         let flag = create_test_flag(1, vec![]);
         let database_client = setup_pg_client(None).await;
 
@@ -1017,8 +974,6 @@ mod tests {
             "test_user".to_string(),
             1,
             Some(database_client.clone()),
-            None,
-            None,
             Some(cache.clone()),
             None,
         );
@@ -1054,8 +1009,6 @@ mod tests {
             "test_user".to_string(),
             1,
             Some(database_client.clone()),
-            None,
-            None,
             Some(cache.clone()),
             None,
         );
@@ -1082,8 +1035,6 @@ mod tests {
             Some(database_client.clone()),
             None,
             None,
-            None,
-            None,
         );
 
         let variant = matcher.get_matching_variant(&flag, None).await.unwrap();
@@ -1101,10 +1052,9 @@ mod tests {
             rollout_percentage: Some(100.0),
         };
 
-        let matcher =
-            FeatureFlagMatcher::new("test_user".to_string(), 1, None, None, None, None, None);
+        let matcher = FeatureFlagMatcher::new("test_user".to_string(), 1, None, None, None);
         let (is_match, reason) = matcher
-            .is_condition_match(&flag, &condition, None, None, None)
+            .is_condition_match(&flag, &condition, None, None)
             .await
             .unwrap();
         assert_eq!(is_match, true);
@@ -1112,7 +1062,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_hashed_identifier_with_db() {
+    async fn hard_coded_hashed_identifier_with_db() {
         let database_client = setup_pg_client(None).await;
         let team = insert_new_team_in_pg(database_client.clone())
             .await
@@ -1126,8 +1076,6 @@ mod tests {
             "test_user".to_string(),
             team.id,
             Some(database_client.clone()),
-            None,
-            None,
             None,
             None,
         );
@@ -1206,17 +1154,11 @@ mod tests {
             Some(client.clone()),
             None,
             None,
-            None,
-            None,
         );
 
-        let result = matcher.evaluate_feature_flags(flags, None).await;
-
-        println!("Resulting flags: {:?}", result.feature_flags);
-        println!(
-            "Error while computing: {}",
-            result.error_while_computing_flags
-        );
+        let result = matcher
+            .evaluate_feature_flags(flags, None, None, None)
+            .await;
 
         assert_eq!(
             result.feature_flags.len(),
@@ -1269,39 +1211,65 @@ mod tests {
             flags: vec![person_flag.clone(), group_flag.clone()],
         };
 
-        let person_property_overrides = Some(HashMap::from([(
-            "email".to_string(),
-            json!("test@example.com"),
-        )]));
+        let person_property_overrides =
+            HashMap::from([("email".to_string(), json!("test@example.com"))]);
 
-        let group_property_overrides = Some(HashMap::from([(
+        let group_property_overrides = HashMap::from([(
             "project".to_string(),
             HashMap::from([("industry".to_string(), json!("tech"))]),
-        )]));
+        )]);
 
         let matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
             Some(client.clone()),
-            person_property_overrides.clone(),
-            group_property_overrides.clone(),
             None,
             None,
         );
-        let person_flag_result = matcher
-            .get_match(&person_flag, person_property_overrides.clone(), None, None)
-            .await
-            .unwrap();
-        assert!(person_flag_result.matches, "Person flag should match");
 
-        let group_flag_result = matcher
-            .get_match(&group_flag, None, group_property_overrides.clone(), None)
-            .await
-            .unwrap();
-        assert!(group_flag_result.matches, "Group flag should match");
+        // Evaluate person flag
+        let person_result = matcher
+            .evaluate_feature_flags(
+                FeatureFlagList {
+                    flags: vec![person_flag],
+                },
+                Some(person_property_overrides.clone()),
+                None,
+                None,
+            )
+            .await;
+        assert!(!person_result.error_while_computing_flags);
+        assert_eq!(
+            person_result.feature_flags.get("person_flag"),
+            Some(&FlagValue::Boolean(true))
+        );
+
+        // Evaluate group flag
+        let group_result = matcher
+            .evaluate_feature_flags(
+                FeatureFlagList {
+                    flags: vec![group_flag],
+                },
+                None,
+                Some(group_property_overrides.clone()),
+                None,
+            )
+            .await;
+        assert!(!group_result.error_while_computing_flags);
+        assert_eq!(
+            group_result.feature_flags.get("group_flag"),
+            Some(&FlagValue::Boolean(true))
+        );
 
         // Now evaluate all flags
-        let result = matcher.evaluate_feature_flags(flags, None).await;
+        let result = matcher
+            .evaluate_feature_flags(
+                flags,
+                Some(person_property_overrides),
+                Some(group_property_overrides),
+                None,
+            )
+            .await;
 
         assert!(!result.error_while_computing_flags);
         assert_eq!(result.feature_flags.len(), 2);
@@ -1333,28 +1301,32 @@ mod tests {
             }],
         );
 
-        let person_property_overrides = Some(HashMap::from([(
-            "email".to_string(),
-            json!("test@example.com"),
-        )]));
+        let person_property_overrides =
+            HashMap::from([("email".to_string(), json!("test@example.com"))]);
 
         let matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
             Some(client.clone()),
-            person_property_overrides.clone(),
-            None,
             None,
             None,
         );
 
         // Evaluate the flag
         let result = matcher
-            .get_match(&flag, person_property_overrides.clone(), None, None)
-            .await
-            .unwrap();
+            .evaluate_feature_flags(
+                FeatureFlagList { flags: vec![flag] },
+                Some(person_property_overrides),
+                None,
+                None,
+            )
+            .await;
 
-        assert!(result.matches);
+        assert!(!result.error_while_computing_flags);
+        assert_eq!(
+            result.feature_flags.get("test_flag"),
+            Some(&FlagValue::Boolean(true))
+        );
 
         // Check that the properties cache is still empty, indicating no DB lookup
         let cache = matcher.properties_cache.read().await;
@@ -1405,15 +1377,13 @@ mod tests {
             "test_user".to_string(),
             team.id,
             Some(client.clone()),
-            person_property_overrides.clone(),
-            None,
             None,
             None,
         );
 
         // Evaluate the flag
         let result = matcher
-            .get_match(&flag, person_property_overrides.clone(), None, None)
+            .get_match(&flag, person_property_overrides.clone(), None)
             .await
             .unwrap();
 
@@ -1480,13 +1450,13 @@ mod tests {
             "test_user".to_string(),
             team.id,
             Some(client.clone()),
-            person_property_overrides,
-            None,
             None,
             None,
         );
 
-        let result = matcher.evaluate_feature_flags(flags, None).await;
+        let result = matcher
+            .evaluate_feature_flags(flags, person_property_overrides, None, None)
+            .await;
 
         assert!(!result.error_while_computing_flags);
         assert_eq!(result.feature_flags.len(), 2);
@@ -1539,20 +1509,20 @@ mod tests {
             },
         ];
 
+        let overrides = Some(HashMap::from([
+            ("email".to_string(), json!("test@example.com")),
+            ("country".to_string(), json!("US")),
+        ]));
+
         let matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
             Some(client.clone()),
-            Some(HashMap::from([
-                ("email".to_string(), json!("test@example.com")),
-                ("country".to_string(), json!("US")),
-            ])),
-            None,
             None,
             None,
         );
 
-        let match_result = matcher.get_match(&flag, None, None, None).await.unwrap();
+        let match_result = matcher.get_match(&flag, overrides, None).await.unwrap();
         assert!(match_result.matches);
     }
 
@@ -1566,8 +1536,6 @@ mod tests {
             "test_user".to_string(),
             team.id,
             Some(client.clone()),
-            None,
-            None,
             None,
             None,
         );
@@ -1653,7 +1621,7 @@ mod tests {
             variant: None,
         };
 
-        let person_property_overrides = Some(HashMap::from([
+        let property_overrides = Some(HashMap::from([
             ("email".to_string(), json!("test@example.com")),
             ("age".to_string(), json!(30)),
         ]));
@@ -1662,20 +1630,12 @@ mod tests {
             "test_user".to_string(),
             team.id,
             Some(client.clone()),
-            person_property_overrides.clone(),
-            None,
             None,
             None,
         );
 
         let (is_match, reason) = matcher
-            .is_condition_match(
-                &flag,
-                &condition,
-                person_property_overrides.clone(),
-                None,
-                Some(0.4),
-            ) // Set a test hash value that falls within the 50% rollout
+            .is_condition_match(&flag, &condition, property_overrides.clone(), Some(0.4)) // Set a test hash value that falls within the 50% rollout
             .await
             .unwrap();
 
@@ -1686,13 +1646,7 @@ mod tests {
         );
 
         let (is_match, reason) = matcher
-            .is_condition_match(
-                &flag,
-                &condition,
-                person_property_overrides.clone(),
-                None,
-                Some(0.6),
-            ) // Set a test hash value that falls outside the 50% rollout
+            .is_condition_match(&flag, &condition, property_overrides.clone(), Some(0.6)) // Set a test hash value that falls outside the 50% rollout
             .await
             .unwrap();
 
@@ -1718,24 +1672,11 @@ mod tests {
         .await
         .unwrap();
 
-        let matcher = FeatureFlagMatcher::new(
-            distinct_id,
-            team.id,
-            Some(client.clone()),
-            None,
-            None,
-            None,
-            None,
-        );
+        let matcher =
+            FeatureFlagMatcher::new(distinct_id, team.id, Some(client.clone()), None, None);
 
         let properties = matcher
-            .get_person_properties_from_cache_or_db(&[PropertyFilter {
-                key: "email".to_string(),
-                value: json!("test@example.com"),
-                operator: None,
-                prop_type: "person".to_string(),
-                group_type_index: None,
-            }])
+            .get_person_properties_from_cache_or_db()
             .await
             .unwrap();
 
@@ -1780,7 +1721,7 @@ mod tests {
             },
         ];
 
-        let result = can_compute_property_overrides_locally(&overrides, &property_filters);
+        let result = locally_computable_property_overrides(&overrides, &property_filters);
         assert!(result.is_some());
 
         let property_filters_with_cohort = vec![
@@ -1801,7 +1742,7 @@ mod tests {
         ];
 
         let result =
-            can_compute_property_overrides_locally(&overrides, &property_filters_with_cohort);
+            locally_computable_property_overrides(&overrides, &property_filters_with_cohort);
         assert!(result.is_none());
     }
 
@@ -1860,8 +1801,6 @@ mod tests {
             None, // No database client
             None,
             None,
-            None,
-            None,
         );
 
         let flag = create_test_flag(
@@ -1875,7 +1814,7 @@ mod tests {
             }],
         );
 
-        let result = matcher.get_match(&flag, None, None, None).await;
+        let result = matcher.get_match(&flag, None, None).await;
         assert!(matches!(result, Err(FlagError::DatabaseUnavailable)));
     }
 
@@ -1898,8 +1837,6 @@ mod tests {
             Some(client.clone()),
             None,
             None,
-            None,
-            None,
         );
 
         let hash = matcher.get_hash(&flag, "variant", None).await.unwrap();
@@ -1917,16 +1854,16 @@ mod tests {
             (0.9, "test2"),
         ];
 
-        for (test_hash, expected_variant) in test_cases.iter() {
+        for (hard_coded_hash, expected_variant) in test_cases.iter() {
             let test_variant = matcher
-                .get_matching_variant(&flag, Some(*test_hash))
+                .get_matching_variant(&flag, Some(*hard_coded_hash))
                 .await
                 .unwrap();
             assert_eq!(
                 test_variant.as_deref(),
                 Some(*expected_variant),
                 "For hash {}, expected variant {}",
-                test_hash,
+                hard_coded_hash,
                 expected_variant
             );
         }
@@ -1936,9 +1873,9 @@ mod tests {
         let iterations = 100;
 
         for i in 0..iterations {
-            let test_hash = i as f64 / iterations as f64;
+            let hard_coded_hash = i as f64 / iterations as f64;
             let test_variant = matcher
-                .get_matching_variant(&flag, Some(test_hash))
+                .get_matching_variant(&flag, Some(hard_coded_hash))
                 .await
                 .unwrap();
             if let Some(variant) = test_variant.as_ref() {
@@ -1992,13 +1929,8 @@ mod tests {
                     Some(client_clone),
                     None,
                     None,
-                    None,
-                    None,
                 );
-                matcher
-                    .get_match(&flag_clone, None, None, None)
-                    .await
-                    .unwrap()
+                matcher.get_match(&flag_clone, None, None).await.unwrap()
             }));
         }
 

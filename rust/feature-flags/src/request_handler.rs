@@ -198,15 +198,18 @@ pub async fn evaluate_feature_flags(
         distinct_id.clone(),
         team_id,
         database_client,
-        person_property_overrides,
-        group_property_overrides,
         Some(group_type_mapping_cache),
         None,
     );
     // filter out flags that are not active or have been deleted
 
     feature_flag_matcher
-        .evaluate_feature_flags(feature_flags_from_cache_or_pg, None)
+        .evaluate_feature_flags(
+            feature_flags_from_cache_or_pg,
+            person_property_overrides,
+            group_property_overrides,
+            None,
+        )
         .await
 }
 
