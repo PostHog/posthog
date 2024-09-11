@@ -478,8 +478,8 @@ def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datet
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_teams_with_llm_integration_event_counts_in_period(begin: datetime, end: datetime) -> list[tuple[int, str, int]]:
-    result = sync_execute(
+def get_teams_with_llm_integration_event_counts_in_period(begin: datetime, end: datetime) -> dict[str, dict[int, int]]:
+    results = sync_execute(
         """
         SELECT
             team_id,
@@ -506,7 +506,18 @@ def get_teams_with_llm_integration_event_counts_in_period(begin: datetime, end: 
         workload=Workload.OFFLINE,
         settings=CH_BILLING_SETTINGS,
     )
-    return result
+
+    teams_with_event_count = {
+        "helicone": defaultdict(int),
+        "langfuse": defaultdict(int),
+        "keywords_ai": defaultdict(int),
+        "traceloop": defaultdict(int),
+    }
+
+    for team_id, integration, count in results:
+        teams_with_event_count[integration][team_id] = count
+
+    return teams_with_event_count
 
 
 @timed_log()
@@ -705,17 +716,6 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
 
     integration_event_counts = get_teams_with_llm_integration_event_counts_in_period(period_start, period_end)
 
-    # Process the integration event counts
-    teams_with_event_count = {
-        "helicone": defaultdict(int),
-        "langfuse": defaultdict(int),
-        "keywords_ai": defaultdict(int),
-        "traceloop": defaultdict(int),
-    }
-
-    for team_id, integration, count in integration_event_counts:
-        teams_with_event_count[integration][team_id] = count
-
     return {
         "teams_with_event_count_in_period": get_teams_with_billable_event_count_in_period(
             period_start, period_end, count_distinct=True
@@ -729,10 +729,10 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_event_count_with_groups_in_period": get_teams_with_event_count_with_groups_in_period(
             period_start, period_end
         ),
-        "teams_with_event_count_from_helicone_in_period": dict(teams_with_event_count["helicone"]),
-        "teams_with_event_count_from_langfuse_in_period": dict(teams_with_event_count["langfuse"]),
-        "teams_with_event_count_from_keywords_ai_in_period": dict(teams_with_event_count["keywords_ai"]),
-        "teams_with_event_count_from_traceloop_in_period": dict(teams_with_event_count["traceloop"]),
+        "teams_with_event_count_from_helicone_in_period": dict(integration_event_counts["helicone"]),
+        "teams_with_event_count_from_langfuse_in_period": dict(integration_event_counts["langfuse"]),
+        "teams_with_event_count_from_keywords_ai_in_period": dict(integration_event_counts["keywords_ai"]),
+        "teams_with_event_count_from_traceloop_in_period": dict(integration_event_counts["traceloop"]),
         "teams_with_recording_count_in_period": get_teams_with_recording_count_in_period(
             period_start, period_end, snapshot_source="web"
         ),
