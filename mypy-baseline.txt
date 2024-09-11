@@ -255,7 +255,6 @@ posthog/hogql/printer.py:0: error: Argument 1 to "lookup_field_by_name" has inco
 posthog/hogql/printer.py:0: error: Item "TableType" of "TableType | TableAliasType" has no attribute "alias"  [union-attr]
 posthog/hogql/printer.py:0: error: "FieldOrTable" has no attribute "name"  [attr-defined]
 posthog/hogql/printer.py:0: error: "FieldOrTable" has no attribute "name"  [attr-defined]
-posthog/hogql/printer.py:0: error: Argument 2 to "_get_materialized_column" of "_Printer" has incompatible type "str | int"; expected "str"  [arg-type]
 posthog/hogql/printer.py:0: error: Argument 1 to "_print_identifier" of "_Printer" has incompatible type "str | None"; expected "str"  [arg-type]
 posthog/user_permissions.py:0: error: Incompatible return value type (got "int", expected "Level | None")  [return-value]
 posthog/user_permissions.py:0: error: Incompatible return value type (got "int", expected "Level | None")  [return-value]
