@@ -357,25 +357,19 @@ class TestPrinter(BaseTest):
             ),
         )
 
-        cleanup_materialized_columns()
-
         self.assertEqual(
             self._expr("properties['foo']", context),
             "has(events.properties_group_custom, %(hogql_val_0)s) ? events.properties_group_custom[%(hogql_val_0)s] : null",
         )
         self.assertEqual(context.values["hogql_val_0"], "foo")
 
-        try:
-            from ee.clickhouse.materialized_columns.analyze import materialize
-        except ModuleNotFoundError:
-            return
-
-        # Properties that are materialized as columns should take precedence over the values in the group's map column.
-        materialize("events", "foo")
-        self.assertEqual(
-            self._expr("properties['foo']", context),
-            "nullIf(nullIf(events.mat_foo, ''), 'null')",
-        )
+        with materialized("events", "foo"):
+            # Properties that are materialized as columns should take precedence over the values in the group's map
+            # column.
+            self.assertEqual(
+                self._expr("properties['foo']", context),
+                "nullIf(nullIf(events.mat_foo, ''), 'null')",
+            )
 
     def _test_property_group_comparison(
         self,
