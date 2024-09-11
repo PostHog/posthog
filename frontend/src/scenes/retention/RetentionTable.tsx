@@ -35,7 +35,7 @@ export function RetentionTable({ inCardView = false }: { inCardView?: boolean })
 
                 {showMean && tableRows.length > 0 ? (
                     <tr className="border-b" key={-1}>
-                        {range(0, tableRows[0].length).map((columnIndex) => (
+                        {range(0, tableRows[0].length - 1).map((columnIndex) => (
                             <td key={columnIndex} className="pb-2">
                                 {columnIndex <= (hideSizeColumn ? 0 : 1) ? (
                                     columnIndex == 0 ? (
@@ -47,23 +47,23 @@ export function RetentionTable({ inCardView = false }: { inCardView?: boolean })
                                             mean(
                                                 tableRows.map((row) => {
                                                     // Stop before the last item in a row, which is an incomplete time period
-                                                    if (
-                                                        (columnIndex >= row.length - 1 && isLatestPeriod) ||
-                                                        !row[columnIndex]
-                                                    ) {
-                                                        return null
+                                                    if (columnIndex < row.length - 1) {
+                                                        return row[columnIndex].percentage
                                                     }
-                                                    return row[columnIndex].percentage
+                                                    return null
                                                 })
                                             ) || 0
                                         }
-                                        latest={isLatestPeriod && columnIndex == tableRows[0].length - 1}
+                                        latest={columnIndex == tableRows[0].length - 1}
                                         clickable={false}
                                         backgroundColor={PURPLE}
                                     />
                                 )}
                             </td>
                         ))}
+                        <td className="pb-2">
+                            <CohortDay percentage={0} latest={true} clickable={false} />
+                        </td>
                     </tr>
                 ) : undefined}
 
