@@ -1,6 +1,6 @@
 import './SessionRecordingPlayer.scss'
 
-import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { BuilderHog2 } from 'lib/components/hedgehogs'
@@ -96,7 +96,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
     )
     const speedHotkeys = useMemo(() => createPlaybackSpeedKey(setSpeed), [setSpeed])
     const { preferredSidebarStacking, sidebarOpen, playbackViewMode } = useValues(playerSettingsLogic)
-    const { setPreferredSidebarStacking, setPlaybackViewMode } = useActions(playerSettingsLogic)
+    const { setPreferredSidebarStacking } = useActions(playerSettingsLogic)
 
     useKeyboardHotkeys(
         {
@@ -215,46 +215,27 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                         </LemonButton>
                                     </div>
                                 ) : (
-                                    <>
-                                        <div className="flex items-center p-2 border-b pr-[3px]">
-                                            <LemonSegmentedButton
-                                                value={playbackViewMode}
-                                                options={[
-                                                    {
-                                                        value: 'playback',
-                                                        label: 'Playback',
-                                                    },
-                                                    {
-                                                        value: 'waterfall',
-                                                        label: 'Waterfall',
-                                                    },
-                                                ]}
-                                                onChange={setPlaybackViewMode}
-                                                size="xsmall"
-                                            />
-                                        </div>
-                                        <div className="flex w-full h-full">
-                                            <div className="flex flex-col flex-1 w-full">
-                                                {playbackViewMode === PlaybackViewMode.Playback ? (
-                                                    <>
-                                                        {!noMeta || isFullScreen ? <PlayerMeta /> : null}
+                                    <div className="flex w-full h-full">
+                                        <div className="flex flex-col flex-1 w-full">
+                                            {playbackViewMode === PlaybackViewMode.Playback ? (
+                                                <>
+                                                    {!noMeta || isFullScreen ? <PlayerMeta /> : null}
 
-                                                        <div
-                                                            className="SessionRecordingPlayer__body"
-                                                            draggable={draggable}
-                                                            {...elementProps}
-                                                        >
-                                                            <PlayerFrame />
-                                                            <PlayerFrameOverlay />
-                                                        </div>
-                                                        <PlayerController iconsOnly={playerMainSize === 'small'} />
-                                                    </>
-                                                ) : (
-                                                    <NetworkView sessionRecordingId={sessionRecordingId} />
-                                                )}
-                                            </div>
+                                                    <div
+                                                        className="SessionRecordingPlayer__body"
+                                                        draggable={draggable}
+                                                        {...elementProps}
+                                                    >
+                                                        <PlayerFrame />
+                                                        <PlayerFrameOverlay />
+                                                    </div>
+                                                    <PlayerController iconsOnly={playerMainSize === 'small'} />
+                                                </>
+                                            ) : (
+                                                <NetworkView sessionRecordingId={sessionRecordingId} />
+                                            )}
                                         </div>
-                                    </>
+                                    </div>
                                 )}
                             </div>
 
