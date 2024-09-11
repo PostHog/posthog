@@ -1264,7 +1264,9 @@ class _Printer(Visitor):
         """
         Find the most efficient materialized property source for the provided property type.
         """
-        return next(self.__get_all_materialized_property_sources(type.field_type, str(type.chain[0])), None)
+        for source in self.__get_all_materialized_property_sources(type.field_type, str(type.chain[0])):
+            return source
+        return None
 
     def __get_all_materialized_property_sources(
         self, field_type: ast.FieldType, property_name: str
