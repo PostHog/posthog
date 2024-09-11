@@ -3873,7 +3873,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         assert session_recordings == [
             {
                 "active_seconds": 0.0,
-                "click_count": 100,  # NB this value is incorrect
+                "click_count": 10,
                 "console_error_count": 0,
                 "console_log_count": 0,
                 "console_warn_count": 0,
