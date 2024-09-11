@@ -914,6 +914,8 @@ class PluginConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise ValidationError("No migration available for this plugin")
 
         hog_function_data = migrater.migrate(obj)
+        hog_function_data["template_id"] = hog_function_data["id"]
+        del hog_function_data["id"]
 
         if obj.enabled:
             hog_function_data["enabled"] = True
