@@ -457,6 +457,7 @@
                   "chain": null,
                   "fields": null,
                   "hogql_value": "event_person_id",
+                  "id": null,
                   "name": "event_person_id",
                   "schema_valid": true,
                   "table": null,
@@ -471,6 +472,7 @@
                       "person"
                   ],
                   "hogql_value": "override",
+                  "id": null,
                   "name": "override",
                   "schema_valid": true,
                   "table": "person_distinct_id_overrides",
