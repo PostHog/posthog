@@ -211,6 +211,7 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS_REPLAY: 'web-analytics-replay', // owner: @robbie-c
     BATCH_EXPORTS_POSTHOG_HTTP: 'posthog-http-batch-exports',
     EXPERIMENT_MAKE_DECISION: 'experiment-make-decision', // owner: @jurajmajerik #team-feature-success
+    PURCHASE_CREDITS: 'purchase-credits', // owner: @zach
     DATA_MODELING: 'data-modeling', // owner: @EDsCODE #team-data-warehouse
     WEB_ANALYTICS_CONVERSION_GOALS: 'web-analytics-conversion-goals', // owner: @robbie-c
     WEB_ANALYTICS_LAST_CLICK: 'web-analytics-last-click', // owner: @robbie-c
