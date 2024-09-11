@@ -574,6 +574,7 @@ export interface ActionStepType {
     url?: string | null
     /** @default StringMatching.Contains */
     url_matching?: ActionStepStringMatching | null
+    name?: string | null
 }
 
 export interface ElementType {
@@ -1811,6 +1812,9 @@ export interface DashboardTemplateVariableType {
     default: Record<string, JsonType>
     required: boolean
     touched?: boolean
+    selector?: string
+    href?: string
+    url?: string
 }
 
 export type DashboardLayoutSize = 'sm' | 'xs'
@@ -2140,6 +2144,17 @@ export interface FilterType {
     breakdown_hide_other_aggregation?: boolean | null
     breakdown_limit?: integer | null
     aggregation_group_type_index?: integer // Groups aggregation
+}
+
+export interface TemplateVariableStep {
+    id: string
+    math: BaseMathType
+    name: string | null
+    order: number
+    type: EntityTypes
+    selector?: string | null
+    href?: string | null
+    url?: string | null
 }
 
 export interface PropertiesTimelineFilterType {
