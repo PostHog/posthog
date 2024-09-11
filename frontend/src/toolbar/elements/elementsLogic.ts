@@ -405,6 +405,7 @@ export const elementsLogic = kea<elementsLogicType>([
         },
         createAction: ({ element }) => {
             actions.selectElement(null)
+            // this just sets the action form
             actions.newAction(element)
         },
     })),

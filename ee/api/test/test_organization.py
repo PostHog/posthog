@@ -28,7 +28,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             OrganizationMembership.Level.OWNER,
         )
 
-    @patch("secrets.choice", return_value="Y")
+    @patch("posthog.models.utils.generate_random_short_suffix", return_value="YYYY")
     def test_create_two_similarly_named_organizations(self, mock_choice):
         response = self.client.post(
             "/api/organizations/",

@@ -907,6 +907,64 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
+    def test_all_events_target_first_time(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0)),
+                ("person1", _date(1)),
+                ("person1", _date(2)),
+            ],
+            "event1",
+        )
+
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(2)),
+                ("person1", _date(3)),
+            ],
+            "event2",
+        )
+
+        result_all_events = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(2, hour=6)},
+                "retentionFilter": {
+                    "retentionType": "retention_first_time",
+                    "totalIntervals": 4,
+                    "targetEntity": {"id": "event2", "type": "events"},
+                    "returningEntity": {"id": None, "name": "All events"},
+                },
+            }
+        )
+
+        result_specific_event = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(2, hour=6)},
+                "retentionFilter": {
+                    "retentionType": "retention_first_time",
+                    "totalIntervals": 4,
+                    "targetEntity": {"id": "event2", "type": "events"},
+                    "returningEntity": {"id": "event2", "type": "events"},
+                },
+            }
+        )
+
+        self.assertEqual(
+            pluck(result_specific_event, "values", "count"),
+            [
+                [0, 0, 0, 0],
+                [0, 0, 0],
+                [0, 0],
+                [1],
+            ],
+        )
+
+        self.assertEqual(result_specific_event, result_all_events)
+
     def test_retention_people_basic(self):
         person1 = _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
         _create_person(team_id=self.team.pk, distinct_ids=["person2"])
