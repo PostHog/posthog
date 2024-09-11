@@ -16,7 +16,6 @@ import freezegun
 
 # we have to import pendulum for the side effect of importing it
 # freezegun.FakeDateTime and pendulum don't play nicely otherwise
-from inline_snapshot import customize_repr
 import pendulum  # noqa F401
 import pytest
 import sqlparse
@@ -881,14 +880,6 @@ def _create_person(*args, **kwargs):
     return Person(**{key: value for key, value in kwargs.items() if key != "distinct_ids"})
 
 
-@customize_repr
-def _(value: str):
-    """Makes sure we can use inline_snapshot() for query SQL snapshots."""
-    if "team_id," in value:
-        return re.sub(r"team_id, \d+", "team_id, <team_id>", value.__repr__())
-    return value.__repr__()
-
-
 class ClickhouseTestMixin(QueryMatchingTest):
     RUN_MATERIALIZED_COLUMN_TESTS = True
     # overrides the basetest in posthog/test/base.py
@@ -896,6 +887,13 @@ class ClickhouseTestMixin(QueryMatchingTest):
     CLASS_DATA_LEVEL_SETUP = False
 
     snapshot: Any
+
+    @staticmethod
+    def generalize_sql(value: str):
+        """Makes sure we can use inline_snapshot() for query SQL snapshots - swaps concrete team_id for placeholder."""
+        if "team_id," in value:
+            return re.sub(r"team_id, \d+", "team_id, <TEAM_ID>", value)
+        return value
 
     def capture_select_queries(self):
         return self.capture_queries_startswith(("SELECT", "WITH", "select", "with"))

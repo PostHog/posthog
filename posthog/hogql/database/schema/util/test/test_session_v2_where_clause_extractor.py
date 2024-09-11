@@ -363,7 +363,7 @@ class TestSessionsV2QueriesHogQLToClickhouse(ClickhouseTestMixin, APIBaseTest):
 
     def test_select_with_timestamp(self):
         actual = self.print_query("SELECT session_id FROM sessions WHERE $start_timestamp > '2021-01-01'")
-        assert actual == snapshot("""\
+        assert self.generalize_sql(actual) == snapshot("""\
 SELECT
     sessions.session_id AS session_id
 FROM
@@ -374,7 +374,7 @@ FROM
     FROM
         raw_sessions
     WHERE
-        and(equals(raw_sessions.team_id, <team_id>), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), %(hogql_val_1)s), 0))
+        and(equals(raw_sessions.team_id, <TEAM_ID>), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), %(hogql_val_1)s), 0))
     GROUP BY
         raw_sessions.session_id_v7,
         raw_sessions.session_id_v7) AS sessions
@@ -396,7 +396,7 @@ WHERE events.timestamp > '2021-01-01'
 GROUP BY sessions.session_id
 """
         )
-        assert actual == snapshot("""\
+        assert self.generalize_sql(actual) == snapshot("""\
 SELECT
     sessions.session_id AS session_id,
     uniq(events.uuid)
@@ -408,12 +408,12 @@ FROM
     FROM
         raw_sessions
     WHERE
-        and(equals(raw_sessions.team_id, <team_id>), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), %(hogql_val_0)s), 0))
+        and(equals(raw_sessions.team_id, <TEAM_ID>), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), %(hogql_val_0)s), 0))
     GROUP BY
         raw_sessions.session_id_v7,
         raw_sessions.session_id_v7) AS sessions ON equals(events.`$session_id`, sessions.session_id)
 WHERE
-    and(equals(events.team_id, <team_id>), greater(toTimeZone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s))
+    and(equals(events.team_id, <TEAM_ID>), greater(toTimeZone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s))
 GROUP BY
     sessions.session_id
 LIMIT 50000\
@@ -429,7 +429,7 @@ FROM events
 WHERE events.timestamp < today()
             """
         )
-        assert actual == snapshot("""\
+        assert self.generalize_sql(actual) == snapshot("""\
 SELECT
     0 AS duration
 LIMIT 50000
@@ -444,12 +444,12 @@ FROM
     FROM
         raw_sessions
     WHERE
-        and(equals(raw_sessions.team_id, <team_id>), ifNull(lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), today()), 0))
+        and(equals(raw_sessions.team_id, <TEAM_ID>), ifNull(lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), today()), 0))
     GROUP BY
         raw_sessions.session_id_v7,
         raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, %(hogql_val_3)s)), events__session.session_id_v7)
 WHERE
-    and(equals(events.team_id, <team_id>), less(toTimeZone(events.timestamp, %(hogql_val_4)s), today()))
+    and(equals(events.team_id, <TEAM_ID>), less(toTimeZone(events.timestamp, %(hogql_val_4)s), today()))
 LIMIT 50000\
 """)
 
@@ -495,7 +495,7 @@ WHERE and(greaterOrEquals(timestamp, toStartOfDay(assumeNotNull(toDateTime('2024
 GROUP BY day_start,
          breakdown_value"""
         )
-        assert actual == snapshot("""\
+        assert self.generalize_sql(actual) == snapshot("""\
 SELECT
     count(DISTINCT e.`$session_id`) AS total,
     toStartOfDay(toTimeZone(e.timestamp, %(hogql_val_8)s)) AS day_start,
@@ -508,7 +508,7 @@ FROM
     FROM
         person_distinct_id_overrides
     WHERE
-        equals(person_distinct_id_overrides.team_id, <team_id>)
+        equals(person_distinct_id_overrides.team_id, <TEAM_ID>)
     GROUP BY
         person_distinct_id_overrides.distinct_id
     HAVING
@@ -520,17 +520,17 @@ FROM
     FROM
         raw_sessions
     WHERE
-        and(equals(raw_sessions.team_id, <team_id>), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_3)s, 6, %(hogql_val_4)s)))), 0), ifNull(lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_5)s, 6, %(hogql_val_6)s))), 0))
+        and(equals(raw_sessions.team_id, <TEAM_ID>), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_3)s, 6, %(hogql_val_4)s)))), 0), ifNull(lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_5)s, 6, %(hogql_val_6)s))), 0))
     GROUP BY
         raw_sessions.session_id_v7,
         raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(accurateCastOrNull(e.`$session_id`, %(hogql_val_7)s)), e__session.session_id_v7)
 WHERE
-    and(equals(e.team_id, <team_id>), and(greaterOrEquals(toTimeZone(e.timestamp, %(hogql_val_20)s), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_21)s, 6, %(hogql_val_22)s)))), lessOrEquals(toTimeZone(e.timestamp, %(hogql_val_23)s), assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_24)s, 6, %(hogql_val_25)s))), equals(e.event, %(hogql_val_26)s), ifNull(in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), (SELECT
+    and(equals(e.team_id, <TEAM_ID>), and(greaterOrEquals(toTimeZone(e.timestamp, %(hogql_val_20)s), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_21)s, 6, %(hogql_val_22)s)))), lessOrEquals(toTimeZone(e.timestamp, %(hogql_val_23)s), assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_24)s, 6, %(hogql_val_25)s))), equals(e.event, %(hogql_val_26)s), ifNull(in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), (SELECT
                     cohortpeople.person_id AS person_id
                 FROM
                     cohortpeople
                 WHERE
-                    and(equals(cohortpeople.team_id, <team_id>), and(equals(cohortpeople.cohort_id, 2), equals(cohortpeople.version, 0))))), 0)))
+                    and(equals(cohortpeople.team_id, <TEAM_ID>), and(equals(cohortpeople.cohort_id, 2), equals(cohortpeople.version, 0))))), 0)))
 GROUP BY
     day_start,
     breakdown_value
@@ -548,7 +548,7 @@ WHERE s.session.$entry_pathname = '/home' AND min_first_timestamp >= '2021-01-01
 GROUP BY session_id
         """
         )
-        assert actual == snapshot("""\
+        assert self.generalize_sql(actual) == snapshot("""\
 SELECT
     s.session_id AS session_id,
     min(toTimeZone(s.min_first_timestamp, %(hogql_val_5)s)) AS start_time
@@ -560,12 +560,12 @@ FROM
     FROM
         raw_sessions
     WHERE
-        and(equals(raw_sessions.team_id, <team_id>), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), %(hogql_val_2)s), 0), ifNull(lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), now64(6, %(hogql_val_3)s)), 0))
+        and(equals(raw_sessions.team_id, <TEAM_ID>), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), %(hogql_val_2)s), 0), ifNull(lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), now64(6, %(hogql_val_3)s)), 0))
     GROUP BY
         raw_sessions.session_id_v7,
         raw_sessions.session_id_v7) AS s__session ON equals(toUInt128(accurateCastOrNull(s.session_id, %(hogql_val_4)s)), s__session.session_id_v7)
 WHERE
-    and(equals(s.team_id, <team_id>), ifNull(equals(s__session.`$entry_pathname`, %(hogql_val_6)s), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, %(hogql_val_7)s), %(hogql_val_8)s), 0), ifNull(less(toTimeZone(s.min_first_timestamp, %(hogql_val_9)s), now64(6, %(hogql_val_10)s)), 0))
+    and(equals(s.team_id, <TEAM_ID>), ifNull(equals(s__session.`$entry_pathname`, %(hogql_val_6)s), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, %(hogql_val_7)s), %(hogql_val_8)s), 0), ifNull(less(toTimeZone(s.min_first_timestamp, %(hogql_val_9)s), now64(6, %(hogql_val_10)s)), 0))
 GROUP BY
     s.session_id
 LIMIT 50000\
@@ -582,7 +582,7 @@ from sessions
 where `$start_timestamp` >= now() - toIntervalDay(7)
 """
         )
-        assert actual == snapshot("""\
+        assert self.generalize_sql(actual) == snapshot("""\
 SELECT
     sessions.session_id AS session_id,
     sessions.`$urls` AS `$urls`,
@@ -596,7 +596,7 @@ FROM
     FROM
         raw_sessions
     WHERE
-        and(equals(raw_sessions.team_id, <team_id>), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), minus(now64(6, %(hogql_val_1)s), toIntervalDay(7))), 0))
+        and(equals(raw_sessions.team_id, <TEAM_ID>), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), minus(now64(6, %(hogql_val_1)s), toIntervalDay(7))), 0))
     GROUP BY
         raw_sessions.session_id_v7,
         raw_sessions.session_id_v7) AS sessions
