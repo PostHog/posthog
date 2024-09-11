@@ -1,5 +1,5 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { customEvent } from '@rrweb/types'
+import { customEvent, EventType, eventWithTime, IncrementalSource } from '@rrweb/types'
 import { captureException } from '@sentry/react'
 import {
     actions,
@@ -477,6 +477,45 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             (s) => [s.customRRWebEvents],
             (customRRWebEvents: customEvent[]) => {
                 return customRRWebEvents.filter((event) => event.data.tag === 'Message too large')
+            },
+        ],
+
+        sortedVisualSnapshots: [
+            (s) => [s.sessionPlayerData],
+            (sessionPlayerData: SessionPlayerData): eventWithTime[] => {
+                const allSnapshots = Object.values(sessionPlayerData.snapshotsByWindowId).flat()
+                const visualSnapshots = allSnapshots.filter((s) => {
+                    if (s.type === EventType.FullSnapshot) {
+                        return true
+                    } else if (s.type === EventType.IncrementalSnapshot) {
+                        return (
+                            s.data.source === IncrementalSource.Mutation &&
+                            (s.data.adds.length > 0 || s.data.removes.length > 0)
+                        )
+                    }
+                    return false
+                })
+                return visualSnapshots.sort((a, b) => a.timestamp - b.timestamp)
+            },
+        ],
+
+        debugSnapshots: [
+            (s) => [s.sortedVisualSnapshots, s.currentTimestamp],
+            (
+                sortedVisualSnapshots: eventWithTime[],
+                currentTimestamp: number | undefined
+            ): Record<'previous' | 'current' | 'next', eventWithTime | null> | null => {
+                if (!currentTimestamp) {
+                    return null
+                }
+
+                const nextIndex = sortedVisualSnapshots.findIndex((s) => s.timestamp > currentTimestamp)
+
+                return {
+                    previous: nextIndex === 0 ? null : sortedVisualSnapshots[nextIndex - 2],
+                    current: nextIndex === 0 ? null : sortedVisualSnapshots[nextIndex - 1],
+                    next: nextIndex === -1 ? null : sortedVisualSnapshots[nextIndex],
+                }
             },
         ],
     }),
