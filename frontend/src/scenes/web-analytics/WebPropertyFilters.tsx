@@ -12,18 +12,16 @@ export const WebPropertyFilters = ({
     setWebAnalyticsFilters: (filters: WebAnalyticsPropertyFilters) => void
 }): JSX.Element => {
     return (
-        <>
-            <PropertyFilters
-                taxonomicGroupTypes={[
-                    TaxonomicFilterGroupType.EventProperties,
-                    TaxonomicFilterGroupType.PersonProperties,
-                    TaxonomicFilterGroupType.SessionProperties,
-                ]}
-                onChange={(filters) => setWebAnalyticsFilters(filters.filter(isEventPersonOrSessionPropertyFilter))}
-                propertyFilters={webAnalyticsFilters}
-                pageKey="web-analytics"
-                eventNames={['$pageview']}
-            />
-        </>
+        <PropertyFilters
+            taxonomicGroupTypes={[
+                TaxonomicFilterGroupType.EventProperties,
+                TaxonomicFilterGroupType.PersonProperties,
+                TaxonomicFilterGroupType.SessionProperties,
+            ]}
+            onChange={(filters) => setWebAnalyticsFilters(filters.filter(isEventPersonOrSessionPropertyFilter))}
+            propertyFilters={webAnalyticsFilters}
+            pageKey="web-analytics"
+            eventNames={['$pageview']}
+        />
     )
 }
