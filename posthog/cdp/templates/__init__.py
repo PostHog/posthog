@@ -19,6 +19,7 @@ from .loops.template_loops import template as loops
 from .rudderstack.template_rudderstack import template as rudderstack
 from .gleap.template_gleap import template as gleap
 from .google_pubsub.template_google_pubsub import template as google_pubsub, TemplateGooglePubSubMigrator
+from .engage.template_engage import template as engage
 
 
 HOG_FUNCTION_TEMPLATES = [
@@ -42,6 +43,7 @@ HOG_FUNCTION_TEMPLATES = [
     avo,
     gleap,
     google_pubsub,
+    engage,
 ]
 
 
