@@ -194,7 +194,7 @@ pub async fn evaluate_feature_flags(
 ) -> FlagsResponse {
     let group_type_mapping_cache =
         Arc::new(GroupTypeMappingCache::new(team_id, database_client.clone()));
-    let mut feature_flag_matcher = FeatureFlagMatcher::new(
+    let feature_flag_matcher = FeatureFlagMatcher::new(
         distinct_id.clone(),
         team_id,
         database_client,
@@ -206,7 +206,7 @@ pub async fn evaluate_feature_flags(
     // filter out flags that are not active or have been deleted
 
     feature_flag_matcher
-        .evaluate_feature_flags(feature_flags_from_cache_or_pg)
+        .evaluate_feature_flags(feature_flags_from_cache_or_pg, None)
         .await
 }
 
@@ -225,7 +225,7 @@ mod tests {
         api::FlagValue,
         config::Config,
         flag_definitions::{FeatureFlag, FlagFilters, FlagGroupType, OperatorType, PropertyFilter},
-        test_utils::setup_pg_client,
+        test_utils::{insert_new_team_in_pg, setup_pg_client},
     };
 
     use super::*;
@@ -594,6 +594,88 @@ mod tests {
     //     // Add an assertion to ensure the operation completes within a reasonable time
     //     assert!(duration < std::time::Duration::from_secs(1));
     // }
+
+    #[tokio::test]
+    async fn test_evaluate_feature_flags_with_overrides() {
+        let pg_client = setup_pg_client(None).await;
+        let team = insert_new_team_in_pg(pg_client.clone()).await.unwrap();
+        println!("Created team with id: {}", team.id);
+
+        // Create a feature flag that depends on a person property and a group property
+        let flag = FeatureFlag {
+            name: Some("Test Flag".to_string()),
+            id: 1,
+            key: "test_flag".to_string(),
+            active: true,
+            deleted: false,
+            team_id: team.id,
+            filters: FlagFilters {
+                groups: vec![FlagGroupType {
+                    properties: Some(vec![PropertyFilter {
+                        key: "industry".to_string(),
+                        value: json!("tech"),
+                        operator: Some(OperatorType::Exact),
+                        prop_type: "group".to_string(),
+                        group_type_index: Some(0),
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: Some(0),
+                payloads: None,
+                super_groups: None,
+            },
+            ensure_experience_continuity: false,
+        };
+
+        println!("Created flag: {:?}", flag);
+
+        let feature_flag_list = FeatureFlagList { flags: vec![flag] };
+
+        // Create group property overrides
+        let mut group_property_overrides = HashMap::new();
+        group_property_overrides.insert(
+            "project".to_string(),
+            HashMap::from([("industry".to_string(), json!("tech"))]),
+        );
+        println!("Group property overrides: {:?}", group_property_overrides);
+
+        // Evaluate feature flags
+        let result = evaluate_feature_flags(
+            team.id,
+            "user123".to_string(),
+            feature_flag_list,
+            Some(pg_client),
+            None,
+            Some(group_property_overrides),
+        )
+        .await;
+
+        println!("Evaluation result: {:?}", result);
+
+        // Assert results
+        assert!(
+            !result.error_while_computing_flags,
+            "Error while computing flags"
+        );
+        assert!(
+            result.feature_flags.contains_key("test_flag"),
+            "test_flag not found in result"
+        );
+
+        let flag_value = result
+            .feature_flags
+            .get("test_flag")
+            .expect("test_flag not found");
+        println!("Flag value: {:?}", flag_value);
+
+        assert_eq!(
+            flag_value,
+            &FlagValue::Boolean(true),
+            "Flag value is not true as expected"
+        );
+    }
 
     #[tokio::test]
     async fn test_long_distinct_id() {

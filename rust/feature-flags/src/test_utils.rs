@@ -230,8 +230,13 @@ pub async fn insert_new_team_in_pg(client: Arc<PgClient>) -> Result<Team, Error>
         .await?;
 
         assert_eq!(res.rows_affected(), 1);
+        println!(
+            "Inserted group type mapping: {} -> {}",
+            group_type, group_type_index
+        );
     }
 
+    println!("Team created with id: {}", team.id);
     Ok(team)
 }
 
