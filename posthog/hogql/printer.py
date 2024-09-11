@@ -966,8 +966,12 @@ class _Printer(Visitor):
                 if not isinstance(field_type, ast.FieldType):
                     return None
 
-                # TRICKY:
-                for property_source in self.__get_materialized_property_sources(field_type, str(property_name)):
+                # TRICKY: Materialized property columns do not currently support null values (see comment in
+                # `visit_property_type`) so checking whether or not a property is set for a row cannot safely use that
+                # field and falls back to the equivalent ``JSONHas(properties, ...)`` call instead. However, if this
+                # property is part of *any* property group, we can use that column instead to evaluate this expression
+                # more efficiently -- even if the materialized column would be a better choice in other situations.
+                for property_source in self.__get_all_materialized_property_sources(field_type, str(property_name)):
                     if isinstance(property_source, PrintableMaterializedPropertyGroupItem):
                         return property_source.has_expr
 
@@ -1258,15 +1262,16 @@ class _Printer(Visitor):
         self, type: ast.PropertyType
     ) -> PrintableMaterializedColumn | PrintableMaterializedPropertyGroupItem | None:
         """
-        Find a materialized property for the provided property type.
+        Find the most efficient materialized property source for the provided property type.
         """
-        return next(self.__get_materialized_property_sources(type.field_type, str(type.chain[0])), None)
+        return next(self.__get_all_materialized_property_sources(type.field_type, str(type.chain[0])), None)
 
-    def __get_materialized_property_sources(
+    def __get_all_materialized_property_sources(
         self, field_type: ast.FieldType, property_name: str
     ) -> Iterable[PrintableMaterializedColumn | PrintableMaterializedPropertyGroupItem]:
         """
-        Find a materialized property for the provided field type and property name.
+        Find all materialized property sources for the provided field type and property name, ordered from what is
+        likely to be the most efficient access path to the least efficient.
         """
         # TODO: It likely makes sense to make this independent of whether or not property groups are used.
         if self.context.modifiers.materializationMode == "disabled":
