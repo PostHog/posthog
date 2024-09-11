@@ -29,6 +29,7 @@ from posthog.models import (
     Plugin,
     PluginConfig,
     PluginSourceFile,
+    Project,
 )
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.feature_flag.feature_flag import FeatureFlagHashKeyOverride
@@ -2646,6 +2647,39 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
         response = self._post_decide({"distinct_id": "example_id", "api_key": None, "project_id": self.team.id})
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_short_circuited_team(self, *args):
+        short_circuited_team_token = "short_circuited_team_token"
+
+        _, short_circuited_team = Project.objects.create_with_team(
+            organization=self.organization,
+            team_fields={
+                "api_token": short_circuited_team_token,
+                "test_account_filters": [
+                    {
+                        "key": "email",
+                        "value": "@posthog.com",
+                        "operator": "not_icontains",
+                        "type": "person",
+                    }
+                ],
+                "has_completed_onboarding_for": {"product_analytics": True},
+            },
+        )
+        with self.settings(DECIDE_SHORT_CIRCUITED_TEAM_IDS=[short_circuited_team.id]):
+            response = self._post_decide(
+                {
+                    "distinct_id": "example_id",
+                    "api_key": short_circuited_team_token,
+                    "project_id": short_circuited_team.id,
+                }
+            )
+            self.assertEqual(response.status_code, status.HTTP_422_UNPROCESSABLE_ENTITY)
+            response_data = response.json()
+            self.assertEqual(
+                response_data["detail"],
+                f"Team with ID {short_circuited_team.id} cannot access the /decide endpoint.Please contact us at hey@posthog.com",
+            )
 
     def test_invalid_payload_on_decide_endpoint(self, *args):
         invalid_payloads = [

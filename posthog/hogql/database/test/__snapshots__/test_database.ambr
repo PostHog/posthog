@@ -401,7 +401,9 @@
                       "duration",
                       "$is_bounce",
                       "$last_external_click_url",
-                      "$page_screen_autocapture_count_up_to"
+                      "$page_screen_autocapture_count_up_to",
+                      "$exit_current_url",
+                      "$exit_pathname"
                   ],
                   "hogql_value": "session",
                   "id": null,
@@ -930,7 +932,9 @@
                       "duration",
                       "$is_bounce",
                       "$last_external_click_url",
-                      "$page_screen_autocapture_count_up_to"
+                      "$page_screen_autocapture_count_up_to",
+                      "$exit_current_url",
+                      "$exit_pathname"
                   ],
                   "hogql_value": "session",
                   "id": null,
@@ -1401,6 +1405,26 @@
                   "hogql_value": "`$last_external_click_url`",
                   "id": null,
                   "name": "$last_external_click_url",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$exit_current_url": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$exit_current_url`",
+                  "id": null,
+                  "name": "$exit_current_url",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$exit_pathname": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$exit_pathname`",
+                  "id": null,
+                  "name": "$exit_pathname",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
@@ -1913,7 +1937,9 @@
                       "duration",
                       "$is_bounce",
                       "$last_external_click_url",
-                      "$page_screen_autocapture_count_up_to"
+                      "$page_screen_autocapture_count_up_to",
+                      "$exit_current_url",
+                      "$exit_pathname"
                   ],
                   "hogql_value": "session",
                   "id": null,
@@ -2442,7 +2468,9 @@
                       "duration",
                       "$is_bounce",
                       "$last_external_click_url",
-                      "$page_screen_autocapture_count_up_to"
+                      "$page_screen_autocapture_count_up_to",
+                      "$exit_current_url",
+                      "$exit_pathname"
                   ],
                   "hogql_value": "session",
                   "id": null,
@@ -2913,6 +2941,26 @@
                   "hogql_value": "`$last_external_click_url`",
                   "id": null,
                   "name": "$last_external_click_url",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$exit_current_url": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$exit_current_url`",
+                  "id": null,
+                  "name": "$exit_current_url",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$exit_pathname": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$exit_pathname`",
+                  "id": null,
+                  "name": "$exit_pathname",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
