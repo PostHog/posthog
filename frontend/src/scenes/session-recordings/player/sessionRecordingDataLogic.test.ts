@@ -2,8 +2,10 @@ import { expectLogic } from 'kea-test-utils'
 import { api, MOCK_TEAM_ID } from 'lib/api.mock'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { convertSnapshotsByWindowId } from 'scenes/session-recordings/__mocks__/recording_snapshots'
+import { encodedWebSnapshotData } from 'scenes/session-recordings/player/__mocks__/encoded-snapshot-data'
 import {
     deduplicateSnapshots,
+    parseEncodedSnapshots,
     sessionRecordingDataLogic,
 } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -402,6 +404,32 @@ describe('sessionRecordingDataLogic', () => {
                 'loadSnapshotsForSource',
                 'loadSnapshotsForSourceSuccess',
             ])
+        })
+    })
+
+    describe('snapshot parsing', () => {
+        const sessionId = '12345'
+        const numberOfParsedLinesInData = 8
+        it('handles normal web data', async () => {
+            const parsed = await parseEncodedSnapshots(encodedWebSnapshotData, sessionId, false)
+            expect(parsed.length).toEqual(numberOfParsedLinesInData)
+            expect(parsed).toMatchSnapshot()
+        })
+
+        it('handles data with unparseable lines', async () => {
+            const parsed = await parseEncodedSnapshots(
+                encodedWebSnapshotData.map((line, index) => {
+                    return index == 0 ? line.substring(0, line.length / 2) : line
+                }),
+                sessionId,
+                false
+            )
+
+            // unparseable lines are not returned
+            expect(encodedWebSnapshotData.length).toEqual(2)
+            expect(parsed.length).toEqual(numberOfParsedLinesInData / 2)
+
+            expect(parsed).toMatchSnapshot()
         })
     })
 })

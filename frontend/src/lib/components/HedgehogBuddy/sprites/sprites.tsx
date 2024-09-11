@@ -1,10 +1,13 @@
+import { inStorybook } from 'lib/utils'
+
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { HedgehogSkin } from '~/types'
 
 export const SPRITE_SIZE = 80
 export const SHADOW_HEIGHT = SPRITE_SIZE / 8
 export const SPRITE_SHEET_WIDTH = SPRITE_SIZE * 8
 
-type SpriteInfo = {
+export type SpriteInfo = {
     /** Number of frames in this sprite sheet */
     frames: number
     /** Path to the sprite sheet */
@@ -16,6 +19,8 @@ type SpriteInfo = {
     /** How likely this animation is to be chosen. Higher numbers are more likely. */
     randomChance?: number
     accessoryPositions?: [number, number][]
+    filter?: string
+    style?: React.CSSProperties
 }
 
 export const accessoryGroups = ['headwear', 'eyewear', 'other'] as const
@@ -28,11 +33,13 @@ export type AccessoryInfo = {
 
 // If loaded via the toolbar the root domain won't be app.posthog.com and so the assets won't load
 // Simple workaround is we detect if the domain is localhost and if not we just use https://us.posthog.com
-export const baseSpritePath = (): string => {
+const baseSpritePath = (): string => {
     let path = `/static/hedgehog/sprites`
     const toolbarAPIUrl = toolbarConfigLogic.findMounted()?.values.apiURL
 
-    if (window.location.hostname !== 'localhost') {
+    if (inStorybook()) {
+        // Nothing to do
+    } else if (window.location.hostname !== 'localhost') {
         path = `https://us.posthog.com${path}`
     } else if (toolbarAPIUrl) {
         path = `${toolbarAPIUrl}${path}`
@@ -40,9 +47,24 @@ export const baseSpritePath = (): string => {
 
     return path
 }
-export const baseSpriteAccessoriesPath = (): string => `${baseSpritePath()}/accessories`
+const baseSpriteAccessoriesPath = (): string => `${baseSpritePath()}/accessories`
 
-export const standardAnimations: { [key: string]: SpriteInfo } = {
+export const spriteUrl = (skin: HedgehogSkin, img: string): string => {
+    return `${baseSpritePath()}/skins/${skin}/${img}.png`
+}
+
+export const spriteOverlayUrl = (img: string): string => {
+    return `${baseSpritePath()}/overlays/${img}.png`
+}
+
+export const spriteAccessoryUrl = (img: string): string => {
+    return `${baseSpriteAccessoriesPath()}/${img}.png`
+}
+
+const animationsNames = ['stop', 'fall', 'jump', 'sign', 'walk', 'wave', 'flag', 'inspect', 'phone', 'action'] as const
+export type AnimationName = (typeof animationsNames)[number]
+
+const standardAnimations: Record<AnimationName, SpriteInfo> = {
     stop: {
         img: 'wave',
         frames: 1,
@@ -92,12 +114,6 @@ export const standardAnimations: { [key: string]: SpriteInfo } = {
         maxIteration: 1,
         randomChance: 2,
     },
-    heatmaps: {
-        img: 'heatmaps',
-        frames: 14,
-        maxIteration: 1,
-        randomChance: 0,
-    },
     flag: {
         img: 'flag',
         frames: 25,
@@ -121,6 +137,21 @@ export const standardAnimations: { [key: string]: SpriteInfo } = {
         frames: 8,
         maxIteration: 3,
         randomChance: 1,
+    },
+}
+
+const overlayAnimationsNames = ['fire'] as const
+
+export type OverlayAnimationName = (typeof overlayAnimationsNames)[number]
+
+export const overlayAnimations: Record<OverlayAnimationName, SpriteInfo> = {
+    fire: {
+        img: 'fire',
+        frames: 14,
+        maxIteration: 1,
+        style: {
+            opacity: 0.75,
+        },
     },
 }
 
@@ -189,5 +220,16 @@ export const standardAccessories: { [key: string]: AccessoryInfo } = {
     xmas_scarf: {
         img: 'xmas-scarf',
         group: 'other',
+    },
+}
+
+export const skins: Record<HedgehogSkin, { [key: string]: SpriteInfo }> = {
+    default: standardAnimations,
+    spiderhog: {
+        stop: standardAnimations.stop,
+        fall: standardAnimations.fall,
+        jump: standardAnimations.jump,
+        walk: standardAnimations.walk,
+        wave: standardAnimations.wave,
     },
 }

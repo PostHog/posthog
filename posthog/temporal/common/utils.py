@@ -1,5 +1,5 @@
-import collections.abc
 import abc
+import collections.abc
 import dataclasses
 import datetime as dt
 import typing
@@ -126,23 +126,23 @@ async def should_resume_from_activity_heartbeat(
     except NotEnoughHeartbeatValuesError:
         heartbeat_details = None
         received = False
-        logger.warning("Details from previous activity execution did not contain the expected amount of values")
+        await logger.awarning("Details from previous activity execution did not contain the expected amount of values")
 
     except HeartbeatParseError:
         heartbeat_details = None
         received = False
-        logger.warning("Details from previous activity execution could not be parsed.")
+        await logger.awarning("Details from previous activity execution could not be parsed.")
 
     except Exception:
         # We should start from the beginning, but we make a point to log unexpected errors.
         # Ideally, any new exceptions should be added to the previous blocks after the first time and we will never land here.
         heartbeat_details = None
         received = False
-        logger.exception("Did not receive details from previous activity Execution due to an unexpected error")
+        await logger.aexception("Did not receive details from previous activity Execution due to an unexpected error")
 
     else:
         received = True
-        logger.debug(
+        await logger.adebug(
             f"Received details from previous activity: {heartbeat_details}",
         )
 

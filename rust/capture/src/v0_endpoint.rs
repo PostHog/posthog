@@ -13,7 +13,6 @@ use serde_json::json;
 use serde_json::Value;
 use tracing::instrument;
 
-use crate::limiters::redis::QuotaResource;
 use crate::prometheus::report_dropped_events;
 use crate::v0_request::{Compression, ProcessingContext, RawRequest};
 use crate::{
@@ -29,7 +28,6 @@ use crate::{
 ///
 /// Because it must accommodate several shapes, it is inefficient in places. A v1
 /// endpoint should be created, that only accepts the BatchedRequest payload shape.
-#[allow(clippy::too_many_arguments)]
 async fn handle_common(
     state: &State<router::State>,
     InsecureClientIp(ip): &InsecureClientIp,
@@ -37,7 +35,6 @@ async fn handle_common(
     headers: &HeaderMap,
     method: &Method,
     path: &MatchedPath,
-    quota_resource: QuotaResource,
     body: Bytes,
 ) -> Result<(ProcessingContext, Vec<RawEvent>), CaptureError> {
     let user_agent = headers
@@ -119,7 +116,7 @@ async fn handle_common(
 
     let billing_limited = state
         .billing_limiter
-        .is_limited(context.token.as_str(), quota_resource)
+        .is_limited(context.token.as_str())
         .await;
 
     if billing_limited {
@@ -157,18 +154,7 @@ pub async fn event(
     path: MatchedPath,
     body: Bytes,
 ) -> Result<Json<CaptureResponse>, CaptureError> {
-    match handle_common(
-        &state,
-        &ip,
-        &meta,
-        &headers,
-        &method,
-        &path,
-        QuotaResource::Events,
-        body,
-    )
-    .await
-    {
+    match handle_common(&state, &ip, &meta, &headers, &method, &path, body).await {
         Err(CaptureError::BillingLimit) => {
             // for v0 we want to just return ok 🙃
             // this is because the clients are pretty dumb and will just retry over and over and
@@ -227,18 +213,7 @@ pub async fn recording(
     path: MatchedPath,
     body: Bytes,
 ) -> Result<Json<CaptureResponse>, CaptureError> {
-    match handle_common(
-        &state,
-        &ip,
-        &meta,
-        &headers,
-        &method,
-        &path,
-        QuotaResource::Recordings,
-        body,
-    )
-    .await
-    {
+    match handle_common(&state, &ip, &meta, &headers, &method, &path, body).await {
         Err(CaptureError::BillingLimit) => Ok(Json(CaptureResponse {
             status: CaptureResponseCode::Ok,
             quota_limited: Some(vec!["recordings".to_string()]),

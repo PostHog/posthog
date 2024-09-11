@@ -541,6 +541,41 @@ class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
         [row1] = response.results or []
         self.assertEqual(row1, ("https://example.com/2",))
 
+    def test_can_use_v1_and_v2_fields(self):
+        session_id = str(uuid7())
+
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="d1",
+            properties={
+                "$current_url": "https://example.com/pathname",
+                "$pathname": "/pathname",
+                "$session_id": session_id,
+            },
+        )
+
+        response = self.__execute(
+            parse_select(
+                """
+                select
+                    $session_duration,
+                    duration,
+                    $end_current_url,
+                    $exit_current_url,
+                    $end_pathname,
+                    $exit_pathname
+                from sessions
+                where session_id = {session_id}
+                """,
+                placeholders={"session_id": ast.Constant(value=session_id)},
+            ),
+        )
+
+        assert response.results == [
+            (0, 0, "https://example.com/pathname", "https://example.com/pathname", "/pathname", "/pathname")
+        ]
+
 
 class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
     def test_all(self):
