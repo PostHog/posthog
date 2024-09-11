@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 import json
 from typing import Any, Literal, Optional, cast
 from collections.abc import Mapping
@@ -24,6 +25,21 @@ from posthog.schema import (
     PropertyGroupsMode,
 )
 from posthog.test.base import BaseTest, _create_event, cleanup_materialized_columns
+
+
+@contextmanager
+def materialized(table, property):
+    """Materialize a property within the managed block, removing it on exit."""
+    try:
+        from ee.clickhouse.materialized_columns.analyze import materialize
+    except ModuleNotFoundError as e:
+        pytest.xfail(str(e))
+
+    try:
+        materialize(table, property)
+        yield
+    finally:
+        cleanup_materialized_columns()
 
 
 class TestPrinter(BaseTest):
@@ -516,8 +532,6 @@ class TestPrinter(BaseTest):
         )
 
     def test_property_groups_optimized_has(self) -> None:
-        cleanup_materialized_columns()
-
         self._test_property_group_comparison(
             "JSONHas(properties, 'key')",
             "has(events.properties_group_custom, %(hogql_val_0)s)",
@@ -528,19 +542,13 @@ class TestPrinter(BaseTest):
         # TODO: Chained operations/path traversal could be optimized further, but is left alone for now.
         self._test_property_group_comparison("JSONHas(properties, 'foo', 'bar')", None)
 
-        try:
-            from ee.clickhouse.materialized_columns.analyze import materialize
-        except ModuleNotFoundError:
-            return
-        else:
-            materialize("events", "key")
-
-        self._test_property_group_comparison(
-            "JSONHas(properties, 'key')",
-            "has(events.properties_group_custom, %(hogql_val_0)s)",
-            {"hogql_val_0": "key"},
-            expected_skip_indexes_used={"properties_group_custom_keys_bf"},
-        )
+        with materialized("events", "key"):
+            self._test_property_group_comparison(
+                "JSONHas(properties, 'key')",
+                "has(events.properties_group_custom, %(hogql_val_0)s)",
+                {"hogql_val_0": "key"},
+                expected_skip_indexes_used={"properties_group_custom_keys_bf"},
+            )
 
     def test_property_groups_optimized_in_comparisons(self) -> None:
         # The IN operator works much like equality when the right hand side of the expression is all constants. Like
