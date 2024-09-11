@@ -445,10 +445,11 @@ export const billingLogic = kea<billingLogicType>([
                 collectionMethod: 'charge_automatically',
             },
             submit: async ({ creditInput, collectionMethod }) => {
-                await api.create('api/billing/credits/purchase', {
-                    annual_amount_usd: +Math.round(+creditInput - +creditInput * values.creditDiscount),
-                    collection_method: collectionMethod,
-                })
+                values.computedDiscount * 100,
+                    await api.create('api/billing/credits/purchase', {
+                        annual_amount_usd: +Math.round(+creditInput - +creditInput * values.creditDiscount),
+                        collection_method: collectionMethod,
+                    })
 
                 actions.showPurchaseCreditsModal(false)
                 actions.loadSelfServeCreditEligible()
