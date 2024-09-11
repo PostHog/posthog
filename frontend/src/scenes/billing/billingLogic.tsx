@@ -471,10 +471,12 @@ export const billingLogic = kea<billingLogicType>([
                         ) : (
                             <>
                                 <p>
-                                    Your card will be charged in the next 3 hours and the credits will be applied to
-                                    your account. Please make sure your{' '}
-                                    <Link to={values.billing?.stripe_portal_url}>card on file</Link> is up to date. You
-                                    will receive an email when the credits are applied.
+                                    Your card will be charged soon and the credits will be applied to your account.
+                                    Please make sure your{' '}
+                                    <Link to={values.billing?.stripe_portal_url} target="_blank">
+                                        card on file
+                                    </Link>{' '}
+                                    is up to date. You will receive an email when the credits are applied.
                                 </p>
                             </>
                         ),

@@ -20,7 +20,7 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
         <LemonModal
             onClose={() => showPurchaseCreditsModal(false)}
             width="max(44vw)"
-            title="Buy credits in advance, get a discount"
+            title="Buy credits in advance and get a discount"
             footer={
                 <>
                     <LemonButton
@@ -72,7 +72,7 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                                 }
                             )}
                         </b>{' '}
-                        creditsfor the year.
+                        credits for the year.
                     </p>
 
                     <LemonField
