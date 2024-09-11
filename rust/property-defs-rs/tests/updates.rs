@@ -1,5 +1,5 @@
 use chrono::{DateTime, Duration, Utc};
-use property_defs_rs::types::{floor_datetime, Event, PropertyParentType, PropertyValueType};
+use property_defs_rs::types::{Event, PropertyParentType, PropertyValueType};
 use serde_json::json;
 use sqlx::PgPool;
 
@@ -32,14 +32,16 @@ async fn test_updates(db: PgPool) {
     let updates = event.into_updates(1000);
     assert!(updates.len() == 13);
 
+    let before = Utc::now();
+
     // issue them, and then query the database to see that everthing we expect to exist does
     for update in updates {
         update.issue(&db).await.unwrap();
     }
 
-    let today = floor_datetime(Utc::now(), Duration::days(1)).unwrap();
-
-    assert_eventdefinition_exists(&db, "update", 1, today).await;
+    assert_eventdefinition_exists(&db, "update", 1, before, Duration::seconds(1))
+        .await
+        .unwrap();
     assert_propertydefinition_exists(
         &db,
         "TIMESTAMP",
@@ -48,7 +50,8 @@ async fn test_updates(db: PgPool) {
         1,
         PropertyValueType::DateTime,
     )
-    .await;
+    .await
+    .unwrap();
     assert_propertydefinition_exists(
         &db,
         "some_string",
@@ -57,7 +60,8 @@ async fn test_updates(db: PgPool) {
         1,
         PropertyValueType::String,
     )
-    .await;
+    .await
+    .unwrap();
     assert_propertydefinition_exists(
         &db,
         "some_int",
@@ -66,7 +70,8 @@ async fn test_updates(db: PgPool) {
         1,
         PropertyValueType::Numeric,
     )
-    .await;
+    .await
+    .unwrap();
     assert_propertydefinition_exists(
         &db,
         "some_float",
@@ -75,7 +80,8 @@ async fn test_updates(db: PgPool) {
         1,
         PropertyValueType::Numeric,
     )
-    .await;
+    .await
+    .unwrap();
     assert_propertydefinition_exists(
         &db,
         "some_bool",
@@ -84,7 +90,8 @@ async fn test_updates(db: PgPool) {
         1,
         PropertyValueType::Boolean,
     )
-    .await;
+    .await
+    .unwrap();
     assert_propertydefinition_exists(
         &db,
         "some_bool_as_string",
@@ -93,30 +100,41 @@ async fn test_updates(db: PgPool) {
         1,
         PropertyValueType::Boolean,
     )
-    .await;
+    .await
+    .unwrap();
 }
 
 async fn assert_eventdefinition_exists(
     db: &PgPool,
     name: &str,
     team_id: i32,
-    last_seen_at: DateTime<Utc>,
-) {
+    before: DateTime<Utc>,
+    last_seen_range: Duration,
+) -> Result<(), ()> {
+    // Event definitions are inserted with a last_seen that's exactly when the insert is done. We check if an entry exists in the
+    // database with a last_seen that's in the right range to ensure that the event definition was inserted correctly.
+    let after = before + last_seen_range;
+
     let count: Option<i64> = sqlx::query_scalar(
         r#"
         SELECT COUNT(*)
         FROM posthog_eventdefinition
-        WHERE name = $1 AND team_id = $2 AND last_seen_at = $3
+        WHERE name = $1 AND team_id = $2 AND last_seen_at >= $3 AND last_seen_at <= $4
         "#,
     )
     .bind(name)
     .bind(team_id)
-    .bind(last_seen_at)
+    .bind(before)
+    .bind(after)
     .fetch_one(db)
     .await
     .unwrap();
 
-    assert_eq!(count, Some(1));
+    if count == Some(1) {
+        Ok(())
+    } else {
+        Err(())
+    }
 }
 
 async fn assert_propertydefinition_exists(
@@ -126,7 +144,7 @@ async fn assert_propertydefinition_exists(
     is_numerical: bool,
     team_id: i32,
     property_type: PropertyValueType,
-) {
+) -> Result<(), ()> {
     println!("Checking property definition for {}", name);
     let count: Option<i64> = sqlx::query_scalar(
         r#"
@@ -144,5 +162,9 @@ async fn assert_propertydefinition_exists(
     .await
     .unwrap();
 
-    assert_eq!(count, Some(1));
+    if count == Some(1) {
+        Ok(())
+    } else {
+        Err(())
+    }
 }

@@ -110,7 +110,6 @@ impl AppContext {
                     name,
                     update.team_id
                 )
-                .bind(name)
                 .fetch_optional(&self.pool)
                 .await?;
 

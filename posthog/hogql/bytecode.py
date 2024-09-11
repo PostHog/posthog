@@ -391,6 +391,14 @@ class BytecodeCompiler(Visitor):
     def visit_expr_statement(self, node: ast.ExprStatement):
         if node.expr is None:
             return []
+        if isinstance(node.expr, ast.CompareOperation) and node.expr.op == ast.CompareOperationOp.Eq:
+            self.context.warnings.append(
+                HogQLNotice(
+                    start=node.start,
+                    end=node.end,
+                    message="You must use ':=' for assignment instead of '='.",
+                )
+            )
         response = self.visit(node.expr)
         response.append(Operation.POP)
         return response

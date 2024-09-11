@@ -289,7 +289,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                 </div>
 
                 {shouldShowSessionAnalysisWarning ? (
-                    <LemonBanner type="info">
+                    <LemonBanner type="info" className="mt-2">
                         When using sessions and session properties, events without session IDs will be excluded from the
                         set of results.{' '}
                         <Link to="https://posthog.com/docs/user-guides/sessions">Learn more about sessions.</Link>

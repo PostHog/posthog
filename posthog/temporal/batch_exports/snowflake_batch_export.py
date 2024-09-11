@@ -540,7 +540,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
     TODO: We're using JSON here, it's not the most efficient way to do this.
     """
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="Snowflake")
-    logger.info(
+    await logger.ainfo(
         "Batch exporting range %s - %s to Snowflake: %s.%s.%s",
         inputs.data_interval_start,
         inputs.data_interval_end,

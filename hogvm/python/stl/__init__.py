@@ -100,6 +100,12 @@ def ifNull(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]],
         return args[1]
 
 
+def empty(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float):
+    if isinstance(args[0], bool) or isinstance(args[0], int) or isinstance(args[0], float):
+        return False
+    return not bool(args[0])
+
+
 def sleep(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float):
     time.sleep(args[0])
     return None
@@ -367,8 +373,10 @@ STL: dict[str, STLFunction] = {
     "toFloat": STLFunction(fn=toFloat, minArgs=1, maxArgs=1),
     "ifNull": STLFunction(fn=ifNull, minArgs=2, maxArgs=2),
     "length": STLFunction(fn=lambda args, team, stdout, timeout: len(args[0]), minArgs=1, maxArgs=1),
-    "empty": STLFunction(fn=lambda args, team, stdout, timeout: not bool(args[0]), minArgs=1, maxArgs=1),
-    "notEmpty": STLFunction(fn=lambda args, team, stdout, timeout: bool(args[0]), minArgs=1, maxArgs=1),
+    "empty": STLFunction(fn=empty, minArgs=1, maxArgs=1),
+    "notEmpty": STLFunction(
+        fn=lambda args, team, stdout, timeout: not empty(args, team, stdout, timeout), minArgs=1, maxArgs=1
+    ),
     "tuple": STLFunction(fn=lambda args, team, stdout, timeout: tuple(args), minArgs=0, maxArgs=None),
     "lower": STLFunction(fn=lambda args, team, stdout, timeout: args[0].lower(), minArgs=1, maxArgs=1),
     "upper": STLFunction(fn=lambda args, team, stdout, timeout: args[0].upper(), minArgs=1, maxArgs=1),

@@ -113,11 +113,7 @@ module.exports = {
                     {
                         name: 'dayjs',
                         message: 'Do not directly import dayjs. Only import the dayjs exported from lib/dayjs.',
-                    },
-                    {
-                        name: '@ant-design/icons',
-                        message: 'Please use icons from the @posthog/icons package instead',
-                    },
+                    }
                 ],
             },
         ],

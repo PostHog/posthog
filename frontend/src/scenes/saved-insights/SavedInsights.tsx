@@ -4,6 +4,7 @@ import {
     IconBrackets,
     IconCorrelationAnalysis,
     IconCursor,
+    IconFlask,
     IconFunnels,
     IconGraph,
     IconHogQL,
@@ -304,6 +305,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: true,
     },
+    [NodeKind.WebExternalClicksTableQuery]: {
+        name: 'External click urls',
+        description: 'View clicks on external links',
+        icon: IconPieChart,
+        inMenu: true,
+    },
     [NodeKind.HogQuery]: {
         name: 'Hog',
         description: 'Hog query',
@@ -326,6 +333,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         name: 'Session Recordings',
         description: 'View available recordings',
         icon: IconVideoCamera,
+        inMenu: false,
+    },
+    [NodeKind.ExperimentResultQuery]: {
+        name: 'Experiment Result',
+        description: 'View experiment result',
+        icon: IconFlask,
         inMenu: false,
     },
 }
