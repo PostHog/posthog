@@ -1,5 +1,6 @@
 # Web app specific settings/middleware/apps setup
 import os
+from typing import List
 from datetime import timedelta
 
 from corsheaders.defaults import default_headers
