@@ -24,7 +24,7 @@ class TestTemplateBraze(BaseHogFunctionTemplateTest):
 
         assert res.result is None
         assert self.get_mock_fetch_calls()[0] == (
-            "https://rest.fra-01.braze.eu",
+            "https://rest.fra-01.braze.eu/users/track",
             {
                 "headers": {
                     "Content-Type": "application/json",
