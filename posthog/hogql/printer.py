@@ -977,23 +977,24 @@ class _Printer(Visitor):
             while isinstance(table, ast.TableAliasType):
                 table = table.table_type
 
-            if self.dialect == "clickhouse":
-                table_name = table.table.to_printed_clickhouse(self.context)
-            else:
-                table_name = table.table.to_printed_hogql()
-            if field is None:
-                raise QueryError(f"Can't resolve field {field_type.name} on table {table_name}")
+            if isinstance(table, ast.TableType):
+                if self.dialect == "clickhouse":
+                    table_name = table.table.to_printed_clickhouse(self.context)
+                else:
+                    table_name = table.table.to_printed_hogql()
+                if field is None:
+                    raise QueryError(f"Can't resolve field {field_type.name} on table {table_name}")
 
-            field_name = cast(str, field.name)
-            for property_group_column in property_groups.get_property_group_columns(
-                table_name, field_name, property_name
-            ):
-                # XXX: this is kind of a hack
-                return PrintableMaterializedPropertyGroupItem(
-                    self.visit(table),
-                    self._print_identifier(property_group_column),
-                    self.context.add_value(property_name),
-                ).has_expr
+                field_name = cast(str, field.name)
+                for property_group_column in property_groups.get_property_group_columns(
+                    table_name, field_name, property_name
+                ):
+                    # XXX: this is kind of a hack
+                    return PrintableMaterializedPropertyGroupItem(
+                        self.visit(table),
+                        self._print_identifier(property_group_column),
+                        self.context.add_value(property_name),
+                    ).has_expr
 
         return None  # nothing to optimize
 
