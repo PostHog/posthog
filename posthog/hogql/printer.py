@@ -963,9 +963,16 @@ class _Printer(Visitor):
                 # TODO: can probably optimize chained operations here as well
                 return None
 
-            field_type = resolve_field_type(node.args[0])
-            field = field_type.resolve_database_field(self.context)
+            if not isinstance(node.args[1], ast.Constant):
+                return None
 
+            property_name = node.args[1].value
+
+            field_type = resolve_field_type(node.args[0])
+            if not isinstance(field_type, ast.FieldType):
+                return None
+
+            field = field_type.resolve_database_field(self.context)
             table = field_type.table_type
             while isinstance(table, ast.TableAliasType):
                 table = table.table_type
@@ -977,12 +984,7 @@ class _Printer(Visitor):
             if field is None:
                 raise QueryError(f"Can't resolve field {field_type.name} on table {table_name}")
 
-            field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
-
-            if not isinstance(node.args[1], ast.Constant):
-                return None
-
-            property_name = node.args[1].value
+            field_name = cast(str, field.name)
             for property_group_column in property_groups.get_property_group_columns(
                 table_name, field_name, property_name
             ):
