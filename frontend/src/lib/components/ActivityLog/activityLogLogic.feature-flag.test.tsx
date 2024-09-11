@@ -364,7 +364,7 @@ describe('the activity log logic', () => {
             const actual = logic.values.humanizedActivity
 
             expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
-                'peter changed the filter conditions to apply to 100% of ID 98 contains users, and 100% of ID 411 does not contain person on with cohort'
+                'peter changed the filter conditions to apply to 100% of ID 98 contains users, and 100% of ID 411 does not contains users on with cohort'
             )
         })
 
