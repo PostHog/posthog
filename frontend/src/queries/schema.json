@@ -10691,7 +10691,14 @@
             "additionalProperties": false,
             "properties": {
                 "conversionGoal": {
-                    "$ref": "#/definitions/WebAnalyticsConversionGoal"
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/WebAnalyticsConversionGoal"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
@@ -10797,7 +10804,14 @@
             "additionalProperties": false,
             "properties": {
                 "conversionGoal": {
-                    "$ref": "#/definitions/WebAnalyticsConversionGoal"
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/WebAnalyticsConversionGoal"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
@@ -10929,7 +10943,14 @@
                     "type": "boolean"
                 },
                 "conversionGoal": {
-                    "$ref": "#/definitions/WebAnalyticsConversionGoal"
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/WebAnalyticsConversionGoal"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
@@ -11046,7 +11067,14 @@
                     "$ref": "#/definitions/WebStatsBreakdown"
                 },
                 "conversionGoal": {
-                    "$ref": "#/definitions/WebAnalyticsConversionGoal"
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/WebAnalyticsConversionGoal"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
@@ -11158,7 +11186,14 @@
             "additionalProperties": false,
             "properties": {
                 "conversionGoal": {
-                    "$ref": "#/definitions/WebAnalyticsConversionGoal"
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/WebAnalyticsConversionGoal"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"

@@ -1336,7 +1336,7 @@ export type WebAnalyticsConversionGoal = {
 interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<R> {
     dateRange?: DateRange
     properties: WebAnalyticsPropertyFilters
-    conversionGoal?: WebAnalyticsConversionGoal
+    conversionGoal?: WebAnalyticsConversionGoal | null
     sampling?: {
         enabled?: boolean
         forceSamplingRate?: SamplingRate

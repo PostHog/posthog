@@ -517,7 +517,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 webAnalyticsFilters,
                 replayFilters,
                 dateFilter,
-                conversionGoal: conversionGoal ?? undefined,
+                conversionGoal,
             }),
         ],
         tiles: [
@@ -1748,9 +1748,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             }
         },
     })),
-    listeners(({ values, actions }) => ({
-        setGraphsTab: ({ tab }) => {
-            const conversionGoal = values.conversionGoal
+    listeners(({ values, actions }) => {
+        const checkGraphsTabIsCompatibleWithConversionGoal = (
+            tab: string,
+            conversionGoal: WebAnalyticsConversionGoal | null
+        ): void => {
             if (conversionGoal) {
                 if (tab === GraphsTab.PAGE_VIEWS || tab === GraphsTab.NUM_SESSION) {
                     actions.setGraphsTab(GraphsTab.UNIQUE_USERS)
@@ -1764,24 +1766,16 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     actions.setGraphsTab(GraphsTab.UNIQUE_USERS)
                 }
             }
-        },
-        setConversionGoal: ({ conversionGoal }) => {
-            const tab = values.graphsTab
-            if (conversionGoal) {
-                if (tab === GraphsTab.PAGE_VIEWS || tab === GraphsTab.NUM_SESSION) {
-                    actions.setGraphsTab(GraphsTab.UNIQUE_USERS)
-                }
-            } else {
-                if (
-                    tab === GraphsTab.TOTAL_CONVERSIONS ||
-                    tab === GraphsTab.CONVERSION_RATE ||
-                    tab === GraphsTab.UNIQUE_CONVERSIONS
-                ) {
-                    actions.setGraphsTab(GraphsTab.UNIQUE_USERS)
-                }
-            }
-        },
-    })),
+        }
+        return {
+            setGraphsTab: ({ tab }) => {
+                checkGraphsTabIsCompatibleWithConversionGoal(tab, values.conversionGoal)
+            },
+            setConversionGoal: ({ conversionGoal }) => {
+                checkGraphsTabIsCompatibleWithConversionGoal(values.graphsTab, conversionGoal)
+            },
+        }
+    }),
 ])
 
 const isDefinitionStale = (definition: EventDefinition | PropertyDefinition): boolean => {
