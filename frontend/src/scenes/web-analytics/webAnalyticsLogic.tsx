@@ -182,6 +182,10 @@ export interface WebAnalyticsStatusCheck {
     isSendingPageLeavesScroll: boolean
 }
 
+export type WebAnalyticsConversionGoal = {
+    actionId: number
+}
+
 export const GEOIP_PLUGIN_URLS = [
     'https://github.com/PostHog/posthog-plugin-geoip',
     'https://www.npmjs.com/package/@posthog/geoip-plugin',
@@ -249,6 +253,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setShouldStripQueryParams: (shouldStripQueryParams: boolean) => ({
             shouldStripQueryParams,
         }),
+        setConversionGoal: (conversionGoal: WebAnalyticsConversionGoal) => ({ conversionGoal }),
         setStateFromUrl: (state: {
             filters: WebAnalyticsPropertyFilters
             dateFrom: string | null
@@ -465,6 +470,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             { persist: true },
             {
                 setShouldStripQueryParams: (_, { shouldStripQueryParams }) => shouldStripQueryParams,
+            },
+        ],
+        conversionGoal: [
+            null as WebAnalyticsConversionGoal | null,
+            {
+                setConversionGoal: (_, { conversionGoal }) => conversionGoal,
             },
         ],
     }),

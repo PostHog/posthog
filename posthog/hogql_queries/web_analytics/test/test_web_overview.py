@@ -7,8 +7,10 @@ from parameterized import parameterized
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql.constants import LimitContext
 from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
+from posthog.models import Action
 from posthog.models.utils import uuid7
-from posthog.schema import WebOverviewQuery, DateRange, SessionTableVersion, HogQLQueryModifiers
+from posthog.schema import WebOverviewQuery, DateRange, SessionTableVersion, HogQLQueryModifiers, \
+    WebAnalyticsConversionGoal
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.base import (
     APIBaseTest,
@@ -33,13 +35,24 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         },
                     )
                 )
-            for timestamp, session_id in timestamps:
+            for timestamp, session_id, *extra in timestamps:
+                if event == "$pageview":
+                    url = extra[0] if extra else None
+                    elements = None
+                elif event == "$autocapture":
+                    url = None
+                    elements = extra[0] if extra else None
+                else:
+                    url = None
+                    elements = None
+
                 _create_event(
                     team=self.team,
                     event=event,
                     distinct_id=id,
                     timestamp=timestamp,
-                    properties={"$session_id": session_id},
+                    properties={"$session_id": session_id, "$current_url": url},
+                    elements=elements,
                 )
         return person_result
 
@@ -51,6 +64,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         compare: bool = True,
         limit_context: Optional[LimitContext] = None,
         filter_test_accounts: Optional[bool] = False,
+            action: Optional[Action] = None,
     ):
         modifiers = HogQLQueryModifiers(sessionTableVersion=session_table_version)
         query = WebOverviewQuery(
@@ -59,6 +73,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             compare=compare,
             modifiers=modifiers,
             filterTestAccounts=filter_test_accounts,
+            conversionGoal=WebAnalyticsConversionGoal(actionId=action.id) if action else None,
         )
         runner = WebOverviewQueryRunner(team=self.team, query=query, limit_context=limit_context)
         return runner.calculate()
@@ -71,6 +86,25 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             session_table_version=session_table_version,
         ).results
         self.assertEqual(5, len(results))
+
+        action = Action.objects.create(
+            team=self.team,
+            name="Visited Foo",
+            steps_json=[
+                {
+                    "event": "$pageview",
+                    "url": "https://www.example.com/foo",
+                    "url_matching": "regex",
+                }
+            ],
+        )
+        results = self._run_web_overview_query(
+            "2023-12-08",
+            "2023-12-15",
+            session_table_version=session_table_version,
+            action=action
+        ).results
+        self.assertEqual(6, len(results))
 
     @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
     def test_increase_in_users(self, session_table_version: SessionTableVersion):
@@ -233,6 +267,184 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         sessions = results[2]
         self.assertEqual(1, sessions.value)
+
+    def test_conversion_goal_no_conversions(self):
+        s1 = str(uuid7("2023-12-01"))
+        self._create_events(
+            [
+                ("p1", [("2023-12-01", s1, "https://www.example.com/foo")]),
+            ]
+        )
+
+        action = Action.objects.create(
+            team=self.team,
+            name="Visited Foo",
+            steps_json=[
+                {
+                    "event": "$pageview",
+                    "url": "https://www.example.com/bar",
+                    "url_matching": "regex",
+                }
+            ],
+        )
+
+        results = self._run_web_overview_query(
+            "2023-12-01",
+            "2023-12-03",
+            action=action
+        ).results
+
+        visitors = results[0]
+        assert visitors.value == 1
+
+        views = results[1]
+        assert views.value == 1
+
+        sessions = results[2]
+        assert sessions.value == 1
+
+        duration_s = results[3]
+        assert duration_s.value == 0
+
+        bounce = results[4]
+        assert bounce.value == 100
+
+        conversion_rate = results[5]
+        assert conversion_rate.value == 0
+        assert conversion_rate.key == "conversion rate"
+
+    def test_conversion_goal_one_pageview_conversion(self):
+        s1 = str(uuid7("2023-12-01"))
+        self._create_events(
+            [
+                ("p1", [("2023-12-01", s1, "https://www.example.com/foo")]),
+            ]
+        )
+
+        action = Action.objects.create(
+            team=self.team,
+            name="Visited Foo",
+            steps_json=[
+                {
+                    "event": "$pageview",
+                    "url": "https://www.example.com/foo",
+                    "url_matching": "regex",
+                }
+            ],
+        )
+
+        results = self._run_web_overview_query(
+            "2023-12-01",
+            "2023-12-03",
+            action=action
+        ).results
+
+        visitors = results[0]
+        assert visitors.value == 1
+
+        views = results[1]
+        assert views.value == 1
+
+        sessions = results[2]
+        assert sessions.value == 1
+
+        duration_s = results[3]
+        assert duration_s.value == 0
+
+        bounce = results[4]
+        assert bounce.value == 100
+
+        conversion_rate = results[5]
+        assert conversion_rate.value == 100
+        assert conversion_rate.key == "conversion rate"
+
+    def test_conversion_goal_one_custom_conversion(self):
+        s1 = str(uuid7("2023-12-01"))
+        self._create_events(
+            [
+                ("p1", [("2023-12-01", s1)]),
+            ],
+            event="custom_event"
+        )
+
+        action = Action.objects.create(
+            team=self.team,
+            name="Visited Foo",
+            steps_json=[
+                {
+                    "event": "custom_event",
+                }
+            ],
+        )
+
+        results = self._run_web_overview_query(
+            "2023-12-01",
+            "2023-12-03",
+            action=action
+        ).results
+
+        visitors = results[0]
+        assert visitors.value == 1
+
+        views = results[1]
+        assert views.value == 0
+
+        sessions = results[2]
+        assert sessions.value == 1
+
+        duration_s = results[3]
+        assert duration_s.value == 0
+
+        bounce = results[4]
+        assert bounce.value is None
+
+        conversion_rate = results[5]
+        assert conversion_rate.value == 100
+        assert conversion_rate.key == "conversion rate"
+
+    def test_conversion_goal_one_autocapture_conversion(self):
+        s1 = str(uuid7("2023-12-01"))
+        self._create_events(
+            [
+                ("p1", [("2023-12-01", s1)]),
+            ],
+            event="$autocapture"
+        )
+
+        action = Action.objects.create(
+            team=self.team,
+            name="Visited Foo",
+            steps_json=[
+                {
+                    "event": "custom_event",
+                }
+            ],
+        )
+
+        results = self._run_web_overview_query(
+            "2023-12-01",
+            "2023-12-03",
+            action=action
+        ).results
+
+        visitors = results[0]
+        assert visitors.value == 1
+
+        views = results[1]
+        assert views.value == 0
+
+        sessions = results[2]
+        assert sessions.value == 1
+
+        duration_s = results[3]
+        assert duration_s.value == 0
+
+        bounce = results[4]
+        assert bounce.value is None
+
+        conversion_rate = results[5]
+        assert conversion_rate.value == 100
+        assert conversion_rate.key == "conversion rate"
 
     @patch("posthog.hogql.query.sync_execute", wraps=sync_execute)
     def test_limit_is_context_aware(self, mock_sync_execute: MagicMock):

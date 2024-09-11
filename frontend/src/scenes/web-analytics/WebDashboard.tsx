@@ -23,6 +23,7 @@ import {
     webAnalyticsLogic,
 } from 'scenes/web-analytics/webAnalyticsLogic'
 import { WebAnalyticsModal } from 'scenes/web-analytics/WebAnalyticsModal'
+import { WebConversionGoal } from 'scenes/web-analytics/WebConversionGoal'
 import { WebPropertyFilters } from 'scenes/web-analytics/WebPropertyFilters'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
@@ -53,6 +54,7 @@ const Filters = (): JSX.Element => {
                     setWebAnalyticsFilters={setWebAnalyticsFilters}
                     webAnalyticsFilters={webAnalyticsFilters}
                 />
+                <WebConversionGoal />
                 <ReloadAll />
             </div>
             <div className="bg-border h-px w-full mt-2" />
