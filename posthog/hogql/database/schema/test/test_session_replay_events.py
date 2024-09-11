@@ -142,6 +142,7 @@ class TestFilterSessionReplaysByEvents(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.pk,
             distinct_id="d1",
             session_id="session_with_example_com_pageview",
+            ensure_analytics_event_in_session=False,  # Handling events ourselves in this suite
         )
 
         _create_event(
@@ -165,7 +166,11 @@ class TestFilterSessionReplaysByEvents(ClickhouseTestMixin, APIBaseTest):
         )
 
         produce_replay_summary(
-            team_id=self.team.pk, distinct_id="d1", session_id="session_with_no_events", log_messages=None
+            team_id=self.team.pk,
+            distinct_id="d1",
+            session_id="session_with_no_events",
+            log_messages=None,
+            ensure_analytics_event_in_session=False,  # Handling events ourselves in this suite
         )
 
     @snapshot_clickhouse_queries
