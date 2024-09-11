@@ -3789,7 +3789,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_top_level_event_host_property_test_account_filter(self):
         """
-        This is a regression test. See:
+        This is a regression test. See: https://posthoghelp.zendesk.com/agent/tickets/18059
         """
         self.team.test_account_filters = [
             {"key": "$host", "type": "event", "value": "^(localhost|127\\.0\\.0\\.1)($|:)", "operator": "not_regex"},
@@ -3873,7 +3873,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         assert session_recordings == [
             {
                 "active_seconds": 0.0,
-                "click_count": 10,
+                "click_count": 10,  # in the bug this value was 10 X number of events in the session
                 "console_error_count": 0,
                 "console_log_count": 0,
                 "console_warn_count": 0,
