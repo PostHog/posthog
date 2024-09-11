@@ -1635,6 +1635,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         const stateToUrl = (): string => {
             const {
                 webAnalyticsFilters,
+                conversionGoal,
                 dateFilter: { dateTo, dateFrom, interval },
                 _sourceTab,
                 _deviceTab,
@@ -1648,6 +1649,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             const urlParams = new URLSearchParams()
             if (webAnalyticsFilters.length > 0) {
                 urlParams.set('filters', JSON.stringify(webAnalyticsFilters))
+            }
+            if (conversionGoal) {
+                urlParams.set('conversionGoal', JSON.stringify(conversionGoal))
             }
             if (dateFrom !== initialDateFrom || dateTo !== initialDateTo || interval !== initialInterval) {
                 urlParams.set('date_from', dateFrom ?? '')
@@ -1681,6 +1685,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         return {
             setWebAnalyticsFilters: stateToUrl,
             togglePropertyFilter: stateToUrl,
+            setConversionGoal: stateToUrl,
             setDates: stateToUrl,
             setInterval: stateToUrl,
             setDeviceTab: stateToUrl,
@@ -1696,6 +1701,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             _,
             {
                 filters,
+                conversionGoal,
                 date_from,
                 date_to,
                 interval,
@@ -1712,6 +1718,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
             if (parsedFilters) {
                 actions.setWebAnalyticsFilters(parsedFilters)
+            }
+            if (conversionGoal) {
+                actions.setConversionGoal(conversionGoal)
             }
             if (date_from || date_to || interval) {
                 actions.setDatesAndInterval(date_from, date_to, interval)
