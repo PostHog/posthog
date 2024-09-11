@@ -358,6 +358,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ),
         ],
     )
+    @action(methods=["POST"], detail=False, required_scopes=["person:write"])
     def destroy(self, request: request.Request, pk=None, **kwargs):
         """
         Use this endpoint to delete individual persons. For bulk deletion, use the bulk_delete endpoint instead.
