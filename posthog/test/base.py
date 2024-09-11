@@ -1005,7 +1005,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
         )
         run_clickhouse_statement_in_parallel(
             [
-                DISTRIBUTED_EVENTS_TABLE_SQL("distributed_events"),
+                DISTRIBUTED_EVENTS_TABLE_SQL,
                 DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSIONS_TABLE_SQL(),
@@ -1019,7 +1019,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 RAW_SESSIONS_TABLE_MV_SQL(),
                 SESSIONS_VIEW_SQL(),
                 RAW_SESSIONS_VIEW_SQL(),
-                EVENTS_NON_DELETED_VIEW_SQL(),
+                EVENTS_NON_DELETED_VIEW_SQL("events_v"),
             ]
         )
 
@@ -1063,7 +1063,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
         )
         run_clickhouse_statement_in_parallel(
             [
-                DISTRIBUTED_EVENTS_TABLE_SQL("distributed_events"),
+                DISTRIBUTED_EVENTS_TABLE_SQL,
                 DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSIONS_TABLE_SQL(),
@@ -1077,7 +1077,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 SESSIONS_VIEW_SQL(),
                 RAW_SESSIONS_VIEW_SQL(),
                 CHANNEL_DEFINITION_DATA_SQL(),
-                EVENTS_NON_DELETED_VIEW_SQL(),
+                EVENTS_NON_DELETED_VIEW_SQL("events_v"),
             ]
         )
 

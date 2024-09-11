@@ -209,8 +209,8 @@ WRITABLE_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
 )
 
 # This table is responsible for reading from events on a cluster setting
-DISTRIBUTED_EVENTS_TABLE_SQL = lambda name="events": EVENTS_TABLE_BASE_SQL.format(
-    table_name=name,
+DISTRIBUTED_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
+    table_name="events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=Distributed(data_table=EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
     extra_fields=KAFKA_COLUMNS + INSERTED_AT_COLUMN,
@@ -218,10 +218,10 @@ DISTRIBUTED_EVENTS_TABLE_SQL = lambda name="events": EVENTS_TABLE_BASE_SQL.forma
     indexes="",
 )
 # This view automatically filters out deleted events
-EVENTS_NON_DELETED_VIEW_SQL = lambda: EVENTS_VIEW_NON_DELETED_BASE_SQL.format(
-    view="events",
+EVENTS_NON_DELETED_VIEW_SQL = lambda name="events": EVENTS_VIEW_NON_DELETED_BASE_SQL.format(
+    view=name,
     cluster=settings.CLICKHOUSE_CLUSTER,
-    table="distributed_events", # This is the DISTRIBUTED_EVENTS_TABLE_SQL name after its rename in migration 0079
+    table="distributed_events",  # This is the DISTRIBUTED_EVENTS_TABLE_SQL name after its rename in migration 0079
 )
 
 
