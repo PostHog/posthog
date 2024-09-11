@@ -654,27 +654,6 @@ impl FeatureFlagMatcher {
         &self,
         group_type_index: GroupTypeIndex,
     ) -> Result<HashMap<String, Value>, FlagError> {
-        // let index_to_type_map = self
-        //     .group_type_mapping_cache
-        //     .group_type_index_to_group_type_map()
-        //     .await?;
-
-        // let group_type = index_to_type_map.get(&group_type_index).cloned();
-
-        // if let Some(group_type) = group_type {
-        //     if let Some(override_properties) = group_property_overrides
-        //         .as_ref()
-        //         .and_then(|overrides| overrides.get(&group_type))
-        //     {
-        //         if let Some(local_overrides) = locally_computable_property_overrides(
-        //             &Some(override_properties.clone()),
-        //             flag_property_filters,
-        //         ) {
-        //             return Ok(local_overrides);
-        //         }
-        //     }
-        // }
-
         let cache = self.properties_cache.read().await;
         if let Some(properties) = cache.group_properties.get(&group_type_index).cloned() {
             return Ok(properties);
