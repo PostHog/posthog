@@ -2665,6 +2665,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 ],
                 "has_completed_onboarding_for": {"product_analytics": True},
             },
+            initiating_user=self.user,
         )
         with self.settings(DECIDE_SHORT_CIRCUITED_TEAM_IDS=[short_circuited_team.id]):
             response = self._post_decide(
