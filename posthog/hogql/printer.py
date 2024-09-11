@@ -1,9 +1,9 @@
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, date
 from difflib import get_close_matches
 from typing import Literal, Optional, Union, cast
-from collections.abc import Iterable
 from uuid import UUID
 
 from posthog.clickhouse.property_groups import property_groups

@@ -1,7 +1,7 @@
-from contextlib import contextmanager
 import json
-from typing import Any, Literal, Optional, cast
 from collections.abc import Mapping
+from contextlib import contextmanager
+from typing import Any, Literal, Optional, cast
 
 import pytest
 from django.test import override_settings
