@@ -57,11 +57,11 @@ class Migration(AsyncMigrationDefinition):
     posthog_max_version = "1.36.99"
 
     def is_required(self):
-        return "Distributed" not in cast(str, self.get_current_engine("events"))
+        return cast(str, self.get_current_engine("events")) not in ("Distributed", "View")
 
     def get_current_engine(self, table_name: str) -> Optional[str]:
         result = sync_execute(
-            "SELECT engine_full FROM system.tables WHERE database = %(database)s AND name = %(name)s",
+            "SELECT engine FROM system.tables WHERE database = %(database)s AND name = %(name)s",
             {"database": settings.CLICKHOUSE_DATABASE, "name": table_name},
         )
 
