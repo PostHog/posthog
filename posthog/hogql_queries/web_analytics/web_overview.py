@@ -40,7 +40,7 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
         if self.query.conversionGoal:
             results = [
                 to_data("visitors", "unit", self._unsample(row[0]), self._unsample(row[1])),
-                to_data("conversions", "unit", self._unsample(row[2]), self._unsample(row[3])),
+                to_data("total conversions", "unit", self._unsample(row[2]), self._unsample(row[3])),
                 to_data("unique conversions", "unit", self._unsample(row[4]), self._unsample(row[5])),
                 to_data("conversion rate", "percentage", row[6], row[7]),
             ]

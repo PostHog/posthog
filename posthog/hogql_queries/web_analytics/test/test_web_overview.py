@@ -115,7 +115,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert [item.key for item in results] == [
             "visitors",
-            "conversions",
+            "total conversions",
             "unique conversions",
             "conversion rate",
         ]
