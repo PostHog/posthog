@@ -35,7 +35,7 @@ class TestFunnelTrendsUDF(BaseTestFunnelTrends):
 
         self.assertTrue(results.isUdf)
 
-    def test_assert_steps_flag_is_on(self):
+    def test_assert_steps_flag_is_off(self):
         filters = {
             "insight": INSIGHT_FUNNELS,
             "funnel_viz_type": "steps",
