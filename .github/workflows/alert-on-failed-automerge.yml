@@ -39,7 +39,7 @@ jobs:
               if: ${{ steps.automerge_check.outputs.result == 'true' }}
               uses: rtCamp/action-slack-notify@v2
               env:
-                  SLACK_CHANNEL: alerts
+                  SLACK_CHANNEL: subscriptions-slack-testing
                   SLACK_COLOR: ${{ job.status }} # or a specific color like 'good' or '#ff00ff'
                   SLACK_ICON: https://github.com/posthog.png?size=48
                   SLACK_USERNAME: Max Hedgehog
