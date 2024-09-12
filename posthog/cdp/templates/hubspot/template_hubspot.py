@@ -1,4 +1,7 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
+import dataclasses
+from copy import deepcopy
+
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, HogFunctionTemplateMigrator
 
 
 template: HogFunctionTemplate = HogFunctionTemplate(
@@ -76,12 +79,11 @@ if (res.status == 409) {
             "label": "Property mapping",
             "description": "Map any event properties to Hubspot properties.",
             "default": {
-                "name": "{person.properties.name}",
+                "firstname": "{person.properties.firstname}",
+                "lastname": "{person.properties.lastname}",
                 "company": "{person.properties.company}",
                 "phone": "{person.properties.phone}",
                 "website": "{person.properties.website}",
-                "domain": "{person.properties.website}",
-                "company_website": "{person.properties.website}",
             },
             "secret": False,
             "required": True,
@@ -93,3 +95,71 @@ if (res.status == 409) {
         "filter_test_accounts": True,
     },
 )
+
+
+class TemplateHubspotMigrator(HogFunctionTemplateMigrator):
+    plugin_url = "https://github.com/PostHog/hubspot-plugin"
+
+    @classmethod
+    def migrate(cls, obj):
+        hf = deepcopy(dataclasses.asdict(template))
+
+        # Must reauthenticate with HubSpot
+        hubspotAccessToken = obj.config.get("hubspotAccessToken", "")
+        triggeringEvents = [x.strip() for x in obj.config.get("triggeringEvents", "").split(",") if x]
+        additionalPropertyMappings = [
+            x.strip() for x in obj.config.get("additionalPropertyMappings", "").split(",") if x
+        ]
+        ignoredEmails = [x.strip() for x in obj.config.get("ignoredEmails", "").split(",") if x]
+
+        hf["inputs_schema"][0] = {
+            "key": "access_token",
+            "type": "string",
+            "label": "Hubspot authorization token",
+            "secret": True,
+            "required": True,
+        }
+        hf["hog"] = hf["hog"].replace("inputs.oauth.access_token", "inputs.access_token")
+
+        hf["inputs"] = {
+            "access_token": {"value": hubspotAccessToken},
+            "email": {"value": "{person.properties.email}"},
+            "properties": {
+                "value": {
+                    "firstname": "{person.properties.firstname ?? person.properties.firstName ?? person.properties.first_name}",
+                    "lastname": "{person.properties.lastname ?? person.properties.lastName ?? person.properties.last_name}",
+                    "company": "{person.properties.company ?? person.properties.companyName ?? person.properties.company_name}",
+                    "phone": "{person.properties.phone ?? person.properties.phoneNumber ?? person.properties.phone_number}",
+                    "website": "{person.properties.website ?? person.properties.companyWebsite ?? person.properties.company_website}",
+                }
+            },
+        }
+        for mapping in additionalPropertyMappings:
+            personPropertyName, hubSpotPropertyName = mapping.split(":")
+            hf["inputs"]["properties"]["value"][hubSpotPropertyName] = f"{{person.properties.{personPropertyName}}}"
+
+        hf["filters"] = {}
+
+        if ignoredEmails:
+            hf["filters"]["properties"] = [
+                {
+                    "key": "email",
+                    "value": domain,
+                    "operator": "not_icontains",
+                    "type": "person",
+                }
+                for domain in ignoredEmails
+            ]
+
+        if triggeringEvents:
+            hf["filters"]["events"] = [
+                {
+                    "id": event,
+                    "name": event,
+                    "type": "events",
+                    "properties": [],
+                }
+                for event in triggeringEvents
+            ]
+
+        return hf
