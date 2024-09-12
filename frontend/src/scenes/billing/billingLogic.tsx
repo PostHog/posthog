@@ -306,7 +306,7 @@ export const billingLogic = kea<billingLogicType>([
                 },
             },
         ],
-        selfServeCreditOverview: [
+        creditOverview: [
             {
                 eligible: false,
                 estimated_monthly_credit_amount_usd: 0,
@@ -317,15 +317,28 @@ export const billingLogic = kea<billingLogicType>([
                 email: null,
             },
             {
-                loadSelfServeCreditEligible: async () => {
-                    const response = await api.get('api/billing/credits/overview')
-                    if (!values.creditForm.creditInput) {
-                        actions.setCreditFormValue(
-                            'creditInput',
-                            Math.round(response.estimated_monthly_credit_amount_usd * 12)
-                        )
+                loadCreditOverview: async () => {
+                    // Check if the user is subscribed
+                    if (values.billing?.has_active_subscription) {
+                        const response = await api.get('api/billing/credits/overview')
+                        if (!values.creditForm.creditInput) {
+                            actions.setCreditFormValue(
+                                'creditInput',
+                                Math.round(response.estimated_monthly_credit_amount_usd * 12)
+                            )
+                        }
+                        return response
                     }
-                    return response
+                    // Return default values if not subscribed
+                    return {
+                        eligible: false,
+                        estimated_monthly_credit_amount_usd: 0,
+                        status: 'none',
+                        invoice_url: null,
+                        collection_method: null,
+                        cc_last_four: null,
+                        email: null,
+                    }
                 },
             },
         ],
@@ -452,7 +465,7 @@ export const billingLogic = kea<billingLogicType>([
                     })
 
                 actions.showPurchaseCreditsModal(false)
-                actions.loadSelfServeCreditEligible()
+                actions.loadCreditOverview()
 
                 LemonDialog.open({
                     title: 'Your credit purchase has been submitted',
@@ -652,9 +665,10 @@ export const billingLogic = kea<billingLogicType>([
         },
     })),
     afterMount(({ actions }) => {
-        actions.loadBilling()
+        actions.loadBilling().then(() => {
+            actions.loadCreditOverview()
+        })
         actions.getInvoices()
-        actions.loadSelfServeCreditEligible()
     }),
     urlToAction(({ actions }) => ({
         // IMPORTANT: This needs to be above the "*" so it takes precedence
