@@ -81,7 +81,6 @@ jobs:
     tests:
         name: Plugin Server Tests (${{matrix.shard}})
         needs: changes
-        if: needs.changes.outputs.plugin-server == 'true'
         runs-on: ubuntu-latest
 
         strategy:
@@ -97,17 +96,22 @@ jobs:
 
         steps:
             - name: Code check out
+              # NOTE: We need this check on every step so that it still runs if skipped as we need it to suceed for the CI
+              if: needs.changes.outputs.plugin-server == 'true'
               uses: actions/checkout@v3
 
             - name: Stop/Start stack with Docker Compose
+              if: needs.changes.outputs.plugin-server == 'true'
               run: |
                   docker compose -f docker-compose.dev.yml down
                   docker compose -f docker-compose.dev.yml up -d
 
             - name: Add Kafka to /etc/hosts
+              if: needs.changes.outputs.plugin-server == 'true'
               run: echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
 
             - name: Set up Python
+              if: needs.changes.outputs.plugin-server == 'true'
               uses: actions/setup-python@v5
               with:
                   python-version: 3.11.9
@@ -119,6 +123,7 @@ jobs:
             - run: pip install uv
 
             - name: Install rust
+              if: needs.changes.outputs.plugin-server == 'true'
               uses: dtolnay/rust-toolchain@1.77
 
             - uses: actions/cache@v4
@@ -130,23 +135,28 @@ jobs:
                   key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
 
             - name: Install sqlx-cli
+              if: needs.changes.outputs.plugin-server == 'true'
               working-directory: rust
               run: cargo install sqlx-cli@0.7.3 --no-default-features --features native-tls,postgres
 
             - name: Install SAML (python3-saml) dependencies
+              if: needs.changes.outputs.plugin-server == 'true'
               run: |
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
             - name: Install python dependencies
+              if: needs.changes.outputs.plugin-server == 'true'
               run: |
                   uv pip install --system -r requirements-dev.txt
                   uv pip install --system -r requirements.txt
 
             - name: Install pnpm
+              if: needs.changes.outputs.plugin-server == 'true'
               uses: pnpm/action-setup@v4
 
             - name: Set up Node.js
+              if: needs.changes.outputs.plugin-server == 'true'
               uses: actions/setup-node@v4
               with:
                   node-version: 18.12.1
@@ -154,14 +164,17 @@ jobs:
                   cache-dependency-path: plugin-server/pnpm-lock.yaml
 
             - name: Install package.json dependencies with pnpm
+              if: needs.changes.outputs.plugin-server == 'true'
               run: cd plugin-server && pnpm i
 
             - name: Wait for Clickhouse, Redis & Kafka
+              if: needs.changes.outputs.plugin-server == 'true'
               run: |
                   docker compose -f docker-compose.dev.yml up kafka redis clickhouse -d --wait
                   bin/check_kafka_clickhouse_up
 
             - name: Set up databases
+              if: needs.changes.outputs.plugin-server == 'true'
               env:
                   TEST: 'true'
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
@@ -169,6 +182,7 @@ jobs:
               run: cd plugin-server && pnpm setup:test
 
             - name: Test with Jest
+              if: needs.changes.outputs.plugin-server == 'true'
               env:
                   # Below DB name has `test_` prepended, as that's how Django (ran above) creates the test DB
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
@@ -179,7 +193,6 @@ jobs:
     functional-tests:
         name: Functional tests
         needs: changes
-        if: needs.changes.outputs.plugin-server == 'true'
         runs-on: ubuntu-latest
 
         env:
@@ -192,17 +205,21 @@ jobs:
 
         steps:
             - name: Code check out
+              if: needs.changes.outputs.plugin-server == 'true'
               uses: actions/checkout@v3
 
             - name: Stop/Start stack with Docker Compose
+              if: needs.changes.outputs.plugin-server == 'true'
               run: |
                   docker compose -f docker-compose.dev.yml down
                   docker compose -f docker-compose.dev.yml up -d
 
             - name: Add Kafka to /etc/hosts
+              if: needs.changes.outputs.plugin-server == 'true'
               run: echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
 
             - name: Set up Python
+              if: needs.changes.outputs.plugin-server == 'true'
               uses: actions/setup-python@v5
               with:
                   python-version: 3.11.9
@@ -214,19 +231,23 @@ jobs:
             - run: pip install uv
 
             - name: Install SAML (python3-saml) dependencies
+              if: needs.changes.outputs.plugin-server == 'true'
               run: |
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
             - name: Install python dependencies
+              if: needs.changes.outputs.plugin-server == 'true'
               run: |
                   uv pip install --system -r requirements-dev.txt
                   uv pip install --system -r requirements.txt
 
             - name: Install pnpm
+              if: needs.changes.outputs.plugin-server == 'true'
               uses: pnpm/action-setup@v4
 
             - name: Set up Node.js
+              if: needs.changes.outputs.plugin-server == 'true'
               uses: actions/setup-node@v4
               with:
                   node-version: 18.12.1
@@ -234,17 +255,20 @@ jobs:
                   cache-dependency-path: plugin-server/pnpm-lock.yaml
 
             - name: Install package.json dependencies with pnpm
+              if: needs.changes.outputs.plugin-server == 'true'
               run: |
                   cd plugin-server
                   pnpm install --frozen-lockfile
                   pnpm build
 
             - name: Wait for Clickhouse, Redis & Kafka
+              if: needs.changes.outputs.plugin-server == 'true'
               run: |
                   docker compose -f docker-compose.dev.yml up kafka redis clickhouse -d --wait
                   bin/check_kafka_clickhouse_up
 
             - name: Set up databases
+              if: needs.changes.outputs.plugin-server == 'true'
               env:
                   DEBUG: 'true'
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
@@ -253,11 +277,13 @@ jobs:
                   ./manage.py migrate_clickhouse
 
             - name: Run functional tests
+              if: needs.changes.outputs.plugin-server == 'true'
               run: |
                   cd plugin-server
                   ./bin/ci_functional_tests.sh
 
             - name: Upload coverage report
+              if: needs.changes.outputs.plugin-server == 'true'
               uses: actions/upload-artifact@v3
               if: always()
               with:
