@@ -75,6 +75,8 @@ fetch(f'{host}/e', {
 
 
 class TemplatePostHogMigrator(HogFunctionTemplateMigrator):
+    plugin_url = "https://github.com/PostHog/posthog-plugin-replicator"
+
     @classmethod
     def migrate(cls, obj):
         hf = deepcopy(dataclasses.asdict(template))
