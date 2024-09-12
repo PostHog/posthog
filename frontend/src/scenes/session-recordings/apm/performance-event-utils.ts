@@ -334,9 +334,9 @@ export function itemSizeInfo(item: PerformanceEvent): {
     const bytes = bytesFrom(item)
     const formattedBytes = humanizeBytes(bytes)
     const decodedBodySize = isPositiveNumber(item.decoded_body_size) ? item.decoded_body_size : null
-    const formattedDecodedBodySize = decodedBodySize ? humanizeBytes(decodedBodySize) : null
+    const formattedDecodedBodySize = isPositiveNumber(decodedBodySize) ? humanizeBytes(decodedBodySize) : null
     const encodedBodySize = isPositiveNumber(item.encoded_body_size) ? item.encoded_body_size : null
-    const formattedEncodedBodySize = encodedBodySize ? humanizeBytes(encodedBodySize) : null
+    const formattedEncodedBodySize = isPositiveNumber(encodedBodySize) ? humanizeBytes(encodedBodySize) : null
     const compressionPercentage =
         isPositiveNumber(item.decoded_body_size) && isPositiveNumber(item.encoded_body_size)
             ? ((item.decoded_body_size - item.encoded_body_size) / item.decoded_body_size) * 100
