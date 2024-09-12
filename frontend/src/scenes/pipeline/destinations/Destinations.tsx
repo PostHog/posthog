@@ -23,6 +23,7 @@ import { AvailableFeature, PipelineNodeTab, PipelineStage, ProductKey } from '~/
 
 import { AppMetricSparkLine } from '../AppMetricSparkLine'
 import { HogFunctionIcon } from '../hogfunctions/HogFunctionIcon'
+import { HogFunctionStatusIndicator } from '../hogfunctions/HogFunctionStatusIndicator'
 import { AppMetricSparkLineV2 } from '../metrics/AppMetricsV2Sparkline'
 import { NewButton } from '../NewButton'
 import { pipelineAccessLogic } from '../pipelineAccessLogic'
@@ -185,16 +186,15 @@ export function DestinationsTable({ ...props }: PipelineDestinationsLogicProps):
                             sorter: (a) => (a.enabled ? 1 : -1),
                             width: 0,
                             render: function RenderStatus(_, destination) {
+                                if (destination.backend === PipelineBackend.HogFunction) {
+                                    return <HogFunctionStatusIndicator hogFunction={destination.hog_function} />
+                                }
                                 return (
                                     <>
                                         {destination.enabled ? (
-                                            <LemonTag type="success" className="uppercase">
-                                                Active
-                                            </LemonTag>
+                                            <LemonTag type="success">Active</LemonTag>
                                         ) : (
-                                            <LemonTag type="default" className="uppercase">
-                                                Paused
-                                            </LemonTag>
+                                            <LemonTag type="default">Disabled</LemonTag>
                                         )}
                                     </>
                                 )
