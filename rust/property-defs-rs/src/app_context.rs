@@ -92,11 +92,11 @@ impl AppContext {
                 continue;
             };
             // If we didn't find a group type, we have nothing to resolve.
-            let Some(GroupType::Unresolved(name)) = &update.group_type_index else {
+            let Some(GroupType::Unresolved(group_name)) = &update.group_type_index else {
                 continue;
             };
 
-            let cache_key = format!("{}:{}", update.team_id, name);
+            let cache_key = format!("{}:{}", update.team_id, group_name);
 
             let cached = self.group_type_cache.get(&cache_key);
             if let Some(index) = cached {
@@ -109,7 +109,7 @@ impl AppContext {
 
             let found = sqlx::query_scalar!(
                     "SELECT group_type_index FROM posthog_grouptypemapping WHERE group_type = $1 AND team_id = $2",
-                    name,
+                    group_name,
                     update.team_id
                 )
                 .fetch_optional(&self.pool)
