@@ -1,0 +1,49 @@
+name: Check Suite Failure Notification
+
+on:
+    # whenever a workflow suite completes trigger this
+    check_suite:
+        types:
+            - completed
+
+jobs:
+    notify_on_failure:
+        if: ${{ github.event.check_suite.conclusion == 'failure' }}
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v3
+
+            - name: Check if the PR has "automerge" label
+              id: automerge_check
+              run: |
+                  pr_number=$(jq -r '.check_suite.pull_requests[0].number' <<< "${{ toJson(github.event) }}")
+                  if [ -z "$pr_number" ]; then
+                    echo "No PR associated with this check suite."
+                    echo "::set-output name=result::false"
+                    exit 0
+                  fi
+
+                  labels=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                  https://api.github.com/repos/${{ github.repository }}/issues/$pr_number/labels)
+
+                  echo "Labels: $labels"
+                  if echo "$labels" | grep -q "automerge"; then
+                    echo "::set-output name=result::true"
+                  else
+                    echo "::set-output name=result::false"
+                  fi
+
+            - name: Send Slack notification if the PR has "automerge" label
+              if: ${{ steps.automerge_check.outputs.result == 'true' }}
+              uses: rtCamp/action-slack-notify@v2.0.1
+              env:
+                  SLACK_CHANNEL: alerts
+                  SLACK_COLOR: ${{ job.status }} # or a specific color like 'good' or '#ff00ff'
+                  SLACK_ICON: https://github.com/posthog.png?size=48
+                  SLACK_USERNAME: Max Hedgehog
+                  SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+              with:
+                  message: "PR #${{ github.event.check_suite.pull_requests[0].number }} failed a check suite and is labeled 'automerge'. Please investigate!"
+                  status: failure
