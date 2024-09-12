@@ -1,6 +1,5 @@
-import { eventWithTime } from '@rrweb/types'
 import { connect, kea, key, listeners, path, props, selectors } from 'kea'
-import { ceilMsToClosestSecond, findLastIndex, objectsEqual } from 'lib/utils'
+import { ceilMsToClosestSecond } from 'lib/utils'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import {
     sessionRecordingPlayerLogic,
@@ -29,7 +28,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 'trackedWindow',
             ],
             sessionRecordingPlayerLogic(props),
-            ['scale', 'currentTimestamp', 'currentPlayerTime', 'currentSegment'],
+            ['currentTimestamp', 'currentPlayerTime', 'currentSegment'],
             sessionRecordingsListPropertiesLogic,
             ['recordingPropertiesById', 'recordingPropertiesLoading'],
         ],
@@ -45,37 +44,6 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             (s) => [s.sessionPlayerData],
             (playerData): PersonType | null => {
                 return playerData?.person ?? null
-            },
-        ],
-        resolution: [
-            (s) => [s.sessionPlayerData, s.currentTimestamp, s.currentSegment],
-            (sessionPlayerData, currentTimestamp, currentSegment): { width: number; height: number } | null => {
-                // Find snapshot to pull resolution from
-                if (!currentTimestamp) {
-                    return null
-                }
-                const snapshots = sessionPlayerData.snapshotsByWindowId[currentSegment?.windowId ?? ''] ?? []
-
-                const currIndex = findLastIndex(
-                    snapshots,
-                    (s: eventWithTime) => s.timestamp < currentTimestamp && (s.data as any).width
-                )
-
-                if (currIndex === -1) {
-                    return null
-                }
-                const snapshot = snapshots[currIndex]
-                return {
-                    width: snapshot.data?.['width'],
-                    height: snapshot.data?.['height'],
-                }
-            },
-            {
-                resultEqualityCheck: (prev, next) => {
-                    // Only update if the resolution values have changed (not the object reference)
-                    // stops PlayerMeta from re-rendering on every player position
-                    return objectsEqual(prev, next)
-                },
             },
         ],
         startTime: [

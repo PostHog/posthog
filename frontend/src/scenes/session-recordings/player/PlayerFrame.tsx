@@ -9,7 +9,7 @@ import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/se
 export const PlayerFrame = (): JSX.Element => {
     const replayDimensionRef = useRef<viewportResizeDimension>()
     const { player, sessionRecordingId } = useValues(sessionRecordingPlayerLogic)
-    const { setScale, setRootFrame } = useActions(sessionRecordingPlayerLogic)
+    const { setRootFrame } = useActions(sessionRecordingPlayerLogic)
 
     const frameRef = useRef<HTMLDivElement | null>(null)
     // Need useEffect to populate replayer on component paint
@@ -61,8 +61,6 @@ export const PlayerFrame = (): JSX.Element => {
         )
 
         player.replayer.wrapper.style.transform = `scale(${scale})`
-
-        setScale(scale)
     }
 
     return (

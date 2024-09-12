@@ -7,7 +7,6 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { percentage } from 'lib/utils'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { playerMetaLogic } from 'scenes/session-recordings/player/playerMetaLogic'
@@ -81,16 +80,8 @@ function PlayerWarningsRow(): JSX.Element | null {
 export function PlayerMeta(): JSX.Element {
     const { logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
 
-    const {
-        windowIds,
-        trackedWindow,
-        resolution,
-        lastPageviewEvent,
-        lastUrl,
-        scale,
-        currentWindowIndex,
-        sessionPlayerMetaDataLoading,
-    } = useValues(playerMetaLogic(logicProps))
+    const { windowIds, trackedWindow, lastPageviewEvent, lastUrl, currentWindowIndex, sessionPlayerMetaDataLoading } =
+        useValues(playerMetaLogic(logicProps))
 
     const { setTrackedWindow } = useActions(playerMetaLogic(logicProps))
 
@@ -103,32 +94,6 @@ export function PlayerMeta(): JSX.Element {
 
     const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
     const whitelabel = getCurrentExporterData()?.whitelabel ?? false
-
-    const resolutionView = sessionPlayerMetaDataLoading ? (
-        <LemonSkeleton className="w-1/3 h-4" />
-    ) : resolution ? (
-        <Tooltip
-            placement="bottom"
-            title={
-                <>
-                    The resolution of the page as it was captured was{' '}
-                    <b>
-                        {resolution.width} x {resolution.height}
-                    </b>
-                    <br />
-                    You are viewing the replay at <b>{percentage(scale, 1, true)}</b> of the original size
-                </>
-            }
-        >
-            <span className="text-muted-alt text-xs">
-                {resolution && (
-                    <>
-                        {resolution.width} x {resolution.height} {!isSmallPlayer && `(${percentage(scale, 1, true)})`}
-                    </>
-                )}
-            </span>
-        </Tooltip>
-    ) : null
 
     if (mode === SessionRecordingPlayerMode.Sharing) {
         if (whitelabel) {
@@ -144,7 +109,6 @@ export function PlayerMeta(): JSX.Element {
                             </Link>
                         </Tooltip>
                     ) : null}
-                    {resolutionView}
                 </div>
             </div>
         )
@@ -207,7 +171,6 @@ export function PlayerMeta(): JSX.Element {
                         </>
                     )}
                     <div className={clsx('flex-1', isSmallPlayer ? 'min-w-[1rem]' : 'min-w-[5rem]')} />
-                    {resolutionView}
                 </div>
                 <PlayerWarningsRow />
             </div>

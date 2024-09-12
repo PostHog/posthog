@@ -156,7 +156,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setSkippingInactivity: (isSkippingInactivity: boolean) => ({ isSkippingInactivity }),
         syncPlayerSpeed: true,
         setCurrentTimestamp: (timestamp: number) => ({ timestamp }),
-        setScale: (scale: number) => ({ scale }),
         togglePlayPause: true,
         seekToTimestamp: (timestamp: number, forcePlay: boolean = false) => ({ timestamp, forcePlay }),
         seekToTime: (timeInMilliseconds: number) => ({ timeInMilliseconds }),
@@ -255,12 +254,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             },
         ],
         isSkippingInactivity: [false, { setSkippingInactivity: (_, { isSkippingInactivity }) => isSkippingInactivity }],
-        scale: [
-            1,
-            {
-                setScale: (_, { scale }) => scale,
-            },
-        ],
         playingState: [
             SessionPlayerState.PLAY as SessionPlayerState.PLAY | SessionPlayerState.PAUSE,
             {
