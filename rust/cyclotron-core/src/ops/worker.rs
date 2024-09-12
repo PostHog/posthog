@@ -1,4 +1,4 @@
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use sqlx::{postgres::PgArguments, query::Query, Encode, QueryBuilder, Type};
 use uuid::Uuid;
 
@@ -222,15 +222,23 @@ where
     }
 
     if job_returned {
-        // The type of Option::none don't matter here - the DB is getting a null, this is just to
-        // satisfy rustc.
-        set_helper(&mut query, "lock_id", Option::<i32>::None, needs_comma);
-        set_helper(&mut query, "last_heartbeat", Option::<i32>::None, true);
+        set_helper(&mut query, "lock_id", Option::<Uuid>::None, needs_comma);
+        set_helper(
+            &mut query,
+            "last_heartbeat",
+            Option::<DateTime<Utc>>::None,
+            true,
+        );
     } else {
         set_helper(&mut query, "last_heartbeat", Utc::now(), needs_comma);
     }
 
-    query.push(" WHERE id = $1 AND lock_id = $2");
+    query.push(" WHERE id = ");
+    query.push_bind(job_id);
+    query.push(" AND lock_id = ");
+    query.push_bind(lock_id);
+
+    //println!("Query: {:?}", query.into_sql());
 
     assert_does_update(executor, job_id, lock_id, query.build()).await?;
     Ok(())
