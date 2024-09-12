@@ -105,15 +105,24 @@ class TemplateHubspotMigrator(HogFunctionTemplateMigrator):
         hf = deepcopy(dataclasses.asdict(template))
 
         # Must reauthenticate with HubSpot
-        # hubspotAccessToken = obj.config.get("hubspotAccessToken", "")
+        hubspotAccessToken = obj.config.get("hubspotAccessToken", "")
         triggeringEvents = [x.strip() for x in obj.config.get("triggeringEvents", "").split(",") if x]
         additionalPropertyMappings = [
             x.strip() for x in obj.config.get("additionalPropertyMappings", "").split(",") if x
         ]
         ignoredEmails = [x.strip() for x in obj.config.get("ignoredEmails", "").split(",") if x]
 
+        hf["inputs_schema"][0] = {
+            "key": "access_token",
+            "type": "string",
+            "label": "Hubspot authorization token",
+            "secret": True,
+            "required": True,
+        }
+        hf["hog"] = hf["hog"].replace("inputs.oauth.access_token", "inputs.access_token")
+
         hf["inputs"] = {
-            "oauth": {"value": {}},
+            "access_token": {"value": hubspotAccessToken},
             "email": {"value": "{person.properties.email}"},
             "properties": {
                 "value": {

@@ -104,7 +104,7 @@ class TestTemplateMigration(BaseTest):
         template = TemplateHubspotMigrator.migrate(obj)
         assert template["inputs"] == snapshot(
             {
-                "oauth": {"value": {}},
+                "access_token": {"value": "toky"},
                 "email": {"value": "{person.properties.email}"},
                 "properties": {
                     "value": {
@@ -125,3 +125,8 @@ class TestTemplateMigration(BaseTest):
                 {"id": "$set", "name": "$set", "type": "events", "properties": []},
             ],
         }
+        assert template["inputs_schema"][0]["key"] == "access_token"
+        assert template["inputs_schema"][0]["type"] == "string"
+        assert template["inputs_schema"][0]["secret"]
+        assert "inputs.oauth.access_token" not in template["hog"]
+        assert "inputs.access_token" in template["hog"]
