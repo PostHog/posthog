@@ -7,6 +7,8 @@ import { CSSProperties } from 'react'
 import { ActionStepForm, ElementRect } from '~/toolbar/types'
 import { ActionStepType } from '~/types'
 
+import { ActionStepPropertyKey } from './actions/ActionStep'
+
 export const TOOLBAR_ID = '__POSTHOG_TOOLBAR__'
 export const LOCALSTORAGE_KEY = '_postHogToolbarParams'
 
@@ -265,7 +267,11 @@ export function getBoxColors(color: 'blue' | 'red' | 'green', hover = false, opa
     }
 }
 
-export function actionStepToActionStepFormItem(step: ActionStepType, isNew = false): ActionStepForm {
+export function actionStepToActionStepFormItem(
+    step: ActionStepType,
+    isNew = false,
+    includedPropertyKeys?: ActionStepPropertyKey[]
+): ActionStepForm {
     if (!step) {
         return {}
     }
@@ -281,24 +287,24 @@ export function actionStepToActionStepFormItem(step: ActionStepType, isNew = fal
                 ...step,
                 href_selected: true,
                 selector_selected: hasSelector,
-                text_selected: false,
-                url_selected: false,
+                text_selected: includedPropertyKeys?.includes('text') || false,
+                url_selected: includedPropertyKeys?.includes('url') || false,
             }
         } else if (step.tag_name === 'button') {
             return {
                 ...step,
                 text_selected: true,
                 selector_selected: hasSelector,
-                href_selected: false,
-                url_selected: false,
+                href_selected: includedPropertyKeys?.includes('href') || false,
+                url_selected: includedPropertyKeys?.includes('url') || false,
             }
         }
         return {
             ...step,
             selector_selected: hasSelector,
-            text_selected: false,
-            url_selected: false,
-            href_selected: false,
+            text_selected: includedPropertyKeys?.includes('text') || false,
+            url_selected: includedPropertyKeys?.includes('url') || false,
+            href_selected: includedPropertyKeys?.includes('href') || false,
         }
     }
 

@@ -1763,7 +1763,10 @@
       maybe_has_session_replay SimpleAggregateFunction(max, Bool), -- will be written False to by the events table mv and True to by the replay table mv
   
       -- as a performance optimisation, also keep track of the uniq events for all of these combined, a bounce is a session with <2 of these
-      page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID))
+      page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
+  
+      -- web vitals
+      vitals_lcp AggregateFunction(argMin, Nullable(Float64), DateTime64(6, 'UTC'))
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_raw_sessions', cityHash64(session_id_v7))
   
   '''
@@ -1839,7 +1842,10 @@
       false as maybe_has_session_replay,
   
       -- perf
-      uniqUpToState(1)(if(event='$pageview' OR event='$screen' OR event='$autocapture', uuid, NULL)) as page_screen_autocapture_uniq_up_to
+      uniqUpToState(1)(if(event='$pageview' OR event='$screen' OR event='$autocapture', uuid, NULL)) as page_screen_autocapture_uniq_up_to,
+  
+      -- web vitals
+      argMinState(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$web_vitals_LCP_value'), ''), 'null'), '^"|"$', ''), 'Float64'), timestamp) as vitals_lcp
   FROM posthog_test.sharded_events
   WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7)
   GROUP BY
@@ -2430,7 +2436,10 @@
       maybe_has_session_replay SimpleAggregateFunction(max, Bool), -- will be written False to by the events table mv and True to by the replay table mv
   
       -- as a performance optimisation, also keep track of the uniq events for all of these combined, a bounce is a session with <2 of these
-      page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID))
+      page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
+  
+      -- web vitals
+      vitals_lcp AggregateFunction(argMin, Nullable(Float64), DateTime64(6, 'UTC'))
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.raw_sessions', '{replica}')
   
   PARTITION BY toYYYYMM(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)))
@@ -2732,7 +2741,10 @@
       maybe_has_session_replay SimpleAggregateFunction(max, Bool), -- will be written False to by the events table mv and True to by the replay table mv
   
       -- as a performance optimisation, also keep track of the uniq events for all of these combined, a bounce is a session with <2 of these
-      page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID))
+      page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
+  
+      -- web vitals
+      vitals_lcp AggregateFunction(argMin, Nullable(Float64), DateTime64(6, 'UTC'))
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_raw_sessions', cityHash64(session_id_v7))
   
   '''
@@ -3543,7 +3555,10 @@
       maybe_has_session_replay SimpleAggregateFunction(max, Bool), -- will be written False to by the events table mv and True to by the replay table mv
   
       -- as a performance optimisation, also keep track of the uniq events for all of these combined, a bounce is a session with <2 of these
-      page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID))
+      page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
+  
+      -- web vitals
+      vitals_lcp AggregateFunction(argMin, Nullable(Float64), DateTime64(6, 'UTC'))
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.raw_sessions', '{replica}')
   
   PARTITION BY toYYYYMM(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)))

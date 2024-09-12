@@ -1,3 +1,4 @@
+import re
 from typing import Any, NamedTuple, cast, Optional, Union
 from datetime import datetime, timedelta
 
@@ -20,6 +21,10 @@ import structlog
 logger = structlog.get_logger(__name__)
 
 
+def is_event_property(p: Property) -> bool:
+    return p.type == "event" or (p.type == "hogql" and bool(re.search(r"(?<!person\.)properties\.", p.key)))
+
+
 def is_person_property(p: Property) -> bool:
     return p.type == "person" or (p.type == "hogql" and "person.properties" in p.key)
 
@@ -35,6 +40,29 @@ class SessionRecordingListFromFilters:
 
     _team: Team
     _filter: SessionRecordingsFilter
+
+    BASE_QUERY: str = """
+        SELECT s.session_id,
+            any(s.team_id),
+            any(s.distinct_id),
+            min(s.min_first_timestamp) as start_time,
+            max(s.max_last_timestamp) as end_time,
+            dateDiff('SECOND', start_time, end_time) as duration,
+            argMinMerge(s.first_url) as first_url,
+            sum(s.click_count) as click_count,
+            sum(s.keypress_count) as keypress_count,
+            sum(s.mouse_activity_count) as mouse_activity_count,
+            sum(s.active_milliseconds)/1000 as active_seconds,
+            (duration - active_seconds) as inactive_seconds,
+            sum(s.console_log_count) as console_log_count,
+            sum(s.console_warn_count) as console_warn_count,
+            sum(s.console_error_count) as console_error_count
+        FROM raw_session_replay_events s
+        WHERE {where_predicates}
+        GROUP BY session_id
+        HAVING {having_predicates}
+        ORDER BY {order_by} DESC
+        """
 
     @staticmethod
     def _data_to_return(results: list[Any] | None) -> list[dict[str, Any]]:
@@ -99,81 +127,17 @@ class SessionRecordingListFromFilters:
         )
 
     def get_query(self):
-        return ast.SelectQuery(
-            select=self._select(),
-            select_from=ast.JoinExpr(table=ast.Field(chain=["raw_session_replay_events"]), alias="s"),
-            where=self._where_predicates(),
-            order_by=[self._order_by_clause()],
-            group_by=[ast.Field(chain=["session_id"])],
-            having=self._having_predicates(),
+        return parse_select(
+            self.BASE_QUERY,
+            {
+                "order_by": self._order_by_clause(),
+                "where_predicates": self._where_predicates(),
+                "having_predicates": self._having_predicates(),
+            },
         )
 
-    def _select(self) -> list[ast.Expr]:
-        return [
-            ast.Alias(alias="session_id", expr=ast.Field(chain=["s", "session_id"])),
-            ast.Call(name="any", args=[ast.Field(chain=["s", "team_id"])]),
-            ast.Call(name="any", args=[ast.Field(chain=["s", "distinct_id"])]),
-            ast.Alias(
-                alias="start_time",
-                expr=ast.Call(name="min", args=[ast.Field(chain=["s", "min_first_timestamp"])]),
-            ),
-            ast.Alias(
-                alias="end_time",
-                expr=ast.Call(name="max", args=[ast.Field(chain=["s", "max_last_timestamp"])]),
-            ),
-            ast.Alias(
-                alias="duration",
-                expr=ast.Call(
-                    name="dateDiff",
-                    args=[ast.Constant(value="SECOND"), ast.Field(chain=["start_time"]), ast.Field(chain=["end_time"])],
-                ),
-            ),
-            ast.Alias(
-                alias="first_url",
-                expr=ast.Call(name="argMinMerge", args=[ast.Field(chain=["s", "first_url"])]),
-            ),
-            ast.Alias(
-                alias="click_count",
-                expr=ast.Call(name="sum", args=[ast.Field(chain=["s", "click_count"])]),
-            ),
-            ast.Alias(
-                alias="keypress_count",
-                expr=ast.Call(name="sum", args=[ast.Field(chain=["s", "keypress_count"])]),
-            ),
-            ast.Alias(
-                alias="mouse_activity_count",
-                expr=ast.Call(name="sum", args=[ast.Field(chain=["s", "mouse_activity_count"])]),
-            ),
-            ast.Alias(
-                alias="active_seconds",
-                expr=ast.Call(
-                    name="divide",
-                    args=[
-                        ast.Call(name="sum", args=[ast.Field(chain=["s", "active_milliseconds"])]),
-                        ast.Constant(value=1000),
-                    ],
-                ),
-            ),
-            ast.Alias(
-                alias="inactive_seconds",
-                expr=ast.Call(name="minus", args=[ast.Field(chain=["duration"]), ast.Field(chain=["active_seconds"])]),
-            ),
-            ast.Alias(
-                alias="console_log_count",
-                expr=ast.Call(name="sum", args=[ast.Field(chain=["s", "console_log_count"])]),
-            ),
-            ast.Alias(
-                alias="console_warn_count",
-                expr=ast.Call(name="sum", args=[ast.Field(chain=["s", "console_warn_count"])]),
-            ),
-            ast.Alias(
-                alias="console_error_count",
-                expr=ast.Call(name="sum", args=[ast.Field(chain=["s", "console_error_count"])]),
-            ),
-        ]
-
-    def _order_by_clause(self) -> ast.OrderExpr:
-        return ast.OrderExpr(expr=ast.Field(chain=[self._filter.order]), order="DESC")
+    def _order_by_clause(self) -> ast.Field:
+        return ast.Field(chain=[self._filter.order])
 
     def _where_predicates(self) -> Union[ast.And, ast.Or]:
         exprs: list[ast.Expr] = [
@@ -285,7 +249,9 @@ class SessionRecordingListFromFilters:
         return property_to_expr(self._filter.having_predicates, team=self._team, scope="replay")
 
     def _strip_person_and_event_properties(self, property_group: PropertyGroup) -> PropertyGroup | None:
-        property_groups_to_keep = [g for g in property_group.flat if not is_person_property(g)]
+        property_groups_to_keep = [
+            g for g in property_group.flat if not is_event_property(g) and not is_person_property(g)
+        ]
 
         return (
             PropertyGroup(
@@ -463,7 +429,9 @@ class ReplayFiltersEventsSubQuery:
     def _select_from_events(self, select_expr: ast.Expr) -> ast.SelectQuery:
         return ast.SelectQuery(
             select=[select_expr],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            select_from=ast.JoinExpr(
+                table=ast.Field(chain=["events"]),
+            ),
             where=self._where_predicates(),
             having=self._having_predicates(),
             group_by=[ast.Field(chain=["$session_id"])],
@@ -471,7 +439,7 @@ class ReplayFiltersEventsSubQuery:
 
     def get_query_for_session_id_matching(self) -> ast.SelectQuery | ast.SelectUnionQuery | None:
         use_poe = poe_is_active(self._team) and self.person_properties
-        if self._filter.entities or use_poe:
+        if self._filter.entities or self.event_properties or use_poe:
             return self._select_from_events(ast.Alias(alias="session_id", expr=ast.Field(chain=["$session_id"])))
         else:
             return None
@@ -542,6 +510,9 @@ class ReplayFiltersEventsSubQuery:
             # we OR all events in the where and use hasAll / hasAny in the HAVING clause
             exprs.append(ast.Or(exprs=event_where_exprs))
 
+        if self.event_properties:
+            exprs.append(property_to_expr(self.event_properties, team=self._team, scope="replay"))
+
         if self._team.person_on_events_mode and self.person_properties:
             exprs.append(property_to_expr(self.person_properties, team=self._team, scope="event"))
 
@@ -570,6 +541,10 @@ class ReplayFiltersEventsSubQuery:
             )
 
         return ast.Constant(value=True)
+
+    @cached_property
+    def event_properties(self):
+        return [g for g in self._filter.property_groups.flat if is_event_property(g)]
 
     @cached_property
     def person_properties(self) -> PropertyGroup | None:
