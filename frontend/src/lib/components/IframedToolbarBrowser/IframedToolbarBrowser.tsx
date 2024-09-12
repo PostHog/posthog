@@ -35,10 +35,10 @@ export function IframedToolbarBrowser({
     iframeRef,
     userIntent,
 }: {
-    iframeRef?: React.MutableRefObject<HTMLIFrameElement | null>
+    iframeRef: React.MutableRefObject<HTMLIFrameElement | null>
     userIntent: ToolbarUserIntent
 }): JSX.Element | null {
-    const logic = iframedToolbarBrowserLogic()
+    const logic = iframedToolbarBrowserLogic({ iframeRef, userIntent: userIntent })
 
     const { browserUrl } = useValues(logic)
     const { onIframeLoad, setIframeWidth } = useActions(logic)

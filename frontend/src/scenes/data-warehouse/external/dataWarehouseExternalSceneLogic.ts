@@ -100,6 +100,7 @@ export const dataWarehouseExternalSceneLogic = kea<dataWarehouseExternalSceneLog
             insightSceneLogic.actions.setSceneState(
                 String('new-dataWarehouse') as InsightShortId,
                 ItemMode.Edit,
+                undefined,
                 undefined
             )
         },
@@ -107,6 +108,7 @@ export const dataWarehouseExternalSceneLogic = kea<dataWarehouseExternalSceneLog
             insightSceneLogic.actions.setSceneState(
                 String('new-dataWarehouse') as InsightShortId,
                 ItemMode.Edit,
+                undefined,
                 undefined
             )
             id && actions.loadView(id)

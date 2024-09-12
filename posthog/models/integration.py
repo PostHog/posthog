@@ -43,6 +43,7 @@ class Integration(models.Model):
         SALESFORCE = "salesforce"
         HUBSPOT = "hubspot"
         GOOGLE_PUBSUB = "google-pubsub"
+        GOOGLE_CLOUD_STORAGE = "google-cloud-storage"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
@@ -391,7 +392,7 @@ class SlackIntegration:
 
 
 class GoogleCloudIntegration:
-    supported_kinds = ["google-pubsub"]
+    supported_kinds = ["google-pubsub", "google-cloud-storage"]
     integration: Integration
 
     def __init__(self, integration: Integration) -> None:
@@ -403,6 +404,8 @@ class GoogleCloudIntegration:
     ) -> Integration:
         if kind == "google-pubsub":
             scope = "https://www.googleapis.com/auth/pubsub"
+        elif kind == "google-cloud-storage":
+            scope = "https://www.googleapis.com/auth/devstorage.read_write"
         else:
             raise NotImplementedError(f"Google Cloud integration kind {kind} not implemented")
 
