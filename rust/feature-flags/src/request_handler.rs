@@ -577,9 +577,7 @@ mod tests {
     async fn test_evaluate_feature_flags_with_overrides() {
         let pg_client = setup_pg_client(None).await;
         let team = insert_new_team_in_pg(pg_client.clone()).await.unwrap();
-        println!("Created team with id: {}", team.id);
 
-        // Create a feature flag that depends on a person property and a group property
         let flag = FeatureFlag {
             name: Some("Test Flag".to_string()),
             id: 1,
@@ -606,23 +604,17 @@ mod tests {
             },
             ensure_experience_continuity: false,
         };
-
-        println!("Created flag: {:?}", flag);
-
         let feature_flag_list = FeatureFlagList { flags: vec![flag] };
 
-        // Create group property overrides
         let groups = HashMap::from([("project".to_string(), json!("project_123"))]);
         let group_property_overrides = HashMap::from([(
             "project".to_string(),
             HashMap::from([
                 ("industry".to_string(), json!("tech")),
-                ("$group_key".to_string(), json!("project_123")), // Include group key
+                ("$group_key".to_string(), json!("project_123")),
             ]),
         )]);
-        println!("Group property overrides: {:?}", group_property_overrides);
 
-        // Evaluate feature flags
         let result = evaluate_feature_flags(
             team.id,
             "user123".to_string(),
@@ -634,9 +626,6 @@ mod tests {
         )
         .await;
 
-        println!("Evaluation result: {:?}", result);
-
-        // Assert results
         assert!(
             !result.error_while_computing_flags,
             "Error while computing flags"
@@ -650,7 +639,6 @@ mod tests {
             .feature_flags
             .get("test_flag")
             .expect("test_flag not found");
-        println!("Flag value: {:?}", flag_value);
 
         assert_eq!(
             flag_value,
