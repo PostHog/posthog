@@ -98,6 +98,10 @@ pub enum FlagError {
     TimeoutError,
     #[error("No group type mappings")]
     NoGroupTypeMappings,
+    #[error("Missing group key: {0}")]
+    MissingGroupKey(String), // Contains the group type name
+    #[error("Missing group type name: {0}")]
+    MissingGroupTypeName(i32), // Contains the group type index
 }
 
 impl IntoResponse for FlagError {
@@ -174,6 +178,20 @@ impl IntoResponse for FlagError {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "No group type mappings found. This is likely a configuration issue. Please contact support.".to_string(),
+                )
+            }
+            FlagError::MissingGroupKey(group_key) => {
+                tracing::error!("Missing group key: {:?}", group_key);
+                (
+                    StatusCode::BAD_REQUEST,
+                    format!("Missing group key for group type: {}. Please provide a valid group key.", group_key),
+                )
+            }
+            FlagError::MissingGroupTypeName(group_type_index) => {
+                tracing::error!("Missing group type index: {:?}", group_type_index);
+                (
+                    StatusCode::BAD_REQUEST,
+                    format!("Missing group type index for group type: {}. Please provide a valid group type name.", group_type_index),
                 )
             }
         }

@@ -77,6 +77,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
         .get_team_from_cache_or_pg(&token, state.redis.clone(), state.postgres.clone())
         .await?;
     let distinct_id = request.extract_distinct_id()?;
+    let groups = request.groups.clone();
     let team_id = team.id;
     let person_property_overrides = get_person_property_overrides(
         !request.geoip_disable.unwrap_or(false),
@@ -97,6 +98,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
         Some(state.postgres.clone()),
         person_property_overrides,
         group_property_overrides,
+        groups,
     )
     .await;
 
@@ -191,15 +193,16 @@ pub async fn evaluate_feature_flags(
     database_client: Option<Arc<dyn Client + Send + Sync>>,
     person_property_overrides: Option<HashMap<String, Value>>,
     group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
+    groups: Option<HashMap<String, Value>>,
 ) -> FlagsResponse {
-    let group_type_mapping_cache =
-        Arc::new(GroupTypeMappingCache::new(team_id, database_client.clone()));
-    let feature_flag_matcher = FeatureFlagMatcher::new(
+    let group_type_mapping_cache = GroupTypeMappingCache::new(team_id, database_client.clone());
+    let mut feature_flag_matcher = FeatureFlagMatcher::new(
         distinct_id.clone(),
         team_id,
         database_client,
         Some(group_type_mapping_cache),
         None,
+        groups,
     );
     // filter out flags that are not active or have been deleted
 
@@ -208,7 +211,6 @@ pub async fn evaluate_feature_flags(
             feature_flags_from_cache_or_pg,
             person_property_overrides,
             group_property_overrides,
-            None,
         )
         .await
 }
@@ -233,7 +235,7 @@ mod tests {
 
     use super::*;
     use axum::http::HeaderMap;
-    use serde_json::json;
+    use serde_json::{json, Value};
     use std::net::{Ipv4Addr, Ipv6Addr};
 
     fn create_test_geoip_service() -> GeoIpClient {
@@ -369,6 +371,7 @@ mod tests {
             Some(pg_client),
             Some(person_properties),
             None,
+            None,
         )
         .await;
 
@@ -503,6 +506,7 @@ mod tests {
             Some(pg_client),
             None,
             None,
+            None,
         )
         .await;
 
@@ -549,55 +553,6 @@ mod tests {
         assert!(matches!(error, FlagError::RequestDecodingError(_)));
     }
 
-    // // 8. Performance test (simplified)
-    // #[tokio::test]
-    // async fn test_evaluate_feature_flags_performance() {
-    //     let pg_client = setup_pg_client(None).await;
-    //     let mut flags = Vec::new();
-    //     for i in 0..1000 {
-    //         flags.push(FeatureFlag {
-    //             name: Some(format!("Flag {}", i)),
-    //             id: i,
-    //             key: format!("flag_{}", i),
-    //             active: true,
-    //             deleted: false,
-    //             team_id: 1,
-    //             filters: FlagFilters {
-    //                 groups: vec![FlagGroupType {
-    //                     properties: Some(vec![]),
-    //                     rollout_percentage: Some(50.0),
-    //                     variant: None,
-    //                 }],
-    //                 multivariate: None,
-    //                 aggregation_group_type_index: None,
-    //                 payloads: None,
-    //                 super_groups: None,
-    //             },
-    //             ensure_experience_continuity: false,
-    //         });
-    //     }
-
-    //     let feature_flag_list = FeatureFlagList { flags };
-
-    //     let start = std::time::Instant::now();
-    //     let result = evaluate_feature_flags(
-    //         1,
-    //         "user123".to_string(),
-    //         feature_flag_list,
-    //         Some(pg_client),
-    //         None,
-    //         None,
-    //     )
-    //     .await;
-    //     let duration = start.elapsed();
-
-    //     assert!(!result.error_while_computing_flags);
-    //     assert_eq!(result.feature_flags.len(), 1000);
-    //     println!("Time taken to evaluate 1000 flags: {:?}", duration);
-    //     // Add an assertion to ensure the operation completes within a reasonable time
-    //     assert!(duration < std::time::Duration::from_secs(1));
-    // }
-
     #[tokio::test]
     async fn test_evaluate_feature_flags_with_overrides() {
         let pg_client = setup_pg_client(None).await;
@@ -637,11 +592,14 @@ mod tests {
         let feature_flag_list = FeatureFlagList { flags: vec![flag] };
 
         // Create group property overrides
-        let mut group_property_overrides = HashMap::new();
-        group_property_overrides.insert(
+        let groups = HashMap::from([("project".to_string(), json!("project_123"))]);
+        let group_property_overrides = HashMap::from([(
             "project".to_string(),
-            HashMap::from([("industry".to_string(), json!("tech"))]),
-        );
+            HashMap::from([
+                ("industry".to_string(), json!("tech")),
+                ("$group_key".to_string(), json!("project_123")), // Include group key
+            ]),
+        )]);
         println!("Group property overrides: {:?}", group_property_overrides);
 
         // Evaluate feature flags
@@ -652,6 +610,7 @@ mod tests {
             Some(pg_client),
             None,
             Some(group_property_overrides),
+            Some(groups),
         )
         .await;
 
@@ -707,9 +666,16 @@ mod tests {
 
         let feature_flag_list = FeatureFlagList { flags: vec![flag] };
 
-        let result =
-            evaluate_feature_flags(1, long_id, feature_flag_list, Some(pg_client), None, None)
-                .await;
+        let result = evaluate_feature_flags(
+            1,
+            long_id,
+            feature_flag_list,
+            Some(pg_client),
+            None,
+            None,
+            None,
+        )
+        .await;
 
         assert!(!result.error_while_computing_flags);
         assert_eq!(result.feature_flags["test_flag"], FlagValue::Boolean(true));
