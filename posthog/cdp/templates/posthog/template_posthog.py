@@ -85,7 +85,7 @@ class TemplatePostHogMigrator(HogFunctionTemplateMigrator):
         project_api_key = obj.config.get("project_api_key", "")
         # replication = obj.config.get("replication", "") # not used
         events_to_ignore = [x.strip() for x in obj.config.get("events_to_ignore", "").split(",") if x]
-        disable_geoip = obj.config.get("disable_geoip", False)
+        disable_geoip = obj.config.get("disable_geoip", "No") == "Yes"
 
         hf["inputs"] = {
             "host": {"value": host},

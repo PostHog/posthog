@@ -75,7 +75,7 @@ class TestTemplateMigration(BaseTest):
         assert template["filters"] == {}
 
     def test_disable_geoip(self):
-        obj = self.get_plugin_config({"disable_geoip": True})
+        obj = self.get_plugin_config({"disable_geoip": "Yes"})
         template = TemplatePostHogMigrator.migrate(obj)
         assert template["inputs"] == snapshot(
             {
