@@ -56,7 +56,7 @@ class LabelTreeField(models.Field):
 
 
 class LabelQuery(models.Lookup):
-    """Implement a lookup for ltree label queries using the ~ operator."""
+    """Implement a lookup for an ltree label query using the ~ operator."""
 
     lookup_name = "lquery"
 
@@ -71,7 +71,24 @@ class LabelQuery(models.Lookup):
         return "%s ~ %s" % (lhs, rhs), params  # noqa: UP031
 
 
+class LabelQueryArray(models.Lookup):
+    """Implement a lookup for an array of ltree label queries using the ? operator."""
+
+    lookup_name = "lqueryarray"
+
+    def __init__(self, *args, **kwargs):
+        self.prepare_rhs = False
+        super().__init__(*args, **kwargs)
+
+    def as_sql(self, compiler, connection):
+        lhs, lhs_params = self.process_lhs(compiler, connection)
+        rhs, rhs_params = self.process_rhs(compiler, connection)
+        params = lhs_params + rhs_params
+        return "%s ? %s" % (lhs, rhs), params  # noqa: UP031
+
+
 LabelTreeField.register_lookup(LabelQuery)
+LabelTreeField.register_lookup(LabelQueryArray)
 
 
 def get_parents_from_model_query(model_query: str) -> set[str]:

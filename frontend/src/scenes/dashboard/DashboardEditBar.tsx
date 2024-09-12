@@ -1,4 +1,5 @@
 import { IconCalendar } from '@posthog/icons'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -14,7 +15,14 @@ export function DashboardEditBar(): JSX.Element {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     return (
-        <div className="flex gap-2 items-center justify-between flex-wrap">
+        <div
+            className={clsx(
+                'flex gap-2 items-center justify-between flex-wrap border',
+                dashboardMode === DashboardMode.Edit
+                    ? '-m-1.5 p-1.5 border-border-bold border-dashed rounded-lg'
+                    : 'border-transparent'
+            )}
+        >
             <DateFilter
                 showCustom
                 dateFrom={temporaryFilters.date_from}
