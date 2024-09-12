@@ -834,7 +834,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
     }
 }
 
-// Mostly used for testing
+// Mostly used for testing the fetch executor
 export class CdpCyclotronWorkerFetch extends CdpCyclotronWorker {
     protected name = 'CdpCyclotronWorkerFetch'
     protected queue = 'fetch' as const
