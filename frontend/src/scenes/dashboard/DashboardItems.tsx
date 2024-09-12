@@ -27,6 +27,7 @@ export function DashboardItems(): JSX.Element {
         refreshStatus,
         canEditDashboard,
         itemsLoading,
+        temporaryFilters,
     } = useValues(dashboardLogic)
     const {
         updateLayouts,
@@ -59,7 +60,7 @@ export function DashboardItems(): JSX.Element {
                 <ReactGridLayout
                     width={gridWrapperWidth}
                     className={className}
-                    draggableHandle=".CardMeta"
+                    draggableHandle=".CardMeta,.TextCard__body"
                     isDraggable={dashboardMode === DashboardMode.Edit}
                     isResizable={dashboardMode === DashboardMode.Edit}
                     layouts={layouts}
@@ -152,6 +153,7 @@ export function DashboardItems(): JSX.Element {
                                     showDetailsControls={placement != DashboardPlacement.Export}
                                     placement={placement}
                                     loadPriority={smLayout ? smLayout.y * 1000 + smLayout.x : undefined}
+                                    filtersOverride={temporaryFilters}
                                     {...commonTileProps}
                                 />
                             )

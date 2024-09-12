@@ -219,6 +219,7 @@ class SavedQuery(Table):
     A table that returns a subquery, e.g. my_saved_query -> (SELECT * FROM some_saved_table). The team_id guard is NOT added for the overall subquery
     """
 
+    id: str
     query: str
     name: str
 

@@ -1,5 +1,8 @@
-from rest_framework import decorators, exceptions
+from rest_framework import decorators, exceptions, viewsets
+from rest_framework_extensions.routers import NestedRegistryItem
 
+
+from posthog.api import project
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.batch_exports import http as batch_exports
 from posthog.settings import EE_AVAILABLE
@@ -82,35 +85,57 @@ router.register(r"plugin_config", plugin.LegacyPluginConfigViewSet, "legacy_plug
 router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)  # Used for library side feature flag evaluation
 
 # Nested endpoints shared
-projects_router = router.register(r"projects", team.RootTeamViewSet, "projects")
-project_plugins_configs_router = projects_router.register(
+projects_router = router.register(r"projects", project.RootProjectViewSet, "projects")
+environments_router = router.register(r"environments", team.RootTeamViewSet, "environments")
+
+
+def register_grandfathered_environment_nested_viewset(
+    prefix: str, viewset: type[viewsets.GenericViewSet], basename: str, parents_query_lookups: list[str]
+) -> tuple[NestedRegistryItem, NestedRegistryItem]:
+    """
+    Register the environment-specific viewset under both /environments/:team_id/ (correct endpoint)
+    and /projects/:team_id/ (legacy, but supported for backward compatibility endpoint).
+    DO NOT USE ON ANY NEW ENDPOINT YOU'RE ADDING!
+    """
+    if parents_query_lookups[0] != "team_id":
+        raise ValueError("Only endpoints with team_id as the first parent query lookup can be environment-nested")
+    if not basename.startswith("environment_"):
+        raise ValueError("Only endpoints with a basename starting with `environment_` can be environment-nested")
+    environment_nested = environments_router.register(prefix, viewset, basename, parents_query_lookups)
+    legacy_project_nested = projects_router.register(
+        prefix, viewset, basename.replace("environment_", "project_"), parents_query_lookups
+    )
+    return environment_nested, legacy_project_nested
+
+
+register_grandfathered_environment_nested_viewset(
     r"plugin_configs", plugin.PluginConfigViewSet, "environment_plugin_configs", ["team_id"]
 )
-project_plugins_configs_router.register(
+register_grandfathered_environment_nested_viewset(
     r"logs",
     plugin_log_entry.PluginLogEntryViewSet,
     "environment_plugin_config_logs",
     ["team_id", "plugin_config_id"],
 )
-projects_router.register(
+register_grandfathered_environment_nested_viewset(
     r"pipeline_transformation_configs",
     plugin.PipelineTransformationsConfigsViewSet,
     "environment_pipeline_transformation_configs",
     ["team_id"],
 )
-projects_router.register(
+register_grandfathered_environment_nested_viewset(
     r"pipeline_destination_configs",
     plugin.PipelineDestinationsConfigsViewSet,
     "environment_pipeline_destination_configs",
     ["team_id"],
 )
-projects_router.register(
+register_grandfathered_environment_nested_viewset(
     r"pipeline_frontend_apps_configs",
     plugin.PipelineFrontendAppsConfigsViewSet,
     "environment_pipeline_frontend_apps_configs",
     ["team_id"],
 )
-projects_router.register(
+register_grandfathered_environment_nested_viewset(
     r"pipeline_import_apps_configs",
     plugin.PipelineImportAppsConfigsViewSet,
     "environment_pipeline_import_apps_configs",
@@ -148,9 +173,13 @@ project_dashboards_router = projects_router.register(
     r"dashboards", dashboard.DashboardsViewSet, "project_dashboards", ["project_id"]
 )
 
-projects_router.register(r"exports", exports.ExportedAssetViewSet, "environment_exports", ["team_id"])
-projects_router.register(r"integrations", integration.IntegrationViewSet, "environment_integrations", ["team_id"])
-projects_router.register(
+register_grandfathered_environment_nested_viewset(
+    r"exports", exports.ExportedAssetViewSet, "environment_exports", ["team_id"]
+)
+register_grandfathered_environment_nested_viewset(
+    r"integrations", integration.IntegrationViewSet, "environment_integrations", ["team_id"]
+)
+register_grandfathered_environment_nested_viewset(
     r"ingestion_warnings",
     ingestion_warnings.IngestionWarningsViewSet,
     "environment_ingestion_warnings",
@@ -171,37 +200,50 @@ projects_router.register(
     ["project_id"],
 )
 
-app_metrics_router = projects_router.register(
+environment_app_metrics_router, legacy_project_app_metrics_router = register_grandfathered_environment_nested_viewset(
     r"app_metrics", app_metrics.AppMetricsViewSet, "environment_app_metrics", ["team_id"]
 )
-app_metrics_router.register(
+environment_app_metrics_router.register(
     r"historical_exports",
     app_metrics.HistoricalExportsAppMetricsViewSet,
     "environment_app_metrics_historical_exports",
     ["team_id", "plugin_config_id"],
 )
-
-batch_exports_router = projects_router.register(
-    r"batch_exports", batch_exports.BatchExportViewSet, "environment_batch_exports", ["team_id"]
+legacy_project_app_metrics_router.register(
+    r"historical_exports",
+    app_metrics.HistoricalExportsAppMetricsViewSet,
+    "project_app_metrics_historical_exports",
+    ["team_id", "plugin_config_id"],
 )
-batch_export_runs_router = batch_exports_router.register(
+
+environment_batch_exports_router, legacy_project_batch_exports_router = (
+    register_grandfathered_environment_nested_viewset(
+        r"batch_exports", batch_exports.BatchExportViewSet, "environment_batch_exports", ["team_id"]
+    )
+)
+environment_batch_exports_router.register(
     r"runs", batch_exports.BatchExportRunViewSet, "environment_batch_export_runs", ["team_id", "batch_export_id"]
 )
+legacy_project_batch_exports_router.register(
+    r"runs", batch_exports.BatchExportRunViewSet, "project_batch_export_runs", ["team_id", "batch_export_id"]
+)
 
-projects_router.register(r"warehouse_tables", table.TableViewSet, "environment_warehouse_tables", ["team_id"])
-projects_router.register(
+register_grandfathered_environment_nested_viewset(
+    r"warehouse_tables", table.TableViewSet, "environment_warehouse_tables", ["team_id"]
+)
+register_grandfathered_environment_nested_viewset(
     r"warehouse_saved_queries",
     saved_query.DataWarehouseSavedQueryViewSet,
     "environment_warehouse_saved_queries",
     ["team_id"],
 )
-projects_router.register(
+register_grandfathered_environment_nested_viewset(
     r"warehouse_view_links",
     view_link.ViewLinkViewSet,
     "environment_warehouse_view_links",
     ["team_id"],
 )
-projects_router.register(
+register_grandfathered_environment_nested_viewset(
     r"warehouse_view_link", view_link.ViewLinkViewSet, "environment_warehouse_view_link", ["team_id"]
 )
 
@@ -221,10 +263,10 @@ projects_router.register(
 projects_router.register(r"uploaded_media", uploaded_media.MediaViewSet, "project_media", ["project_id"])
 
 projects_router.register(r"tags", tagged_item.TaggedItemViewSet, "project_tags", ["project_id"])
-projects_router.register(r"query", query.QueryViewSet, "environment_query", ["team_id"])
+register_grandfathered_environment_nested_viewset(r"query", query.QueryViewSet, "environment_query", ["team_id"])
 
 # External data resources
-projects_router.register(
+register_grandfathered_environment_nested_viewset(
     r"external_data_sources",
     external_data_source.ExternalDataSourceViewSet,
     "environment_external_data_sources",
@@ -244,16 +286,16 @@ projects_router.register(
 )
 
 
-projects_router.register(
+register_grandfathered_environment_nested_viewset(
     r"external_data_schemas",
     external_data_schema.ExternalDataSchemaViewset,
-    "project_external_data_schemas",
+    "environment_external_data_schemas",
     ["team_id"],
 )
 
 # Organizations nested endpoints
 organizations_router = router.register(r"organizations", organization.OrganizationViewSet, "organizations")
-organizations_router.register(r"projects", team.TeamViewSet, "projects", ["organization_id"])
+organizations_router.register(r"projects", project.ProjectViewSet, "organization_projects", ["organization_id"])
 organizations_router.register(
     r"batch_exports", batch_exports.BatchExportOrganizationViewSet, "batch_exports", ["organization_id"]
 )
@@ -317,10 +359,10 @@ organizations_router.register(
 
 # General endpoints (shared across CH & PG)
 router.register(r"login", authentication.LoginViewSet, "login")
-router.register(r"login/token", authentication.TwoFactorViewSet)
-router.register(r"login/precheck", authentication.LoginPrecheckViewSet)
+router.register(r"login/token", authentication.TwoFactorViewSet, "login_token")
+router.register(r"login/precheck", authentication.LoginPrecheckViewSet, "login_precheck")
 router.register(r"reset", authentication.PasswordResetViewSet, "password_reset")
-router.register(r"users", user.UserViewSet)
+router.register(r"users", user.UserViewSet, "users")
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
 router.register(r"instance_status", instance_status.InstanceStatusViewSet, "instance_status")
 router.register(r"dead_letter_queue", dead_letter_queue.DeadLetterQueueViewSet, "dead_letter_queue")
@@ -345,44 +387,46 @@ router.register(r"heatmap", LegacyHeatmapViewSet, basename="heatmap")
 router.register(r"event", LegacyEventViewSet, basename="event")
 
 # Nested endpoints CH
-projects_router.register(r"events", EventViewSet, "environment_events", ["team_id"])
+register_grandfathered_environment_nested_viewset(r"events", EventViewSet, "environment_events", ["team_id"])
 projects_router.register(r"actions", ActionViewSet, "project_actions", ["project_id"])
 projects_router.register(r"cohorts", CohortViewSet, "project_cohorts", ["project_id"])
-projects_router.register(r"persons", PersonViewSet, "environment_persons", ["team_id"])
-projects_router.register(r"elements", ElementViewSet, "environment_elements", ["team_id"])  # TODO: Can be removed?
-project_session_recordings_router = projects_router.register(
-    r"session_recordings",
-    SessionRecordingViewSet,
-    "environment_session_recordings",
-    ["team_id"],
+register_grandfathered_environment_nested_viewset(
+    r"elements",
+    ElementViewSet,
+    "environment_elements",
+    ["team_id"],  # TODO: Can be removed?
 )
-projects_router.register(r"heatmaps", HeatmapViewSet, "environment_heatmaps", ["team_id"])
-projects_router.register(r"sessions", SessionViewSet, "environment_sessions", ["team_id"])
+environment_sessions_recordings_router, legacy_project_session_recordings_router = (
+    register_grandfathered_environment_nested_viewset(
+        r"session_recordings",
+        SessionRecordingViewSet,
+        "environment_session_recordings",
+        ["team_id"],
+    )
+)
+register_grandfathered_environment_nested_viewset(r"heatmaps", HeatmapViewSet, "environment_heatmaps", ["team_id"])
+register_grandfathered_environment_nested_viewset(r"sessions", SessionViewSet, "environment_sessions", ["team_id"])
 
 if EE_AVAILABLE:
-    from ee.clickhouse.views.experiments import ClickhouseExperimentsViewSet
-    from ee.clickhouse.views.groups import (
-        ClickhouseGroupsTypesView,
-        ClickhouseGroupsView,
-    )
-    from ee.clickhouse.views.insights import ClickhouseInsightsViewSet
-    from ee.clickhouse.views.person import (
-        EnterprisePersonViewSet,
-        LegacyEnterprisePersonViewSet,
-    )
+    from ee.clickhouse.views.experiments import EnterpriseExperimentsViewSet
+    from ee.clickhouse.views.groups import GroupsTypesViewSet, GroupsViewSet
+    from ee.clickhouse.views.insights import EnterpriseInsightsViewSet
+    from ee.clickhouse.views.person import EnterprisePersonViewSet, LegacyEnterprisePersonViewSet
 
-    projects_router.register(r"experiments", ClickhouseExperimentsViewSet, "project_experiments", ["project_id"])
-    projects_router.register(r"groups", ClickhouseGroupsView, "environment_groups", ["team_id"])
-    projects_router.register(r"groups_types", ClickhouseGroupsTypesView, "project_groups_types", ["project_id"])
+    projects_router.register(r"experiments", EnterpriseExperimentsViewSet, "project_experiments", ["project_id"])
+    register_grandfathered_environment_nested_viewset(r"groups", GroupsViewSet, "environment_groups", ["team_id"])
+    projects_router.register(r"groups_types", GroupsTypesViewSet, "project_groups_types", ["project_id"])
     project_insights_router = projects_router.register(
-        r"insights", ClickhouseInsightsViewSet, "project_insights", ["project_id"]
+        r"insights", EnterpriseInsightsViewSet, "project_insights", ["project_id"]
     )
-    projects_router.register(r"persons", EnterprisePersonViewSet, "environment_persons", ["team_id"])
-    router.register(r"person", LegacyEnterprisePersonViewSet, basename="person")
+    register_grandfathered_environment_nested_viewset(
+        r"persons", EnterprisePersonViewSet, "environment_persons", ["team_id"]
+    )
+    router.register(r"person", LegacyEnterprisePersonViewSet, "persons")
 else:
     project_insights_router = projects_router.register(r"insights", InsightViewSet, "project_insights", ["project_id"])
-    projects_router.register(r"persons", PersonViewSet, "environment_persons", ["team_id"])
-    router.register(r"person", LegacyPersonViewSet, basename="person")
+    register_grandfathered_environment_nested_viewset(r"persons", PersonViewSet, "environment_persons", ["team_id"])
+    router.register(r"person", LegacyPersonViewSet, "persons")
 
 
 project_dashboards_router.register(
@@ -413,10 +457,16 @@ project_insights_router.register(
     ["team_id", "insight_id"],
 )
 
-project_session_recordings_router.register(
+environment_sessions_recordings_router.register(
     r"sharing",
     sharing.SharingConfigurationViewSet,
     "environment_recording_sharing",
+    ["team_id", "recording_id"],
+)
+legacy_project_session_recordings_router.register(
+    r"sharing",
+    sharing.SharingConfigurationViewSet,
+    "project_recording_sharing",
     ["team_id", "recording_id"],
 )
 
@@ -441,7 +491,7 @@ projects_router.register(
     ["project_id"],
 )
 
-projects_router.register(
+register_grandfathered_environment_nested_viewset(
     r"hog_functions",
     hog_function.HogFunctionViewSet,
     "environment_hog_functions",
@@ -462,7 +512,7 @@ projects_router.register(
     ["team_id"],
 )
 
-projects_router.register(
+register_grandfathered_environment_nested_viewset(
     r"alerts",
     alert.AlertViewSet,
     "environment_alerts",

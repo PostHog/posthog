@@ -1,17 +1,17 @@
 import { IconArrowRight } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonSkeleton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { IframedToolbarBrowser } from 'lib/components/IframedToolbarBrowser/IframedToolbarBrowser'
 import { iframedToolbarBrowserLogic } from 'lib/components/IframedToolbarBrowser/iframedToolbarBrowserLogic'
 import { useRef, useState } from 'react'
-import { DashboardTemplateVariables } from 'scenes/dashboard/DashboardTemplateVariables'
 import { dashboardTemplateVariablesLogic } from 'scenes/dashboard/dashboardTemplateVariablesLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
-import { OnboardingStepKey } from '../onboardingLogic'
+import { onboardingLogic, OnboardingStepKey } from '../onboardingLogic'
 import { OnboardingStep } from '../OnboardingStep'
 import { sdksLogic } from '../sdks/sdksLogic'
+import { DashboardTemplateVariables } from './DashboardTemplateVariables'
 import { onboardingTemplateConfigLogic } from './onboardingTemplateConfigLogic'
 
 export const OnboardingDashboardTemplateConfigureStep = ({
@@ -23,11 +23,15 @@ export const OnboardingDashboardTemplateConfigureStep = ({
     const { activeDashboardTemplate } = useValues(onboardingTemplateConfigLogic)
     const { createDashboardFromTemplate } = useActions(newDashboardLogic)
     const { isLoading } = useValues(newDashboardLogic)
-    const { variables } = useValues(dashboardTemplateVariablesLogic)
     const { snippetHosts } = useValues(sdksLogic)
     const { addUrl } = useActions(authorizedUrlListLogic({ actionId: null, type: AuthorizedUrlListType.TOOLBAR_URLS }))
     const { setBrowserUrl } = useActions(iframedToolbarBrowserLogic({ iframeRef, clearBrowserUrlOnUnmount: true }))
     const { browserUrl } = useValues(iframedToolbarBrowserLogic({ iframeRef, clearBrowserUrlOnUnmount: true }))
+    const theDashboardTemplateVariablesLogic = dashboardTemplateVariablesLogic({
+        variables: activeDashboardTemplate?.variables || [],
+    })
+    const { variables, allVariablesAreTouched, hasTouchedAnyVariable } = useValues(theDashboardTemplateVariablesLogic)
+    const { goToNextStep, setStepKey } = useActions(onboardingLogic)
 
     const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -55,32 +59,50 @@ export const OnboardingDashboardTemplateConfigureStep = ({
                                     <div className="absolute inset-0 z-20 rounded flex items-center justify-center">
                                         <LemonCard className="max-w-lg" hoverEffect={false}>
                                             <h2>Select where you want to track events from.</h2>
-                                            <p>
-                                                Not seeing the site you want? Install posthog-js or the HTML snippet
-                                                wherever you want to track events, then come back here.
-                                            </p>
                                             {snippetHosts.length > 0 ? (
-                                                <div className="space-y-2">
-                                                    {snippetHosts.map((host) => (
-                                                        <LemonButton
-                                                            key={`snippet-host-button-${host}`}
-                                                            type="tertiary"
-                                                            status="default"
-                                                            onClick={() => {
-                                                                addUrl(host)
-                                                                setBrowserUrl(host)
-                                                            }}
-                                                            sideIcon={<IconArrowRight />}
-                                                        >
-                                                            {host}
-                                                        </LemonButton>
-                                                    ))}
-                                                </div>
+                                                <>
+                                                    <p>
+                                                        Not seeing the site you want? Install posthog-js or the HTML
+                                                        snippet wherever you want to track events, then come back here.
+                                                    </p>
+                                                    <div className="space-y-2">
+                                                        {snippetHosts.map((host) => (
+                                                            <LemonButton
+                                                                key={`snippet-host-button-${host}`}
+                                                                type="tertiary"
+                                                                status="default"
+                                                                onClick={() => {
+                                                                    addUrl(host)
+                                                                    setBrowserUrl(host)
+                                                                }}
+                                                                sideIcon={<IconArrowRight />}
+                                                            >
+                                                                {host}
+                                                            </LemonButton>
+                                                        ))}
+                                                    </div>
+                                                </>
                                             ) : (
-                                                <p>
-                                                    Hm, we're not finding any available hosts. Head back to the install
-                                                    step to install posthog-js in your frontend.
-                                                </p>
+                                                <>
+                                                    <p className="text-muted">
+                                                        Hm, it looks like you haven't ingested any events from a website
+                                                        yet. To select actions from your site, head back to the{' '}
+                                                        <Link onClick={() => setStepKey(OnboardingStepKey.INSTALL)}>
+                                                            install step
+                                                        </Link>{' '}
+                                                        to install posthog-js in your frontend.
+                                                    </p>
+                                                    <p className="text-muted">
+                                                        You can still create a dashboard using custom event names,
+                                                        though it's not quite as fun.
+                                                    </p>
+                                                    <LemonButton
+                                                        onClick={() => setStepKey(OnboardingStepKey.INSTALL)}
+                                                        type="primary"
+                                                    >
+                                                        Install posthog-js
+                                                    </LemonButton>
+                                                </>
                                             )}
                                         </LemonCard>
                                     </div>
@@ -105,23 +127,43 @@ export const OnboardingDashboardTemplateConfigureStep = ({
                             )}
                         </div>
                         <div className="col-span-2">
-                            <DashboardTemplateVariables />
-                            <LemonButton
-                                type="primary"
-                                status="alt"
-                                onClick={() => {
-                                    if (activeDashboardTemplate) {
-                                        setIsSubmitting(true)
-                                        createDashboardFromTemplate(activeDashboardTemplate, variables, false)
-                                    }
-                                }}
-                                loading={isLoading}
-                                fullWidth
-                                center
-                                className="mt-6"
-                            >
-                                Create dashboard
-                            </LemonButton>
+                            <p>
+                                For each action below, select an element on your site that indicates when that action is
+                                taken, or enter a custom event name that you'll send using{' '}
+                                <Link to="https://posthog.com/docs/product-analytics/capture-events">
+                                    <code>posthog.capture()</code>
+                                </Link>{' '}
+                                (no need to send it now) .
+                            </p>
+                            <DashboardTemplateVariables hasSelectedSite={!!browserUrl} iframeRef={iframeRef} />
+                            <div className="flex flex-wrap mt-6 w-full gap-x-2 gap-y-2 justify-center">
+                                <div className="grow min-w-64">
+                                    <LemonButton
+                                        type="primary"
+                                        status="alt"
+                                        onClick={() => {
+                                            if (activeDashboardTemplate) {
+                                                setIsSubmitting(true)
+                                                createDashboardFromTemplate(activeDashboardTemplate, variables, false)
+                                            }
+                                        }}
+                                        loading={isLoading}
+                                        fullWidth
+                                        center
+                                        className="grow"
+                                        disabledReason={
+                                            !allVariablesAreTouched && 'Please select an event for each variable'
+                                        }
+                                    >
+                                        Create dashboard
+                                    </LemonButton>
+                                </div>
+                                <div className="max-w-56">
+                                    <LemonButton type="tertiary" onClick={() => goToNextStep()} fullWidth center>
+                                        {hasTouchedAnyVariable ? 'Discard dashboard & skip' : 'Skip for now'}
+                                    </LemonButton>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </>

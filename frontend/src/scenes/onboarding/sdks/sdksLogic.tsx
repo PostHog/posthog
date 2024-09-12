@@ -126,26 +126,25 @@ export const sdksLogic = kea<sdksLogicType>([
                 loadSnippetEvents: async () => {
                     const query: HogQLQuery = {
                         kind: NodeKind.HogQLQuery,
-                        query: hogql`SELECT properties.$lib_version AS lib_version,
+                        query: hogql`SELECT
                                         max(timestamp) AS latest_timestamp,
-                                        count(lib_version) AS count,
                                         concat(
                                             if(startsWith(properties.current_url, 'https://'), 'https://', 'http://'),
                                             properties.$host
                                         ) AS full_host
                                     FROM events
-                                    WHERE timestamp >= now() - INTERVAL 3 DAY
+                                    WHERE timestamp >= now() - INTERVAL 5 DAY
                                     AND timestamp <= now()
                                     AND properties.$lib = 'web'
                                     AND properties.$host is not null
-                                    GROUP BY lib_version, full_host
+                                    GROUP BY full_host
                                     ORDER BY latest_timestamp DESC
                                     LIMIT 10`,
                     }
 
                     const res = await api.query(query)
                     const hasEvents = !!(res.results?.length ?? 0 > 0)
-                    const snippetHosts = res.results?.map((result) => result[3]).filter((val) => !!val) ?? []
+                    const snippetHosts = res.results?.map((result) => result[1]).filter((val) => !!val) ?? []
                     if (hasEvents) {
                         actions.setSnippetHosts(snippetHosts)
                     }

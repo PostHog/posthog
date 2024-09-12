@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, urlToAction } from 'kea-router'
 import { windowValues } from 'kea-window-values'
@@ -14,6 +14,7 @@ import { urls } from 'scenes/urls'
 import {
     NodeKind,
     QuerySchema,
+    WebAnalyticsConversionGoal,
     WebAnalyticsPropertyFilter,
     WebAnalyticsPropertyFilters,
     WebStatsBreakdown,
@@ -143,6 +144,9 @@ export enum GraphsTab {
     UNIQUE_USERS = 'UNIQUE_USERS',
     PAGE_VIEWS = 'PAGE_VIEWS',
     NUM_SESSION = 'NUM_SESSION',
+    UNIQUE_CONVERSIONS = 'UNIQUE_CONVERSIONS',
+    TOTAL_CONVERSIONS = 'TOTAL_CONVERSIONS',
+    CONVERSION_RATE = 'CONVERSION_RATE',
 }
 
 export enum SourceTab {
@@ -237,10 +241,19 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setGeographyTab: (tab: string) => ({ tab }),
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setInterval: (interval: IntervalType) => ({ interval }),
+        setDatesAndInterval: (dateFrom: string | null, dateTo: string | null, interval: IntervalType) => ({
+            dateFrom,
+            dateTo,
+            interval,
+        }),
         setIsPathCleaningEnabled: (isPathCleaningEnabled: boolean) => ({ isPathCleaningEnabled }),
         setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({
             shouldFilterTestAccounts,
         }),
+        setShouldStripQueryParams: (shouldStripQueryParams: boolean) => ({
+            shouldStripQueryParams,
+        }),
+        setConversionGoal: (conversionGoal: WebAnalyticsConversionGoal | null) => ({ conversionGoal }),
         setStateFromUrl: (state: {
             filters: WebAnalyticsPropertyFilters
             dateFrom: string | null
@@ -421,6 +434,17 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         interval,
                     }
                 },
+                setDatesAndInterval: (_, { dateTo, dateFrom, interval }) => {
+                    if (!dateFrom && !dateTo) {
+                        dateFrom = initialDateFrom
+                        dateTo = initialDateTo
+                    }
+                    return {
+                        dateTo,
+                        dateFrom,
+                        interval: interval || getDefaultInterval(dateFrom, dateTo),
+                    }
+                },
                 setStateFromUrl: (_, { state: { dateTo, dateFrom, interval } }) => {
                     if (!dateFrom && !dateTo) {
                         dateFrom = initialDateFrom
@@ -441,6 +465,19 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 setShouldFilterTestAccounts: (_, { shouldFilterTestAccounts }) => shouldFilterTestAccounts,
             },
         ],
+        shouldStripQueryParams: [
+            false as boolean,
+            { persist: true },
+            {
+                setShouldStripQueryParams: (_, { shouldStripQueryParams }) => shouldStripQueryParams,
+            },
+        ],
+        conversionGoal: [
+            null as WebAnalyticsConversionGoal | null,
+            {
+                setConversionGoal: (_, { conversionGoal }) => conversionGoal,
+            },
+        ],
     }),
     selectors(({ actions, values }) => ({
         graphsTab: [(s) => [s._graphsTab], (graphsTab: string | null) => graphsTab || GraphsTab.UNIQUE_USERS],
@@ -449,39 +486,48 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         pathTab: [(s) => [s._pathTab], (pathTab: string | null) => pathTab || PathTab.PATH],
         geographyTab: [(s) => [s._geographyTab], (geographyTab: string | null) => geographyTab || GeographyTab.MAP],
         tabs: [
-            (s) => [s.graphsTab, s.sourceTab, s.deviceTab, s.pathTab, s.geographyTab],
-            (graphsTab, sourceTab, deviceTab, pathTab, geographyTab) => ({
+            (s) => [
+                s.graphsTab,
+                s.sourceTab,
+                s.deviceTab,
+                s.pathTab,
+                s.geographyTab,
+                () => values.shouldShowGeographyTile,
+            ],
+            (graphsTab, sourceTab, deviceTab, pathTab, geographyTab, shouldShowGeographyTile) => ({
                 graphsTab,
                 sourceTab,
                 deviceTab,
                 pathTab,
                 geographyTab,
+                shouldShowGeographyTile,
+            }),
+        ],
+        controls: [
+            (s) => [s.isPathCleaningEnabled, s.shouldFilterTestAccounts, s.shouldStripQueryParams],
+            (isPathCleaningEnabled, filterTestAccounts, shouldStripQueryParams) => ({
+                isPathCleaningEnabled,
+                filterTestAccounts,
+                shouldStripQueryParams,
+            }),
+        ],
+        filters: [
+            (s) => [s.webAnalyticsFilters, s.replayFilters, s.dateFilter, () => values.conversionGoal],
+            (webAnalyticsFilters, replayFilters, dateFilter, conversionGoal) => ({
+                webAnalyticsFilters,
+                replayFilters,
+                dateFilter,
+                conversionGoal,
             }),
         ],
         tiles: [
-            (s) => [
-                s.webAnalyticsFilters,
-                s.replayFilters,
-                s.tabs,
-                s.dateFilter,
-                s.isPathCleaningEnabled,
-                s.shouldFilterTestAccounts,
-                () => values.statusCheck,
-                () => values.isGreaterThanMd,
-                () => values.shouldShowGeographyTile,
-                () => values.featureFlags,
-            ],
+            (s) => [s.tabs, s.controls, s.filters, () => values.featureFlags, () => values.isGreaterThanMd],
             (
-                webAnalyticsFilters,
-                replayFilters,
-                { graphsTab, sourceTab, deviceTab, pathTab, geographyTab },
-                { dateFrom, dateTo, interval },
-                isPathCleaningEnabled,
-                filterTestAccounts,
-                _statusCheck,
-                isGreaterThanMd,
-                shouldShowGeographyTile,
-                featureFlags
+                { graphsTab, sourceTab, deviceTab, pathTab, geographyTab, shouldShowGeographyTile },
+                { isPathCleaningEnabled, filterTestAccounts, shouldStripQueryParams },
+                { webAnalyticsFilters, replayFilters, dateFilter: { dateFrom, dateTo, interval }, conversionGoal },
+                featureFlags,
+                isGreaterThanMd
             ): WebDashboardTile[] => {
                 const dateRange = {
                     date_from: dateFrom,
@@ -516,6 +562,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             sampling,
                             compare,
                             filterTestAccounts,
+                            conversionGoal,
                         },
                         insightProps: createInsightProps(TileId.OVERVIEW),
                         canOpenModal: false,
@@ -529,114 +576,240 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         },
                         activeTabId: graphsTab,
                         setTabId: actions.setGraphsTab,
-                        tabs: [
-                            {
-                                id: GraphsTab.UNIQUE_USERS,
-                                title: 'Unique visitors',
-                                linkText: 'Visitors',
-                                query: {
-                                    kind: NodeKind.InsightVizNode,
-                                    source: {
-                                        kind: NodeKind.TrendsQuery,
-                                        dateRange,
-                                        interval,
-                                        series: [
-                                            {
-                                                event: '$pageview',
-                                                kind: NodeKind.EventsNode,
-                                                math: BaseMathType.UniqueUsers,
-                                                name: 'Pageview',
-                                                custom_name: 'Unique visitors',
+                        tabs: (
+                            [
+                                {
+                                    id: GraphsTab.UNIQUE_USERS,
+                                    title: 'Unique visitors',
+                                    linkText: 'Visitors',
+                                    query: {
+                                        kind: NodeKind.InsightVizNode,
+                                        source: {
+                                            kind: NodeKind.TrendsQuery,
+                                            dateRange,
+                                            interval,
+                                            series: [
+                                                {
+                                                    event: '$pageview',
+                                                    kind: NodeKind.EventsNode,
+                                                    math: BaseMathType.UniqueUsers,
+                                                    name: 'Pageview',
+                                                    custom_name: 'Unique visitors',
+                                                },
+                                            ],
+                                            trendsFilter: {
+                                                display: ChartDisplayType.ActionsLineGraph,
                                             },
-                                        ],
-                                        trendsFilter: {
-                                            display: ChartDisplayType.ActionsLineGraph,
-                                        },
-                                        compareFilter: {
-                                            compare: compare,
-                                        },
-                                        filterTestAccounts,
-                                        properties: webAnalyticsFilters,
-                                    },
-                                    hidePersonsModal: true,
-                                    embedded: true,
-                                },
-                                showIntervalSelect: true,
-                                insightProps: createInsightProps(TileId.GRAPHS, GraphsTab.UNIQUE_USERS),
-                                canOpenInsight: true,
-                            },
-                            {
-                                id: GraphsTab.PAGE_VIEWS,
-                                title: 'Page views',
-                                linkText: 'Views',
-                                query: {
-                                    kind: NodeKind.InsightVizNode,
-                                    source: {
-                                        kind: NodeKind.TrendsQuery,
-                                        dateRange,
-                                        interval,
-                                        series: [
-                                            {
-                                                event: '$pageview',
-                                                kind: NodeKind.EventsNode,
-                                                math: BaseMathType.TotalCount,
-                                                name: '$pageview',
-                                                custom_name: 'Page views',
+                                            compareFilter: {
+                                                compare: compare,
                                             },
-                                        ],
-                                        trendsFilter: {
-                                            display: ChartDisplayType.ActionsLineGraph,
+                                            filterTestAccounts,
+                                            properties: webAnalyticsFilters,
                                         },
-                                        compareFilter: {
-                                            compare: compare,
-                                        },
-                                        filterTestAccounts,
-                                        properties: webAnalyticsFilters,
+                                        hidePersonsModal: true,
+                                        embedded: true,
                                     },
-                                    hidePersonsModal: true,
-                                    embedded: true,
+                                    showIntervalSelect: true,
+                                    insightProps: createInsightProps(TileId.GRAPHS, GraphsTab.UNIQUE_USERS),
+                                    canOpenInsight: true,
                                 },
-                                showIntervalSelect: true,
-                                insightProps: createInsightProps(TileId.GRAPHS, GraphsTab.PAGE_VIEWS),
-                                canOpenInsight: true,
-                            },
-                            {
-                                id: GraphsTab.NUM_SESSION,
-                                title: 'Sessions',
-                                linkText: 'Sessions',
-                                query: {
-                                    kind: NodeKind.InsightVizNode,
-                                    source: {
-                                        kind: NodeKind.TrendsQuery,
-                                        dateRange,
-                                        interval,
-                                        series: [
-                                            {
-                                                event: '$pageview',
-                                                kind: NodeKind.EventsNode,
-                                                math: BaseMathType.UniqueSessions,
-                                                name: '$pageview',
-                                                custom_name: 'Sessions',
-                                            },
-                                        ],
-                                        trendsFilter: {
-                                            display: ChartDisplayType.ActionsLineGraph,
-                                        },
-                                        compareFilter: {
-                                            compare: compare,
-                                        },
-                                        filterTestAccounts,
-                                        properties: webAnalyticsFilters,
-                                    },
-                                    suppressSessionAnalysisWarning: true,
-                                    hidePersonsModal: true,
-                                    embedded: true,
-                                },
-                                showIntervalSelect: true,
-                                insightProps: createInsightProps(TileId.GRAPHS, GraphsTab.NUM_SESSION),
-                                canOpenInsight: true,
-                            },
-                        ],
+                                !conversionGoal
+                                    ? {
+                                          id: GraphsTab.PAGE_VIEWS,
+                                          title: 'Page views',
+                                          linkText: 'Views',
+                                          query: {
+                                              kind: NodeKind.InsightVizNode,
+                                              source: {
+                                                  kind: NodeKind.TrendsQuery,
+                                                  dateRange,
+                                                  interval,
+                                                  series: [
+                                                      {
+                                                          event: '$pageview',
+                                                          kind: NodeKind.EventsNode,
+                                                          math: BaseMathType.TotalCount,
+                                                          name: '$pageview',
+                                                          custom_name: 'Page views',
+                                                      },
+                                                  ],
+                                                  trendsFilter: {
+                                                      display: ChartDisplayType.ActionsLineGraph,
+                                                  },
+                                                  compareFilter: {
+                                                      compare: compare,
+                                                  },
+                                                  filterTestAccounts,
+                                                  properties: webAnalyticsFilters,
+                                              },
+                                              hidePersonsModal: true,
+                                              embedded: true,
+                                          },
+                                          showIntervalSelect: true,
+                                          insightProps: createInsightProps(TileId.GRAPHS, GraphsTab.PAGE_VIEWS),
+                                          canOpenInsight: true,
+                                      }
+                                    : null,
+                                !conversionGoal
+                                    ? {
+                                          id: GraphsTab.NUM_SESSION,
+                                          title: 'Sessions',
+                                          linkText: 'Sessions',
+                                          query: {
+                                              kind: NodeKind.InsightVizNode,
+                                              source: {
+                                                  kind: NodeKind.TrendsQuery,
+                                                  dateRange,
+                                                  interval,
+                                                  series: [
+                                                      {
+                                                          event: '$pageview',
+                                                          kind: NodeKind.EventsNode,
+                                                          math: BaseMathType.UniqueSessions,
+                                                          name: '$pageview',
+                                                          custom_name: 'Sessions',
+                                                      },
+                                                  ],
+                                                  trendsFilter: {
+                                                      display: ChartDisplayType.ActionsLineGraph,
+                                                  },
+                                                  compareFilter: {
+                                                      compare: compare,
+                                                  },
+                                                  filterTestAccounts,
+                                                  properties: webAnalyticsFilters,
+                                              },
+                                              suppressSessionAnalysisWarning: true,
+                                              hidePersonsModal: true,
+                                              embedded: true,
+                                          },
+                                          showIntervalSelect: true,
+                                          insightProps: createInsightProps(TileId.GRAPHS, GraphsTab.NUM_SESSION),
+                                          canOpenInsight: true,
+                                      }
+                                    : null,
+                                conversionGoal
+                                    ? {
+                                          id: GraphsTab.UNIQUE_CONVERSIONS,
+                                          title: 'Unique conversions',
+                                          linkText: 'Unique conversions',
+                                          query: {
+                                              kind: NodeKind.InsightVizNode,
+                                              source: {
+                                                  kind: NodeKind.TrendsQuery,
+                                                  dateRange,
+                                                  interval,
+                                                  series: [
+                                                      {
+                                                          kind: NodeKind.ActionsNode,
+                                                          id: conversionGoal.actionId,
+                                                          math: BaseMathType.UniqueUsers,
+                                                          name: 'Unique conversions',
+                                                          custom_name: 'Unique conversions',
+                                                      },
+                                                  ],
+                                                  trendsFilter: {
+                                                      display: ChartDisplayType.ActionsLineGraph,
+                                                  },
+                                                  compareFilter: {
+                                                      compare: compare,
+                                                  },
+                                                  filterTestAccounts,
+                                                  properties: webAnalyticsFilters,
+                                              },
+                                              hidePersonsModal: true,
+                                              embedded: true,
+                                          },
+                                          showIntervalSelect: true,
+                                          insightProps: createInsightProps(TileId.GRAPHS, GraphsTab.UNIQUE_USERS),
+                                          canOpenInsight: true,
+                                      }
+                                    : null,
+                                conversionGoal
+                                    ? {
+                                          id: GraphsTab.TOTAL_CONVERSIONS,
+                                          title: 'Total conversions',
+                                          linkText: 'Total conversions',
+                                          query: {
+                                              kind: NodeKind.InsightVizNode,
+                                              source: {
+                                                  kind: NodeKind.TrendsQuery,
+                                                  dateRange,
+                                                  interval,
+                                                  series: [
+                                                      {
+                                                          kind: NodeKind.ActionsNode,
+                                                          id: conversionGoal.actionId,
+                                                          math: BaseMathType.TotalCount,
+                                                          name: 'Total conversions',
+                                                          custom_name: 'Total conversions',
+                                                      },
+                                                  ],
+                                                  trendsFilter: {
+                                                      display: ChartDisplayType.ActionsLineGraph,
+                                                  },
+                                                  compareFilter: {
+                                                      compare: compare,
+                                                  },
+                                                  filterTestAccounts,
+                                                  properties: webAnalyticsFilters,
+                                              },
+                                              hidePersonsModal: true,
+                                              embedded: true,
+                                          },
+                                          showIntervalSelect: true,
+                                          insightProps: createInsightProps(TileId.GRAPHS, GraphsTab.UNIQUE_USERS),
+                                          canOpenInsight: true,
+                                      }
+                                    : null,
+                                conversionGoal
+                                    ? {
+                                          id: GraphsTab.CONVERSION_RATE,
+                                          title: 'Conversion rate',
+                                          linkText: 'Conversion rate',
+                                          query: {
+                                              kind: NodeKind.InsightVizNode,
+                                              source: {
+                                                  kind: NodeKind.TrendsQuery,
+                                                  dateRange,
+                                                  interval,
+                                                  series: [
+                                                      {
+                                                          kind: NodeKind.ActionsNode,
+                                                          id: conversionGoal.actionId,
+                                                          math: BaseMathType.UniqueUsers,
+                                                          name: 'Unique conversions',
+                                                          custom_name: 'Unique conversions',
+                                                      },
+                                                      {
+                                                          event: '$pageview',
+                                                          kind: NodeKind.EventsNode,
+                                                          math: BaseMathType.UniqueUsers,
+                                                          name: 'Pageview',
+                                                          custom_name: 'Unique visitors',
+                                                      },
+                                                  ],
+                                                  trendsFilter: {
+                                                      display: ChartDisplayType.ActionsLineGraph,
+                                                      formula: 'A / B',
+                                                      aggregationAxisFormat: 'percentage_scaled',
+                                                  },
+                                                  compareFilter: {
+                                                      compare: compare,
+                                                  },
+                                                  filterTestAccounts,
+                                                  properties: webAnalyticsFilters,
+                                              },
+                                              hidePersonsModal: true,
+                                              embedded: true,
+                                          },
+                                          showIntervalSelect: true,
+                                          insightProps: createInsightProps(TileId.GRAPHS, GraphsTab.UNIQUE_USERS),
+                                          canOpenInsight: true,
+                                      }
+                                    : null,
+                            ] as (TabsTileTab | null)[]
+                        ).filter(isNotNil),
                     },
                     {
                         kind: 'tabs',
@@ -725,20 +898,19 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LAST_CLICK]
                                     ? {
                                           id: PathTab.EXIT_CLICK,
-                                          title: 'Exit clicks',
-                                          linkText: 'Exit clicks',
+                                          title: 'Outbound link clicks',
+                                          linkText: 'Outbound clicks',
                                           query: {
                                               full: true,
                                               kind: NodeKind.DataTableNode,
                                               source: {
-                                                  kind: NodeKind.WebStatsTableQuery,
+                                                  kind: NodeKind.WebExternalClicksTableQuery,
                                                   properties: webAnalyticsFilters,
-                                                  breakdownBy: WebStatsBreakdown.ExitClick,
                                                   dateRange,
-                                                  includeScrollDepth: false,
                                                   sampling,
                                                   limit: 10,
                                                   filterTestAccounts,
+                                                  stripQueryParams: shouldStripQueryParams,
                                               },
                                               embedded: false,
                                           },
@@ -1463,6 +1635,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         const stateToUrl = (): string => {
             const {
                 webAnalyticsFilters,
+                conversionGoal,
                 dateFilter: { dateTo, dateFrom, interval },
                 _sourceTab,
                 _deviceTab,
@@ -1476,6 +1649,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             const urlParams = new URLSearchParams()
             if (webAnalyticsFilters.length > 0) {
                 urlParams.set('filters', JSON.stringify(webAnalyticsFilters))
+            }
+            if (conversionGoal) {
+                urlParams.set('conversionGoal', JSON.stringify(conversionGoal))
             }
             if (dateFrom !== initialDateFrom || dateTo !== initialDateTo || interval !== initialInterval) {
                 urlParams.set('date_from', dateFrom ?? '')
@@ -1509,6 +1685,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         return {
             setWebAnalyticsFilters: stateToUrl,
             togglePropertyFilter: stateToUrl,
+            setConversionGoal: stateToUrl,
             setDates: stateToUrl,
             setInterval: stateToUrl,
             setDeviceTab: stateToUrl,
@@ -1524,6 +1701,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             _,
             {
                 filters,
+                conversionGoal,
                 date_from,
                 date_to,
                 interval,
@@ -1541,11 +1719,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             if (parsedFilters) {
                 actions.setWebAnalyticsFilters(parsedFilters)
             }
-            if (date_from || date_to) {
-                actions.setDates(date_from, date_to)
+            if (conversionGoal) {
+                actions.setConversionGoal(conversionGoal)
             }
-            if (interval) {
-                actions.setInterval(interval)
+            if (date_from || date_to || interval) {
+                actions.setDatesAndInterval(date_from, date_to, interval)
             }
             if (device_tab) {
                 actions.setDeviceTab(device_tab)
@@ -1570,6 +1748,34 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             }
         },
     })),
+    listeners(({ values, actions }) => {
+        const checkGraphsTabIsCompatibleWithConversionGoal = (
+            tab: string,
+            conversionGoal: WebAnalyticsConversionGoal | null
+        ): void => {
+            if (conversionGoal) {
+                if (tab === GraphsTab.PAGE_VIEWS || tab === GraphsTab.NUM_SESSION) {
+                    actions.setGraphsTab(GraphsTab.UNIQUE_USERS)
+                }
+            } else {
+                if (
+                    tab === GraphsTab.TOTAL_CONVERSIONS ||
+                    tab === GraphsTab.CONVERSION_RATE ||
+                    tab === GraphsTab.UNIQUE_CONVERSIONS
+                ) {
+                    actions.setGraphsTab(GraphsTab.UNIQUE_USERS)
+                }
+            }
+        }
+        return {
+            setGraphsTab: ({ tab }) => {
+                checkGraphsTabIsCompatibleWithConversionGoal(tab, values.conversionGoal)
+            },
+            setConversionGoal: ({ conversionGoal }) => {
+                checkGraphsTabIsCompatibleWithConversionGoal(values.graphsTab, conversionGoal)
+            },
+        }
+    }),
 ])
 
 const isDefinitionStale = (definition: EventDefinition | PropertyDefinition): boolean => {

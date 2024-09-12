@@ -6,10 +6,13 @@ use health::{ComponentStatus, HealthRegistry};
 use time::Duration;
 use tokio::net::TcpListener;
 
+use crate::config::CaptureMode;
 use crate::config::Config;
 
 use crate::limiters::overflow::OverflowLimiter;
-use crate::limiters::redis::RedisLimiter;
+use crate::limiters::redis::{
+    QuotaResource, RedisLimiter, OVERFLOW_LIMITER_CACHE_KEY, QUOTA_LIMITER_CACHE_KEY,
+};
 use crate::redis::RedisClient;
 use crate::router;
 use crate::sinks::kafka::KafkaSink;
@@ -24,10 +27,29 @@ where
     let redis_client =
         Arc::new(RedisClient::new(config.redis_url).expect("failed to create redis client"));
 
+    let replay_overflow_limiter = match config.capture_mode {
+        CaptureMode::Recordings => Some(
+            RedisLimiter::new(
+                Duration::seconds(5),
+                redis_client.clone(),
+                OVERFLOW_LIMITER_CACHE_KEY.to_string(),
+                config.redis_key_prefix.clone(),
+                QuotaResource::Replay,
+            )
+            .expect("failed to start replay overflow limiter"),
+        ),
+        _ => None,
+    };
+
     let billing_limiter = RedisLimiter::new(
         Duration::seconds(5),
         redis_client.clone(),
+        QUOTA_LIMITER_CACHE_KEY.to_string(),
         config.redis_key_prefix,
+        match config.capture_mode {
+            CaptureMode::Events => QuotaResource::Events,
+            CaptureMode::Recordings => QuotaResource::Recordings,
+        },
     )
     .expect("failed to create billing limiter");
 
@@ -81,8 +103,13 @@ where
                 Some(partition)
             }
         };
-        let sink = KafkaSink::new(config.kafka, sink_liveness, partition)
-            .expect("failed to start Kafka sink");
+        let sink = KafkaSink::new(
+            config.kafka,
+            sink_liveness,
+            partition,
+            replay_overflow_limiter,
+        )
+        .expect("failed to start Kafka sink");
 
         router::router(
             crate::time::SystemTime {},

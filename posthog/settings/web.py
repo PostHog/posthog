@@ -24,6 +24,11 @@ DECIDE_RATE_LIMIT_ENABLED = get_from_env("DECIDE_RATE_LIMIT_ENABLED", False, typ
 DECIDE_BUCKET_CAPACITY = get_from_env("DECIDE_BUCKET_CAPACITY", type_cast=int, default=500)
 DECIDE_BUCKET_REPLENISH_RATE = get_from_env("DECIDE_BUCKET_REPLENISH_RATE", type_cast=float, default=10.0)
 
+# Prevent decide abuse
+
+# This is a list of team-ids that are prevented from using the /decide endpoint
+# until they fix an issue with their feature flags causing instability in posthog.
+DECIDE_SHORT_CIRCUITED_TEAM_IDS = [0]
 # Decide db settings
 
 DECIDE_SKIP_POSTGRES_FLAGS = get_from_env("DECIDE_SKIP_POSTGRES_FLAGS", False, type_cast=str_to_bool)

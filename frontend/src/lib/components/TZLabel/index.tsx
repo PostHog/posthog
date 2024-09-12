@@ -1,8 +1,6 @@
 import './index.scss'
 
-// eslint-disable-next-line no-restricted-imports
-import { LaptopOutlined, ProjectOutlined } from '@ant-design/icons'
-import { IconGear } from '@posthog/icons'
+import { IconGear, IconHome, IconLaptop } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonDropdown, LemonDropdownProps } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -57,7 +55,7 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
             <div className="space-y-2">
                 <div className="TZLabelPopover__row">
                     <div>
-                        <LaptopOutlined />
+                        <IconLaptop />
                     </div>
                     <div>Your device</div>
                     <div>{shortTimeZone(undefined, time.toDate())}</div>
@@ -66,7 +64,7 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
                 {currentTeam && (
                     <div className="TZLabelPopover__row TZLabelPopover__row--muted">
                         <div>
-                            <ProjectOutlined />
+                            <IconHome />
                         </div>
                         <div>Project</div>
                         <div>{shortTimeZone(currentTeam.timezone, time.toDate())}</div>

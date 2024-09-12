@@ -12,6 +12,7 @@ import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import {
     AlertType,
     AlertTypeWrite,
+    DashboardFilter,
     DatabaseSerializedFieldType,
     ErrorTrackingGroup,
     HogCompileResponse,
@@ -914,7 +915,8 @@ const api = {
         loadInsight(
             shortId: InsightModel['short_id'],
             basic?: boolean,
-            refresh?: RefreshType
+            refresh?: RefreshType,
+            filtersOverride?: DashboardFilter | null
         ): Promise<PaginatedResponse<Partial<InsightModel>>> {
             return new ApiRequest()
                 .insights()
@@ -923,6 +925,7 @@ const api = {
                         short_id: encodeURIComponent(shortId),
                         basic,
                         refresh,
+                        filters_override: filtersOverride,
                     })
                 )
                 .get()
@@ -1750,7 +1753,7 @@ const api = {
     errorTracking: {
         async update(
             fingerprint: ErrorTrackingGroup['fingerprint'],
-            data: Partial<Pick<ErrorTrackingGroup, 'assignee'>>
+            data: Partial<Pick<ErrorTrackingGroup, 'assignee' | 'status'>>
         ): Promise<ErrorTrackingGroup> {
             return await new ApiRequest().errorTrackingGroup(fingerprint).update({ data })
         },
@@ -2081,6 +2084,18 @@ const api = {
         ): Promise<DataWarehouseSavedQuery> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).update({ data })
         },
+        async ancestors(viewId: DataWarehouseSavedQuery['id'], level?: number): Promise<Record<string, string[]>> {
+            return await new ApiRequest()
+                .dataWarehouseSavedQuery(viewId)
+                .withAction('ancestors')
+                .create({ data: { level } })
+        },
+        async descendants(viewId: DataWarehouseSavedQuery['id'], level?: number): Promise<Record<string, string[]>> {
+            return await new ApiRequest()
+                .dataWarehouseSavedQuery(viewId)
+                .withAction('descendants')
+                .create({ data: { level } })
+        },
     },
     externalDataSources: {
         async list(options?: ApiMethodOptions | undefined): Promise<PaginatedResponse<ExternalDataStripeSource>> {
@@ -2221,7 +2236,7 @@ const api = {
         async get(id: IntegrationType['id']): Promise<IntegrationType> {
             return await new ApiRequest().integration(id).get()
         },
-        async create(data: Partial<IntegrationType>): Promise<IntegrationType> {
+        async create(data: Partial<IntegrationType> | FormData): Promise<IntegrationType> {
             return await new ApiRequest().integrations().create({ data })
         },
         async delete(integrationId: IntegrationType['id']): Promise<IntegrationType> {
@@ -2309,7 +2324,8 @@ const api = {
         options?: ApiMethodOptions,
         queryId?: string,
         refresh?: boolean,
-        async?: boolean
+        async?: boolean,
+        filtersOverride?: DashboardFilter | null
     ): Promise<
         T extends { [response: string]: any }
             ? T['response'] extends infer P | undefined
@@ -2318,9 +2334,10 @@ const api = {
             : Record<string, any>
     > {
         const refreshParam: RefreshType | undefined = refresh && async ? 'force_async' : async ? 'async' : refresh
-        return await new ApiRequest()
-            .query()
-            .create({ ...options, data: { query, client_query_id: queryId, refresh: refreshParam } })
+        return await new ApiRequest().query().create({
+            ...options,
+            data: { query, client_query_id: queryId, refresh: refreshParam, filters_override: filtersOverride },
+        })
     },
 
     chatURL: (): string => {
