@@ -1,6 +1,7 @@
 import { actions, BuiltLogic, connect, kea, listeners, path, reducers, selectors, sharedListeners } from 'kea'
 import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
+import { objectsEqual } from 'kea-test-utils'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
 import { insightLogicType } from 'scenes/insights/insightLogicType'
@@ -16,7 +17,7 @@ import { ActivityFilters } from '~/layout/navigation-3000/sidepanel/panels/activ
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
-import { Node } from '~/queries/schema'
+import { DashboardFilter, Node } from '~/queries/schema'
 import { ActivityScope, Breadcrumb, InsightShortId, InsightType, ItemMode } from '~/types'
 
 import { insightDataLogic } from './insightDataLogic'
@@ -42,10 +43,16 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
     actions({
         setInsightId: (insightId: InsightShortId) => ({ insightId }),
         setInsightMode: (insightMode: ItemMode, source: InsightEventSource | null) => ({ insightMode, source }),
-        setSceneState: (insightId: InsightShortId, insightMode: ItemMode, itemId: string | undefined) => ({
+        setSceneState: (
+            insightId: InsightShortId,
+            insightMode: ItemMode,
+            itemId: string | undefined,
+            filtersOverride: DashboardFilter | undefined
+        ) => ({
             insightId,
             insightMode,
             itemId,
+            filtersOverride,
         }),
         setInsightLogicRef: (logic: BuiltLogic<insightLogicType> | null, unmount: null | (() => void)) => ({
             logic,
@@ -81,6 +88,12 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                             ? parseInt(itemId, 10)
                             : itemId
                         : null,
+            },
+        ],
+        filtersOverride: [
+            null as null | DashboardFilter,
+            {
+                setSceneState: (_, { filtersOverride }) => (filtersOverride !== undefined ? filtersOverride : null),
             },
         ],
         insightLogicRef: [
@@ -158,7 +171,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 const oldRef = values.insightLogicRef // free old logic after mounting new one
                 const oldRef2 = values.insightDataLogicRef // free old logic after mounting new one
                 if (insightId) {
-                    const insightProps = { dashboardItemId: insightId }
+                    const insightProps = { dashboardItemId: insightId, filtersOverride: values.filtersOverride }
 
                     const logic = insightLogic.build(insightProps)
                     const unmount = logic.mount()
@@ -177,8 +190,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 if (oldRef2) {
                     oldRef2.unmount()
                 }
-            } else if (insightId && !values.insight?.result) {
-                values.insightLogicRef?.logic.actions.loadInsight(insightId as InsightShortId)
+            } else if (insightId) {
+                values.insightLogicRef?.logic.actions.loadInsight(insightId as InsightShortId, values.filtersOverride)
             }
         },
     })),
@@ -222,8 +235,13 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 return
             }
 
-            if (insightId !== values.insightId || insightMode !== values.insightMode || itemId !== values.itemId) {
-                actions.setSceneState(insightId, insightMode, itemId)
+            if (
+                insightId !== values.insightId ||
+                insightMode !== values.insightMode ||
+                itemId !== values.itemId ||
+                !objectsEqual(searchParams['filters_override'], values.filtersOverride)
+            ) {
+                actions.setSceneState(insightId, insightMode, itemId, searchParams['filters_override'])
             }
 
             let queryFromUrl: Node | null = null
