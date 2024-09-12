@@ -259,20 +259,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             shouldStripQueryParams,
         }),
         setConversionGoal: (conversionGoal: WebAnalyticsConversionGoal | null) => ({ conversionGoal }),
-        setStateFromUrl: (state: {
-            filters: WebAnalyticsPropertyFilters
-            dateFrom: string | null
-            dateTo: string | null
-            interval: IntervalType | null
-            graphsTab: string | null
-            sourceTab: string | null
-            deviceTab: string | null
-            pathTab: string | null
-            geographyTab: string | null
-            isPathCleaningEnabled: boolean | null
-        }) => ({
-            state,
-        }),
         openModal: (tileId: TileId, tabId?: string) => {
             return { tileId, tabId }
         },
@@ -280,6 +266,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         openAsNewInsight: (tileId: TileId, tabId?: string) => {
             return { tileId, tabId }
         },
+        setHasLoadedStateFromUrl: () => ({}),
     }),
     reducers({
         webAnalyticsFilters: [
@@ -352,7 +339,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
                     return [...oldPropertyFilters, newFilter]
                 },
-                setStateFromUrl: (_, { state }) => state.filters,
             },
         ],
         _graphsTab: [
@@ -360,7 +346,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             { persist: true },
             {
                 setGraphsTab: (_, { tab }) => tab,
-                setStateFromUrl: (_, { state }) => state.graphsTab,
                 togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.graphsTab || oldTab,
             },
         ],
@@ -369,7 +354,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             { persist: true },
             {
                 setSourceTab: (_, { tab }) => tab,
-                setStateFromUrl: (_, { state }) => state.sourceTab,
                 togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.sourceTab || oldTab,
             },
         ],
@@ -378,7 +362,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             { persist: true },
             {
                 setDeviceTab: (_, { tab }) => tab,
-                setStateFromUrl: (_, { state }) => state.deviceTab,
                 togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.deviceTab || oldTab,
             },
         ],
@@ -387,7 +370,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             { persist: true },
             {
                 setPathTab: (_, { tab }) => tab,
-                setStateFromUrl: (_, { state }) => state.pathTab,
                 togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.pathTab || oldTab,
             },
         ],
@@ -396,7 +378,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             { persist: true },
             {
                 setGeographyTab: (_, { tab }) => tab,
-                setStateFromUrl: (_, { state }) => state.geographyTab,
                 togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.geographyTab || oldTab,
             },
         ],
@@ -405,7 +386,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             { persist: true },
             {
                 setIsPathCleaningEnabled: (_, { isPathCleaningEnabled }) => isPathCleaningEnabled,
-                setStateFromUrl: (_, { state }) => state.isPathCleaningEnabled || false,
             },
         ],
         _modalTileAndTab: [
@@ -450,17 +430,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         interval: interval || getDefaultInterval(dateFrom, dateTo),
                     }
                 },
-                setStateFromUrl: (_, { state: { dateTo, dateFrom, interval } }) => {
-                    if (!dateFrom && !dateTo) {
-                        dateFrom = initialDateFrom
-                        dateTo = initialDateTo
-                    }
-                    return {
-                        dateTo,
-                        dateFrom,
-                        interval: interval || getDefaultInterval(dateFrom, dateTo),
-                    }
-                },
             },
         ],
         shouldFilterTestAccounts: [
@@ -481,6 +450,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             null as WebAnalyticsConversionGoal | null,
             {
                 setConversionGoal: (_, { conversionGoal }) => conversionGoal,
+            },
+        ],
+        hasLoadedStateFromUrl: [
+            false as boolean,
+            {
+                setHasLoadedStateFromUrl: () => true,
             },
         ],
     }),
@@ -1408,7 +1383,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         }
     }),
 
-    urlToAction(({ actions }) => ({
+    urlToAction(({ actions, values }) => ({
         '/web': (
             _,
             {
@@ -1426,6 +1401,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 filter_test_accounts,
             }
         ) => {
+            if (values.hasLoadedStateFromUrl) {
+                // only load from URL once, to prevent infinite loops
+                return
+            }
+
             const parsedFilters = isWebAnalyticsPropertyFilters(filters) ? filters : undefined
 
             if (parsedFilters) {
@@ -1458,6 +1438,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             if (filter_test_accounts) {
                 actions.setShouldFilterTestAccounts([true, 'true', 1, '1'].includes(filter_test_accounts))
             }
+            actions.setHasLoadedStateFromUrl()
         },
     })),
     listeners(({ values, actions }) => {
