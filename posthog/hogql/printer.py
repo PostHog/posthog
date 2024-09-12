@@ -645,7 +645,7 @@ class _Printer(Visitor):
             else:
                 assert constant_expr is not None  # appease mypy - if we got this far, we should have a constant
 
-            property_source = self.__get_materialized_property_source(property_type)
+            property_source = self.__get_materialized_property_source_for_property_type(property_type)
             if not isinstance(property_source, PrintableMaterializedPropertyGroupItem):
                 return None
 
@@ -681,7 +681,7 @@ class _Printer(Visitor):
             if left_type is None or len(left_type.chain) > 1:
                 return None
 
-            property_source = self.__get_materialized_property_source(left_type)
+            property_source = self.__get_materialized_property_source_for_property_type(left_type)
             if not isinstance(property_source, PrintableMaterializedPropertyGroupItem):
                 return None
 
@@ -943,21 +943,31 @@ class _Printer(Visitor):
                 expr_type = expr_type.type
             return expr_type
 
-        if node.name in ("isNull", "isNotNull"):
-            assert len(node.args) == 1, "expected unary call"
-            arg_type = resolve_field_type(node.args[0])
-            # TODO: can probably optimize chained operations, but will need more thought
-            if isinstance(arg_type, ast.PropertyType) and len(arg_type.chain) == 1:
-                property_source = self.__get_materialized_property_source(arg_type)
-                if not isinstance(property_source, PrintableMaterializedPropertyGroupItem):
+        match node:
+            case ast.Call(name="isNull" | "isNotNull" as function_name, args=[field]):
+                # TODO: can probably optimize chained operations, but will need more thought
+                field_type = resolve_field_type(field)
+                if isinstance(field_type, ast.PropertyType) and len(field_type.chain) == 1:
+                    property_source = self.__get_materialized_property_source_for_property_type(field_type)
+                    if not isinstance(property_source, PrintableMaterializedPropertyGroupItem):
+                        return None
+
+                    match function_name:
+                        case "isNull":
+                            return f"not({property_source.has_expr})"
+                        case "isNotNull":
+                            return property_source.has_expr
+                        case _:
+                            raise ValueError(f"unexpected node name: {function_name}")
+            case ast.Call(name="JSONHas", args=[field, ast.Constant(value=property_name)]):
+                # TODO: can probably optimize chained operations here as well
+                field_type = resolve_field_type(field)
+                if not isinstance(field_type, ast.FieldType):
                     return None
 
-                if node.name == "isNull":
-                    return f"not({property_source.has_expr})"
-                elif node.name == "isNotNull":
+                property_source = self.__get_materialized_property_source(field_type, str(property_name))
+                if isinstance(property_source, PrintableMaterializedPropertyGroupItem):
                     return property_source.has_expr
-                else:
-                    raise ValueError("unexpected node name")
 
         return None  # nothing to optimize
 
@@ -1242,17 +1252,24 @@ class _Printer(Visitor):
 
         return field_sql
 
-    def __get_materialized_property_source(
+    def __get_materialized_property_source_for_property_type(
         self, type: ast.PropertyType
     ) -> PrintableMaterializedColumn | PrintableMaterializedPropertyGroupItem | None:
         """
-        Find a materialized property for the first part of the property chain.
+        Find a materialized property for the provided property type.
+        """
+        return self.__get_materialized_property_source(type.field_type, str(type.chain[0]))
+
+    def __get_materialized_property_source(
+        self, field_type: ast.FieldType, property_name: str
+    ) -> PrintableMaterializedColumn | PrintableMaterializedPropertyGroupItem | None:
+        """
+        Find a materialized property for the provided field type and property name.
         """
         # TODO: It likely makes sense to make this independent of whether or not property groups are used.
         if self.context.modifiers.materializationMode == "disabled":
             return None
 
-        field_type = type.field_type
         field = field_type.resolve_database_field(self.context)
 
         # check for a materialised column
@@ -1269,7 +1286,7 @@ class _Printer(Visitor):
                 raise QueryError(f"Can't resolve field {field_type.name} on table {table_name}")
             field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
 
-            materialized_column = self._get_materialized_column(table_name, type.chain[0], field_name)
+            materialized_column = self._get_materialized_column(table_name, property_name, field_name)
             if materialized_column:
                 return PrintableMaterializedColumn(
                     self.visit(field_type.table_type),
@@ -1279,7 +1296,6 @@ class _Printer(Visitor):
                 PropertyGroupsMode.ENABLED,
                 PropertyGroupsMode.OPTIMIZED,
             ):
-                property_name = str(type.chain[0])
                 # For now, we're assuming that properties are in either no groups or one group, so just using the
                 # first group returned is fine. If we start putting properties in multiple groups, this should be
                 # revisited to find the optimal set (i.e. smallest set) of groups to read from.
@@ -1298,9 +1314,9 @@ class _Printer(Visitor):
         ):
             # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
             if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.DISABLED:
-                materialized_column = self._get_materialized_column("events", str(type.chain[0]), "person_properties")
+                materialized_column = self._get_materialized_column("events", property_name, "person_properties")
             else:
-                materialized_column = self._get_materialized_column("person", str(type.chain[0]), "properties")
+                materialized_column = self._get_materialized_column("person", property_name, "properties")
             if materialized_column:
                 return PrintableMaterializedColumn(None, self._print_identifier(materialized_column))
 
@@ -1310,7 +1326,7 @@ class _Printer(Visitor):
         if type.joined_subquery is not None and type.joined_subquery_field_name is not None:
             return f"{self._print_identifier(type.joined_subquery.alias)}.{self._print_identifier(type.joined_subquery_field_name)}"
 
-        materialized_property_source = self.__get_materialized_property_source(type)
+        materialized_property_source = self.__get_materialized_property_source_for_property_type(type)
         if materialized_property_source is not None:
             if isinstance(materialized_property_source, PrintableMaterializedColumn):
                 # TODO: rematerialize all columns to properly support empty strings and "null" string values.

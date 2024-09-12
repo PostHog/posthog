@@ -20,7 +20,7 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
         <LemonModal
             onClose={() => showPurchaseCreditsModal(false)}
             width="max(44vw)"
-            title="Buy credits in advance, get a discount"
+            title="Buy credits in advance and get a discount"
             footer={
                 <>
                     <LemonButton
@@ -72,7 +72,7 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                                 }
                             )}
                         </b>{' '}
-                        creditsfor the year.
+                        credits for the year.
                     </p>
 
                     <LemonField
@@ -183,11 +183,15 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                                 options={[
                                     {
                                         value: 'charge_automatically',
-                                        label: `Pay with credit card on file (**** ${selfServeCreditOverview.cc_last_four})`,
+                                        label: selfServeCreditOverview.cc_last_four
+                                            ? `Pay with credit card on file (**** ${selfServeCreditOverview.cc_last_four})`
+                                            : 'Pay with credit card on file',
                                     },
                                     {
                                         value: 'send_invoice',
-                                        label: `Send me an invoice to ${selfServeCreditOverview.email}`,
+                                        label: selfServeCreditOverview.email
+                                            ? `Send me an invoice to ${selfServeCreditOverview.email}`
+                                            : 'Send me an invoice',
                                     },
                                 ]}
                             />

@@ -29,11 +29,10 @@ export const CreditCTAHero = (): JSX.Element | null => {
                     <>
                         <h1 className="mb-0">We're applying your credits</h1>
                         <p className="mt-2 mb-0 max-w-xl">
-                            Your credits will be ready within 24 hours of payment.
+                            Your credits will be ready within 24 hours of payment.{' '}
                             {selfServeCreditOverview.collection_method === 'send_invoice'
                                 ? "You'll receive an email with a link to pay the invoice. Please make sure to pay that as soon as possible so we can apply the credits to your account."
-                                : "We'll will charge your card on file."}{' '}
-                            We'll let you know if there are any issues!{' '}
+                                : "We'll will charge your card on file and we'll email you if there are any issues!"}
                         </p>
                         {selfServeCreditOverview.invoice_url && (
                             <LemonButton
