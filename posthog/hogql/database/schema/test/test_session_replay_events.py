@@ -203,6 +203,35 @@ class TestFilterSessionReplaysByEvents(ClickhouseTestMixin, APIBaseTest):
         ]
 
     @snapshot_clickhouse_queries
+    def test_select_by_subquery_on_event_property_without_join(self):
+        # regression test: so we can manually check the clickhouse snapshot
+        # to assert that a subquery like this
+        # doesn't accidentally become a join
+        response = execute_hogql_query(
+            parse_select(
+                """
+                select distinct session_id
+                from raw_session_replay_events
+                where session_id in (
+                    select $session_id
+                    from events
+                    where events.properties.$current_url like {url}
+                )
+                order by session_id asc""",
+                placeholders={"url": ast.Constant(value="%example.com%")},
+            ),
+            self.team,
+        )
+
+        assert response.results == [
+            ("session_with_example_com_pageview",),
+        ]
+
+        assert response.results == [
+            ("session_with_example_com_pageview",),
+        ]
+
+    @snapshot_clickhouse_queries
     def test_select_event_property(self):
         response = execute_hogql_query(
             parse_select(

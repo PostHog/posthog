@@ -112,6 +112,42 @@
                      max_bytes_before_external_group_by=0
   '''
 # ---
+# name: TestFilterSessionReplaysByEvents.test_select_by_subquery_on_event_property_with_time_filter_and_without_join
+  '''
+  SELECT DISTINCT session_replay_events.session_id AS session_id
+  FROM session_replay_events
+  WHERE and(equals(session_replay_events.team_id, 2), in(session_replay_events.session_id,
+                                                           (SELECT events.`$session_id` AS `$session_id`
+                                                            FROM events
+                                                            WHERE and(equals(events.team_id, 2), ifNull(like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), '%example.com%'), 0)))), ifNull(greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), toDateOrNull('2020-01-01')), 0))
+  ORDER BY session_replay_events.session_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestFilterSessionReplaysByEvents.test_select_by_subquery_on_event_property_without_join
+  '''
+  SELECT DISTINCT session_replay_events.session_id AS session_id
+  FROM session_replay_events
+  WHERE and(equals(session_replay_events.team_id, 2), in(session_replay_events.session_id,
+                                                           (SELECT events.`$session_id` AS `$session_id`
+                                                            FROM events
+                                                            WHERE and(equals(events.team_id, 2), ifNull(like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), '%example.com%'), 0)))))
+  ORDER BY session_replay_events.session_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
+  '''
+# ---
 # name: TestFilterSessionReplaysByEvents.test_select_event_property
   '''
   SELECT session_replay_events.session_id AS session_id,

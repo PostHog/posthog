@@ -1168,6 +1168,7 @@ export interface QueryRequest {
      * see the [PostHog HogQL documentation](/docs/hogql#api-access).
      */
     query: QuerySchema
+    filters_override?: DashboardFilter
 }
 
 /**
@@ -1336,10 +1337,13 @@ export interface SessionsTimelineQuery extends DataNode<SessionsTimelineQueryRes
 }
 export type WebAnalyticsPropertyFilter = EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter
 export type WebAnalyticsPropertyFilters = WebAnalyticsPropertyFilter[]
-
+export type WebAnalyticsConversionGoal = {
+    actionId: integer
+}
 interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<R> {
     dateRange?: DateRange
     properties: WebAnalyticsPropertyFilters
+    conversionGoal?: WebAnalyticsConversionGoal | null
     sampling?: {
         enabled?: boolean
         forceSamplingRate?: SamplingRate

@@ -1,6 +1,7 @@
 import json
-from typing import Any, Literal, Optional, cast
 from collections.abc import Mapping
+from contextlib import contextmanager
+from typing import Any, Literal, Optional, cast
 
 import pytest
 from django.test import override_settings
@@ -24,6 +25,21 @@ from posthog.schema import (
     PropertyGroupsMode,
 )
 from posthog.test.base import BaseTest, _create_event, cleanup_materialized_columns
+
+
+@contextmanager
+def materialized(table, property):
+    """Materialize a property within the managed block, removing it on exit."""
+    try:
+        from ee.clickhouse.materialized_columns.analyze import materialize
+    except ModuleNotFoundError as e:
+        pytest.xfail(str(e))
+
+    try:
+        materialize(table, property)
+        yield
+    finally:
+        cleanup_materialized_columns()
 
 
 class TestPrinter(BaseTest):
@@ -341,25 +357,19 @@ class TestPrinter(BaseTest):
             ),
         )
 
-        cleanup_materialized_columns()
-
         self.assertEqual(
             self._expr("properties['foo']", context),
             "has(events.properties_group_custom, %(hogql_val_0)s) ? events.properties_group_custom[%(hogql_val_0)s] : null",
         )
         self.assertEqual(context.values["hogql_val_0"], "foo")
 
-        try:
-            from ee.clickhouse.materialized_columns.analyze import materialize
-        except ModuleNotFoundError:
-            return
-
-        # Properties that are materialized as columns should take precedence over the values in the group's map column.
-        materialize("events", "foo")
-        self.assertEqual(
-            self._expr("properties['foo']", context),
-            "nullIf(nullIf(events.mat_foo, ''), 'null')",
-        )
+        with materialized("events", "foo"):
+            # Properties that are materialized as columns should take precedence over the values in the group's map
+            # column.
+            self.assertEqual(
+                self._expr("properties['foo']", context),
+                "nullIf(nullIf(events.mat_foo, ''), 'null')",
+            )
 
     def _test_property_group_comparison(
         self,
@@ -514,6 +524,25 @@ class TestPrinter(BaseTest):
             "not(has(events.properties_group_custom, %(hogql_val_0)s))",
             {"hogql_val_0": "key"},
         )
+
+    def test_property_groups_optimized_has(self) -> None:
+        self._test_property_group_comparison(
+            "JSONHas(properties, 'key')",
+            "has(events.properties_group_custom, %(hogql_val_0)s)",
+            {"hogql_val_0": "key"},
+            expected_skip_indexes_used={"properties_group_custom_keys_bf"},
+        )
+
+        # TODO: Chained operations/path traversal could be optimized further, but is left alone for now.
+        self._test_property_group_comparison("JSONHas(properties, 'foo', 'bar')", None)
+
+        with materialized("events", "key"):
+            self._test_property_group_comparison(
+                "JSONHas(properties, 'key')",
+                "has(events.properties_group_custom, %(hogql_val_0)s)",
+                {"hogql_val_0": "key"},
+                expected_skip_indexes_used={"properties_group_custom_keys_bf"},
+            )
 
     def test_property_groups_optimized_in_comparisons(self) -> None:
         # The IN operator works much like equality when the right hand side of the expression is all constants. Like
