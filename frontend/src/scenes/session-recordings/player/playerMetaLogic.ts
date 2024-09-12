@@ -52,15 +52,6 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 return sessionPlayerData.start ?? null
             },
         ],
-        currentWindowIndex: [
-            (s) => [s.windowIds, s.currentSegment],
-            (windowIds, currentSegment) => {
-                const index = windowIds.findIndex((windowId) =>
-                    currentSegment?.windowId ? windowId === currentSegment?.windowId : -1
-                )
-                return index === -1 ? 1 : index + 1
-            },
-        ],
         lastUrl: [
             (s) => [s.urls, s.sessionPlayerMetaData, s.currentTimestamp],
             (urls, sessionPlayerMetaData, currentTimestamp): string | undefined => {

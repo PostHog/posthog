@@ -1,6 +1,6 @@
 import './PlayerMeta.scss'
 
-import { LemonBanner, LemonSelect, LemonSelectOption, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSwitch, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -8,7 +8,6 @@ import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
-import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { playerMetaLogic } from 'scenes/session-recordings/player/playerMetaLogic'
 import { urls } from 'scenes/urls'
 
@@ -78,10 +77,11 @@ function PlayerWarningsRow(): JSX.Element | null {
 }
 
 export function PlayerMeta(): JSX.Element {
-    const { logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
+    const { logicProps, isFullScreen, windowTitles } = useValues(sessionRecordingPlayerLogic)
 
-    const { windowIds, trackedWindow, lastPageviewEvent, lastUrl, currentWindowIndex, sessionPlayerMetaDataLoading } =
-        useValues(playerMetaLogic(logicProps))
+    const { windowIds, trackedWindow, currentWindowIndex, currentSegment, sessionPlayerMetaDataLoading } = useValues(
+        playerMetaLogic(logicProps)
+    )
 
     const { setTrackedWindow } = useActions(playerMetaLogic(logicProps))
 
@@ -114,24 +114,8 @@ export function PlayerMeta(): JSX.Element {
         )
     }
 
-    const windowOptions: LemonSelectOption<string | null>[] = [
-        {
-            label: <IconWindow value={currentWindowIndex} className="text-muted-alt" />,
-            value: null,
-            labelInMenu: <>Follow the user</>,
-        },
-    ]
-    windowIds.forEach((windowId, index) => {
-        windowOptions.push({
-            label: <IconWindow value={index + 1} className="text-muted-alt" />,
-            labelInMenu: (
-                <div className="flex flex-row gap-2 space-between items-center">
-                    Follow window: <IconWindow value={index + 1} className="text-muted-alt" />
-                </div>
-            ),
-            value: windowId,
-        })
-    })
+    const currentWindow = currentSegment?.windowId
+    const activeWindowId = trackedWindow || currentWindow
 
     return (
         <DraggableToNotebook href={urls.replaySingle(logicProps.sessionRecordingId)} onlyWithModifierKey>
@@ -151,15 +135,27 @@ export function PlayerMeta(): JSX.Element {
                         <LemonSkeleton className="w-1/3 h-4 my-1" />
                     ) : (
                         <>
-                            <LemonSelect
-                                size="xsmall"
-                                options={windowOptions}
-                                value={trackedWindow}
-                                disabledReason={windowIds.length <= 1 ? "There's only one window" : undefined}
-                                onSelect={(value) => setTrackedWindow(value)}
+                            {windowIds.map((windowId, index) => (
+                                <span
+                                    className={activeWindowId === windowId ? 'bg-[var(--danger)]' : ''}
+                                    key={windowId}
+                                    onClick={() => setTrackedWindow(windowId)}
+                                >
+                                    {windowTitles[windowId] || `Window ${index}`}
+                                </span>
+                            ))}
+
+                            <LemonSwitch
+                                label="Follow the user"
+                                checked={!trackedWindow}
+                                onChange={() =>
+                                    // TODO: Could be wrong
+                                    currentWindow ? setTrackedWindow(currentWindow) : setTrackedWindow(trackedWindow)
+                                }
+                                disabledReason={!activeWindowId && 'There is no active window'}
                             />
 
-                            <URLOrScreen lastUrl={lastUrl} />
+                            {/* <URLOrScreen lastUrl={lastUrl} />
                             {lastPageviewEvent?.properties?.['$screen_name'] && (
                                 <span className="flex items-center gap-2 truncate">
                                     <span>·</span>
@@ -167,7 +163,7 @@ export function PlayerMeta(): JSX.Element {
                                         {lastPageviewEvent?.properties['$screen_name']}
                                     </span>
                                 </span>
-                            )}
+                            )} */}
                         </>
                     )}
                     <div className={clsx('flex-1', isSmallPlayer ? 'min-w-[1rem]' : 'min-w-[5rem]')} />
