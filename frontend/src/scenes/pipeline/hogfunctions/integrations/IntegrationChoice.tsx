@@ -34,7 +34,12 @@ export function IntegrationChoice({
         return <LemonSkeleton className="h-10" />
     }
 
-    const kindName = kind == 'google-pubsub' ? 'Google Cloud Pub/Sub' : capitalizeFirstLetter(kind)
+    const kindName =
+        kind == 'google-pubsub'
+            ? 'Google Cloud Pub/Sub'
+            : kind == 'google-cloud-storage'
+            ? 'Google Cloud Storage'
+            : capitalizeFirstLetter(kind)
 
     function uploadKey(kind: string): void {
         const input = document.createElement('input')

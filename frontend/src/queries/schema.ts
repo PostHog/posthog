@@ -1168,6 +1168,7 @@ export interface QueryRequest {
      * see the [PostHog HogQL documentation](/docs/hogql#api-access).
      */
     query: QuerySchema
+    filters_override?: DashboardFilter
 }
 
 /**
