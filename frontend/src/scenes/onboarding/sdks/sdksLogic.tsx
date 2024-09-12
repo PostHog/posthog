@@ -54,6 +54,7 @@ export const sdksLogic = kea<sdksLogicType>([
         setShowSideBySide: (showSideBySide: boolean) => ({ showSideBySide }),
         setPanel: (panel: 'instructions' | 'options') => ({ panel }),
         setHasSnippetEvents: (hasSnippetEvents: boolean) => ({ hasSnippetEvents }),
+        setSnippetHosts: (snippetHosts: string[]) => ({ snippetHosts }),
     }),
     reducers({
         sourceFilter: [
@@ -101,6 +102,12 @@ export const sdksLogic = kea<sdksLogicType>([
         hasSnippetEvents: {
             setHasSnippetEvents: (_, { hasSnippetEvents }) => hasSnippetEvents,
         },
+        snippetHosts: [
+            [] as string[],
+            {
+                setSnippetHosts: (_, { snippetHosts }) => snippetHosts,
+            },
+        ],
     }),
     selectors({
         showSourceOptionsSelect: [
@@ -112,31 +119,40 @@ export const sdksLogic = kea<sdksLogicType>([
             },
         ],
     }),
-    loaders({
+    loaders(({ actions }) => ({
         hasSnippetEvents: [
             null as boolean | null,
             {
                 loadSnippetEvents: async () => {
                     const query: HogQLQuery = {
                         kind: NodeKind.HogQLQuery,
-                        query: hogql`SELECT properties.$lib_version AS lib_version,
-                                            max(timestamp)          AS latest_timestamp,
-                                            count(lib_version) as count
-                                     FROM events
-                                     WHERE timestamp >= now() - INTERVAL 3 DAY
-                                       AND timestamp <= now()
-                                       AND properties.$lib = 'web'
-                                     GROUP BY lib_version
-                                     ORDER BY latest_timestamp DESC
-                                         limit 10`,
+                        query: hogql`SELECT
+                                        max(timestamp) AS latest_timestamp,
+                                        concat(
+                                            if(startsWith(properties.current_url, 'https://'), 'https://', 'http://'),
+                                            properties.$host
+                                        ) AS full_host
+                                    FROM events
+                                    WHERE timestamp >= now() - INTERVAL 5 DAY
+                                    AND timestamp <= now()
+                                    AND properties.$lib = 'web'
+                                    AND properties.$host is not null
+                                    GROUP BY full_host
+                                    ORDER BY latest_timestamp DESC
+                                    LIMIT 10`,
                     }
 
                     const res = await api.query(query)
-                    return !!(res.results?.length ?? 0 > 0)
+                    const hasEvents = !!(res.results?.length ?? 0 > 0)
+                    const snippetHosts = res.results?.map((result) => result[1]).filter((val) => !!val) ?? []
+                    if (hasEvents) {
+                        actions.setSnippetHosts(snippetHosts)
+                    }
+                    return hasEvents
                 },
             },
         ],
-    }),
+    })),
     listeners(({ actions, values }) => ({
         filterSDKs: () => {
             const filteredSDks: SDK[] = allSDKs

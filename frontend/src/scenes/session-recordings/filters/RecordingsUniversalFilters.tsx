@@ -1,3 +1,4 @@
+import { LemonSelect } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -13,6 +14,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { RecordingUniversalFilters } from '~/types'
 
+import { sessionRecordingsPlaylistLogic } from '../playlist/sessionRecordingsPlaylistLogic'
 import { DurationFilter } from './DurationFilter'
 
 export const RecordingsUniversalFilters = ({
@@ -27,12 +29,15 @@ export const RecordingsUniversalFilters = ({
     useMountedLogic(cohortsModel)
     useMountedLogic(actionsModel)
 
+    const { orderBy } = useValues(sessionRecordingsPlaylistLogic)
+    const { setOrderBy } = useActions(sessionRecordingsPlaylistLogic)
+
     const durationFilter = filters.duration[0]
 
     return (
         <div className={clsx('divide-y bg-bg-light rounded', className)}>
             <div className="flex justify-between px-2 py-1.5 flex-wrap gap-1">
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2 items-center">
                     <div className="flex items-center">
                         <AndOrFilterSelect
                             value={filters.filter_group.type}
@@ -86,6 +91,56 @@ export const RecordingsUniversalFilters = ({
                         recordingDurationFilter={durationFilter}
                         durationTypeFilter={durationFilter.key}
                         pageKey="session-recordings"
+                    />
+                    <span className="font-medium">sorted by</span>
+                    <LemonSelect
+                        options={[
+                            {
+                                value: 'start_time',
+                                label: 'Latest',
+                            },
+                            {
+                                label: 'Longest',
+                                options: [
+                                    {
+                                        value: 'duration',
+                                        label: 'Total duration',
+                                    },
+                                    {
+                                        value: 'active_seconds',
+                                        label: 'Active duration',
+                                    },
+                                    {
+                                        value: 'inactive_seconds',
+                                        label: 'Inactive duration',
+                                    },
+                                ],
+                            },
+                            {
+                                label: 'Most active',
+                                options: [
+                                    {
+                                        value: 'click_count',
+                                        label: 'Clicks',
+                                    },
+                                    {
+                                        value: 'keypress_count',
+                                        label: 'Key presses',
+                                    },
+                                    {
+                                        value: 'mouse_activity_count',
+                                        label: 'Mouse activity',
+                                    },
+                                ],
+                            },
+                            {
+                                value: 'console_error_count',
+                                label: 'Most errors',
+                            },
+                        ]}
+                        size="small"
+                        value={orderBy}
+                        onChange={setOrderBy}
                     />
                 </div>
                 <div>

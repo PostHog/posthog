@@ -2,7 +2,7 @@ import { DateTime } from 'luxon'
 
 import { HogFunctionInvocationResult } from '../../src/cdp/types'
 import { gzipObject, prepareLogEntriesForClickhouse, unGzipObject } from '../../src/cdp/utils'
-import { insertHogFunction as _insertHogFunction } from './fixtures'
+import { createHogFunction, createInvocation, insertHogFunction as _insertHogFunction } from './fixtures'
 
 describe('Utils', () => {
     describe('gzip compressions', () => {
@@ -19,12 +19,8 @@ describe('Utils', () => {
         const startTime = DateTime.fromMillis(1620000000000)
         const example: HogFunctionInvocationResult = {
             invocation: {
+                ...createInvocation(createHogFunction({ id: 'hog-1' })),
                 id: 'inv-1',
-                globals: {} as any,
-                teamId: 1,
-                hogFunctionId: 'hog-1',
-                vmState: undefined,
-                timings: [],
             },
             finished: false,
             logs: [

@@ -14,6 +14,7 @@ import IconSalesforce from 'public/services/salesforce.png'
 import IconSnowflake from 'public/services/snowflake.png'
 import IconMSSQL from 'public/services/sql-azure.png'
 import IconStripe from 'public/services/stripe.png'
+import IconVitally from 'public/services/vitally.png'
 import IconZendesk from 'public/services/zendesk.png'
 import { urls } from 'scenes/urls'
 
@@ -27,6 +28,7 @@ const StatusTagSetting = {
     Completed: 'success',
     Error: 'danger',
     Failed: 'danger',
+    'Billing limits': 'danger',
 }
 
 export function DataWarehouseManagedSourcesTable(): JSX.Element {
@@ -188,6 +190,7 @@ export function RenderDataWarehouseSourceIcon({
         azure: Iconazure,
         Salesforce: IconSalesforce,
         MSSQL: IconMSSQL,
+        Vitally: IconVitally,
     }[type]
 
     return (
@@ -202,7 +205,7 @@ export function RenderDataWarehouseSourceIcon({
                 }
             >
                 <Link to={getDataWarehouseSourceUrl(type)}>
-                    <img src={icon} alt={type} height={sizePx} width={sizePx} className="rounded" />
+                    <img src={icon} alt={type} height={sizePx} width={sizePx} className="rounded object-contain" />
                 </Link>
             </Tooltip>
         </div>

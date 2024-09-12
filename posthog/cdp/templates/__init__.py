@@ -1,9 +1,10 @@
 from .webhook.template_webhook import template as webhook
 from .slack.template_slack import template as slack
 from .hubspot.template_hubspot import template as hubspot
+from .braze.template_braze import template as braze
 from .customerio.template_customerio import template as customerio, TemplateCustomerioMigrator
-from .intercom.template_intercom import template as intercom
-from .sendgrid.template_sendgrid import template as sendgrid
+from .intercom.template_intercom import template as intercom, TemplateIntercomMigrator
+from .sendgrid.template_sendgrid import template as sendgrid, TemplateSendGridMigrator
 from .clearbit.template_clearbit import template as clearbit
 from .posthog.template_posthog import template as posthog
 from .aws_kinesis.template_aws_kinesis import template as aws_kinesis
@@ -14,6 +15,16 @@ from .mailjet.template_mailjet import (
 )
 from .zapier.template_zapier import template as zapier
 from .mailgun.template_mailgun import template_mailgun_send_email as mailgun
+from .avo.template_avo import template as avo
+from .loops.template_loops import template as loops
+from .rudderstack.template_rudderstack import template as rudderstack
+from .gleap.template_gleap import template as gleap
+from .google_pubsub.template_google_pubsub import template as google_pubsub, TemplateGooglePubSubMigrator
+from .zendesk.template_zendesk import template as zendesk
+from .google_cloud_storage.template_google_cloud_storage import (
+    template as google_cloud_storage,
+    TemplateGoogleCloudStorageMigrator,
+)
 
 
 HOG_FUNCTION_TEMPLATES = [
@@ -32,6 +43,14 @@ HOG_FUNCTION_TEMPLATES = [
     mailjet_update_contact_list,
     clearbit,
     mailgun,
+    loops,
+    rudderstack,
+    avo,
+    gleap,
+    google_pubsub,
+    zendesk,
+    google_cloud_storage,
+    braze,
 ]
 
 
@@ -39,6 +58,10 @@ HOG_FUNCTION_TEMPLATES_BY_ID = {template.id: template for template in HOG_FUNCTI
 
 HOG_FUNCTION_MIGRATORS = {
     TemplateCustomerioMigrator.plugin_url: TemplateCustomerioMigrator,
+    TemplateIntercomMigrator.plugin_url: TemplateIntercomMigrator,
+    TemplateSendGridMigrator.plugin_url: TemplateSendGridMigrator,
+    TemplateGooglePubSubMigrator.plugin_url: TemplateGooglePubSubMigrator,
+    TemplateGoogleCloudStorageMigrator.plugin_url: TemplateGoogleCloudStorageMigrator,
 }
 
 __all__ = ["HOG_FUNCTION_TEMPLATES", "HOG_FUNCTION_TEMPLATES_BY_ID"]

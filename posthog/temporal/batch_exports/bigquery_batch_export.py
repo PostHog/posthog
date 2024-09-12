@@ -205,6 +205,7 @@ class BigQueryClient(bigquery.Client):
         final_table: bigquery.Table,
         stage_table: bigquery.Table,
         merge_key: collections.abc.Iterable[bigquery.SchemaField],
+        update_fields: collections.abc.Iterable[bigquery.SchemaField] | None = None,
         person_version_key: str = "person_version",
         person_distinct_id_version_key: str = "person_distinct_id_version",
     ):
@@ -221,7 +222,13 @@ class BigQueryClient(bigquery.Client):
         update_clause = ""
         values = ""
         field_names = ""
-        for n, field in enumerate(final_table.schema):
+
+        if not update_fields:
+            update_clause_fields = final_table.schema
+        else:
+            update_clause_fields = update_fields
+
+        for n, field in enumerate(update_clause_fields):
             if n > 0:
                 update_clause += ", "
                 values += ", "
@@ -230,6 +237,9 @@ class BigQueryClient(bigquery.Client):
             update_clause += f"final.`{field.name}` = stage.`{field.name}`"
             field_names += f"`{field.name}`"
             values += f"stage.`{field.name}`"
+
+        if not update_clause:
+            raise ValueError("Empty update clause")
 
         merge_query = f"""
         MERGE `{final_table.full_table_id.replace(":", ".", 1)}` final
@@ -318,7 +328,7 @@ def bigquery_default_fields() -> list[BatchExportField]:
 async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> RecordsCompleted:
     """Activity streams data from ClickHouse to BigQuery."""
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="BigQuery")
-    logger.info(
+    await logger.ainfo(
         "Batch exporting range %s - %s to BigQuery: %s.%s.%s",
         inputs.data_interval_start,
         inputs.data_interval_end,
@@ -436,7 +446,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                     last: bool,
                     error: Exception | None,
                 ):
-                    logger.debug(
+                    await logger.adebug(
                         "Loading %s records of size %s bytes",
                         records_since_last_flush,
                         bytes_since_last_flush,
@@ -481,6 +491,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                         final_table=bigquery_table,
                         stage_table=bigquery_stage_table,
                         merge_key=merge_key,
+                        update_fields=schema,
                     )
 
                 return writer.records_total

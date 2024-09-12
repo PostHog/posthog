@@ -40,6 +40,8 @@ export function WebOverview(props: {
 
     const samplingRate = webOverviewQueryResponse?.samplingRate
 
+    const numSkeletons = props.query.conversionGoal ? 4 : 5
+
     return (
         <>
             <EvenlyDistributedRows
@@ -47,7 +49,7 @@ export function WebOverview(props: {
                 minWidthRems={OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS + 2}
             >
                 {responseLoading
-                    ? range(5).map((i) => <WebOverviewItemCellSkeleton key={i} />)
+                    ? range(numSkeletons).map((i) => <WebOverviewItemCellSkeleton key={i} />)
                     : webOverviewQueryResponse?.results?.map((item) => (
                           <WebOverviewItemCell key={item.key} item={item} />
                       )) || []}
@@ -170,6 +172,12 @@ const labelFromKey = (key: string): string => {
             return 'Session duration'
         case 'bounce rate':
             return 'Bounce rate'
+        case 'conversion rate':
+            return 'Conversion rate'
+        case 'total conversions':
+            return 'Total conversions'
+        case 'unique conversions':
+            return 'Unique conversions'
         default:
             return key
                 .split(' ')

@@ -62,7 +62,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
         scene: Scene.Replay,
     },
     [ProductKey.FEATURE_FLAGS]: {
-        name: 'Feature Flags & A/B Testing',
+        name: 'Feature Flags & Experiments',
         breadcrumbsName: 'Feature Flags',
         icon: 'IconToggle',
         iconColor: 'seagreen',

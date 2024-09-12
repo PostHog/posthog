@@ -92,6 +92,8 @@ def get_breakdown_limit_for_context(limit_context: LimitContext) -> int:
 class HogQLQuerySettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
     optimize_aggregation_in_order: Optional[bool] = None
+    date_time_output_format: Optional[str] = None
+    date_time_input_format: Optional[str] = None
 
 
 # Settings applied on top of all HogQL queries.
