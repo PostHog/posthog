@@ -37,7 +37,7 @@ jobs:
 
             - name: Send Slack notification if the PR has "automerge" label
               if: ${{ steps.automerge_check.outputs.result == 'true' }}
-              uses: rtCamp/action-slack-notify@v2.0.1
+              uses: rtCamp/action-slack-notify@v2
               env:
                   SLACK_CHANNEL: alerts
                   SLACK_COLOR: ${{ job.status }} # or a specific color like 'good' or '#ff00ff'
