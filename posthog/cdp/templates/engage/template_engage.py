@@ -77,7 +77,6 @@ class TemplateEngageMigrator(HogFunctionTemplateMigrator):
         hf["inputs"] = {
             "public_key": {"value": public_key},
             "private_key": {"value": private_key},
-            "attributes": {"value": {}},
         }
 
         return hf
