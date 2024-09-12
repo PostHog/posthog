@@ -1,4 +1,5 @@
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, date
 from difflib import get_close_matches
@@ -965,9 +966,14 @@ class _Printer(Visitor):
                 if not isinstance(field_type, ast.FieldType):
                     return None
 
-                property_source = self.__get_materialized_property_source(field_type, str(property_name))
-                if isinstance(property_source, PrintableMaterializedPropertyGroupItem):
-                    return property_source.has_expr
+                # TRICKY: Materialized property columns do not currently support null values (see comment in
+                # `visit_property_type`) so checking whether or not a property is set for a row cannot safely use that
+                # field and falls back to the equivalent ``JSONHas(properties, ...)`` call instead. However, if this
+                # property is part of *any* property group, we can use that column instead to evaluate this expression
+                # more efficiently -- even if the materialized column would be a better choice in other situations.
+                for property_source in self.__get_all_materialized_property_sources(field_type, str(property_name)):
+                    if isinstance(property_source, PrintableMaterializedPropertyGroupItem):
+                        return property_source.has_expr
 
         return None  # nothing to optimize
 
@@ -1256,19 +1262,22 @@ class _Printer(Visitor):
         self, type: ast.PropertyType
     ) -> PrintableMaterializedColumn | PrintableMaterializedPropertyGroupItem | None:
         """
-        Find a materialized property for the provided property type.
+        Find the most efficient materialized property source for the provided property type.
         """
-        return self.__get_materialized_property_source(type.field_type, str(type.chain[0]))
+        for source in self.__get_all_materialized_property_sources(type.field_type, str(type.chain[0])):
+            return source
+        return None
 
-    def __get_materialized_property_source(
+    def __get_all_materialized_property_sources(
         self, field_type: ast.FieldType, property_name: str
-    ) -> PrintableMaterializedColumn | PrintableMaterializedPropertyGroupItem | None:
+    ) -> Iterable[PrintableMaterializedColumn | PrintableMaterializedPropertyGroupItem]:
         """
-        Find a materialized property for the provided field type and property name.
+        Find all materialized property sources for the provided field type and property name, ordered from what is
+        likely to be the most efficient access path to the least efficient.
         """
         # TODO: It likely makes sense to make this independent of whether or not property groups are used.
         if self.context.modifiers.materializationMode == "disabled":
-            return None
+            return
 
         field = field_type.resolve_database_field(self.context)
 
@@ -1288,11 +1297,12 @@ class _Printer(Visitor):
 
             materialized_column = self._get_materialized_column(table_name, property_name, field_name)
             if materialized_column:
-                return PrintableMaterializedColumn(
+                yield PrintableMaterializedColumn(
                     self.visit(field_type.table_type),
                     self._print_identifier(materialized_column),
                 )
-            elif self.context.modifiers.propertyGroupsMode in (
+
+            if self.context.modifiers.propertyGroupsMode in (
                 PropertyGroupsMode.ENABLED,
                 PropertyGroupsMode.OPTIMIZED,
             ):
@@ -1302,7 +1312,7 @@ class _Printer(Visitor):
                 for property_group_column in property_groups.get_property_group_columns(
                     table_name, field_name, property_name
                 ):
-                    return PrintableMaterializedPropertyGroupItem(
+                    yield PrintableMaterializedPropertyGroupItem(
                         self.visit(field_type.table_type),
                         self._print_identifier(property_group_column),
                         self.context.add_value(property_name),
@@ -1318,9 +1328,7 @@ class _Printer(Visitor):
             else:
                 materialized_column = self._get_materialized_column("person", property_name, "properties")
             if materialized_column:
-                return PrintableMaterializedColumn(None, self._print_identifier(materialized_column))
-
-        return None
+                yield PrintableMaterializedColumn(None, self._print_identifier(materialized_column))
 
     def visit_property_type(self, type: ast.PropertyType):
         if type.joined_subquery is not None and type.joined_subquery_field_name is not None:
