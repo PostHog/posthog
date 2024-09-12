@@ -2,7 +2,7 @@ import { combineUrl } from 'kea-router'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { ExportOptions } from '~/exporter/types'
-import { HogQLFilters, Node } from '~/queries/schema'
+import { DashboardFilter, HogQLFilters, Node } from '~/queries/schema'
 import {
     ActionType,
     ActivityTab,
@@ -90,7 +90,12 @@ export const urls = {
             }
         ).url,
     insightEdit: (id: InsightShortId): string => `/insights/${id}/edit`,
-    insightView: (id: InsightShortId): string => `/insights/${id}`,
+    insightView: (id: InsightShortId, filtersOverride?: DashboardFilter): string =>
+        `/insights/${id}${
+            filtersOverride !== undefined
+                ? `?filters_override=${encodeURIComponent(JSON.stringify(filtersOverride))}`
+                : ''
+        }`,
     insightSubcriptions: (id: InsightShortId): string => `/insights/${id}/subscriptions`,
     insightSubcription: (id: InsightShortId, subscriptionId: string): string =>
         `/insights/${id}/subscriptions/${subscriptionId}`,
