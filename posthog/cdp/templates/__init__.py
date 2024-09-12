@@ -6,7 +6,7 @@ from .customerio.template_customerio import template as customerio, TemplateCust
 from .intercom.template_intercom import template as intercom, TemplateIntercomMigrator
 from .sendgrid.template_sendgrid import template as sendgrid, TemplateSendGridMigrator
 from .clearbit.template_clearbit import template as clearbit
-from .posthog.template_posthog import template as posthog
+from .posthog.template_posthog import template as posthog, TemplatePostHogMigrator
 from .aws_kinesis.template_aws_kinesis import template as aws_kinesis
 from .salesforce.template_salesforce import template_create as salesforce_create, template_update as salesforce_update
 from .mailjet.template_mailjet import (
@@ -60,6 +60,7 @@ HOG_FUNCTION_MIGRATORS = {
     TemplateSendGridMigrator.plugin_url: TemplateSendGridMigrator,
     TemplateGooglePubSubMigrator.plugin_url: TemplateGooglePubSubMigrator,
     TemplateGoogleCloudStorageMigrator.plugin_url: TemplateGoogleCloudStorageMigrator,
+    TemplatePostHogMigrator.plugin_url: TemplatePostHogMigrator,
 }
 
 __all__ = ["HOG_FUNCTION_TEMPLATES", "HOG_FUNCTION_TEMPLATES_BY_ID"]
