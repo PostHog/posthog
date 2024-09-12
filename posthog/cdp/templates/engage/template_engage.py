@@ -1,4 +1,6 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, HogFunctionTemplateMigrator
+from copy import deepcopy
+import dataclasses
 
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
@@ -50,3 +52,32 @@ fetch('https://api.engage.so/posthog', {
         "filter_test_accounts": True,
     },
 )
+
+
+class TemplateEngageMigrator(HogFunctionTemplateMigrator):
+    plugin_url = "https://github.com/PostHog/posthog-engage-so-plugin"
+
+    @classmethod
+    def migrate(cls, obj):
+        hf = deepcopy(dataclasses.asdict(template))
+
+        public_key = obj.config.get("publicKey", "")
+        private_key = obj.config.get("secret", "")
+
+        hf["filters"] = {}
+
+        hf["filters"]["events"] = [
+            {"id": "$identify", "name": "$identify", "type": "events", "order": 0},
+            {"id": "$set", "name": "$set", "type": "events", "order": 1},
+            {"id": "$groupidentify", "name": "$groupidentify", "type": "events", "order": 2},
+            {"id": "$unset", "name": "$unset", "type": "events", "order": 3},
+            {"id": "$create_alias", "name": "$create_alias", "type": "events", "order": 4},
+        ]
+
+        hf["inputs"] = {
+            "public_key": {"value": public_key},
+            "private_key": {"value": private_key},
+            "attributes": {"value": {}},
+        }
+
+        return hf
