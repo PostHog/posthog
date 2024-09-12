@@ -18,11 +18,13 @@ chai.Assertion.addMethod('neverHaveChild', function (childSelector) {
 // For tests related to trends please check trendsElements.js
 // insight tests were split up because Cypress was struggling with this many tests in one file🙈
 describe('Insights - saved', () => {
-    // TODO: this test works locally, just not in CI
-    it.skip('Data is available immediately', () => {
+    it('Data is available immediately', () => {
         createInsight('saved insight').then((newInsightId) => {
+            cy.wait(10000)
             cy.get('[data-attr=trend-line-graph]').should('exist') // Results cached
+            cy.wait(10000)
             cy.visit(urls.insightView(newInsightId)) // Full refresh
+            cy.wait(10000)
             cy.get('.InsightViz').should('exist').should('neverHaveChild', '.insight-empty-state') // Only cached data
             cy.get('[data-attr=trend-line-graph]').should('exist')
         })
