@@ -3,6 +3,7 @@ import json
 from copy import deepcopy
 
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, HogFunctionTemplateMigrator
+from posthog.hogql.escape_sql import escape_hogql_string
 from posthog.models.integration import GoogleCloudIntegration
 
 template: HogFunctionTemplate = HogFunctionTemplate(
@@ -70,7 +71,7 @@ class TemplateGoogleCloudStorageMigrator(HogFunctionTemplateMigrator):
     def migrate(cls, obj):
         hf = deepcopy(dataclasses.asdict(template))
 
-        exportEventsToIgnore = obj.config.get("exportEventsToIgnore", "")
+        exportEventsToIgnore = [x.strip() for x in obj.config.get("exportEventsToIgnore", "").split(",") if x]
         bucketName = obj.config.get("bucketName", "")
 
         from posthog.models.plugin import PluginAttachment
@@ -86,19 +87,17 @@ class TemplateGoogleCloudStorageMigrator(HogFunctionTemplateMigrator):
 
         hf["filters"] = {}
         if exportEventsToIgnore:
-            events = exportEventsToIgnore.split(",")
-            if len(events) > 0:
-                event_names = ", ".join(["'{}'".format(event.strip()) for event in events])
-                query = f"event not in ({event_names})"
-                hf["filters"]["events"] = [
-                    {
-                        "id": None,
-                        "name": "All events",
-                        "type": "events",
-                        "order": 0,
-                        "properties": [{"key": query, "type": "hogql"}],
-                    }
-                ]
+            event_names = ", ".join([escape_hogql_string(event) for event in exportEventsToIgnore])
+            query = f"event not in ({event_names})"
+            hf["filters"]["events"] = [
+                {
+                    "id": None,
+                    "name": "All events",
+                    "type": "events",
+                    "order": 0,
+                    "properties": [{"key": query, "type": "hogql"}],
+                }
+            ]
 
         hf["inputs"] = {
             "bucketName": {"value": bucketName},

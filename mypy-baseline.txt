@@ -390,9 +390,6 @@ posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Module "d
 posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Statement is unreachable  [unreachable]
 posthog/hogql_queries/insights/stickiness_query_runner.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "datetime"  [attr-defined]
 posthog/hogql_queries/insights/retention_query_runner.py:0: error: Item "None" of "JoinExpr | None" has no attribute "sample"  [union-attr]
-posthog/hogql_queries/insights/retention_query_runner.py:0: error: Argument 2 to "parse_select" has incompatible type "dict[str, SelectQuery]"; expected "dict[str, Expr] | None"  [arg-type]
-posthog/hogql_queries/insights/retention_query_runner.py:0: note: "Dict" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
-posthog/hogql_queries/insights/retention_query_runner.py:0: note: Consider using "Mapping" instead, which is covariant in the value type
 posthog/hogql_queries/insights/retention_query_runner.py:0: error: Unsupported operand types for - ("int" and "None")  [operator]
 posthog/hogql_queries/insights/retention_query_runner.py:0: note: Right operand is of type "int | None"
 posthog/hogql_queries/insights/retention_query_runner.py:0: error: Item "SelectUnionQuery" of "SelectQuery | SelectUnionQuery" has no attribute "select"  [union-attr]
