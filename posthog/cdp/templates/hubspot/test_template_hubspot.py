@@ -91,11 +91,10 @@ class TestTemplateHubspot(BaseHogFunctionTemplateTest):
 class TestTemplateMigration(BaseTest):
     def get_plugin_config(self, config: dict):
         _config = {
-            "host": "us.i.example.com",
-            "replication": "ignored",
-            "events_to_ignore": "",
-            "project_api_key": "apikey",
-            "disable_geoip": False,
+            "hubspotAccessToken": "toky",
+            "triggeringEvents": "$identify,$set",
+            "additionalPropertyMappings": "a:b",
+            "ignoredEmails": "gmail.com",
         }
         _config.update(config)
         return PluginConfig(enabled=True, order=0, config=_config)
@@ -106,48 +105,23 @@ class TestTemplateMigration(BaseTest):
         assert template["inputs"] == snapshot(
             {
                 "oauth": {"value": {}},
-                "host": {"value": "us.i.example.com"},
-                "token": {"value": "apikey"},
-                "include_all_properties": {"value": True},
-                "properties": {"value": {}},
-            }
-        )
-        assert template["filters"] == {}
-
-    def test_disable_geoip(self):
-        obj = self.get_plugin_config({"disable_geoip": "Yes"})
-        template = TemplateHubspotMigrator.migrate(obj)
-        assert template["inputs"] == snapshot(
-            {
-                "oauth": {"value": {}},
-                "host": {"value": "us.i.example.com"},
-                "token": {"value": "apikey"},
-                "include_all_properties": {"value": True},
-                "properties": {"value": {"$geoip_disable": True}},
-            }
-        )
-        assert template["filters"] == {}
-
-    def test_ignore_events(self):
-        obj = self.get_plugin_config({"events_to_ignore": "event1, event2, 'smore"})
-        template = TemplateHubspotMigrator.migrate(obj)
-        assert template["inputs"] == snapshot(
-            {
-                "oauth": {"value": {}},
-                "host": {"value": "us.i.example.com"},
-                "token": {"value": "apikey"},
-                "include_all_properties": {"value": True},
-                "properties": {"value": {}},
+                "email": {"value": "{person.properties.email}"},
+                "properties": {
+                    "value": {
+                        "firstname": "{person.properties.firstname ?? person.properties.firstName ?? person.properties.first_name}",
+                        "lastname": "{person.properties.lastname ?? person.properties.lastName ?? person.properties.last_name}",
+                        "company": "{person.properties.company ?? person.properties.companyName ?? person.properties.company_name}",
+                        "phone": "{person.properties.phone ?? person.properties.phoneNumber ?? person.properties.phone_number}",
+                        "website": "{person.properties.website ?? person.properties.companyWebsite ?? person.properties.company_website}",
+                        "b": "{person.properties.a}",
+                    }
+                },
             }
         )
         assert template["filters"] == {
+            "properties": [{"key": "email", "value": "gmail.com", "operator": "not_icontains", "type": "person"}],
             "events": [
-                {
-                    "id": None,
-                    "name": "All events",
-                    "type": "events",
-                    "order": 0,
-                    "properties": [{"type": "hogql", "key": "event not in ('event1', 'event2', '\\'smore')"}],
-                }
-            ]
+                {"id": "$identify", "name": "$identify", "type": "events", "properties": []},
+                {"id": "$set", "name": "$set", "type": "events", "properties": []},
+            ],
         }
