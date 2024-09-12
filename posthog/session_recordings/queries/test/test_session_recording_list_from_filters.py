@@ -1,4 +1,5 @@
 from datetime import datetime
+from unittest.mock import ANY
 from uuid import uuid4
 
 from dateutil.relativedelta import relativedelta
@@ -3782,3 +3783,109 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
         (session_recordings, _, _) = self._filter_recordings_by({"order": "mouse_activity_count"})
         assert [r["session_id"] for r in session_recordings] == [session_id_two, session_id_one, session_id_three]
+
+    @also_test_with_materialized_columns(event_properties=["$host"], verify_no_jsonextract=False)
+    @freeze_time("2021-01-21T20:00:00.000Z")
+    @snapshot_clickhouse_queries
+    def test_top_level_event_host_property_test_account_filter(self):
+        """
+        This is a regression test. See: https://posthoghelp.zendesk.com/agent/tickets/18059
+        """
+        self.team.test_account_filters = [
+            {"key": "$host", "type": "event", "value": "^(localhost|127\\.0\\.0\\.1)($|:)", "operator": "not_regex"},
+        ]
+        self.team.save()
+
+        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["user2"],
+            properties={"email": "not-the-other-one"},
+        )
+
+        produce_replay_summary(
+            distinct_id="user",
+            session_id="1",
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+        )
+        # the session needs to have multiple matching or not matching events
+        for _ in range(10):
+            self.create_event(
+                "user",
+                self.an_hour_ago,
+                properties={
+                    "$session_id": "1",
+                    "$window_id": "1",
+                    "$host": "localhost",
+                },
+            )
+
+        produce_replay_summary(
+            distinct_id="user",
+            session_id="1",
+            first_timestamp=self.an_hour_ago + relativedelta(seconds=30),
+            team_id=self.team.id,
+            click_count=10,
+        )
+
+        for _ in range(10):
+            self.create_event(
+                "user2",
+                self.an_hour_ago,
+                properties={
+                    "$session_id": "2",
+                    "$window_id": "1",
+                    "$host": "example.com",
+                },
+            )
+        produce_replay_summary(
+            distinct_id="user2",
+            session_id="2",
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+            click_count=10,
+        )
+
+        # there are 2 pageviews
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {
+                # pageview that matches the hogql test_accounts filter
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                    }
+                ],
+                "filter_test_accounts": False,
+            }
+        )
+        self.assertEqual(len(session_recordings), 2)
+
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {
+                # only 1 pageview that matches the test_accounts filter
+                "filter_test_accounts": True,
+            }
+        )
+        assert session_recordings == [
+            {
+                "active_seconds": 0.0,
+                "click_count": 10,  # in the bug this value was 10 X number of events in the session
+                "console_error_count": 0,
+                "console_log_count": 0,
+                "console_warn_count": 0,
+                "distinct_id": "user2",
+                "duration": 3600,
+                "end_time": ANY,
+                "first_url": "https://not-provided-by-test.com",
+                "inactive_seconds": 3600.0,
+                "keypress_count": 0,
+                "mouse_activity_count": 0,
+                "session_id": "2",
+                "start_time": ANY,
+                "team_id": self.team.id,
+            }
+        ]

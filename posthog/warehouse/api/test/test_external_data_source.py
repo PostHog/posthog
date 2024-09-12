@@ -621,7 +621,7 @@ class TestExternalDataSource(APIBaseTest):
                 }
             ]
 
-            new_team = Team.objects.create(name="new_team", organization=self.team.organization)
+            new_team = Team.objects.create(id=984961485, name="new_team", organization=self.team.organization)
 
             response = self.client.post(
                 f"/api/projects/{new_team.pk}/external_data_sources/database_schema/",
@@ -665,7 +665,7 @@ class TestExternalDataSource(APIBaseTest):
                 }
             ]
 
-            new_team = Team.objects.create(name="new_team", organization=self.team.organization)
+            new_team = Team.objects.create(id=984961486, name="new_team", organization=self.team.organization)
 
             response = self.client.post(
                 f"/api/projects/{new_team.pk}/external_data_sources/database_schema/",
