@@ -266,7 +266,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         openAsNewInsight: (tileId: TileId, tabId?: string) => {
             return { tileId, tabId }
         },
-        setHasLoadedStateFromUrl: () => true,
     }),
     reducers({
         webAnalyticsFilters: [
@@ -450,12 +449,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             null as WebAnalyticsConversionGoal | null,
             {
                 setConversionGoal: (_, { conversionGoal }) => conversionGoal,
-            },
-        ],
-        hasLoadedStateFromUrl: [
-            false as boolean,
-            {
-                setHasLoadedStateFromUrl: () => true,
             },
         ],
     }),
@@ -1383,7 +1376,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         }
     }),
 
-    urlToAction(({ actions, values }) => ({
+    urlToAction(({ actions }) => ({
         '/web': (
             _,
             {
@@ -1401,11 +1394,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 filter_test_accounts,
             }
         ) => {
-            if (values.hasLoadedStateFromUrl) {
-                // only load from URL once, to prevent infinite loops
-                return
-            }
-
             const parsedFilters = isWebAnalyticsPropertyFilters(filters) ? filters : undefined
 
             if (parsedFilters) {
@@ -1438,7 +1426,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             if (filter_test_accounts) {
                 actions.setShouldFilterTestAccounts([true, 'true', 1, '1'].includes(filter_test_accounts))
             }
-            actions.setHasLoadedStateFromUrl()
         },
     })),
     listeners(({ values, actions }) => {
