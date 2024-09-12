@@ -1,6 +1,6 @@
 import dataclasses
 import os
-from collections import Counter, defaultdict
+from collections import Counter
 from collections.abc import Sequence
 from datetime import datetime
 from typing import Any, Literal, Optional, TypedDict, Union, cast
@@ -507,11 +507,11 @@ def get_teams_with_llm_integration_event_counts_in_period(begin: datetime, end: 
         settings=CH_BILLING_SETTINGS,
     )
 
-    teams_with_event_count = {
-        "helicone": defaultdict(int),
-        "langfuse": defaultdict(int),
-        "keywords_ai": defaultdict(int),
-        "traceloop": defaultdict(int),
+    teams_with_event_count: dict[str, dict[int, int]] = {
+        "helicone": {},
+        "langfuse": {},
+        "keywords_ai": {},
+        "traceloop": {},
     }
 
     for team_id, integration, count in results:
