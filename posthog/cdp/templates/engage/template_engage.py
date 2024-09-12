@@ -42,6 +42,9 @@ fetch('https://api.engage.so/posthog', {
         "events": [
             {"id": "$identify", "name": "$identify", "type": "events", "order": 0},
             {"id": "$set", "name": "$set", "type": "events", "order": 1},
+            {"id": "$groupidentify", "name": "$groupidentify", "type": "events", "order": 2},
+            {"id": "$unset", "name": "$unset", "type": "events", "order": 3},
+            {"id": "$create_alias", "name": "$create_alias", "type": "events", "order": 4},
         ],
         "actions": [],
         "filter_test_accounts": True,
