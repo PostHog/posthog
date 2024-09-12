@@ -35,7 +35,7 @@ SELECT_STAR_FROM_EVENTS_FIELDS = [
 ]
 
 
-class EventsQueryRunner(QueryRunner):
+class CohortQueryRunner(QueryRunner):
     query: EventsQuery
     response: EventsQueryResponse
     cached_response: CachedEventsQueryResponse
