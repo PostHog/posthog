@@ -16,7 +16,7 @@ from .mailjet.template_mailjet import (
 from .zapier.template_zapier import template as zapier
 from .mailgun.template_mailgun import template_mailgun_send_email as mailgun
 from .avo.template_avo import template as avo
-from .loops.template_loops import template as loops
+from .loops.template_loops import template as loops, TemplateLoopsMigrator
 from .rudderstack.template_rudderstack import template as rudderstack
 from .gleap.template_gleap import template as gleap
 from .google_pubsub.template_google_pubsub import template as google_pubsub, TemplateGooglePubSubMigrator
@@ -64,6 +64,7 @@ HOG_FUNCTION_MIGRATORS = {
     TemplateGoogleCloudStorageMigrator.plugin_url: TemplateGoogleCloudStorageMigrator,
     TemplatePostHogMigrator.plugin_url: TemplatePostHogMigrator,
     TemplateHubspotMigrator.plugin_url: TemplateHubspotMigrator,
+    TemplateLoopsMigrator.plugin_url: TemplateLoopsMigrator,
 }
 
 __all__ = ["HOG_FUNCTION_TEMPLATES", "HOG_FUNCTION_TEMPLATES_BY_ID"]
