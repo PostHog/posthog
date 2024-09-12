@@ -1,5 +1,9 @@
+from inline_snapshot import snapshot
+
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-from posthog.cdp.templates.hubspot.template_hubspot import template as template_hubspot
+from posthog.cdp.templates.hubspot.template_hubspot import template as template_hubspot, TemplateHubspotMigrator
+from posthog.models import PluginConfig
+from posthog.test.base import BaseTest
 
 
 class TestTemplateHubspot(BaseHogFunctionTemplateTest):
@@ -82,3 +86,68 @@ class TestTemplateHubspot(BaseHogFunctionTemplateTest):
                 "body": {"properties": {"company": "PostHog", "email": "example@posthog.com"}},
             },
         )
+
+
+class TestTemplateMigration(BaseTest):
+    def get_plugin_config(self, config: dict):
+        _config = {
+            "host": "us.i.example.com",
+            "replication": "ignored",
+            "events_to_ignore": "",
+            "project_api_key": "apikey",
+            "disable_geoip": False,
+        }
+        _config.update(config)
+        return PluginConfig(enabled=True, order=0, config=_config)
+
+    def test_default_config(self):
+        obj = self.get_plugin_config({})
+        template = TemplateHubspotMigrator.migrate(obj)
+        assert template["inputs"] == snapshot(
+            {
+                "oauth": {"value": {}},
+                "host": {"value": "us.i.example.com"},
+                "token": {"value": "apikey"},
+                "include_all_properties": {"value": True},
+                "properties": {"value": {}},
+            }
+        )
+        assert template["filters"] == {}
+
+    def test_disable_geoip(self):
+        obj = self.get_plugin_config({"disable_geoip": "Yes"})
+        template = TemplateHubspotMigrator.migrate(obj)
+        assert template["inputs"] == snapshot(
+            {
+                "oauth": {"value": {}},
+                "host": {"value": "us.i.example.com"},
+                "token": {"value": "apikey"},
+                "include_all_properties": {"value": True},
+                "properties": {"value": {"$geoip_disable": True}},
+            }
+        )
+        assert template["filters"] == {}
+
+    def test_ignore_events(self):
+        obj = self.get_plugin_config({"events_to_ignore": "event1, event2, 'smore"})
+        template = TemplateHubspotMigrator.migrate(obj)
+        assert template["inputs"] == snapshot(
+            {
+                "oauth": {"value": {}},
+                "host": {"value": "us.i.example.com"},
+                "token": {"value": "apikey"},
+                "include_all_properties": {"value": True},
+                "properties": {"value": {}},
+            }
+        )
+        assert template["filters"] == {
+            "events": [
+                {
+                    "id": None,
+                    "name": "All events",
+                    "type": "events",
+                    "order": 0,
+                    "properties": [{"type": "hogql", "key": "event not in ('event1', 'event2', '\\'smore')"}],
+                }
+            ]
+        }

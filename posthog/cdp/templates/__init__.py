@@ -1,6 +1,6 @@
 from .webhook.template_webhook import template as webhook
 from .slack.template_slack import template as slack
-from .hubspot.template_hubspot import template as hubspot
+from .hubspot.template_hubspot import template as hubspot, TemplateHubspotMigrator
 from .braze.template_braze import template as braze
 from .customerio.template_customerio import template as customerio, TemplateCustomerioMigrator
 from .intercom.template_intercom import template as intercom, TemplateIntercomMigrator
@@ -61,6 +61,7 @@ HOG_FUNCTION_MIGRATORS = {
     TemplateGooglePubSubMigrator.plugin_url: TemplateGooglePubSubMigrator,
     TemplateGoogleCloudStorageMigrator.plugin_url: TemplateGoogleCloudStorageMigrator,
     TemplatePostHogMigrator.plugin_url: TemplatePostHogMigrator,
+    TemplateHubspotMigrator.plugin_url: TemplateHubspotMigrator,
 }
 
 __all__ = ["HOG_FUNCTION_TEMPLATES", "HOG_FUNCTION_TEMPLATES_BY_ID"]
