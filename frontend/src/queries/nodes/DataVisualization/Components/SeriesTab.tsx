@@ -169,7 +169,6 @@ const YSeries = ({ series, index }: { series: AxisSeries<number>; index: number 
                     noPadding
                     onClick={() => setSettingsOpen(true)}
                     disabledReason={!canOpenSettings && 'Select a column first'}
-                    disabledReasonWrapperClass="flex"
                 />
             </Popover>
             {!showTableSettings && (
