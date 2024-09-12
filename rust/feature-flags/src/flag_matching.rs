@@ -1953,4 +1953,72 @@ mod tests {
         assert!(is_match);
         assert_eq!(reason, "CONDITION_MATCH");
     }
+
+    #[tokio::test]
+    async fn test_complex_conditions() {
+        let client = setup_pg_client(None).await;
+        let team = insert_new_team_in_pg(client.clone()).await.unwrap();
+
+        let flag = create_test_flag(
+            Some(1),
+            Some(team.id),
+            Some("Complex Flag".to_string()),
+            Some("complex_flag".to_string()),
+            Some(FlagFilters {
+                groups: vec![
+                    FlagGroupType {
+                        properties: Some(vec![PropertyFilter {
+                            key: "email".to_string(),
+                            value: json!("user1@example.com"),
+                            operator: None,
+                            prop_type: "person".to_string(),
+                            group_type_index: None,
+                        }]),
+                        rollout_percentage: Some(100.0),
+                        variant: None,
+                    },
+                    FlagGroupType {
+                        properties: Some(vec![PropertyFilter {
+                            key: "age".to_string(),
+                            value: json!(30),
+                            operator: Some(OperatorType::Gte),
+                            prop_type: "person".to_string(),
+                            group_type_index: None,
+                        }]),
+                        rollout_percentage: Some(100.0),
+                        variant: None,
+                    },
+                ],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+            }),
+            Some(false),
+            Some(true),
+            Some(false),
+        );
+
+        insert_person_for_team_in_pg(
+            client.clone(),
+            team.id,
+            "test_user".to_string(),
+            Some(json!({"email": "user2@example.com", "age": 35})),
+        )
+        .await
+        .unwrap();
+
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            team.id,
+            Some(client.clone()),
+            None,
+            None,
+            None,
+        );
+
+        let result = matcher.get_match(&flag, None).await.unwrap();
+
+        assert!(result.matches);
+    }
 }
