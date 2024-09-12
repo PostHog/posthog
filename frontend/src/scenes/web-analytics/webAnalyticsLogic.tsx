@@ -262,11 +262,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         openModal: (tileId: TileId, tabId?: string) => {
             return { tileId, tabId }
         },
-        closeModal: () => ({}),
+        closeModal: () => true,
         openAsNewInsight: (tileId: TileId, tabId?: string) => {
             return { tileId, tabId }
         },
-        setHasLoadedStateFromUrl: () => ({}),
+        setHasLoadedStateFromUrl: () => true,
     }),
     reducers({
         webAnalyticsFilters: [
