@@ -1617,6 +1617,8 @@ class BaseTestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
 @patch("posthoganalytics.feature_enabled", new=Mock(return_value=False))
 class TestFunnelTrends(BaseTestFunnelTrends):
+    __test__ = True
+
     def test_assert_flag_is_working(self):
         filters = {
             "insight": INSIGHT_FUNNELS,
@@ -1636,5 +1638,3 @@ class TestFunnelTrends(BaseTestFunnelTrends):
         results = cast(FunnelsQueryResponse, FunnelsQueryRunner(query=query, team=self.team).calculate())
 
         self.assertFalse(results.isUdf)
-
-    __test__ = True
