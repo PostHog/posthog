@@ -120,6 +120,7 @@ async fn it_is_consistent_with_rollout_calculation_for_simple_flags() {
                     variant: None,
                     reason: Some("CONDITION_MATCH".to_string()),
                     condition_index: Some(0),
+                    payload: None,
                 }
             );
         } else {
@@ -130,6 +131,7 @@ async fn it_is_consistent_with_rollout_calculation_for_simple_flags() {
                     variant: None,
                     reason: Some("NO_CONDITION_MATCH".to_string()),
                     condition_index: None,
+                    payload: None,
                 }
             );
         }
@@ -1206,6 +1208,7 @@ async fn it_is_consistent_with_rollout_calculation_for_multivariate_flags() {
                     variant: Some(variant.clone()),
                     reason: Some("CONDITION_MATCH".to_string()),
                     condition_index: Some(0),
+                    payload: None,
                 }
             );
         } else {
@@ -1216,6 +1219,7 @@ async fn it_is_consistent_with_rollout_calculation_for_multivariate_flags() {
                     variant: None,
                     reason: Some("NO_CONDITION_MATCH".to_string()),
                     condition_index: None,
+                    payload: None,
                 }
             );
         }
