@@ -20,6 +20,7 @@ from .loops.template_loops import template as loops
 from .rudderstack.template_rudderstack import template as rudderstack
 from .gleap.template_gleap import template as gleap
 from .google_pubsub.template_google_pubsub import template as google_pubsub, TemplateGooglePubSubMigrator
+from .zendesk.template_zendesk import template as zendesk
 from .google_cloud_storage.template_google_cloud_storage import (
     template as google_cloud_storage,
     TemplateGoogleCloudStorageMigrator,
@@ -47,6 +48,7 @@ HOG_FUNCTION_TEMPLATES = [
     avo,
     gleap,
     google_pubsub,
+    zendesk,
     google_cloud_storage,
     braze,
 ]
