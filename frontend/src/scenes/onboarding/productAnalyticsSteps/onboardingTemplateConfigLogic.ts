@@ -1,6 +1,7 @@
 import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { urlToAction } from 'kea-router'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
+import { urls } from 'scenes/urls'
 
 import { DashboardType } from '~/types'
 
@@ -15,7 +16,7 @@ export const onboardingTemplateConfigLogic = kea<onboardingTemplateConfigLogicTy
             newDashboardLogic,
             ['submitNewDashboardSuccessWithResult', 'setIsLoading'],
             onboardingLogic,
-            ['goToPreviousStep'],
+            ['goToPreviousStep', 'setOnCompleteOnboardingRedirectUrl'],
         ],
     }),
     actions({}),
@@ -27,13 +28,14 @@ export const onboardingTemplateConfigLogic = kea<onboardingTemplateConfigLogicTy
             },
         ],
     }),
-    listeners({
+    listeners(({ actions }) => ({
         submitNewDashboardSuccessWithResult: ({ result, variables }) => {
-            if (result) {
-                onboardingLogic.actions.goToNextStep(variables?.length && variables.length > 0 ? 1 : 2)
+            if (result && variables?.length && variables.length == 0) {
+                onboardingLogic.actions.goToNextStep(2)
             }
+            actions.setOnCompleteOnboardingRedirectUrl(urls.dashboard(result.id))
         },
-    }),
+    })),
     urlToAction(({ actions, values }) => ({
         '/onboarding/:productKey': (_, { step }) => {
             if (step === OnboardingStepKey.DASHBOARD_TEMPLATE_CONFIGURE) {

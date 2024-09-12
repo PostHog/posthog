@@ -1,7 +1,8 @@
-import { IconArrowRight } from '@posthog/icons'
+import { IconArrowRight, IconCheckCircle } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonInput, LemonInputSelect, LemonSkeleton, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { StarHog } from 'lib/components/hedgehogs'
 import { IframedToolbarBrowser } from 'lib/components/IframedToolbarBrowser/IframedToolbarBrowser'
 import { iframedToolbarBrowserLogic } from 'lib/components/IframedToolbarBrowser/iframedToolbarBrowserLogic'
 import { useEffect, useRef, useState } from 'react'
@@ -181,7 +182,7 @@ export const OnboardingDashboardTemplateConfigureStep = ({
     const { variables, allVariablesAreTouched, hasTouchedAnyVariable } = useValues(theDashboardTemplateVariablesLogic)
     const { goToNextStep } = useActions(onboardingLogic)
 
-    const [isSubmitting, setIsSubmitting] = useState(false)
+    const { dashboardCreatedDuringOnboarding } = useValues(onboardingTemplateConfigLogic)
 
     return (
         <OnboardingStep
@@ -191,10 +192,35 @@ export const OnboardingDashboardTemplateConfigureStep = ({
             fullWidth
             continueOverride={<></>}
         >
-            {isSubmitting || isLoading ? (
-                <p>Creating dashboard...</p>
-            ) : (
-                <>
+            <>
+                {dashboardCreatedDuringOnboarding ? (
+                    <div className="mb-8 max-w-screen-md mx-auto">
+                        <div className="bg-success-highlight rounded p-6 flex justify-between items-center">
+                            <div className="flex gap-x-4">
+                                <IconCheckCircle className="text-success text-3xl mb-6" />
+                                <div>
+                                    <h3 className="text-lg font-bold mb-1 text-left">Dashboard created!</h3>
+                                    <p className="mx-0 mb-0">We'll take you there when you're done onboarding.</p>
+                                </div>
+                            </div>
+                            <div className="h-20">
+                                <StarHog className="h-full w-full" />
+                            </div>
+                        </div>
+                        <div className="w-full flex justify-end">
+                            <LemonButton
+                                type="primary"
+                                status="alt"
+                                data-attr="show-plans"
+                                className="mt-4"
+                                onClick={() => goToNextStep()}
+                                icon={<IconArrowRight />}
+                            >
+                                Continue
+                            </LemonButton>
+                        </div>
+                    </div>
+                ) : (
                     <div className="grid grid-cols-6 space-x-6 min-h-[80vh]">
                         <div className="col-span-4 relative">
                             {browserUrl ? (
@@ -225,7 +251,6 @@ export const OnboardingDashboardTemplateConfigureStep = ({
                                         status="alt"
                                         onClick={() => {
                                             if (activeDashboardTemplate) {
-                                                setIsSubmitting(true)
                                                 createDashboardFromTemplate(activeDashboardTemplate, variables, false)
                                             }
                                         }}
@@ -239,17 +264,30 @@ export const OnboardingDashboardTemplateConfigureStep = ({
                                     >
                                         Create dashboard
                                     </LemonButton>
+                                    {/* )} */}
                                 </div>
                                 <div className="max-w-56">
-                                    <LemonButton type="tertiary" onClick={() => goToNextStep()} fullWidth center>
+                                    <LemonButton
+                                        type="tertiary"
+                                        onClick={() => goToNextStep()}
+                                        fullWidth
+                                        center
+                                        disabledReason={
+                                            isLoading
+                                                ? 'Dashboard creating...'
+                                                : dashboardCreatedDuringOnboarding
+                                                ? 'Dashboard already created'
+                                                : undefined
+                                        }
+                                    >
                                         {hasTouchedAnyVariable ? 'Discard dashboard & skip' : 'Skip for now'}
                                     </LemonButton>
                                 </div>
                             </div>
                         </div>
                     </div>
-                </>
-            )}
+                )}
+            </>
         </OnboardingStep>
     )
 }
