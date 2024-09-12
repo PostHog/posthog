@@ -64,6 +64,53 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         super().setUpTestData()
         cls.feature_flag = FeatureFlag.objects.create(team=cls.team, created_by=cls.user, key="red_button")
 
+    def test_cant_create_flag_with_more_than_max_values(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags",
+            {
+                "name": "Beta feature",
+                "key": "beta-x",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 65,
+                            "properties": [
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": [
+                                        "1@gmail.com",
+                                        "2@gmail.com",
+                                        "3@gmail.com",
+                                        "4@gmail.com",
+                                        "5@gmail.com",
+                                        "6@gmail.com",
+                                        "7@gmail.com",
+                                        "8@gmail.com",
+                                        "9@gmail.com",
+                                        "10@gmail.com",
+                                        "11@gmail.com",
+                                        "12@gmail.com",
+                                    ],
+                                    "operator": "exact",
+                                }
+                            ],
+                        }
+                    ]
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "Property group expressions of type email cannot contain more than 10 values.",
+                "attr": "filters",
+            },
+        )
+
     def test_cant_create_flag_with_duplicate_key(self):
         count = FeatureFlag.objects.count()
         # Make sure the endpoint works with and without the trailing slash

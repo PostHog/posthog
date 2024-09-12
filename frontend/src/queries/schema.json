@@ -7341,6 +7341,9 @@
                     "description": "Client provided query ID. Can be used to retrieve the status or cancel the query.",
                     "type": "string"
                 },
+                "filters_override": {
+                    "$ref": "#/definitions/DashboardFilter"
+                },
                 "query": {
                     "$ref": "#/definitions/QuerySchema",
                     "description": "Submit a JSON string representing a query for PostHog data analysis, for example a HogQL query.\n\nExample payload:\n\n```\n\n{\"query\": {\"kind\": \"HogQLQuery\", \"query\": \"select * from events limit 100\"}}\n\n```\n\nFor more details on HogQL queries, see the [PostHog HogQL documentation](/docs/hogql#api-access)."
@@ -10670,6 +10673,16 @@
             },
             "type": "object"
         },
+        "WebAnalyticsConversionGoal": {
+            "additionalProperties": false,
+            "properties": {
+                "actionId": {
+                    "type": "integer"
+                }
+            },
+            "required": ["actionId"],
+            "type": "object"
+        },
         "WebAnalyticsPropertyFilter": {
             "anyOf": [
                 {
@@ -10692,6 +10705,16 @@
         "WebExternalClicksTableQuery": {
             "additionalProperties": false,
             "properties": {
+                "conversionGoal": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/WebAnalyticsConversionGoal"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
@@ -10795,6 +10818,16 @@
         "WebGoalsQuery": {
             "additionalProperties": false,
             "properties": {
+                "conversionGoal": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/WebAnalyticsConversionGoal"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
@@ -10924,6 +10957,16 @@
                 "compare": {
                     "type": "boolean"
                 },
+                "conversionGoal": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/WebAnalyticsConversionGoal"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
@@ -11038,6 +11081,16 @@
                 "breakdownBy": {
                     "$ref": "#/definitions/WebStatsBreakdown"
                 },
+                "conversionGoal": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/WebAnalyticsConversionGoal"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
@@ -11147,6 +11200,16 @@
         "WebTopClicksQuery": {
             "additionalProperties": false,
             "properties": {
+                "conversionGoal": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/WebAnalyticsConversionGoal"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },

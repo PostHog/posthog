@@ -374,6 +374,7 @@ router.register("debug_ch_queries/", debug_ch_queries.DebugCHQueries, "debug_ch_
 
 from posthog.api.action import ActionViewSet  # noqa: E402
 from posthog.api.cohort import CohortViewSet, LegacyCohortViewSet  # noqa: E402
+from posthog.api.web_experiment import WebExperimentViewSet  # noqa: E402
 from posthog.api.element import ElementViewSet, LegacyElementViewSet  # noqa: E402
 from posthog.api.event import EventViewSet, LegacyEventViewSet  # noqa: E402
 from posthog.api.insight import InsightViewSet  # noqa: E402
@@ -388,6 +389,7 @@ router.register(r"event", LegacyEventViewSet, basename="event")
 # Nested endpoints CH
 register_grandfathered_environment_nested_viewset(r"events", EventViewSet, "environment_events", ["team_id"])
 projects_router.register(r"actions", ActionViewSet, "project_actions", ["project_id"])
+projects_router.register(r"web_experiments", WebExperimentViewSet, "web_experiments", ["project_id"])
 projects_router.register(r"cohorts", CohortViewSet, "project_cohorts", ["project_id"])
 register_grandfathered_environment_nested_viewset(
     r"elements",

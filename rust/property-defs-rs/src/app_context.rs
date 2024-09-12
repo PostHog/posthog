@@ -20,7 +20,7 @@ pub struct AppContext {
     pub cache_warming_cutoff: f64,
     pub skip_writes: bool,
     pub skip_reads: bool,
-    pub group_type_cache: Cache<String, i32>,
+    pub group_type_cache: Cache<String, i32>, // Keyed on group-type name, and team id
 }
 
 impl AppContext {
@@ -92,11 +92,13 @@ impl AppContext {
                 continue;
             };
             // If we didn't find a group type, we have nothing to resolve.
-            let Some(GroupType::Unresolved(name)) = &update.group_type_index else {
+            let Some(GroupType::Unresolved(group_name)) = &update.group_type_index else {
                 continue;
             };
 
-            let cached = self.group_type_cache.get(name);
+            let cache_key = format!("{}:{}", update.team_id, group_name);
+
+            let cached = self.group_type_cache.get(&cache_key);
             if let Some(index) = cached {
                 update.group_type_index =
                     update.group_type_index.take().map(|gti| gti.resolve(index));
@@ -107,14 +109,14 @@ impl AppContext {
 
             let found = sqlx::query_scalar!(
                     "SELECT group_type_index FROM posthog_grouptypemapping WHERE group_type = $1 AND team_id = $2",
-                    name,
+                    group_name,
                     update.team_id
                 )
                 .fetch_optional(&self.pool)
                 .await?;
 
             if let Some(index) = found {
-                self.group_type_cache.insert(name.to_string(), index);
+                self.group_type_cache.insert(cache_key, index);
                 update.group_type_index =
                     update.group_type_index.take().map(|gti| gti.resolve(index));
             } else {

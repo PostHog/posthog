@@ -139,8 +139,8 @@ async fn it_applies_overflow_limits() -> Result<()> {
     //   - session2 limit is active -> send to overflow
     //   - session3 is not in redis -> accept by default
     let redis = PrefixedRedis::new().await;
-    redis.add_overflow_limit(QuotaResource::Recordings, &session1, Duration::seconds(-60));
-    redis.add_overflow_limit(QuotaResource::Recordings, &session2, Duration::seconds(60));
+    redis.add_overflow_limit(QuotaResource::Replay, &session1, Duration::seconds(-60));
+    redis.add_overflow_limit(QuotaResource::Replay, &session2, Duration::seconds(60));
 
     let mut config = DEFAULT_CONFIG.clone();
     config.redis_key_prefix = redis.key_prefix();
