@@ -320,7 +320,10 @@ export const billingLogic = kea<billingLogicType>([
                 loadSelfServeCreditEligible: async () => {
                     const response = await api.get('api/billing/credits/overview')
                     if (!values.creditForm.creditInput) {
-                        actions.setCreditFormValue('creditInput', response.estimated_monthly_credit_amount_usd * 12)
+                        actions.setCreditFormValue(
+                            'creditInput',
+                            Math.round(response.estimated_monthly_credit_amount_usd * 12)
+                        )
                     }
                     return response
                 },
@@ -442,10 +445,11 @@ export const billingLogic = kea<billingLogicType>([
                 collectionMethod: 'charge_automatically',
             },
             submit: async ({ creditInput, collectionMethod }) => {
-                await api.create('api/billing/credits/purchase', {
-                    annual_amount_usd: +Math.round(+creditInput - +creditInput * values.creditDiscount),
-                    collection_method: collectionMethod,
-                })
+                values.computedDiscount * 100,
+                    await api.create('api/billing/credits/purchase', {
+                        annual_amount_usd: +Math.round(+creditInput - +creditInput * values.creditDiscount),
+                        collection_method: collectionMethod,
+                    })
 
                 actions.showPurchaseCreditsModal(false)
                 actions.loadSelfServeCreditEligible()
@@ -468,10 +472,12 @@ export const billingLogic = kea<billingLogicType>([
                         ) : (
                             <>
                                 <p>
-                                    Your card will be charged in the next 3 hours and the credits will be applied to
-                                    your account. Please make sure your{' '}
-                                    <Link to={values.billing?.stripe_portal_url}>card on file</Link> is up to date. You
-                                    will receive an email when the credits are applied.
+                                    Your card will be charged soon and the credits will be applied to your account.
+                                    Please make sure your{' '}
+                                    <Link to={values.billing?.stripe_portal_url} target="_blank">
+                                        card on file
+                                    </Link>{' '}
+                                    is up to date. You will receive an email when the credits are applied.
                                 </p>
                             </>
                         ),
