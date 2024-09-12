@@ -79,7 +79,7 @@ export function SocialLoginButtons({
 }: SocialLoginButtonsProps): JSX.Element | null {
     const { preflight, socialAuthAvailable } = useValues(preflightLogic)
 
-    if (!socialAuthAvailable) {
+    if (!preflight || !socialAuthAvailable) {
         return null
     }
 
