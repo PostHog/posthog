@@ -41,7 +41,7 @@ import { AvailableFeature, RecordingSegment, SessionPlayerData, SessionPlayerSta
 
 import type { sessionRecordingsPlaylistLogicType } from '../playlist/sessionRecordingsPlaylistLogicType'
 import { playerSettingsLogic } from './playerSettingsLogic'
-import { COMMON_REPLAYER_CONFIG, CorsPlugin } from './rrweb'
+import { COMMON_REPLAYER_CONFIG, CorsPlugin, WindowTitlePlugin } from './rrweb'
 import { CanvasReplayerPlugin } from './rrweb/canvas/canvas-plugin'
 import type { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLogicType'
 import { deleteRecording } from './utils/playerUtils'
@@ -186,6 +186,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         playerErrorSeen: (error: any) => ({ error }),
         fingerprintReported: (fingerprint: string) => ({ fingerprint }),
         reportMessageTooLargeWarningSeen: (sessionRecordingId: string) => ({ sessionRecordingId }),
+        updateWindowTitle: (windowId: string, title: string) => ({ windowId, title }),
     }),
     reducers(() => ({
         reportedReplayerErrors: [
@@ -354,6 +355,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             null as string | null,
             {
                 reportMessageTooLargeWarningSeen: (_, { sessionRecordingId }) => sessionRecordingId,
+            },
+        ],
+        windowTitles: [
+            {} as Record<string, string>,
+            {
+                updateWindowTitle: (s, { windowId, title }) => ({ ...s, [windowId]: title }),
             },
         ],
     })),
@@ -537,6 +544,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
 
             plugins.push(CanvasReplayerPlugin(values.sessionPlayerData.snapshotsByWindowId[windowId]))
+            plugins.push(WindowTitlePlugin(actions.updateWindowTitle))
 
             cache.debug?.('tryInitReplayer', {
                 windowId,
