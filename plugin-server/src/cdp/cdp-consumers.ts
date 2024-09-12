@@ -1,7 +1,7 @@
 import { CyclotronJob, CyclotronManager, CyclotronWorker } from '@posthog/cyclotron'
 import { captureException } from '@sentry/node'
 import { Message } from 'node-rdkafka'
-import { Counter, Histogram } from 'prom-client'
+import { Counter, Gauge, Histogram } from 'prom-client'
 
 import { buildIntegerMatcher } from '../config/config'
 import {
@@ -78,6 +78,18 @@ const counterFunctionInvocation = new Counter({
     name: 'cdp_function_invocation',
     help: 'A function invocation was evaluated with an outcome',
     labelNames: ['outcome'], // One of 'failed', 'succeeded', 'overflowed', 'disabled', 'filtered'
+})
+
+const gaugeBatchUtilization = new Gauge({
+    name: 'cdp_cyclotron_batch_utilization',
+    help: 'Indicates how big batches are we are processing compared to the max batch size. Useful as a scaling metric',
+    labelNames: ['queue'],
+})
+
+const guageJobsProcessed = new Gauge({
+    name: 'cdp_cyclotron_jobs_processed',
+    help: 'The number of jobs we are managing to process',
+    labelNames: ['queue'],
 })
 
 export interface TeamIDWithConfig {
@@ -769,6 +781,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
     }
 
     private async handleJobBatch(jobs: CyclotronJob[]) {
+        gaugeBatchUtilization.labels({ queue: this.queue }).set(jobs.length / this.hub.CDP_CYCLOTRON_BATCH_SIZE)
         const invocations: HogFunctionInvocation[] = []
 
         for (const job of jobs) {
@@ -794,6 +807,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
         }
 
         await this.processBatch(invocations)
+        guageJobsProcessed.labels({ queue: this.queue }).set(jobs.length)
     }
 
     public async start() {
