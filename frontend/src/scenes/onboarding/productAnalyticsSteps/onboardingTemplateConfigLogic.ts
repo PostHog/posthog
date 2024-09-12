@@ -23,6 +23,7 @@ export const onboardingTemplateConfigLogic = kea<onboardingTemplateConfigLogicTy
     reducers({
         dashboardCreatedDuringOnboarding: [
             null as DashboardType | null,
+            { persist: true },
             {
                 submitNewDashboardSuccessWithResult: (_, { result }) => result,
             },
