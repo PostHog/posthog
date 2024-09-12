@@ -96,9 +96,9 @@ impl AppContext {
                 continue;
             };
 
-            let name = format!("{}:{}", update.team_id, name);
+            let cache_key = format!("{}:{}", update.team_id, name);
 
-            let cached = self.group_type_cache.get(&name);
+            let cached = self.group_type_cache.get(&cache_key);
             if let Some(index) = cached {
                 update.group_type_index =
                     update.group_type_index.take().map(|gti| gti.resolve(index));
@@ -116,7 +116,7 @@ impl AppContext {
                 .await?;
 
             if let Some(index) = found {
-                self.group_type_cache.insert(name, index);
+                self.group_type_cache.insert(cache_key, index);
                 update.group_type_index =
                     update.group_type_index.take().map(|gti| gti.resolve(index));
             } else {
