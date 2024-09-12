@@ -175,7 +175,7 @@ class TestTemplateMigration(BaseTest):
                     + "{event.uuid},{event.name},{jsonStringify(event.properties)},,,,{event.distinct_id},,,,{event.timestamp}"
                 },
                 "filename": {
-                    "value": "{toDate(event.timestamp)}/{replaceAll(replaceAll(toString(event.timestamp), '[\\-:]', ''), 'T', ' ')}-{event.uuid}.csv"
+                    "value": "{toDate(event.timestamp)}/{replaceAll(replaceAll(replaceAll(toString(event.timestamp), '-', ''), ':', ''), 'T', '-')}-{event.uuid}.csv"
                 },
             }
         )
