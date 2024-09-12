@@ -118,6 +118,8 @@ async fn it_is_consistent_with_rollout_calculation_for_simple_flags() {
                 FeatureFlagMatch {
                     matches: true,
                     variant: None,
+                    reason: Some("CONDITION_MATCH".to_string()),
+                    condition_index: Some(0),
                 }
             );
         } else {
@@ -126,6 +128,8 @@ async fn it_is_consistent_with_rollout_calculation_for_simple_flags() {
                 FeatureFlagMatch {
                     matches: false,
                     variant: None,
+                    reason: Some("NO_CONDITION_MATCH".to_string()),
+                    condition_index: None,
                 }
             );
         }
@@ -1194,12 +1198,14 @@ async fn it_is_consistent_with_rollout_calculation_for_multivariate_flags() {
             .await
             .unwrap();
 
-        if results[i].is_some() {
+        if let Some(variant) = &results[i] {
             assert_eq!(
                 feature_flag_match,
                 FeatureFlagMatch {
                     matches: true,
-                    variant: results[i].clone(),
+                    variant: Some(variant.clone()),
+                    reason: Some("CONDITION_MATCH".to_string()),
+                    condition_index: Some(0),
                 }
             );
         } else {
@@ -1208,6 +1214,8 @@ async fn it_is_consistent_with_rollout_calculation_for_multivariate_flags() {
                 FeatureFlagMatch {
                     matches: false,
                     variant: None,
+                    reason: Some("NO_CONDITION_MATCH".to_string()),
+                    condition_index: None,
                 }
             );
         }

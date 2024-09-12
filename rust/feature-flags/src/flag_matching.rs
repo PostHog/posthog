@@ -21,6 +21,8 @@ type GroupTypeIndex = i32;
 pub struct FeatureFlagMatch {
     pub matches: bool,
     pub variant: Option<String>,
+    pub reason: Option<String>,
+    pub condition_index: Option<usize>,
 }
 
 #[derive(Debug, FromRow)]
@@ -368,27 +370,34 @@ impl FeatureFlagMatcher {
             return Ok(FeatureFlagMatch {
                 matches: false,
                 variant: None,
+                reason: Some("NO_GROUP_TYPE".to_string()),
+                condition_index: None,
             });
         }
 
-        // TODO: super groups for early access
-        // TODO: Variant overrides condition sort
+        // TODO super group management, the last of the new queries to be implemented
 
-        for condition in flag.get_conditions().iter() {
-            let (is_match, _evaluation_reason) = self
+        // Sort conditions with variant overrides to the top so that we can evaluate them first
+        let mut sorted_conditions: Vec<(usize, &FlagGroupType)> =
+            flag.get_conditions().iter().enumerate().collect();
+
+        sorted_conditions
+            .sort_by_key(|(_, condition)| if condition.variant.is_some() { 0 } else { 1 });
+
+        for (index, condition) in sorted_conditions {
+            let (is_match, reason) = self
                 .is_condition_match(flag, condition, property_overrides.clone())
                 .await?;
 
             if is_match {
-                // TODO: this is a bit awkward, we should only handle variants when overrides exist
-                let variant = match condition.variant.clone() {
+                let variant = match &condition.variant {
                     Some(variant_override)
                         if flag
                             .get_variants()
                             .iter()
-                            .any(|v| v.key == variant_override) =>
+                            .any(|v| &v.key == variant_override) =>
                     {
-                        Some(variant_override)
+                        Some(variant_override.clone())
                     }
                     _ => self.get_matching_variant(flag).await?,
                 };
@@ -396,6 +405,8 @@ impl FeatureFlagMatcher {
                 return Ok(FeatureFlagMatch {
                     matches: true,
                     variant,
+                    reason: Some(reason),
+                    condition_index: Some(index),
                 });
             }
         }
@@ -403,6 +414,8 @@ impl FeatureFlagMatcher {
         Ok(FeatureFlagMatch {
             matches: false,
             variant: None,
+            reason: Some("NO_CONDITION_MATCH".to_string()),
+            condition_index: None,
         })
     }
 
@@ -1740,5 +1753,268 @@ mod tests {
         let result = matcher.get_match(&flag, None).await.unwrap();
 
         assert!(result.matches);
+    }
+
+    #[tokio::test]
+    async fn test_variant_override_sorting() {
+        let client = setup_pg_client(None).await;
+        let team = insert_new_team_in_pg(client.clone()).await.unwrap();
+
+        let flag = FeatureFlag {
+            id: 1,
+            team_id: team.id,
+            name: Some("Test Flag".to_string()),
+            key: "test_flag".to_string(),
+            filters: FlagFilters {
+                groups: vec![
+                    FlagGroupType {
+                        properties: Some(vec![PropertyFilter {
+                            key: "email".to_string(),
+                            value: json!("test@example.com"),
+                            operator: None,
+                            prop_type: "person".to_string(),
+                            group_type_index: None,
+                        }]),
+                        rollout_percentage: Some(100.0),
+                        variant: Some("variant_1".to_string()),
+                    },
+                    FlagGroupType {
+                        properties: Some(vec![PropertyFilter {
+                            key: "age".to_string(),
+                            value: json!(25),
+                            operator: Some(OperatorType::Gte),
+                            prop_type: "person".to_string(),
+                            group_type_index: None,
+                        }]),
+                        rollout_percentage: Some(100.0),
+                        variant: None,
+                    },
+                ],
+                multivariate: Some(MultivariateFlagOptions {
+                    variants: vec![
+                        MultivariateFlagVariant {
+                            key: "variant_1".to_string(),
+                            name: Some("Variant 1".to_string()),
+                            rollout_percentage: 50.0,
+                        },
+                        MultivariateFlagVariant {
+                            key: "variant_2".to_string(),
+                            name: Some("Variant 2".to_string()),
+                            rollout_percentage: 50.0,
+                        },
+                    ],
+                }),
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+            },
+            deleted: false,
+            active: true,
+            ensure_experience_continuity: false,
+        };
+
+        insert_person_for_team_in_pg(
+            client.clone(),
+            team.id,
+            "test_user".to_string(),
+            Some(json!({"email": "test@example.com", "age": 30})),
+        )
+        .await
+        .unwrap();
+
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            team.id,
+            Some(client.clone()),
+            None,
+            None,
+            None,
+        );
+
+        let result = matcher.get_match(&flag, None).await.unwrap();
+
+        assert!(result.matches);
+        assert_eq!(result.variant, Some("variant_1".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_variant_override_fallback() {
+        let client = setup_pg_client(None).await;
+        let team = insert_new_team_in_pg(client.clone()).await.unwrap();
+
+        let flag = FeatureFlag {
+            id: 1,
+            team_id: team.id,
+            name: Some("Test Flag".to_string()),
+            key: "test_flag".to_string(),
+            filters: FlagFilters {
+                groups: vec![
+                    FlagGroupType {
+                        properties: Some(vec![PropertyFilter {
+                            key: "email".to_string(),
+                            value: json!("other@example.com"),
+                            operator: None,
+                            prop_type: "person".to_string(),
+                            group_type_index: None,
+                        }]),
+                        rollout_percentage: Some(100.0),
+                        variant: Some("variant_1".to_string()),
+                    },
+                    FlagGroupType {
+                        properties: Some(vec![PropertyFilter {
+                            key: "age".to_string(),
+                            value: json!(25),
+                            operator: Some(OperatorType::Gte),
+                            prop_type: "person".to_string(),
+                            group_type_index: None,
+                        }]),
+                        rollout_percentage: Some(100.0),
+                        variant: None,
+                    },
+                ],
+                multivariate: Some(MultivariateFlagOptions {
+                    variants: vec![
+                        MultivariateFlagVariant {
+                            key: "variant_1".to_string(),
+                            name: Some("Variant 1".to_string()),
+                            rollout_percentage: 50.0,
+                        },
+                        MultivariateFlagVariant {
+                            key: "variant_2".to_string(),
+                            name: Some("Variant 2".to_string()),
+                            rollout_percentage: 50.0,
+                        },
+                    ],
+                }),
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+            },
+            deleted: false,
+            active: true,
+            ensure_experience_continuity: false,
+        };
+
+        insert_person_for_team_in_pg(
+            client.clone(),
+            team.id,
+            "test_user".to_string(),
+            Some(json!({"email": "test@example.com", "age": 30})),
+        )
+        .await
+        .unwrap();
+
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            team.id,
+            Some(client.clone()),
+            None,
+            None,
+            None,
+        );
+
+        let result = matcher.get_match(&flag, None).await.unwrap();
+
+        assert!(result.matches);
+        assert!(result.variant.is_some());
+        assert!(["variant_1", "variant_2"].contains(&result.variant.as_ref().unwrap().as_str()));
+    }
+
+    #[tokio::test]
+    async fn test_multiple_variant_overrides() {
+        let client = setup_pg_client(None).await;
+        let team = insert_new_team_in_pg(client.clone()).await.unwrap();
+
+        let flag = FeatureFlag {
+            id: 1,
+            team_id: team.id,
+            name: Some("Test Flag".to_string()),
+            key: "test_flag".to_string(),
+            filters: FlagFilters {
+                groups: vec![
+                    FlagGroupType {
+                        properties: Some(vec![PropertyFilter {
+                            key: "email".to_string(),
+                            value: json!("test@example.com"),
+                            operator: None,
+                            prop_type: "person".to_string(),
+                            group_type_index: None,
+                        }]),
+                        rollout_percentage: Some(100.0),
+                        variant: Some("variant_1".to_string()),
+                    },
+                    FlagGroupType {
+                        properties: Some(vec![PropertyFilter {
+                            key: "age".to_string(),
+                            value: json!(25),
+                            operator: Some(OperatorType::Gte),
+                            prop_type: "person".to_string(),
+                            group_type_index: None,
+                        }]),
+                        rollout_percentage: Some(100.0),
+                        variant: Some("variant_2".to_string()),
+                    },
+                    FlagGroupType {
+                        properties: Some(vec![PropertyFilter {
+                            key: "is_staff".to_string(),
+                            value: json!(true),
+                            operator: None,
+                            prop_type: "person".to_string(),
+                            group_type_index: None,
+                        }]),
+                        rollout_percentage: Some(100.0),
+                        variant: None,
+                    },
+                ],
+                multivariate: Some(MultivariateFlagOptions {
+                    variants: vec![
+                        MultivariateFlagVariant {
+                            key: "variant_1".to_string(),
+                            name: Some("Variant 1".to_string()),
+                            rollout_percentage: 33.0,
+                        },
+                        MultivariateFlagVariant {
+                            key: "variant_2".to_string(),
+                            name: Some("Variant 2".to_string()),
+                            rollout_percentage: 33.0,
+                        },
+                        MultivariateFlagVariant {
+                            key: "variant_3".to_string(),
+                            name: Some("Variant 3".to_string()),
+                            rollout_percentage: 34.0,
+                        },
+                    ],
+                }),
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+            },
+            deleted: false,
+            active: true,
+            ensure_experience_continuity: false,
+        };
+
+        insert_person_for_team_in_pg(
+            client.clone(),
+            team.id,
+            "test_user".to_string(),
+            Some(json!({"email": "test@example.com", "age": 30, "is_staff": true})),
+        )
+        .await
+        .unwrap();
+
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            team.id,
+            Some(client.clone()),
+            None,
+            None,
+            None,
+        );
+
+        let result = matcher.get_match(&flag, None).await.unwrap();
+
+        assert!(result.matches);
+        assert_eq!(result.variant, Some("variant_1".to_string()));
     }
 }
