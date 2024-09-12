@@ -204,8 +204,6 @@ pub async fn evaluate_feature_flags(
         None,
         groups,
     );
-    // filter out flags that are not active or have been deleted
-
     feature_flag_matcher
         .evaluate_feature_flags(
             feature_flags_from_cache_or_pg,
@@ -393,6 +391,28 @@ mod tests {
         let request = result.unwrap();
         assert_eq!(request.token, Some("test_token".to_string()));
         assert_eq!(request.distinct_id, Some("user123".to_string()));
+    }
+
+    #[test]
+    fn test_decode_request_unsupported_content_encoding() {
+        let mut headers = HeaderMap::new();
+        headers.insert("content-type", "application/json".parse().unwrap());
+        headers.insert("content-encoding", "deflate".parse().unwrap());
+        let body = Bytes::from_static(b"{\"token\": \"test_token\", \"distinct_id\": \"user123\"}");
+        let result = decode_request(&headers, body);
+        assert!(matches!(result, Err(FlagError::RequestDecodingError(_))));
+    }
+
+    #[test]
+    fn test_decode_request_invalid_base64() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "content-type",
+            "application/json; encoding=base64".parse().unwrap(),
+        );
+        let body = Bytes::from_static(b"invalid_base64==");
+        let result = decode_request(&headers, body);
+        assert!(matches!(result, Err(FlagError::RequestDecodingError(_))));
     }
 
     #[test]
