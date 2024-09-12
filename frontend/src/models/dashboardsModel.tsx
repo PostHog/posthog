@@ -270,6 +270,10 @@ export const dashboardsModel = kea<dashboardsModelType>([
             }
         },
         addDashboardSuccess: ({ dashboard }) => {
+            if (router.values.location.pathname.includes('onboarding')) {
+                // don't send a toast if we're in onboarding
+                return
+            }
             lemonToast.success(<>Dashboard created</>, {
                 button: {
                     label: 'View',
