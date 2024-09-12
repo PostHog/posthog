@@ -533,6 +533,8 @@ export const billingLogic = kea<billingLogicType>([
             actions.registerInstrumentationProps()
 
             actions.determineBillingAlert()
+
+            actions.loadCreditOverview()
         },
         determineBillingAlert: () => {
             if (values.productSpecificAlert) {
@@ -665,9 +667,7 @@ export const billingLogic = kea<billingLogicType>([
         },
     })),
     afterMount(({ actions }) => {
-        actions.loadBilling().then(() => {
-            actions.loadCreditOverview()
-        })
+        actions.loadBilling()
         actions.getInvoices()
     }),
     urlToAction(({ actions }) => ({
