@@ -25,14 +25,21 @@ describe('Insights', () => {
             insight.editName(insightName)
             insight.save()
             cy.visit(urls.savedInsights())
-            cy.contains('.Link', insightName).click()
+
+            // load the named insight
+            cy.contains('.saved-insights tr', insightName).within(() => {
+                cy.get('.Link').click()
+            })
 
             cy.get('[data-attr="hogql-query-editor"]').should('not.exist')
             cy.get('tr.DataVizRow').should('have.length.gte', 2)
 
             cy.get('[data-attr="insight-edit-button"]').click()
+            cy.wait(2000)
+
             insight.clickTab('RETENTION')
 
+            cy.wait(2000)
             cy.get('[data-attr="insight-save-button"]').click()
 
             cy.get('.RetentionContainer canvas').should('exist')

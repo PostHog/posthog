@@ -20,6 +20,10 @@ from .loops.template_loops import template as loops
 from .rudderstack.template_rudderstack import template as rudderstack
 from .gleap.template_gleap import template as gleap
 from .google_pubsub.template_google_pubsub import template as google_pubsub, TemplateGooglePubSubMigrator
+from .google_cloud_storage.template_google_cloud_storage import (
+    template as google_cloud_storage,
+    TemplateGoogleCloudStorageMigrator,
+)
 
 
 HOG_FUNCTION_TEMPLATES = [
@@ -43,6 +47,7 @@ HOG_FUNCTION_TEMPLATES = [
     avo,
     gleap,
     google_pubsub,
+    google_cloud_storage,
     braze,
 ]
 
@@ -54,6 +59,7 @@ HOG_FUNCTION_MIGRATORS = {
     TemplateIntercomMigrator.plugin_url: TemplateIntercomMigrator,
     TemplateSendGridMigrator.plugin_url: TemplateSendGridMigrator,
     TemplateGooglePubSubMigrator.plugin_url: TemplateGooglePubSubMigrator,
+    TemplateGoogleCloudStorageMigrator.plugin_url: TemplateGoogleCloudStorageMigrator,
 }
 
 __all__ = ["HOG_FUNCTION_TEMPLATES", "HOG_FUNCTION_TEMPLATES_BY_ID"]

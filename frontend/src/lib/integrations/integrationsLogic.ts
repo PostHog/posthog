@@ -5,6 +5,7 @@ import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { fromParamsGivenUrl } from 'lib/utils'
 import IconGoogleCloud from 'public/services/google-cloud.png'
+import IconGoogleCloudStorage from 'public/services/google-cloud-storage.png'
 import IconHubspot from 'public/services/hubspot.png'
 import IconSalesforce from 'public/services/salesforce.png'
 import IconSlack from 'public/services/slack.png'
@@ -20,6 +21,7 @@ const ICONS: Record<IntegrationKind, any> = {
     salesforce: IconSalesforce,
     hubspot: IconHubspot,
     'google-pubsub': IconGoogleCloud,
+    'google-cloud-storage': IconGoogleCloudStorage,
 }
 
 export const integrationsLogic = kea<integrationsLogicType>([
