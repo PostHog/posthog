@@ -77,16 +77,13 @@ export function SocialLoginButtons({
     bottomDivider,
     ...props
 }: SocialLoginButtonsProps): JSX.Element | null {
-    const { preflight } = useValues(preflightLogic)
+    const { preflight, socialAuthAvailable } = useValues(preflightLogic)
 
-    const order: string[] = Object.keys(SSO_PROVIDER_NAMES)
-
-    if (
-        !preflight?.available_social_auth_providers ||
-        !Object.values(preflight.available_social_auth_providers).filter((val) => !!val).length
-    ) {
+    if (!socialAuthAvailable) {
         return null
     }
+
+    const order: string[] = Object.keys(SSO_PROVIDER_NAMES)
 
     return (
         <>

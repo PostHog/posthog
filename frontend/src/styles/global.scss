@@ -97,7 +97,8 @@ mark {
 }
 
 hr {
-    border: 1px solid var(--border);
+    margin: 1em 0;
+    border-top: 1px solid var(--border);
 }
 
 // Vendor-specific adjustments
@@ -401,7 +402,7 @@ body {
     }
 
     h2 {
-        font-size: 1.25rem;
+        font-size: 1.3125rem;
     }
 
     h3 {
