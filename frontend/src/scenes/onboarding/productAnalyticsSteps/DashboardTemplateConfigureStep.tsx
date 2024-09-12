@@ -1,5 +1,14 @@
 import { IconArrowRight, IconCheckCircle } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonInput, LemonInputSelect, LemonSkeleton, Link, Spinner } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCard,
+    LemonInput,
+    LemonInputSelect,
+    LemonSkeleton,
+    Link,
+    Spinner,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { StarHog } from 'lib/components/hedgehogs'
@@ -94,6 +103,7 @@ export const SiteChooser = (): JSX.Element => {
     const { snippetHosts, hasSnippetEventsLoading } = useValues(sdksLogic)
     const { addUrl } = useActions(authorizedUrlListLogic({ actionId: null, type: AuthorizedUrlListType.TOOLBAR_URLS }))
     const { setBrowserUrl } = useActions(iframedToolbarBrowserLogic({ iframeRef, clearBrowserUrlOnUnmount: true }))
+    const { iframeBanner } = useValues(iframedToolbarBrowserLogic({ iframeRef, clearBrowserUrlOnUnmount: true }))
     const { setStepKey } = useActions(onboardingLogic)
 
     return (
@@ -101,14 +111,26 @@ export const SiteChooser = (): JSX.Element => {
             <div className="absolute inset-0 bg-primary-alt-highlight z-10 rounded opacity-80 backdrop-filter backdrop-blur-md flex items-center justify-center" />
             <div className="absolute inset-0 z-20 rounded flex items-center justify-center">
                 <LemonCard className="max-w-lg" hoverEffect={false}>
+                    {iframeBanner?.level == 'error' && (
+                        <LemonBanner type="error" className="mb-4">
+                            <p className="font-bold">
+                                Your site failed to load in the iFrame. It's possible your site doesn't allow iFrames.
+                            </p>
+                            <p>
+                                We're working on a way to do this without iFrames. Until then, you can use another site,
+                                or set custom event names for your dashboard.
+                            </p>
+                        </LemonBanner>
+                    )}
                     <h2>Select where you want to track events from.</h2>
                     {hasSnippetEventsLoading ? (
                         <Spinner />
                     ) : snippetHosts.length > 0 ? (
                         <>
                             <p>
-                                Not seeing the site you want? Install posthog-js or the HTML snippet wherever you want
-                                to track events, then come back here.
+                                Not seeing the site you want?{' '}
+                                <Link onClick={() => setStepKey(OnboardingStepKey.INSTALL)}>Install posthog-js</Link> or
+                                the HTML snippet wherever you want to track events, then come back here.
                             </p>
                             <div className="space-y-2">
                                 {snippetHosts.map((host) => (
@@ -175,7 +197,9 @@ export const OnboardingDashboardTemplateConfigureStep = ({
     const { activeDashboardTemplate } = useValues(onboardingTemplateConfigLogic)
     const { createDashboardFromTemplate } = useActions(newDashboardLogic)
     const { isLoading } = useValues(newDashboardLogic)
-    const { browserUrl } = useValues(iframedToolbarBrowserLogic({ iframeRef, clearBrowserUrlOnUnmount: true }))
+    const { browserUrl, iframeBanner } = useValues(
+        iframedToolbarBrowserLogic({ iframeRef, clearBrowserUrlOnUnmount: true })
+    )
     const theDashboardTemplateVariablesLogic = dashboardTemplateVariablesLogic({
         variables: activeDashboardTemplate?.variables || [],
     })
@@ -223,7 +247,7 @@ export const OnboardingDashboardTemplateConfigureStep = ({
                 ) : (
                     <div className="grid grid-cols-6 space-x-6 min-h-[80vh]">
                         <div className="col-span-4 relative">
-                            {browserUrl ? (
+                            {browserUrl && iframeBanner?.level != 'error' ? (
                                 <div className="border border-1 border-border-bold rounded h-full w-full flex flex-col">
                                     <UrlInput iframeRef={iframeRef} />
                                     <div className="m-2 grow rounded">
