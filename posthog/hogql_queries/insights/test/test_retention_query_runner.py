@@ -826,6 +826,45 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
+    def test_rolling_retention(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person3"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person4"])
+
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0)),
+                ("person1", _date(3)),
+                ("person1", _date(4)),
+                ("person2", _date(0)),
+                ("person2", _date(1)),
+                ("person3", _date(1)),
+                ("person3", _date(2)),
+                ("person3", _date(3)),
+                ("person4", _date(3)),
+                ("person4", _date(4)),
+                ("person5", _date(4)),
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(5, hour=6)},
+                "retentionFilter": {
+                    "cumulative": True,
+                    "totalIntervals": 5,
+                    "targetEntity": {"id": None, "name": "All events"},
+                    "returningEntity": {"id": None, "name": "All events"},
+                },
+            }
+        )
+        self.assertEqual(
+            pluck(result, "values", "count"),
+            [[2, 1, 1, 0, 0], [1, 1, 0, 0], [3, 2, 0], [2, 0], [0]],
+        )
+
     def test_all_events(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
         _create_person(team_id=self.team.pk, distinct_ids=["person2"])
