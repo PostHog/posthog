@@ -578,6 +578,7 @@ export class SessionRecordingIngester {
 
         // flush everything we can
         await this.flushAllReadySessions(() => {})
+        await this.commitAllOffsets(this.partitionMetrics, Object.values(this.sessions))
 
         // Mark as stopping so that we don't actually process any more incoming messages, but still keep the process alive
         await this.batchConsumer?.stop()
