@@ -177,7 +177,6 @@ where
     let job_returned = !matches!(updates.state, Some(JobState::Running));
     let lock_id = updates.lock_id;
 
-    // This ugly shit is the worst thing I've even done in my life
     let mut query = QueryBuilder::new("UPDATE cyclotron_jobs SET ");
     let mut needs_comma = false;
 
