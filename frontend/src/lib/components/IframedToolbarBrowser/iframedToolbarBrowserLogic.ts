@@ -57,7 +57,8 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
         disableElementSelector: true,
         setNewActionName: (name: string | null) => ({ name }),
         toolbarMessageReceived: (type: PostHogAppToolbarEvent, payload: Record<string, any>) => ({ type, payload }),
-        setCurrentPath: (path: string, navigateIframe: boolean) => ({ path, navigateIframe }),
+        setCurrentPath: (path: string) => ({ path }),
+        setInitialPath: (path: string) => ({ path }),
     }),
 
     reducers(({ props }) => ({
@@ -101,9 +102,19 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
             },
         ],
         currentPath: [
+            // this does not have the leading / because we always need that to be a given since this value is user-editable
             '' as string,
             {
                 setCurrentPath: (_, { path }) => path,
+            },
+        ],
+        initialPath: [
+            // similar to currentPath, this also does not have the leading /
+            // this is used to set the initial browser URL if the user provides a path to navigate to
+            // we can't do this from within the iFrame with window.location.href = currentPath because we get XSS errors
+            '' as string,
+            {
+                setInitialPath: (_, { path }) => path,
             },
         ],
         loading: [
@@ -270,7 +281,7 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
                         return
                     case PostHogAppToolbarEvent.PH_TOOLBAR_NAVIGATED:
                         // remove leading / from path
-                        return actions.setCurrentPath(payload.path.replace(/^\/+/, ''), false)
+                        return actions.setCurrentPath(payload.path.replace(/^\/+/, ''))
                     default:
                         console.warn(`[PostHog Heatmaps] Received unknown child window message: ${type}`)
                 }
@@ -286,13 +297,6 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
                 actions.startTrackingLoading()
             }
         },
-
-        setCurrentPath: ({ path, navigateIframe }) => {
-            if (navigateIframe) {
-                actions.sendToolbarMessage(PostHogAppToolbarEvent.PH_NAVIGATE, { url: values.browserUrl + '/' + path })
-            }
-        },
-
         startTrackingLoading: () => {
             actions.setIframeBanner(null)
 

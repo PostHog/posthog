@@ -1,5 +1,5 @@
 import { IconArrowRight } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonInput, LemonInputSelect, LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonInput, LemonInputSelect, LemonSkeleton, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { IframedToolbarBrowser } from 'lib/components/IframedToolbarBrowser/IframedToolbarBrowser'
@@ -15,7 +15,7 @@ import { DashboardTemplateVariables } from './DashboardTemplateVariables'
 import { onboardingTemplateConfigLogic } from './onboardingTemplateConfigLogic'
 
 const UrlInput = ({ iframeRef }: { iframeRef: React.RefObject<HTMLIFrameElement> }): JSX.Element => {
-    const { setBrowserUrl, setCurrentPath } = useActions(
+    const { setBrowserUrl, setInitialPath } = useActions(
         iframedToolbarBrowserLogic({ iframeRef, clearBrowserUrlOnUnmount: true })
     )
     const { browserUrl, currentPath, currentFullUrl } = useValues(
@@ -44,7 +44,7 @@ const UrlInput = ({ iframeRef }: { iframeRef: React.RefObject<HTMLIFrameElement>
                 value={inputValue}
                 onChange={(v) => setInputValue(v)}
                 onPressEnter={() => {
-                    setCurrentPath(inputValue || '', true)
+                    setInitialPath(inputValue || '')
                 }}
                 prefix={
                     <span className="-mr-2 flex items-center">
@@ -57,7 +57,7 @@ const UrlInput = ({ iframeRef }: { iframeRef: React.RefObject<HTMLIFrameElement>
                                 onChange={(v) => {
                                     addUrl(v[0])
                                     setBrowserUrl(v[0])
-                                    setCurrentPath('', false)
+                                    setInitialPath('')
                                 }}
                                 size="xsmall"
                                 transparentBackground
@@ -73,7 +73,7 @@ const UrlInput = ({ iframeRef }: { iframeRef: React.RefObject<HTMLIFrameElement>
                 type="primary"
                 icon={<IconArrowRight />}
                 onClick={() => {
-                    setCurrentPath(inputValue || '', true)
+                    setInitialPath(inputValue || '')
                 }}
             />
             <LemonButton
@@ -88,6 +88,83 @@ const UrlInput = ({ iframeRef }: { iframeRef: React.RefObject<HTMLIFrameElement>
     )
 }
 
+export const SiteChooser = (): JSX.Element => {
+    const iframeRef = useRef<HTMLIFrameElement>(null)
+    const { snippetHosts, hasSnippetEventsLoading } = useValues(sdksLogic)
+    const { addUrl } = useActions(authorizedUrlListLogic({ actionId: null, type: AuthorizedUrlListType.TOOLBAR_URLS }))
+    const { setBrowserUrl } = useActions(iframedToolbarBrowserLogic({ iframeRef, clearBrowserUrlOnUnmount: true }))
+    const { setStepKey } = useActions(onboardingLogic)
+
+    return (
+        <>
+            <div className="absolute inset-0 bg-primary-alt-highlight z-10 rounded opacity-80 backdrop-filter backdrop-blur-md flex items-center justify-center" />
+            <div className="absolute inset-0 z-20 rounded flex items-center justify-center">
+                <LemonCard className="max-w-lg" hoverEffect={false}>
+                    <h2>Select where you want to track events from.</h2>
+                    {hasSnippetEventsLoading ? (
+                        <Spinner />
+                    ) : snippetHosts.length > 0 ? (
+                        <>
+                            <p>
+                                Not seeing the site you want? Install posthog-js or the HTML snippet wherever you want
+                                to track events, then come back here.
+                            </p>
+                            <div className="space-y-2">
+                                {snippetHosts.map((host) => (
+                                    <LemonButton
+                                        key={`snippet-host-button-${host}`}
+                                        type="tertiary"
+                                        status="default"
+                                        onClick={() => {
+                                            addUrl(host)
+                                            setBrowserUrl(host)
+                                        }}
+                                        sideIcon={<IconArrowRight />}
+                                    >
+                                        {host}
+                                    </LemonButton>
+                                ))}
+                            </div>
+                        </>
+                    ) : (
+                        <>
+                            <p className="text-muted">
+                                Hm, it looks like you haven't ingested any events from a website yet. To select actions
+                                from your site, head back to the{' '}
+                                <Link onClick={() => setStepKey(OnboardingStepKey.INSTALL)}>install step</Link> to
+                                install posthog-js in your frontend.
+                            </p>
+                            <p className="text-muted">
+                                You can still create a dashboard using custom event names, though it's not quite as fun.
+                            </p>
+                            <LemonButton onClick={() => setStepKey(OnboardingStepKey.INSTALL)} type="primary">
+                                Install posthog-js
+                            </LemonButton>
+                        </>
+                    )}
+                </LemonCard>
+            </div>
+            <div className="space-y-6 relative m-6">
+                <LemonSkeleton className="h-10 rounded-lg w-1/3" />
+                <div className="space-y-2">
+                    <LemonSkeleton repeat={5} />
+                </div>
+                <div className="space-y-2">
+                    <LemonSkeleton repeat={3} />
+                </div>
+                <LemonSkeleton className="h-6 rounded-lg w-2/3" />
+                <div className="space-y-2">
+                    <LemonSkeleton repeat={3} />
+                </div>
+                <LemonSkeleton className="h-10 rounded-lg w-2/3" />
+                <div className="space-y-2">
+                    <LemonSkeleton repeat={5} />
+                </div>
+            </div>
+        </>
+    )
+}
+
 export const OnboardingDashboardTemplateConfigureStep = ({
     stepKey = OnboardingStepKey.DASHBOARD_TEMPLATE,
 }: {
@@ -97,15 +174,12 @@ export const OnboardingDashboardTemplateConfigureStep = ({
     const { activeDashboardTemplate } = useValues(onboardingTemplateConfigLogic)
     const { createDashboardFromTemplate } = useActions(newDashboardLogic)
     const { isLoading } = useValues(newDashboardLogic)
-    const { snippetHosts } = useValues(sdksLogic)
-    const { addUrl } = useActions(authorizedUrlListLogic({ actionId: null, type: AuthorizedUrlListType.TOOLBAR_URLS }))
-    const { setBrowserUrl } = useActions(iframedToolbarBrowserLogic({ iframeRef, clearBrowserUrlOnUnmount: true }))
     const { browserUrl } = useValues(iframedToolbarBrowserLogic({ iframeRef, clearBrowserUrlOnUnmount: true }))
     const theDashboardTemplateVariablesLogic = dashboardTemplateVariablesLogic({
         variables: activeDashboardTemplate?.variables || [],
     })
     const { variables, allVariablesAreTouched, hasTouchedAnyVariable } = useValues(theDashboardTemplateVariablesLogic)
-    const { goToNextStep, setStepKey } = useActions(onboardingLogic)
+    const { goToNextStep } = useActions(onboardingLogic)
 
     const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -131,76 +205,7 @@ export const OnboardingDashboardTemplateConfigureStep = ({
                                     </div>
                                 </div>
                             ) : (
-                                <>
-                                    <div className="absolute inset-0 bg-primary-alt-highlight z-10 rounded opacity-80 backdrop-filter backdrop-blur-md flex items-center justify-center" />
-                                    <div className="absolute inset-0 z-20 rounded flex items-center justify-center">
-                                        <LemonCard className="max-w-lg" hoverEffect={false}>
-                                            <h2>Select where you want to track events from.</h2>
-                                            {snippetHosts.length > 0 ? (
-                                                <>
-                                                    <p>
-                                                        Not seeing the site you want? Install posthog-js or the HTML
-                                                        snippet wherever you want to track events, then come back here.
-                                                    </p>
-                                                    <div className="space-y-2">
-                                                        {snippetHosts.map((host) => (
-                                                            <LemonButton
-                                                                key={`snippet-host-button-${host}`}
-                                                                type="tertiary"
-                                                                status="default"
-                                                                onClick={() => {
-                                                                    addUrl(host)
-                                                                    setBrowserUrl(host)
-                                                                }}
-                                                                sideIcon={<IconArrowRight />}
-                                                            >
-                                                                {host}
-                                                            </LemonButton>
-                                                        ))}
-                                                    </div>
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <p className="text-muted">
-                                                        Hm, it looks like you haven't ingested any events from a website
-                                                        yet. To select actions from your site, head back to the{' '}
-                                                        <Link onClick={() => setStepKey(OnboardingStepKey.INSTALL)}>
-                                                            install step
-                                                        </Link>{' '}
-                                                        to install posthog-js in your frontend.
-                                                    </p>
-                                                    <p className="text-muted">
-                                                        You can still create a dashboard using custom event names,
-                                                        though it's not quite as fun.
-                                                    </p>
-                                                    <LemonButton
-                                                        onClick={() => setStepKey(OnboardingStepKey.INSTALL)}
-                                                        type="primary"
-                                                    >
-                                                        Install posthog-js
-                                                    </LemonButton>
-                                                </>
-                                            )}
-                                        </LemonCard>
-                                    </div>
-                                    <div className="space-y-6 relative m-6">
-                                        <LemonSkeleton className="h-10 rounded-lg w-1/3" />
-                                        <div className="space-y-2">
-                                            <LemonSkeleton repeat={5} />
-                                        </div>
-                                        <div className="space-y-2">
-                                            <LemonSkeleton repeat={3} />
-                                        </div>
-                                        <LemonSkeleton className="h-6 rounded-lg w-2/3" />
-                                        <div className="space-y-2">
-                                            <LemonSkeleton repeat={3} />
-                                        </div>
-                                        <LemonSkeleton className="h-10 rounded-lg w-2/3" />
-                                        <div className="space-y-2">
-                                            <LemonSkeleton repeat={5} />
-                                        </div>
-                                    </div>
-                                </>
+                                <SiteChooser />
                             )}
                         </div>
                         <div className="col-span-2">

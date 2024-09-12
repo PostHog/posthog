@@ -489,11 +489,6 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 case PostHogAppToolbarEvent.PH_NEW_ACTION_NAME:
                     actions.setAutomaticActionCreationEnabled(true, e.data.payload.name)
                     return
-                case PostHogAppToolbarEvent.PH_NAVIGATE:
-                    if (window.location.href !== e.data.payload.url) {
-                        window.location.href = e.data.payload.url
-                    }
-                    return
                 default:
                     console.warn(`[PostHog Toolbar] Received unknown parent window message: ${type}`)
             }
