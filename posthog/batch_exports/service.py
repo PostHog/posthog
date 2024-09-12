@@ -306,7 +306,7 @@ async def apause_batch_export(temporal: Client, batch_export_id: str, note: str 
 
 def unpause_batch_export(
     temporal: Client,
-    batch_export_id: str,
+    batch_export: BatchExport | str,
     note: str | None = None,
     backfill: bool = False,
 ) -> None:
@@ -324,13 +324,16 @@ def unpause_batch_export(
     Raises:
         BatchExportIdError: If the provided batch_export_id doesn't point to an existing BatchExport.
     """
-    try:
-        batch_export = BatchExport.objects.get(id=batch_export_id)
-    except BatchExport.DoesNotExist:
-        raise BatchExportIdError(batch_export_id)
+    if isinstance(batch_export, str):
+        try:
+            batch_export = BatchExport.objects.get(id=batch_export)
+        except BatchExport.DoesNotExist:
+            raise BatchExportIdError(batch_export)
 
     if batch_export.paused is False:
         return
+
+    batch_export_id = str(batch_export.id)
 
     try:
         unpause_schedule(temporal, schedule_id=batch_export_id, note=note)

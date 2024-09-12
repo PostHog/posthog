@@ -443,7 +443,7 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
         temporal = sync_connect()
 
         try:
-            unpause_batch_export(temporal, str(batch_export.id), note=note, backfill=backfill)
+            unpause_batch_export(temporal, batch_export, note=note, backfill=backfill)
         except BatchExportIdError:
             raise NotFound(f"BatchExport ID '{str(batch_export.id)}' not found.")
         except BatchExportServiceRPCError:
