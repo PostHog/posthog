@@ -80,7 +80,9 @@ class UserManager(BaseUserManager):
             if create_team:
                 team = create_team(organization, user)
             else:
-                team = Team.objects.create_with_data(user=user, organization=organization, **(team_fields or {}))
+                team = Team.objects.create_with_data(
+                    initiating_user=user, organization=organization, **(team_fields or {})
+                )
             user.join(organization=organization, level=OrganizationMembership.Level.OWNER)
             return organization, team, user
 

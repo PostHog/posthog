@@ -10670,6 +10670,16 @@
             },
             "type": "object"
         },
+        "WebAnalyticsConversionGoal": {
+            "additionalProperties": false,
+            "properties": {
+                "actionId": {
+                    "type": "integer"
+                }
+            },
+            "required": ["actionId"],
+            "type": "object"
+        },
         "WebAnalyticsPropertyFilter": {
             "anyOf": [
                 {
@@ -10692,6 +10702,16 @@
         "WebExternalClicksTableQuery": {
             "additionalProperties": false,
             "properties": {
+                "conversionGoal": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/WebAnalyticsConversionGoal"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
@@ -10795,6 +10815,16 @@
         "WebGoalsQuery": {
             "additionalProperties": false,
             "properties": {
+                "conversionGoal": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/WebAnalyticsConversionGoal"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
@@ -10924,6 +10954,16 @@
                 "compare": {
                     "type": "boolean"
                 },
+                "conversionGoal": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/WebAnalyticsConversionGoal"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
@@ -11038,6 +11078,16 @@
                 "breakdownBy": {
                     "$ref": "#/definitions/WebStatsBreakdown"
                 },
+                "conversionGoal": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/WebAnalyticsConversionGoal"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
@@ -11147,6 +11197,16 @@
         "WebTopClicksQuery": {
             "additionalProperties": false,
             "properties": {
+                "conversionGoal": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/WebAnalyticsConversionGoal"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },

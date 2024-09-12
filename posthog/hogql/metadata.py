@@ -42,12 +42,11 @@ def get_hogql_metadata(
         if query.language == HogLanguage.HOG:
             program = parse_program(query.query)
             create_bytecode(program, supported_functions={"fetch", "posthogCapture"}, args=[], context=context)
-        elif query.language == HogLanguage.HOG_QL_EXPR or query.language == HogLanguage.HOG_TEMPLATE:
-            node: ast.Expr
-            if query.language == HogLanguage.HOG_TEMPLATE:
-                node = parse_string_template(query.query)
-            else:
-                node = parse_expr(query.query)
+        elif query.language == HogLanguage.HOG_TEMPLATE:
+            string = parse_string_template(query.query)
+            create_bytecode(string, supported_functions={"fetch", "posthogCapture"}, args=[], context=context)
+        elif query.language == HogLanguage.HOG_QL_EXPR:
+            node = parse_expr(query.query)
             if query.sourceQuery is not None:
                 source_query = get_query_runner(query=query.sourceQuery, team=team).to_query()
                 process_expr_on_table(node, context=context, source_query=source_query)

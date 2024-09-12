@@ -170,7 +170,12 @@ class RetentionQueryRunner(QueryRunner):
                 {
                     "target_timestamps": target_timestamps,
                     "min_timestamp": self.query_date_range.date_to_start_of_interval_hogql(
-                        parse_expr("min(events.timestamp)")
+                        parse_expr(
+                            "minIf(events.timestamp, {target_entity_expr})",
+                            {
+                                "target_entity_expr": target_entity_expr,
+                            },
+                        )
                     ),
                 },
             )
