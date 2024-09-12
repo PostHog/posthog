@@ -283,9 +283,8 @@ jobs:
                   ./bin/ci_functional_tests.sh
 
             - name: Upload coverage report
-              if: needs.changes.outputs.plugin-server == 'true'
               uses: actions/upload-artifact@v3
-              if: always()
+              if: needs.changes.outputs.plugin-server == 'true'
               with:
                   name: functional-coverage
                   if-no-files-found: warn
