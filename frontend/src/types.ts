@@ -1819,7 +1819,7 @@ export interface DashboardTemplateVariableType {
     name: string
     description: string
     type: 'event'
-    default: Record<string, JsonType>
+    default: TemplateVariableStep
     required: boolean
     touched?: boolean
     selector?: string
@@ -2157,14 +2157,16 @@ export interface FilterType {
 }
 
 export interface TemplateVariableStep {
-    id: string
-    math: BaseMathType
-    name: string | null
-    order: number
-    type: EntityTypes
+    id?: string
+    math?: BaseMathType
+    name?: string | null
+    order?: number
+    type?: EntityTypes
+    event?: string
     selector?: string | null
     href?: string | null
     url?: string | null
+    properties?: Record<string, any>[]
 }
 
 export interface PropertiesTimelineFilterType {
@@ -2297,10 +2299,10 @@ export interface RetentionFilterType extends FilterType {
     returning_entity?: RetentionEntity
     target_entity?: RetentionEntity
     period?: RetentionPeriod
+    cumulative?: boolean
 
     //frontend only
     show_mean?: boolean
-    cumulative?: boolean
 }
 export interface LifecycleFilterType extends FilterType {
     /** @deprecated */
