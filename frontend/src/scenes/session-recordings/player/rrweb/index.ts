@@ -1,3 +1,4 @@
+import { eventWithTime } from 'rrweb'
 import { playerConfig, ReplayPlugin } from 'rrweb/typings/types'
 
 export const PLACEHOLDER_SVG_DATA_IMAGE_URL =
@@ -64,6 +65,18 @@ export const CorsPlugin: ReplayPlugin & {
             scriptElement.src = CorsPlugin._replaceJSUrl(scriptElement.src)
         }
     },
+}
+
+export const WindowTitlePlugin: ReplayPlugin = (cb: Record<string, string>) => {
+    return {
+        handler: async (e: eventWithTime) => {
+            const windowTitle = getTitle(e)
+
+            if (windowTitle) {
+                cb(e.data.window_id, windowTitle)
+            }
+        },
+    }
 }
 
 const defaultStyleRules = `.ph-no-capture { background-image: ${PLACEHOLDER_SVG_DATA_IMAGE_URL} }`
