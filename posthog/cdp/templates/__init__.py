@@ -1,6 +1,7 @@
 from .webhook.template_webhook import template as webhook
 from .slack.template_slack import template as slack
 from .hubspot.template_hubspot import template as hubspot
+from .braze.template_braze import template as braze
 from .customerio.template_customerio import template as customerio, TemplateCustomerioMigrator
 from .intercom.template_intercom import template as intercom, TemplateIntercomMigrator
 from .sendgrid.template_sendgrid import template as sendgrid, TemplateSendGridMigrator
@@ -20,6 +21,11 @@ from .rudderstack.template_rudderstack import template as rudderstack
 from .gleap.template_gleap import template as gleap
 from .google_pubsub.template_google_pubsub import template as google_pubsub, TemplateGooglePubSubMigrator
 from .engage.template_engage import template as engage
+from .zendesk.template_zendesk import template as zendesk
+from .google_cloud_storage.template_google_cloud_storage import (
+    template as google_cloud_storage,
+    TemplateGoogleCloudStorageMigrator,
+)
 
 
 HOG_FUNCTION_TEMPLATES = [
@@ -44,6 +50,9 @@ HOG_FUNCTION_TEMPLATES = [
     gleap,
     google_pubsub,
     engage,
+    zendesk,
+    google_cloud_storage,
+    braze,
 ]
 
 
@@ -54,6 +63,7 @@ HOG_FUNCTION_MIGRATORS = {
     TemplateIntercomMigrator.plugin_url: TemplateIntercomMigrator,
     TemplateSendGridMigrator.plugin_url: TemplateSendGridMigrator,
     TemplateGooglePubSubMigrator.plugin_url: TemplateGooglePubSubMigrator,
+    TemplateGoogleCloudStorageMigrator.plugin_url: TemplateGoogleCloudStorageMigrator,
 }
 
 __all__ = ["HOG_FUNCTION_TEMPLATES", "HOG_FUNCTION_TEMPLATES_BY_ID"]
