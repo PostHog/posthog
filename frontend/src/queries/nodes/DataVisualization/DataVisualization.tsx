@@ -25,7 +25,6 @@ import { Reload } from '../DataNode/Reload'
 import { QueryFeature } from '../DataTable/queryFeatures'
 import { HogQLQueryEditor } from '../HogQLQuery/HogQLQueryEditor'
 import { LineGraph } from './Components/Charts/LineGraph'
-import { conditionalFormattingLogic } from './Components/conditionalFormattingLogic'
 import { SideBar } from './Components/SideBar'
 import { Table } from './Components/Table'
 import { TableDisplay } from './Components/TableDisplay'
@@ -82,16 +81,14 @@ export function DataTableVisualization({
         <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
             <BindLogic logic={dataVisualizationLogic} props={dataVisualizationLogicProps}>
                 <BindLogic logic={displayLogic} props={{ key: dataVisualizationLogicProps.key }}>
-                    <BindLogic logic={conditionalFormattingLogic} props={{ key: dataVisualizationLogicProps.key }}>
-                        <InternalDataTableVisualization
-                            uniqueKey={key}
-                            query={query}
-                            setQuery={setQuery}
-                            context={context}
-                            cachedResults={cachedResults}
-                            readOnly={readOnly}
-                        />
-                    </BindLogic>
+                    <InternalDataTableVisualization
+                        uniqueKey={key}
+                        query={query}
+                        setQuery={setQuery}
+                        context={context}
+                        cachedResults={cachedResults}
+                        readOnly={readOnly}
+                    />
                 </BindLogic>
             </BindLogic>
         </BindLogic>

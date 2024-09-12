@@ -6,7 +6,7 @@ import { useActions, useValues } from 'kea'
 import { ChartDisplayType } from '~/types'
 
 import { dataVisualizationLogic, SideBarTab } from '../dataVisualizationLogic'
-import { ConditionalFormattingTab } from './ConditionalFormattingTab'
+import { ConditionalFormattingTab } from './ConditionalFormatting/ConditionalFormattingTab'
 import { DisplayTab } from './DisplayTab'
 import { SeriesTab } from './SeriesTab'
 

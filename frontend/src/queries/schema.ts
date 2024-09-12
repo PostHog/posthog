@@ -632,14 +632,18 @@ export interface ChartSettings {
     stackBars100?: boolean
 }
 
-export interface ConditionalFormatting {
+export interface ConditionalFormattingRule {
+    id: string
+    templateId: string
     columnName: string
     bytecode: any[]
+    input: string
+    color: string
 }
 
 export interface TableSettings {
     columns?: ChartAxis[]
-    conditionalFormatting?: ConditionalFormatting[]
+    conditionalFormatting?: ConditionalFormattingRule[]
 }
 
 export interface DataVisualizationNode extends Node<never> {

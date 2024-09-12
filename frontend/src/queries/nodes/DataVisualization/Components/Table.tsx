@@ -8,7 +8,7 @@ import { QueryContext } from '~/queries/types'
 
 import { LoadNext } from '../../DataNode/LoadNext'
 import { renderColumn } from '../../DataTable/renderColumn'
-import { dataVisualizationLogic } from '../dataVisualizationLogic'
+import { convertTableValue, dataVisualizationLogic, TableDataCell } from '../dataVisualizationLogic'
 
 interface TableProps {
     query: DataVisualizationNode
@@ -21,37 +21,53 @@ export const Table = (props: TableProps): JSX.Element => {
     const {
         tabularData,
         tabularColumns,
-        conditionalFormatting,
+        conditionalFormattingRules,
         responseLoading,
         responseError,
         queryCancelled,
         response,
     } = useValues(dataVisualizationLogic)
 
-    console.log({ conditionalFormatting })
-
-    const tableColumns: LemonTableColumn<any[], any>[] = tabularColumns.map(({ column, settings }, index) => ({
-        title: settings?.display?.label || column.name,
-        render: (_, data, recordIndex: number) => {
-            const cf = conditionalFormatting.map((n) => {
-                const res = execHog(n.bytecode, {
-                    globals: {
-                        value: data[index],
-                    },
-                    functions: {},
-                    maxAsyncSteps: 0,
+    const tableColumns: LemonTableColumn<TableDataCell<any>[], any>[] = tabularColumns.map(
+        ({ column, settings }, index) => ({
+            title: settings?.display?.label || column.name,
+            render: (_, data, recordIndex: number) => {
+                return renderColumn(column.name, data[index].formattedValue, data, recordIndex, {
+                    kind: NodeKind.DataTableNode,
+                    source: props.query.source,
                 })
-                return res.result
-            })
+            },
+            style: (_, data) => {
+                const cf = conditionalFormattingRules
+                    .filter((n) => n.columnName === column.name)
+                    .map((n) => {
+                        const res = execHog(n.bytecode, {
+                            globals: {
+                                value: data[index].value,
+                                input: convertTableValue(n.input, column.type.name),
+                            },
+                            functions: {},
+                            maxAsyncSteps: 0,
+                        })
 
-            console.log(cf)
+                        return {
+                            rule: n,
+                            result: res.result,
+                        }
+                    })
 
-            return renderColumn(column.name, data[index], data, recordIndex, {
-                kind: NodeKind.DataTableNode,
-                source: props.query.source,
-            })
-        },
-    }))
+                const conditionalFormattingMatches = cf.find((n) => Boolean(n.result))
+
+                if (conditionalFormattingMatches) {
+                    return {
+                        backgroundColor: conditionalFormattingMatches.rule.color,
+                    }
+                }
+
+                return undefined
+            },
+        })
+    )
 
     return (
         <div className="relative w-full flex flex-col gap-4 flex-1 h-full">

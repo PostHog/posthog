@@ -1,5 +1,7 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
+import { dayjs } from 'lib/dayjs'
+import { uuid } from 'lib/utils'
 import mergeObject from 'lodash.merge'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -11,7 +13,7 @@ import {
     ChartSettings,
     ChartSettingsDisplay,
     ChartSettingsFormatting,
-    ConditionalFormatting,
+    ConditionalFormattingRule,
     DataVisualizationNode,
 } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
@@ -20,6 +22,7 @@ import { ChartDisplayType, InsightLogicProps, ItemMode } from '~/types'
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { getQueryFeatures, QueryFeature } from '../DataTable/queryFeatures'
 import type { dataVisualizationLogicType } from './dataVisualizationLogicType'
+import { ColumnScalar, FORMATTING_TEMPLATES } from './types'
 
 export enum SideBarTab {
     Series = 'series',
@@ -28,7 +31,7 @@ export enum SideBarTab {
 }
 
 export interface ColumnType {
-    name: string
+    name: ColumnScalar
     isNumerical: boolean
 }
 
@@ -37,6 +40,12 @@ export interface Column {
     type: ColumnType
     label: string
     dataIndex: number
+}
+
+export interface TableDataCell<T extends string | number | boolean | Date | null> {
+    value: T
+    formattedValue: string | object | null
+    type: ColumnScalar
 }
 
 export interface AxisSeriesSettings {
@@ -68,7 +77,7 @@ export const EmptyYAxisSeries: AxisSeries<number> = {
     column: {
         name: 'None',
         type: {
-            name: 'None',
+            name: 'INTEGER',
             isNumerical: false,
         },
         label: 'None',
@@ -84,7 +93,10 @@ const DefaultAxisSettings = (): AxisSeriesSettings => ({
     },
 })
 
-export const formatDataWithSettings = (data: number | string | null | object, settings?: AxisSeriesSettings): any => {
+export const formatDataWithSettings = (
+    data: number | string | null | object,
+    settings?: AxisSeriesSettings
+): string | object | null => {
     if (data === null || Number.isNaN(data)) {
         return null
     }
@@ -120,7 +132,46 @@ export const formatDataWithSettings = (data: number | string | null | object, se
     return dataAsString
 }
 
-const toFriendlyClickhouseTypeName = (type: string): string => {
+export const convertTableValue = (
+    value: string | number | null,
+    type: ColumnScalar
+): string | number | boolean | null => {
+    if (value == null) {
+        return null
+    }
+
+    if (type === 'STRING') {
+        return value.toString()
+    }
+
+    if (type === 'INTEGER') {
+        if (typeof value === 'number') {
+            return value
+        }
+
+        return parseInt(value)
+    }
+
+    if (type === 'FLOAT' || type === 'DECIMAL') {
+        if (typeof value === 'number') {
+            return value
+        }
+
+        return parseFloat(value)
+    }
+
+    if (type === 'BOOLEAN') {
+        return Boolean(value)
+    }
+
+    if (type === 'DATE' || type === 'DATETIME') {
+        return dayjs(value).unix()
+    }
+
+    return value
+}
+
+const toFriendlyClickhouseTypeName = (type: string): ColumnScalar => {
     if (type.indexOf('Int') !== -1) {
         return 'INTEGER'
     }
@@ -143,7 +194,7 @@ const toFriendlyClickhouseTypeName = (type: string): string => {
         return 'STRING'
     }
 
-    return type
+    return type as ColumnScalar
 }
 
 const isNumericalType = (type: string): boolean => {
@@ -201,6 +252,12 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         updateChartSettings: (settings: ChartSettings) => ({ settings }),
         setSideBarTab: (tab: SideBarTab) => ({ tab }),
         toggleChartSettingsPanel: (open?: boolean) => ({ open }),
+        addConditionalFormattingRule: (rule?: ConditionalFormattingRule) => rule ?? { id: uuid() },
+        updateConditionalFormattingRule: (rule: ConditionalFormattingRule, deleteRule?: boolean) => ({
+            rule,
+            deleteRule,
+        }),
+        setConditionalFormattingRulesPanelActiveKeys: (keys: string[]) => ({ keys }),
     })),
     reducers(({ props }) => ({
         visualizationType: [
@@ -395,6 +452,52 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 },
             },
         ],
+        conditionalFormattingRules: [
+            [] as ConditionalFormattingRule[],
+            {
+                addConditionalFormattingRule: (state, rule) => {
+                    const rules = [...state]
+
+                    rules.push({
+                        templateId: FORMATTING_TEMPLATES[0].id,
+                        columnName: '',
+                        bytecode: [],
+                        input: '',
+                        color: '#FFADAD',
+                        ...rule,
+                    })
+
+                    return rules
+                },
+                updateConditionalFormattingRule: (state, { rule, deleteRule }) => {
+                    const rules = [...state]
+
+                    const index = rules.findIndex((n) => n.id === rule.id)
+                    if (index === -1) {
+                        return rules
+                    }
+
+                    if (deleteRule) {
+                        rules.splice(index, 1)
+                        return rules
+                    }
+
+                    rules[index] = { ...rule }
+                    return rules
+                },
+            },
+        ],
+        conditionalFormattingRulesPanelActiveKeys: [
+            [] as string[],
+            {
+                addConditionalFormattingRule: (state, { id }) => {
+                    return [...state, id]
+                },
+                setConditionalFormattingRulesPanelActiveKeys: (_, { keys }) => {
+                    return [...keys]
+                },
+            },
+        ],
     })),
     selectors({
         columns: [
@@ -515,7 +618,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                         column: {
                             name: 'None',
                             type: {
-                                name: 'None',
+                                name: 'STRING',
                                 isNumerical: false,
                             },
                             label: 'None',
@@ -540,17 +643,21 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         ],
         tabularData: [
             (state) => [state.tabularColumns, state.response],
-            (tabularColumns, response): any[][] => {
+            (tabularColumns, response): TableDataCell<any>[][] => {
                 if (!response || tabularColumns === null) {
                     return []
                 }
 
-                const data: any[] = response?.['results'] ?? response?.['result'] ?? []
+                const data: (string | number | null)[][] = response?.['results'] ?? response?.['result'] ?? []
 
-                return data.map((row: any[]) => {
-                    return tabularColumns.map((column) => {
+                return data.map((row): TableDataCell<any>[] => {
+                    return tabularColumns.map((column): TableDataCell<any> => {
                         if (!column) {
-                            return null
+                            return {
+                                value: null,
+                                formattedValue: null,
+                                type: 'STRING',
+                            }
                         }
 
                         const value = row[column.column.dataIndex]
@@ -558,33 +665,55 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                         if (column.column.type.isNumerical) {
                             try {
                                 if (value === null) {
-                                    return value
+                                    return {
+                                        value: null,
+                                        formattedValue: null,
+                                        type: column.column.type.name,
+                                    }
                                 }
 
                                 const multiplier = column.settings?.formatting?.style === 'percent' ? 100 : 1
 
                                 if (column.settings?.formatting?.decimalPlaces) {
-                                    return formatDataWithSettings(
-                                        parseFloat(
-                                            (parseFloat(value) * multiplier).toFixed(
-                                                column.settings.formatting.decimalPlaces
-                                            )
+                                    return {
+                                        value,
+                                        formattedValue: formatDataWithSettings(
+                                            parseFloat(
+                                                (parseFloat(value.toString()) * multiplier).toFixed(
+                                                    column.settings.formatting.decimalPlaces
+                                                )
+                                            ),
+                                            column.settings
                                         ),
-                                        column.settings
-                                    )
+                                        type: column.column.type.name,
+                                    }
                                 }
 
                                 const isInt = Number.isInteger(value)
-                                return formatDataWithSettings(
-                                    isInt ? parseInt(value, 10) * multiplier : parseFloat(value) * multiplier,
-                                    column.settings
-                                )
+                                return {
+                                    value,
+                                    formattedValue: formatDataWithSettings(
+                                        isInt
+                                            ? parseInt(value.toString(), 10) * multiplier
+                                            : parseFloat(value.toString()) * multiplier,
+                                        column.settings
+                                    ),
+                                    type: column.column.type.name,
+                                }
                             } catch {
-                                return 0
+                                return {
+                                    value: 0,
+                                    formattedValue: '0',
+                                    type: column.column.type.name,
+                                }
                             }
                         }
 
-                        return formatDataWithSettings(value, column.settings)
+                        return {
+                            value: convertTableValue(value, column.column.type.name),
+                            formattedValue: formatDataWithSettings(value, column.settings),
+                            type: column.column.type.name,
+                        }
                     })
                 })
             },
@@ -617,12 +746,6 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             (visualizationType): boolean =>
                 visualizationType === ChartDisplayType.ActionsTable ||
                 visualizationType === ChartDisplayType.BoldNumber,
-        ],
-        conditionalFormatting: [
-            (state) => [state.query],
-            (query): ConditionalFormatting[] => {
-                return query.tableSettings?.conditionalFormatting ?? []
-            },
         ],
     }),
     listeners(({ props, actions }) => ({
@@ -669,6 +792,13 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     actions.addSeries(column.column, column.settings)
                 })
             }
+        }
+
+        if (props.query.tableSettings?.conditionalFormatting?.length) {
+            props.query.tableSettings.conditionalFormatting.forEach((rule) => {
+                actions.addConditionalFormattingRule(rule)
+            })
+            actions.setConditionalFormattingRulesPanelActiveKeys([])
         }
     }),
     subscriptions(({ props, actions, values }) => ({
@@ -771,6 +901,17 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 tableSettings: {
                     ...(props.query.tableSettings ?? {}),
                     columns: columns.map((n) => ({ column: n.name, settings: n.settings })),
+                },
+            })
+        },
+        conditionalFormattingRules: (rules: ConditionalFormattingRule[]) => {
+            const saveableRules = rules.filter((n) => n.columnName && n.input && n.templateId && n.bytecode.length)
+
+            actions.setQuery({
+                ...props.query,
+                tableSettings: {
+                    ...(props.query.tableSettings ?? {}),
+                    conditionalFormatting: saveableRules,
                 },
             })
         },

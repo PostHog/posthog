@@ -264,12 +264,16 @@ class CompareFilter(BaseModel):
     compare_to: Optional[str] = None
 
 
-class ConditionalFormatting(BaseModel):
+class ConditionalFormattingRule(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     bytecode: list
+    color: str
     columnName: str
+    id: str
+    input: str
+    templateId: str
 
 
 class CountPerActorMathType(StrEnum):
@@ -3574,7 +3578,7 @@ class TableSettings(BaseModel):
         extra="forbid",
     )
     columns: Optional[list[ChartAxis]] = None
-    conditionalFormatting: Optional[list[ConditionalFormatting]] = None
+    conditionalFormatting: Optional[list[ConditionalFormattingRule]] = None
 
 
 class WebGoalsQuery(BaseModel):
