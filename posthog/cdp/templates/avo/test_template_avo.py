@@ -1,6 +1,8 @@
 from inline_snapshot import snapshot
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-from posthog.cdp.templates.avo.template_avo import template as template_avo
+from posthog.cdp.templates.avo.template_avo import template as template_avo, TemplateAvoMigrator
+from posthog.models import PluginConfig
+from posthog.test.base import BaseTest
 
 
 class TestTemplateAvo(BaseHogFunctionTemplateTest):
@@ -138,3 +140,71 @@ class TestTemplateAvo(BaseHogFunctionTemplateTest):
 
             res = self.get_mock_fetch_calls()[0][1]["body"][0]["eventProperties"]
             assert [item["propertyName"] for item in res] == expected_result
+
+
+class TestTemplateMigration(BaseTest):
+    def get_plugin_config(self, config: dict):
+        _config = {
+            "avoApiKey": "1234567890",
+            "environment": "dev",
+            "appName": "PostHog",
+        }
+        _config.update(config)
+        return PluginConfig(enabled=True, order=0, config=_config)
+
+    def test_default_config(self):
+        obj = self.get_plugin_config({})
+        template = TemplateAvoMigrator.migrate(obj)
+        assert template["inputs"] == snapshot(
+            {
+                "apiKey": {"value": "1234567890"},
+                "environment": {"value": "dev"},
+                "appName": {"value": "PostHog"},
+                "excludeProperties": {"value": ""},
+                "includeProperties": {"value": ""},
+            }
+        )
+        assert template["filters"] == {"events": []}
+
+    def test_include_events(self):
+        obj = self.get_plugin_config({"includeEvents": "sign up,page view"})
+        template = TemplateAvoMigrator.migrate(obj)
+        assert template["inputs"] == snapshot(
+            {
+                "apiKey": {"value": "1234567890"},
+                "environment": {"value": "dev"},
+                "appName": {"value": "PostHog"},
+                "excludeProperties": {"value": ""},
+                "includeProperties": {"value": ""},
+            }
+        )
+        assert template["filters"] == {
+            "events": [
+                {"id": "sign up", "name": "sign up", "type": "events", "order": 0},
+                {"id": "page view", "name": "page view", "type": "events", "order": 0},
+            ]
+        }
+
+    def test_exclude_events(self):
+        obj = self.get_plugin_config({"excludeEvents": "sign up,page view"})
+        template = TemplateAvoMigrator.migrate(obj)
+        assert template["inputs"] == snapshot(
+            {
+                "apiKey": {"value": "1234567890"},
+                "environment": {"value": "dev"},
+                "appName": {"value": "PostHog"},
+                "excludeProperties": {"value": ""},
+                "includeProperties": {"value": ""},
+            }
+        )
+        assert template["filters"] == {
+            "events": [
+                {
+                    "id": "All events",
+                    "name": "All events",
+                    "type": "events",
+                    "order": 0,
+                    "properties": [{"key": "event not in ('sign up', 'page view')", "type": "hogql"}],
+                },
+            ]
+        }
