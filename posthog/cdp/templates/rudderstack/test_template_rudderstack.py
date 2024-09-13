@@ -1,6 +1,12 @@
 from inline_snapshot import snapshot
+
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-from posthog.cdp.templates.rudderstack.template_rudderstack import template as template_rudderstack
+from posthog.models import PluginConfig
+from posthog.test.base import BaseTest
+from posthog.cdp.templates.rudderstack.template_rudderstack import (
+    template as template_rudderstack,
+    TemplateRudderstackMigrator,
+)
 
 
 class TestTemplateRudderstack(BaseHogFunctionTemplateTest):
@@ -105,3 +111,25 @@ class TestTemplateRudderstack(BaseHogFunctionTemplateTest):
             )
 
             assert self.get_mock_fetch_calls()[0][1]["body"]["batch"][0]["type"] == expected_action
+
+
+class TestTemplateMigration(BaseTest):
+    def get_plugin_config(self, config: dict):
+        _config = {
+            "dataPlaneUrl": "us.i.example.com",
+            "writeKey": "ignored",
+        }
+        _config.update(config)
+        return PluginConfig(enabled=True, order=0, config=_config)
+
+    def test_default_config(self):
+        obj = self.get_plugin_config({})
+        template = TemplateRudderstackMigrator.migrate(obj)
+        assert template["inputs"] == snapshot(
+            {
+                "host": {"value": "us.i.example.com"},
+                "token": {"value": "ignored"},
+                "identifier": {"value": "{event.properties.$user_id ?? event.distinct_id ?? person.uuid}"},
+            }
+        )
+        assert template["filters"] == {}

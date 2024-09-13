@@ -95,7 +95,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
         team_id,
         distinct_id,
         feature_flags_from_cache_or_pg,
-        Some(state.postgres.clone()),
+        state.postgres.clone(),
         person_property_overrides,
         group_property_overrides,
         groups,
@@ -185,12 +185,15 @@ fn decode_request(headers: &HeaderMap, body: Bytes) -> Result<FlagRequest, FlagE
 
 /// Evaluate feature flags for a given distinct_id
 /// - Returns a map of feature flag keys to their values
-/// - If an error occurs while evaluating a flag, it will be logged and the flag will be omitted from the result
+/// - If an error occurs while evaluating a flag, we'll set `error_while_computing_flags` to true be logged,
+///  and that flag will be omitted from the result (we will still attempt to evaluate other flags)
+// TODO: it could be a cool idea to store the errors as a tuple instead of top-level, so that users can see
+// which flags failed to evaluate
 pub async fn evaluate_feature_flags(
     team_id: i32,
     distinct_id: String,
     feature_flags_from_cache_or_pg: FeatureFlagList,
-    database_client: Option<Arc<dyn Client + Send + Sync>>,
+    database_client: Arc<dyn Client + Send + Sync>,
     person_property_overrides: Option<HashMap<String, Value>>,
     group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
     groups: Option<HashMap<String, Value>>,
@@ -213,6 +216,9 @@ pub async fn evaluate_feature_flags(
         .await
 }
 
+// TODO: Make sure this protects against zip bombs, etc.  `/capture` does this
+// and it's a good idea to do that here as well, probably worth extracting that method into
+// /common given that it's used in multiple places
 fn decompress_gzip(compressed: Bytes) -> Result<Bytes, FlagError> {
     let mut decoder = GzDecoder::new(&compressed[..]);
     let mut decompressed = Vec::new();
@@ -366,7 +372,7 @@ mod tests {
             1,
             "user123".to_string(),
             feature_flag_list,
-            Some(pg_client),
+            pg_client,
             Some(person_properties),
             None,
             None,
@@ -523,7 +529,7 @@ mod tests {
             1,
             "user123".to_string(),
             feature_flag_list,
-            Some(pg_client),
+            pg_client,
             None,
             None,
             None,
@@ -619,7 +625,7 @@ mod tests {
             team.id,
             "user123".to_string(),
             feature_flag_list,
-            Some(pg_client),
+            pg_client,
             None,
             Some(group_property_overrides),
             Some(groups),
@@ -674,16 +680,9 @@ mod tests {
 
         let feature_flag_list = FeatureFlagList { flags: vec![flag] };
 
-        let result = evaluate_feature_flags(
-            1,
-            long_id,
-            feature_flag_list,
-            Some(pg_client),
-            None,
-            None,
-            None,
-        )
-        .await;
+        let result =
+            evaluate_feature_flags(1, long_id, feature_flag_list, pg_client, None, None, None)
+                .await;
 
         assert!(!result.error_while_computing_flags);
         assert_eq!(result.feature_flags["test_flag"], FlagValue::Boolean(true));
