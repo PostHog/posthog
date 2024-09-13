@@ -184,7 +184,6 @@ export const teamLogic = kea<teamLogicType>([
                     PropertyOperator.IContains,
                     PropertyOperator.Regex,
                     PropertyOperator.IsSet,
-                    PropertyOperator.In,
                 ]
                 const positiveFilters = []
                 for (const filter of currentTeam.test_account_filters || []) {
@@ -205,7 +204,7 @@ export const teamLogic = kea<teamLogicType>([
                             getFilterLabel(
                                 filter.key,
                                 PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[filter.type]
-                            ) || fallback
+                            ) || filter.key
                         )
                     }
                     return filter.key
