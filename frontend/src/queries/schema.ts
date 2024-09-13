@@ -74,7 +74,6 @@ export enum NodeKind {
     RecordingsQuery = 'RecordingsQuery',
     SessionAttributionExplorerQuery = 'SessionAttributionExplorerQuery',
     ErrorTrackingQuery = 'ErrorTrackingQuery',
-    ExperimentResultQuery = 'ExperimentResultQuery',
 
     // Interface nodes
     DataTableNode = 'DataTableNode',
@@ -98,6 +97,10 @@ export enum NodeKind {
     WebStatsTableQuery = 'WebStatsTableQuery',
     WebExternalClicksTableQuery = 'WebExternalClicksTableQuery',
     WebGoalsQuery = 'WebGoalsQuery',
+
+    // Experiment queries
+    ExperimentFunnelQuery = 'ExperimentFunnelQuery',
+    ExperimentTrendQuery = 'ExperimentTrendQuery',
 
     // Database metadata
     DatabaseSchemaQuery = 'DatabaseSchemaQuery',
@@ -123,7 +126,8 @@ export type AnyDataNode =
     | WebGoalsQuery
     | SessionAttributionExplorerQuery
     | ErrorTrackingQuery
-    | ExperimentResultQuery
+    | ExperimentFunnelQuery
+    | ExperimentTrendQuery
 
 /**
  * @discriminator kind
@@ -150,8 +154,10 @@ export type QuerySchema =
     | WebGoalsQuery
     | SessionAttributionExplorerQuery
     | ErrorTrackingQuery
-    | ExperimentResultQuery
+    | ExperimentFunnelQuery
+    | ExperimentTrendQuery
 
+    // Interface nodes
     // Interface nodes
     | DataVisualizationNode
     | DataTableNode
@@ -577,7 +583,8 @@ export interface DataTableNode
                     | WebGoalsQuery
                     | SessionAttributionExplorerQuery
                     | ErrorTrackingQuery
-                    | ExperimentResultQuery
+                    | ExperimentFunnelQuery
+                    | ExperimentTrendQuery
                 )['response']
             >
         >,
@@ -597,7 +604,8 @@ export interface DataTableNode
         | WebGoalsQuery
         | SessionAttributionExplorerQuery
         | ErrorTrackingQuery
-        | ExperimentResultQuery
+        | ExperimentFunnelQuery
+        | ExperimentTrendQuery
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
     /** Columns that aren't shown in the table, even if in columns or returned data */
@@ -1539,6 +1547,7 @@ export type InsightQueryNode =
 
 export interface ExperimentVariantTrendResult {
     count: number
+    exposure: number
 }
 
 export interface ExperimentVariantFunnelResult {
@@ -1546,21 +1555,26 @@ export interface ExperimentVariantFunnelResult {
     failure_count: number
 }
 
-export interface ExperimentResultTrendQueryResponse {
+export interface ExperimentTrendQueryResponse {
     insight: InsightType.TRENDS
     results: Record<string, ExperimentVariantTrendResult>
 }
 
-export interface ExperimentResultFunnelQueryResponse {
+export interface ExperimentFunnelQueryResponse {
     insight: InsightType.FUNNELS
     results: Record<string, ExperimentVariantFunnelResult>
 }
 
-export type ExperimentResultQueryResponse = ExperimentResultTrendQueryResponse | ExperimentResultFunnelQueryResponse
+export interface ExperimentFunnelQuery extends DataNode<ExperimentFunnelQueryResponse> {
+    kind: NodeKind.ExperimentFunnelQuery
+    source: FunnelsQuery
+    variants: string[]
+}
 
-export interface ExperimentResultQuery extends DataNode<ExperimentResultQueryResponse> {
-    kind: NodeKind.ExperimentResultQuery
-    source: TrendsQuery | FunnelsQuery
+export interface ExperimentTrendQuery extends DataNode<ExperimentTrendQueryResponse> {
+    kind: NodeKind.ExperimentTrendQuery
+    count_source: TrendsQuery
+    exposure_source: TrendsQuery
     variants: string[]
 }
 

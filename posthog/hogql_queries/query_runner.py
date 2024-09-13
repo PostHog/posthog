@@ -374,6 +374,28 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
+    if kind == "ExperimentFunnelQuery":
+        from .experiment_funnel_query_runner import ExperimentFunnelQueryRunner
+
+        return ExperimentFunnelQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "ExperimentTrendQuery":
+        from .experiment_trend_query_runner import ExperimentTrendQueryRunner
+
+        return ExperimentTrendQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
     raise ValueError(f"Can't get a runner for an unknown query kind: {kind}")
 
 
