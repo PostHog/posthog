@@ -33,7 +33,7 @@ let avoEvent := {
     'eventProperties': []
 }
 
-fn getPropValueType(propValue) {
+fun getPropValueType(propValue) {
     let propType := typeof(propValue)
     if (propValue == null) {
         return 'null'
