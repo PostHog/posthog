@@ -48,6 +48,7 @@ jobs:
                         - 'posthog/plugins/**'
                         - 'docker*.yml'
                         - '*Dockerfile'
+                        - 'rust/**'
 
     code-quality:
         name: Code quality
