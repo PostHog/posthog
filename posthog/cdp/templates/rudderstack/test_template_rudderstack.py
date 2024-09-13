@@ -129,7 +129,7 @@ class TestTemplateMigration(BaseTest):
             {
                 "host": {"value": "us.i.example.com"},
                 "token": {"value": "ignored"},
-                "identifier": {"value": "{person.uuid}"},
+                "identifier": {"value": "{event.properties.$user_id ?? event.distinct_id ?? person.uuid}"},
             }
         )
         assert template["filters"] == {}
