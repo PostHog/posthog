@@ -34,8 +34,8 @@ uuid = { workspace = true }
 base64.workspace = true
 flate2.workspace = true
 common-alloc = { path = "../common/alloc" }
+strum = "0.26"
 strum_macros = "0.26"
-strum = { version = "0.26", features = ["derive"] }
 
 [lints]
 workspace = true
