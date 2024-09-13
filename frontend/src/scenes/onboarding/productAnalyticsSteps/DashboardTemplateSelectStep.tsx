@@ -43,9 +43,11 @@ export const OnboardingDashboardTemplateSelectStep = ({
                 with based on your market and industry.
             </p>
             <DashboardTemplateChooser
-                onItemClick={() => {
+                onItemClick={(template) => {
                     setDashboardCreatedDuringOnboarding(null)
-                    goToNextStep()
+                    if (template.variables?.length && template.variables.length > 0) {
+                        goToNextStep()
+                    }
                 }}
                 redirectAfterCreation={false}
             />

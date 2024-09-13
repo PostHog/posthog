@@ -34,8 +34,9 @@ export const onboardingTemplateConfigLogic = kea<onboardingTemplateConfigLogicTy
     }),
     listeners(({ actions }) => ({
         submitNewDashboardSuccessWithResult: ({ result, variables }) => {
-            if (result && variables?.length && variables.length == 0) {
-                onboardingLogic.actions.goToNextStep(2)
+            if (result && variables?.length == 0) {
+                // dashbboard was created without variables, go to next step for success message
+                onboardingLogic.actions.goToNextStep()
             }
             actions.setOnCompleteOnboardingRedirectUrl(urls.dashboard(result.id))
         },
@@ -43,7 +44,12 @@ export const onboardingTemplateConfigLogic = kea<onboardingTemplateConfigLogicTy
     urlToAction(({ actions, values }) => ({
         '/onboarding/:productKey': (_, { step }) => {
             if (step === OnboardingStepKey.DASHBOARD_TEMPLATE_CONFIGURE) {
-                if (!values.activeDashboardTemplate || !values.activeDashboardTemplate.variables) {
+                if (
+                    (!values.activeDashboardTemplate || !values.activeDashboardTemplate.variables) &&
+                    // we want to use the "success" part of this configure screen, so if we have a dashboard created
+                    // during onboarding, we can view this screen to show the success message. So only go back if we don't have one.
+                    !values.dashboardCreatedDuringOnboarding
+                ) {
                     actions.goToPreviousStep()
                 }
             }
