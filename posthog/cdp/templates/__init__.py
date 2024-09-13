@@ -20,6 +20,7 @@ from .loops.template_loops import template as loops, TemplateLoopsMigrator
 from .rudderstack.template_rudderstack import template as rudderstack, TemplateRudderstackMigrator
 from .gleap.template_gleap import template as gleap
 from .google_pubsub.template_google_pubsub import template as google_pubsub, TemplateGooglePubSubMigrator
+from .engage.template_engage import template as engage, TemplateEngageMigrator
 from .zendesk.template_zendesk import template as zendesk
 from .google_cloud_storage.template_google_cloud_storage import (
     template as google_cloud_storage,
@@ -48,6 +49,7 @@ HOG_FUNCTION_TEMPLATES = [
     avo,
     gleap,
     google_pubsub,
+    engage,
     zendesk,
     google_cloud_storage,
     braze,
@@ -62,6 +64,7 @@ HOG_FUNCTION_MIGRATORS = {
     TemplateSendGridMigrator.plugin_url: TemplateSendGridMigrator,
     TemplateGooglePubSubMigrator.plugin_url: TemplateGooglePubSubMigrator,
     TemplateGoogleCloudStorageMigrator.plugin_url: TemplateGoogleCloudStorageMigrator,
+    TemplateEngageMigrator.plugin_url: TemplateEngageMigrator,
     TemplatePostHogMigrator.plugin_url: TemplatePostHogMigrator,
     TemplateHubspotMigrator.plugin_url: TemplateHubspotMigrator,
     TemplateRudderstackMigrator.plugin_url: TemplateRudderstackMigrator,
