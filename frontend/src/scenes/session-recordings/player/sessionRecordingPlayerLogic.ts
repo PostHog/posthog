@@ -186,6 +186,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         playerErrorSeen: (error: any) => ({ error }),
         fingerprintReported: (fingerprint: string) => ({ fingerprint }),
         reportMessageTooLargeWarningSeen: (sessionRecordingId: string) => ({ sessionRecordingId }),
+        setDebugSnapshotTypes: (types: EventType[]) => ({ types }),
+        setDebugSnapshotIncrementalSources: (incrementalSources: IncrementalSource[]) => ({ incrementalSources }),
     }),
     reducers(() => ({
         reportedReplayerErrors: [
@@ -356,6 +358,19 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 reportMessageTooLargeWarningSeen: (_, { sessionRecordingId }) => sessionRecordingId,
             },
         ],
+        debugSettings: [
+            {
+                types: [EventType.FullSnapshot, EventType.IncrementalSnapshot],
+                incrementalSources: [IncrementalSource.Mutation],
+            } as {
+                types: EventType[]
+                incrementalSources: IncrementalSource[]
+            },
+            {
+                setDebugSnapshotTypes: (s, { types }) => ({ ...s, types }),
+                setDebugSnapshotIncrementalSources: (s, { incrementalSources }) => ({ ...s, incrementalSources }),
+            },
+        ],
     })),
     selectors({
         // Prop references for use by other logics
@@ -480,42 +495,17 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             },
         ],
 
-        sortedVisualSnapshots: [
-            (s) => [s.sessionPlayerData],
-            (sessionPlayerData: SessionPlayerData): eventWithTime[] => {
-                const allSnapshots = Object.values(sessionPlayerData.snapshotsByWindowId).flat()
-                const visualSnapshots = allSnapshots.filter((s) => {
-                    if (s.type === EventType.FullSnapshot) {
-                        return true
-                    } else if (s.type === EventType.IncrementalSnapshot) {
-                        return (
-                            s.data.source === IncrementalSource.Mutation &&
-                            (s.data.adds.length > 0 || s.data.removes.length > 0)
-                        )
-                    }
-                    return false
-                })
-                return visualSnapshots.sort((a, b) => a.timestamp - b.timestamp)
-            },
-        ],
-
         debugSnapshots: [
-            (s) => [s.sortedVisualSnapshots, s.currentTimestamp],
-            (
-                sortedVisualSnapshots: eventWithTime[],
-                currentTimestamp: number | undefined
-            ): Record<'previous' | 'current' | 'next', eventWithTime | null> | null => {
-                if (!currentTimestamp) {
-                    return null
-                }
-
-                const nextIndex = sortedVisualSnapshots.findIndex((s) => s.timestamp > currentTimestamp)
-
-                return {
-                    previous: nextIndex === 0 ? null : sortedVisualSnapshots[nextIndex - 2],
-                    current: nextIndex === 0 ? null : sortedVisualSnapshots[nextIndex - 1],
-                    next: nextIndex === -1 ? null : sortedVisualSnapshots[nextIndex],
-                }
+            (s) => [s.sessionPlayerData, s.debugSettings],
+            (sessionPlayerData: SessionPlayerData, debugSettings): eventWithTime[] => {
+                const allSnapshots = Object.values(sessionPlayerData.snapshotsByWindowId).flat()
+                const visualSnapshots = allSnapshots.filter(
+                    (s) =>
+                        debugSettings.types.includes(s.type) &&
+                        (s.type != EventType.IncrementalSnapshot ||
+                            debugSettings.incrementalSources.includes(s.data.source))
+                )
+                return visualSnapshots.sort((a, b) => a.timestamp - b.timestamp)
             },
         ],
     }),

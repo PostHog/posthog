@@ -1,53 +1,50 @@
-import { LemonButton, LemonCollapse } from '@posthog/lemon-ui'
+import { LemonButton, LemonCollapse, LemonInputSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
 import { useEffect, useState } from 'react'
-import { EventType, eventWithTime } from 'rrweb'
+import { EventType, eventWithTime, IncrementalSource } from 'rrweb'
 
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 
-const snapshotTypes = {
-    0: 'DomContentLoaded',
-    1: 'Load',
-    2: 'FullSnapshot',
-    3: 'IncrementalSnapshot',
-    4: 'Meta',
-    5: 'Custom',
-    6: 'Plugin',
+const snapshotTypes: Record<EventType, string> = {
+    [EventType.DomContentLoaded]: 'DomContentLoaded',
+    [EventType.Load]: 'Load',
+    [EventType.FullSnapshot]: 'FullSnapshot',
+    [EventType.IncrementalSnapshot]: 'IncrementalSnapshot',
+    [EventType.Meta]: 'Meta',
+    [EventType.Custom]: 'Custom',
+    [EventType.Plugin]: 'Plugin',
 }
 
 const incrementalSource = {
-    0: 'Mutation',
-    1: 'MouseMove',
-    2: 'MouseInteraction',
-    3: 'Scroll',
-    4: 'ViewportResize',
-    5: 'Input',
-    6: 'TouchMove',
-    7: 'MediaInteraction',
-    8: 'StyleSheetRule',
-    9: 'CanvasMutation',
-    10: 'Font',
-    11: 'Log',
-    12: 'Drag',
-    13: 'StyleDeclaration',
-    14: 'Selection',
-    15: 'AdoptedStyleSheet',
-    16: 'CustomElement',
+    [IncrementalSource.Mutation]: 'Mutation',
+    [IncrementalSource.MouseMove]: 'MouseMove',
+    [IncrementalSource.MouseInteraction]: 'MouseInteraction',
+    [IncrementalSource.Scroll]: 'Scroll',
+    [IncrementalSource.ViewportResize]: 'ViewportResize',
+    [IncrementalSource.Input]: 'Input',
+    [IncrementalSource.TouchMove]: 'TouchMove',
+    [IncrementalSource.MediaInteraction]: 'MediaInteraction',
+    [IncrementalSource.StyleSheetRule]: 'StyleSheetRule',
+    [IncrementalSource.CanvasMutation]: 'CanvasMutation',
+    [IncrementalSource.Font]: 'Font',
+    [IncrementalSource.Log]: 'Log',
+    [IncrementalSource.Drag]: 'Drag',
+    [IncrementalSource.StyleDeclaration]: 'StyleDeclaration',
+    [IncrementalSource.Selection]: 'Selection',
+    [IncrementalSource.AdoptedStyleSheet]: 'AdoptedStyleSheet',
+    [IncrementalSource.CustomElement]: 'CustomElement',
 }
 
 export function PlayerSidebarDebuggerTab(): JSX.Element {
-    const { debugSnapshots } = useValues(sessionRecordingPlayerLogic)
-    const { setPause, seekToTimestamp } = useActions(sessionRecordingPlayerLogic)
+    const { debugSnapshots, currentTimestamp, debugSettings } = useValues(sessionRecordingPlayerLogic)
+    const { setPause, seekToTimestamp, setDebugSnapshotTypes, setDebugSnapshotIncrementalSources } =
+        useActions(sessionRecordingPlayerLogic)
 
     useEffect(() => {
         setPause()
     })
-
-    if (!debugSnapshots) {
-        return <div>Not ready yet</div>
-    }
 
     const onClick = (snapshot: eventWithTime | null): void => {
         if (snapshot) {
@@ -55,17 +52,54 @@ export function PlayerSidebarDebuggerTab(): JSX.Element {
         }
     }
 
-    const { previous, current, next } = debugSnapshots
+    const nextIndex = debugSnapshots.findIndex((s) => s.timestamp > (currentTimestamp || 0))
+
+    const previous = nextIndex === 0 ? null : debugSnapshots[nextIndex - 2]
+    const current = nextIndex === 0 ? null : debugSnapshots[nextIndex - 1]
+    const next = nextIndex === -1 ? null : debugSnapshots[nextIndex]
+
+    const typeValues = debugSettings.types.map((t) => t.toString())
+    const sourceValues = debugSettings.incrementalSources.map((t) => t.toString())
 
     return (
         <div className="h-full bg-bg-3000 overflow-auto">
+            <div className="p-2 flex gap-1">
+                <LemonInputSelect
+                    size="xsmall"
+                    value={typeValues}
+                    mode="multiple"
+                    allowCustomValues={false}
+                    onChange={(newVal) => setDebugSnapshotTypes(newVal.map(parseInt) as unknown as EventType[])}
+                    options={Object.entries(snapshotTypes).map(([key, value]) => ({
+                        key: key,
+                        label: value,
+                    }))}
+                    placeholder="Choose snapshot types"
+                />
+                <LemonInputSelect
+                    size="xsmall"
+                    disabled={!debugSettings.types.includes(EventType.IncrementalSnapshot)}
+                    value={sourceValues}
+                    mode="multiple"
+                    allowCustomValues={false}
+                    onChange={(newVal) =>
+                        setDebugSnapshotIncrementalSources(newVal.map(parseInt) as unknown as IncrementalSource[])
+                    }
+                    options={Object.entries(incrementalSource).map(([key, value]) => ({
+                        key: key,
+                        label: value,
+                    }))}
+                    placeholder="Choose mutation types"
+                />
+            </div>
+
             <div className="p-2 flex gap-1">
                 <LemonButton
                     onClick={() => onClick(previous)}
                     icon={<IconChevronLeft />}
                     disabledReason={!previous ? "You're on the first snapshot" : null}
                     type="secondary"
-                    size="xsmall"
+                    size="small"
                 >
                     Previous
                 </LemonButton>
@@ -74,7 +108,7 @@ export function PlayerSidebarDebuggerTab(): JSX.Element {
                     icon={<IconChevronRight />}
                     disabledReason={!next ? "You're on the last snapshot" : null}
                     type="secondary"
-                    size="xsmall"
+                    size="small"
                 >
                     Next
                 </LemonButton>
@@ -83,6 +117,7 @@ export function PlayerSidebarDebuggerTab(): JSX.Element {
             <div className="border-y">
                 <LemonCollapse
                     size="xsmall"
+                    defaultActiveKeys={['current', 'next']}
                     multiple
                     embedded
                     panels={[
@@ -121,13 +156,19 @@ const Snapshot = ({ snapshot, description }: { snapshot: eventWithTime | null; d
 
     if (snapshot.type === EventType.IncrementalSnapshot) {
         snapshotSummary['source'] = incrementalSource[snapshot.data.source]
+        if (snapshot.data.source === IncrementalSource.Mutation) {
+            snapshotSummary['adds'] = snapshot.data.adds.length
+            snapshotSummary['removes'] = snapshot.data.removes.length
+        }
     }
 
     return (
         <div>
-            <JSONViewer src={snapshotSummary} />
-            <LemonButton onClick={() => setOpen(!open)}>Show snapshot</LemonButton>
-            {open && <JSONViewer src={snapshot} />}
+            <JSONViewer src={snapshotSummary} name="summary" />
+            <LemonButton type="secondary" onClick={() => setOpen(!open)}>
+                {open ? 'Hide' : 'Show'} snapshot
+            </LemonButton>
+            {open && <JSONViewer src={snapshot} name="snapshot" />}
         </div>
     )
 }
