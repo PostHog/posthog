@@ -141,7 +141,7 @@ class TemplateRudderstackMigrator(HogFunctionTemplateMigrator):
         hf["inputs"] = {
             "host": {"value": dataPlaneUrl},
             "token": {"value": writeKey},
-            "identifier": {"value": "{person.uuid}"},
+            "identifier": {"value": "{event.properties.$user_id ?? event.distinct_id ?? person.uuid}"},
         }
         hf["filters"] = {}
 
