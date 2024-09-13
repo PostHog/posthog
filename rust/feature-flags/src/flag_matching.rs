@@ -48,18 +48,18 @@ pub struct GroupTypeMapping {
 pub struct GroupTypeMappingCache {
     team_id: TeamId,
     failed_to_fetch_flags: bool,
-    group_types_to_indexes: Option<HashMap<String, GroupTypeIndex>>,
-    group_indexes_to_types: Option<HashMap<GroupTypeIndex, String>>,
-    database_client: Option<DatabaseClientArc>,
+    group_types_to_indexes: HashMap<String, GroupTypeIndex>,
+    group_indexes_to_types: HashMap<GroupTypeIndex, String>,
+    database_client: DatabaseClientArc,
 }
 
 impl GroupTypeMappingCache {
-    pub fn new(team_id: TeamId, database_client: Option<DatabaseClientArc>) -> Self {
+    pub fn new(team_id: TeamId, database_client: DatabaseClientArc) -> Self {
         GroupTypeMappingCache {
             team_id,
             failed_to_fetch_flags: false,
-            group_types_to_indexes: None,
-            group_indexes_to_types: None,
+            group_types_to_indexes: HashMap::new(),
+            group_indexes_to_types: HashMap::new(),
             database_client,
         }
     }
@@ -67,17 +67,20 @@ impl GroupTypeMappingCache {
     pub async fn group_type_to_group_type_index_map(
         &mut self,
     ) -> Result<HashMap<String, GroupTypeIndex>, FlagError> {
-        if self.database_client.is_none() || self.failed_to_fetch_flags {
+        if self.failed_to_fetch_flags {
             return Err(FlagError::DatabaseUnavailable);
         }
 
-        if let Some(ref cached) = self.group_types_to_indexes {
-            return Ok(cached.clone());
+        if !self.group_types_to_indexes.is_empty() {
+            return Ok(self.group_types_to_indexes.clone());
         }
 
         let database_client = self.database_client.clone();
         let team_id = self.team_id;
-        let mapping = match Self::fetch_group_type_mapping(database_client, team_id).await {
+        let mapping = match self
+            .fetch_group_type_mapping(database_client, team_id)
+            .await
+        {
             Ok(mapping) if !mapping.is_empty() => mapping,
             Ok(_) => {
                 self.failed_to_fetch_flags = true;
@@ -88,7 +91,7 @@ impl GroupTypeMappingCache {
                 return Err(e);
             }
         };
-        self.group_types_to_indexes = Some(mapping.clone());
+        self.group_types_to_indexes = mapping.clone();
 
         Ok(mapping)
     }
@@ -96,8 +99,8 @@ impl GroupTypeMappingCache {
     pub async fn group_type_index_to_group_type_map(
         &mut self,
     ) -> Result<HashMap<GroupTypeIndex, String>, FlagError> {
-        if let Some(ref cached) = self.group_indexes_to_types {
-            return Ok(cached.clone());
+        if !self.group_indexes_to_types.is_empty() {
+            return Ok(self.group_indexes_to_types.clone());
         }
 
         let types_to_indexes = self.group_type_to_group_type_index_map().await?;
@@ -105,7 +108,7 @@ impl GroupTypeMappingCache {
             types_to_indexes.into_iter().map(|(k, v)| (v, k)).collect();
 
         if !result.is_empty() {
-            self.group_indexes_to_types = Some(result.clone());
+            self.group_indexes_to_types = result.clone();
             Ok(result)
         } else {
             Err(FlagError::NoGroupTypeMappings)
@@ -113,14 +116,11 @@ impl GroupTypeMappingCache {
     }
 
     async fn fetch_group_type_mapping(
-        database_client: Option<DatabaseClientArc>,
+        &mut self,
+        database_client: DatabaseClientArc,
         team_id: TeamId,
     ) -> Result<HashMap<String, GroupTypeIndex>, FlagError> {
-        let mut conn = database_client
-            .as_ref()
-            .ok_or(FlagError::DatabaseUnavailable)?
-            .get_connection()
-            .await?;
+        let mut conn = database_client.as_ref().get_connection().await?;
 
         let query = r#"
             SELECT group_type, group_type_index 
@@ -159,7 +159,7 @@ pub struct PropertiesCache {
 pub struct FeatureFlagMatcher {
     pub distinct_id: String,
     pub team_id: TeamId,
-    pub database_client: Option<DatabaseClientArc>,
+    pub database_client: DatabaseClientArc,
     group_type_mapping_cache: GroupTypeMappingCache,
     properties_cache: PropertiesCache,
     groups: HashMap<String, Value>,
@@ -171,7 +171,7 @@ impl FeatureFlagMatcher {
     pub fn new(
         distinct_id: String,
         team_id: TeamId,
-        database_client: Option<DatabaseClientArc>,
+        database_client: DatabaseClientArc,
         group_type_mapping_cache: Option<GroupTypeMappingCache>,
         properties_cache: Option<PropertiesCache>,
         groups: Option<HashMap<String, Value>>,
@@ -583,21 +583,12 @@ impl FeatureFlagMatcher {
 
 async fn fetch_and_locally_cache_all_properties(
     properties_cache: &mut PropertiesCache,
-    database_client: Option<DatabaseClientArc>,
+    database_client: DatabaseClientArc,
     distinct_id: String,
     team_id: TeamId,
     group_type_indexes: &HashSet<GroupTypeIndex>,
 ) -> Result<(), FlagError> {
-    if database_client.is_none() {
-        error!("Database client is None");
-        return Err(FlagError::DatabaseUnavailable);
-    }
-
-    let mut conn = database_client
-        .as_ref()
-        .expect("client should exist here")
-        .get_connection()
-        .await?;
+    let mut conn = database_client.as_ref().get_connection().await?;
 
     let query = r#"
         SELECT 
@@ -661,20 +652,11 @@ async fn fetch_and_locally_cache_all_properties(
 }
 
 async fn fetch_person_properties_from_db(
-    database_client: Option<DatabaseClientArc>,
+    database_client: DatabaseClientArc,
     distinct_id: String,
     team_id: TeamId,
 ) -> Result<HashMap<String, Value>, FlagError> {
-    if database_client.is_none() {
-        error!("Database client is None");
-        return Err(FlagError::DatabaseUnavailable);
-    }
-
-    let mut conn = database_client
-        .as_ref()
-        .expect("client should exist here")
-        .get_connection()
-        .await?;
+    let mut conn = database_client.as_ref().get_connection().await?;
 
     let query = r#"
         SELECT "posthog_person"."properties" as person_properties
@@ -701,20 +683,11 @@ async fn fetch_person_properties_from_db(
 }
 
 async fn fetch_group_properties_from_db(
-    database_client: Option<DatabaseClientArc>,
+    database_client: DatabaseClientArc,
     team_id: TeamId,
     group_type_index: GroupTypeIndex,
 ) -> Result<HashMap<String, Value>, FlagError> {
-    if database_client.is_none() {
-        error!("Database client is None");
-        return Err(FlagError::DatabaseUnavailable);
-    }
-
-    let mut conn = database_client
-        .as_ref()
-        .expect("client should exist here")
-        .get_connection()
-        .await?;
+    let mut conn = database_client.as_ref().get_connection().await?;
 
     let query = r#"
         SELECT "posthog_group"."group_properties"
@@ -809,20 +782,20 @@ mod tests {
 
     #[tokio::test]
     async fn test_fetch_properties_from_pg_to_match() {
-        let client = setup_pg_client(None).await;
+        let database_client = setup_pg_client(None).await;
 
-        let team = insert_new_team_in_pg(client.clone())
+        let team = insert_new_team_in_pg(database_client.clone())
             .await
             .expect("Failed to insert team in pg");
 
         let distinct_id = "user_distinct_id".to_string();
-        insert_person_for_team_in_pg(client.clone(), team.id, distinct_id.clone(), None)
+        insert_person_for_team_in_pg(database_client.clone(), team.id, distinct_id.clone(), None)
             .await
             .expect("Failed to insert person");
 
         let not_matching_distinct_id = "not_matching_distinct_id".to_string();
         insert_person_for_team_in_pg(
-            client.clone(),
+            database_client.clone(),
             team.id,
             not_matching_distinct_id.clone(),
             Some(json!({ "email": "a@x.com"})),
@@ -857,7 +830,7 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
-            Some(client.clone()),
+            database_client.clone(),
             None,
             None,
             None,
@@ -869,7 +842,7 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             not_matching_distinct_id.clone(),
             team.id,
-            Some(client.clone()),
+            database_client.clone(),
             None,
             None,
             None,
@@ -881,7 +854,7 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "other_distinct_id".to_string(),
             team.id,
-            Some(client.clone()),
+            database_client.clone(),
             None,
             None,
             None,
@@ -893,8 +866,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_person_property_overrides() {
-        let client = setup_pg_client(None).await;
-        let team = insert_new_team_in_pg(client.clone()).await.unwrap();
+        let database_client = setup_pg_client(None).await;
+        let team = insert_new_team_in_pg(database_client.clone())
+            .await
+            .unwrap();
 
         let flag = create_test_flag(
             team.id,
@@ -912,7 +887,7 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
-            Some(client.clone()),
+            database_client,
             None,
             None,
             None,
@@ -934,8 +909,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_group_property_overrides() {
-        let client = setup_pg_client(None).await;
-        let team = insert_new_team_in_pg(client.clone()).await.unwrap();
+        let database_client = setup_pg_client(None).await;
+        let team = insert_new_team_in_pg(database_client.clone())
+            .await
+            .unwrap();
 
         let mut flag = create_test_flag(
             team.id,
@@ -950,11 +927,9 @@ mod tests {
 
         flag.filters.aggregation_group_type_index = Some(1);
 
-        let mut cache = GroupTypeMappingCache::new(team.id, Some(client.clone()));
-        let group_types_to_indexes = [("organization".to_string(), 1)].into_iter().collect();
-        cache.group_types_to_indexes = Some(group_types_to_indexes);
-        cache.group_indexes_to_types =
-            Some([(1, "organization".to_string())].into_iter().collect());
+        let mut cache = GroupTypeMappingCache::new(team.id, database_client.clone());
+        cache.group_types_to_indexes = [("organization".to_string(), 1)].into_iter().collect();
+        cache.group_indexes_to_types = [(1, "organization".to_string())].into_iter().collect();
 
         let groups = HashMap::from([("organization".to_string(), json!("org_123"))]);
 
@@ -969,7 +944,7 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
-            Some(client.clone()),
+            database_client,
             Some(cache),
             None,
             Some(groups),
@@ -994,20 +969,20 @@ mod tests {
         let flag = create_test_flag_with_variants(1);
         let database_client = setup_pg_client(None).await;
 
-        let mut cache = GroupTypeMappingCache::new(1, Some(database_client.clone()));
+        let mut cache = GroupTypeMappingCache::new(1, database_client.clone());
 
         let group_types_to_indexes = [("group_type_1".to_string(), 1)].into_iter().collect();
         let group_type_index_to_name = [(1, "group_type_1".to_string())].into_iter().collect();
 
-        cache.group_types_to_indexes = Some(group_types_to_indexes);
-        cache.group_indexes_to_types = Some(group_type_index_to_name);
+        cache.group_types_to_indexes = group_types_to_indexes;
+        cache.group_indexes_to_types = group_type_index_to_name;
 
         let groups = HashMap::from([("group_type_1".to_string(), json!("group_key_1"))]);
 
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             1,
-            Some(database_client.clone()),
+            database_client,
             Some(cache),
             None,
             Some(groups),
@@ -1032,7 +1007,7 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
-            Some(database_client.clone()),
+            database_client,
             None,
             None,
             None,
@@ -1045,6 +1020,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_is_condition_match_empty_properties() {
+        let database_client = setup_pg_client(None).await;
         let flag = create_test_flag(1, vec![]);
 
         let condition = FlagGroupType {
@@ -1053,8 +1029,14 @@ mod tests {
             rollout_percentage: Some(100.0),
         };
 
-        let mut matcher =
-            FeatureFlagMatcher::new("test_user".to_string(), 1, None, None, None, None);
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            1,
+            database_client,
+            None,
+            None,
+            None,
+        );
         let (is_match, reason) = matcher
             .is_condition_match(&flag, &condition, None)
             .await
@@ -1106,8 +1088,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_overrides_avoid_db_lookups() {
-        let client = setup_pg_client(None).await;
-        let team = insert_new_team_in_pg(client.clone()).await.unwrap();
+        let database_client = setup_pg_client(None).await;
+        let team = insert_new_team_in_pg(database_client.clone())
+            .await
+            .unwrap();
 
         let flag = create_test_flag(
             team.id,
@@ -1126,7 +1110,7 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
-            Some(client.clone()),
+            database_client.clone(),
             None,
             None,
             None,
@@ -1154,8 +1138,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_fallback_to_db_when_overrides_insufficient() {
-        let client = setup_pg_client(None).await;
-        let team = insert_new_team_in_pg(client.clone()).await.unwrap();
+        let database_client = setup_pg_client(None).await;
+        let team = insert_new_team_in_pg(database_client.clone())
+            .await
+            .unwrap();
 
         let flag = create_test_flag(
             team.id,
@@ -1183,7 +1169,7 @@ mod tests {
         )]));
 
         insert_person_for_team_in_pg(
-            client.clone(),
+            database_client.clone(),
             team.id,
             "test_user".to_string(),
             Some(json!({"email": "test@example.com", "age": 30})),
@@ -1194,7 +1180,7 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
-            Some(client.clone()),
+            database_client.clone(),
             None,
             None,
             None,
@@ -1217,12 +1203,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_property_fetching_and_caching() {
-        let client = setup_pg_client(None).await;
-        let team = insert_new_team_in_pg(client.clone()).await.unwrap();
+        let database_client = setup_pg_client(None).await;
+        let team = insert_new_team_in_pg(database_client.clone())
+            .await
+            .unwrap();
 
         let distinct_id = "test_user".to_string();
         insert_person_for_team_in_pg(
-            client.clone(),
+            database_client.clone(),
             team.id,
             distinct_id.clone(),
             Some(json!({"email": "test@example.com", "age": 30})),
@@ -1230,8 +1218,14 @@ mod tests {
         .await
         .unwrap();
 
-        let mut matcher =
-            FeatureFlagMatcher::new(distinct_id, team.id, Some(client.clone()), None, None, None);
+        let mut matcher = FeatureFlagMatcher::new(
+            distinct_id,
+            team.id,
+            database_client.clone(),
+            None,
+            None,
+            None,
+        );
 
         let properties = matcher
             .get_person_properties_from_cache_or_db()
@@ -1300,19 +1294,21 @@ mod tests {
 
     #[tokio::test]
     async fn test_concurrent_flag_evaluation() {
-        let client = setup_pg_client(None).await;
-        let team = insert_new_team_in_pg(client.clone()).await.unwrap();
+        let database_client = setup_pg_client(None).await;
+        let team = insert_new_team_in_pg(database_client.clone())
+            .await
+            .unwrap();
         let flag = Arc::new(create_test_flag(team.id, vec![]));
 
         let mut handles = vec![];
         for i in 0..100 {
             let flag_clone = flag.clone();
-            let client_clone = client.clone();
+            let database_client_clone = database_client.clone();
             handles.push(tokio::spawn(async move {
                 let mut matcher = FeatureFlagMatcher::new(
                     format!("test_user_{}", i),
                     team.id,
-                    Some(client_clone),
+                    database_client_clone,
                     None,
                     None,
                     None,
@@ -1333,8 +1329,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_property_operators() {
-        let client = setup_pg_client(None).await;
-        let team = insert_new_team_in_pg(client.clone()).await.unwrap();
+        let database_client = setup_pg_client(None).await;
+        let team = insert_new_team_in_pg(database_client.clone())
+            .await
+            .unwrap();
 
         let flag = create_test_flag(
             team.id,
@@ -1357,7 +1355,7 @@ mod tests {
         );
 
         insert_person_for_team_in_pg(
-            client.clone(),
+            database_client.clone(),
             team.id,
             "test_user".to_string(),
             Some(json!({"email": "user@example@domain.com", "age": 30})),
@@ -1368,7 +1366,7 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
-            Some(client.clone()),
+            database_client.clone(),
             None,
             None,
             None,
@@ -1380,32 +1378,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_database_unavailable() {
-        let flag = create_test_flag(
-            1,
-            vec![PropertyFilter {
-                key: "email".to_string(),
-                value: json!("test@example.com"),
-                operator: None,
-                prop_type: "person".to_string(),
-                group_type_index: None,
-            }],
-        );
-
-        // Pass `None` as the database client to simulate unavailability
-        let mut matcher =
-            FeatureFlagMatcher::new("test_user".to_string(), 1, None, None, None, None);
-
-        let result = matcher.get_match(&flag, None).await;
-
-        assert!(matches!(result, Err(FlagError::DatabaseUnavailable)));
-    }
-
-    #[tokio::test]
     async fn test_empty_hashed_identifier() {
+        let database_client = setup_pg_client(None).await;
         let flag = create_test_flag(1, vec![]);
 
-        let mut matcher = FeatureFlagMatcher::new("".to_string(), 1, None, None, None, None);
+        let mut matcher =
+            FeatureFlagMatcher::new("".to_string(), 1, database_client, None, None, None);
 
         let result = matcher.get_match(&flag, None).await.unwrap();
 
@@ -1414,12 +1392,19 @@ mod tests {
 
     #[tokio::test]
     async fn test_rollout_percentage() {
+        let database_client = setup_pg_client(None).await;
         let mut flag = create_test_flag(1, vec![]);
         // Set the rollout percentage to 0%
         flag.filters.groups[0].rollout_percentage = Some(0.0);
 
-        let mut matcher =
-            FeatureFlagMatcher::new("test_user".to_string(), 1, None, None, None, None);
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            1,
+            database_client,
+            None,
+            None,
+            None,
+        );
 
         let result = matcher.get_match(&flag, None).await.unwrap();
 
@@ -1435,6 +1420,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_uneven_variant_distribution() {
+        let database_client = setup_pg_client(None).await;
         let mut flag = create_test_flag_with_variants(1);
 
         // Adjust variant rollout percentages to be uneven
@@ -1459,8 +1445,14 @@ mod tests {
         // Ensure the flag is person-based by setting aggregation_group_type_index to None
         flag.filters.aggregation_group_type_index = None;
 
-        let mut matcher =
-            FeatureFlagMatcher::new("test_user".to_string(), 1, None, None, None, None);
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            1,
+            database_client,
+            None,
+            None,
+            None,
+        );
 
         let mut control_count = 0;
         let mut test_count = 0;
@@ -1487,13 +1479,20 @@ mod tests {
 
     #[tokio::test]
     async fn test_missing_properties_in_db() {
-        let client = setup_pg_client(None).await;
-        let team = insert_new_team_in_pg(client.clone()).await.unwrap();
-
-        // Insert a person without properties
-        insert_person_for_team_in_pg(client.clone(), team.id, "test_user".to_string(), None)
+        let database_client = setup_pg_client(None).await;
+        let team = insert_new_team_in_pg(database_client.clone())
             .await
             .unwrap();
+
+        // Insert a person without properties
+        insert_person_for_team_in_pg(
+            database_client.clone(),
+            team.id,
+            "test_user".to_string(),
+            None,
+        )
+        .await
+        .unwrap();
 
         let flag = create_test_flag(
             team.id,
@@ -1509,7 +1508,7 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
-            Some(client.clone()),
+            database_client.clone(),
             None,
             None,
             None,
@@ -1522,12 +1521,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_malformed_property_data() {
-        let client = setup_pg_client(None).await;
-        let team = insert_new_team_in_pg(client.clone()).await.unwrap();
+        let database_client = setup_pg_client(None).await;
+        let team = insert_new_team_in_pg(database_client.clone())
+            .await
+            .unwrap();
 
         // Insert a person with malformed properties
         insert_person_for_team_in_pg(
-            client.clone(),
+            database_client.clone(),
             team.id,
             "test_user".to_string(),
             Some(json!({"age": "not_a_number"})),
@@ -1549,7 +1550,7 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
-            Some(client.clone()),
+            database_client.clone(),
             None,
             None,
             None,
@@ -1563,12 +1564,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_property_caching() {
-        let client = setup_pg_client(None).await;
-        let team = insert_new_team_in_pg(client.clone()).await.unwrap();
+        let database_client = setup_pg_client(None).await;
+        let team = insert_new_team_in_pg(database_client.clone())
+            .await
+            .unwrap();
 
         let distinct_id = "test_user".to_string();
         insert_person_for_team_in_pg(
-            client.clone(),
+            database_client.clone(),
             team.id,
             distinct_id.clone(),
             Some(json!({"email": "test@example.com", "age": 30})),
@@ -1579,7 +1582,7 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
-            Some(client.clone()),
+            database_client.clone(),
             None,
             None,
             None,
@@ -1593,9 +1596,6 @@ mod tests {
 
         assert!(matcher.properties_cache.person_properties.is_some());
 
-        // Simulate a database error
-        matcher.database_client = None;
-
         // Second access should use the cache and not error out
         let cached_properties = matcher
             .get_person_properties_from_cache_or_db()
@@ -1607,8 +1607,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_match_with_insufficient_overrides() {
-        let client = setup_pg_client(None).await;
-        let team = insert_new_team_in_pg(client.clone()).await.unwrap();
+        let database_client = setup_pg_client(None).await;
+        let team = insert_new_team_in_pg(database_client.clone())
+            .await
+            .unwrap();
 
         let flag = create_test_flag(
             team.id,
@@ -1636,7 +1638,7 @@ mod tests {
         )]));
 
         insert_person_for_team_in_pg(
-            client.clone(),
+            database_client.clone(),
             team.id,
             "test_user".to_string(),
             Some(json!({"email": "test@example.com", "age": 30})),
@@ -1647,7 +1649,7 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
-            Some(client.clone()),
+            database_client.clone(),
             None,
             None,
             None,
@@ -1660,10 +1662,17 @@ mod tests {
 
     #[tokio::test]
     async fn test_evaluation_reasons() {
+        let database_client = setup_pg_client(None).await;
         let flag = create_test_flag(1, vec![]);
 
-        let mut matcher =
-            FeatureFlagMatcher::new("test_user".to_string(), 1, None, None, None, None);
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            1,
+            database_client,
+            None,
+            None,
+            None,
+        );
 
         let (is_match, reason) = matcher
             .is_condition_match(&flag, &flag.filters.groups[0], None)
@@ -1676,8 +1685,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_complex_conditions() {
-        let client = setup_pg_client(None).await;
-        let team = insert_new_team_in_pg(client.clone()).await.unwrap();
+        let database_client = setup_pg_client(None).await;
+        let team = insert_new_team_in_pg(database_client.clone())
+            .await
+            .unwrap();
 
         let flag = FeatureFlag {
             id: 1,
@@ -1720,7 +1731,7 @@ mod tests {
         };
 
         insert_person_for_team_in_pg(
-            client.clone(),
+            database_client.clone(),
             team.id,
             "test_user".to_string(),
             Some(json!({"email": "user2@example.com", "age": 35})),
@@ -1731,7 +1742,7 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
-            Some(client.clone()),
+            database_client.clone(),
             None,
             None,
             None,
