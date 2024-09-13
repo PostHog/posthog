@@ -32,13 +32,11 @@ def get_funnel_actor_class(funnelsFilter: FunnelsFilter):
 
     if funnelsFilter.funnelVizType == FunnelVizType.TRENDS:
         return FunnelTrendsActors
-    else:
-        if funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED:
-            return FunnelUnorderedActors
-        elif funnelsFilter.funnelOrderType == StepOrderValue.STRICT:
-            return FunnelStrictActors
-        else:
-            return FunnelActors
+    if funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED:
+        return FunnelUnorderedActors
+    if funnelsFilter.funnelOrderType == StepOrderValue.STRICT:
+        return FunnelStrictActors
+    return FunnelActors
 
 
 def funnel_window_interval_unit_to_sql(

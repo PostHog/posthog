@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react'
 import { dashboardTemplateVariablesLogic } from 'scenes/dashboard/dashboardTemplateVariablesLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
-import { DashboardTemplateVariableType } from '~/types'
+import { DashboardTemplateVariableType, EntityTypes } from '~/types'
 
 function VariableSelector({
     variableName,
@@ -64,16 +64,26 @@ function VariableSelector({
                             <span className="text-success font-bold">Selected</span>
                         </p>
                         <div className="ml-4">
-                            <p className="text-muted mb-0 text-xs">
-                                <span className="font-bold">CSS selector:</span>{' '}
-                                {variable.default.selector || 'not set'}
-                            </p>
-                            <p className="text-muted mb-0 text-xs">
-                                <span className="font-bold">Element href:</span> {variable.default.href || 'not set'}
-                            </p>
-                            <p className="text-muted mb-1 text-xs">
-                                <span className="font-bold">Page URL:</span> {variable.default.url || 'any url'}
-                            </p>
+                            {variable.default.type === EntityTypes.ACTIONS ? (
+                                <>
+                                    <p className="text-muted mb-0 text-xs">
+                                        <span className="font-bold">CSS selector:</span>{' '}
+                                        {variable.default.selector || 'not set'}
+                                    </p>
+                                    <p className="text-muted mb-0 text-xs">
+                                        <span className="font-bold">Element href:</span>{' '}
+                                        {variable.default.href || 'not set'}
+                                    </p>
+                                    <p className="text-muted mb-1 text-xs">
+                                        <span className="font-bold">Page URL:</span> {variable.default.url || 'any url'}
+                                    </p>
+                                </>
+                            ) : variable.default.type === EntityTypes.EVENTS ? (
+                                <p className="text-muted mb-1 text-xs">
+                                    <span className="font-bold">Pageview URL:</span>{' '}
+                                    {variable.default.properties?.[0].value || 'any url'}
+                                </p>
+                            ) : null}
                         </div>
                     </div>
                     <div>

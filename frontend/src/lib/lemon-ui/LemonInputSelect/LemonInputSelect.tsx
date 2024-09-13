@@ -46,6 +46,9 @@ export type LemonInputSelectProps = Pick<
     onInputChange?: (newValue: string) => void
     'data-attr'?: string
     popoverClassName?: string
+    size?: 'xsmall' | 'small' | 'medium' | 'large'
+    borderless?: boolean
+    transparentBackground?: boolean
 }
 
 export function LemonInputSelect({
@@ -65,6 +68,9 @@ export function LemonInputSelect({
     autoFocus = false,
     popoverClassName,
     'data-attr': dataAttr,
+    size = 'medium',
+    borderless,
+    transparentBackground,
 }: LemonInputSelectProps): JSX.Element {
     const [showPopover, setShowPopover] = useState(false)
     const [inputValue, _setInputValue] = useState('')
@@ -444,6 +450,7 @@ export function LemonInputSelect({
                 onKeyDown={_onKeyDown}
                 disabled={disabled}
                 autoFocus={autoFocus}
+                transparentBackground={transparentBackground}
                 className={clsx(
                     'flex-wrap h-auto min-w-24',
                     // Putting button-like text styling on the single-select unfocused placeholder
@@ -451,9 +458,11 @@ export function LemonInputSelect({
                     mode === 'single' &&
                         values.length > 0 &&
                         !showPopover &&
-                        'cursor-pointer placeholder:*:text-default'
+                        'cursor-pointer placeholder:*:text-default',
+                    borderless && 'border-none'
                 )}
                 data-attr={dataAttr}
+                size={size}
             />
         </LemonDropdown>
     )
