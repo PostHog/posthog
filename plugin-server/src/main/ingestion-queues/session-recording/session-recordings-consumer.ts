@@ -653,64 +653,7 @@ export class SessionRecordingIngester {
             return
         }
 
-        const sessionsToDrop: SessionManager[] = []
-        const partitionsToDrop: Record<number, PartitionMetrics> = {}
-
-        // First we pull out all sessions that are being dropped. This way if we get reassigned and start consuming, we don't accidentally destroy them
-        Object.entries(this.sessions).forEach(([key, sessionManager]) => {
-            if (revokedPartitions.includes(sessionManager.partition)) {
-                sessionsToDrop.push(sessionManager)
-                delete this.sessions[key]
-            }
-        })
-
-        // Reset all metrics for the revoked partitions
-        topicPartitions.forEach((topicPartition: TopicPartition) => {
-            const partition = topicPartition.partition
-            partitionsToDrop[partition] = this.partitionMetrics[partition] ?? {}
-            delete this.partitionMetrics[partition]
-
-            // Revoke the high watermark for this partition, so we are essentially "reset"
-            this.sessionHighWaterMarker.revoke(topicPartition)
-            this.persistentHighWaterMarker.revoke(topicPartition)
-        })
-
-        gaugeSessionsRevoked.set(sessionsToDrop.length)
-        gaugeSessionsHandled.remove()
-
-        const startTime = Date.now()
-        await runInstrumentedFunction({
-            statsKey: `recordingingester.onRevokePartitions.revokeSessions`,
-            timeout: SHUTDOWN_FLUSH_TIMEOUT_MS, // same as the partition lock
-            func: async () => {
-                if (this.config.SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION) {
-                    // Extend our claim on these partitions to give us time to flush
-                    status.info(
-                        '🔁',
-                        `blob_ingester_consumer - flushing ${sessionsToDrop.length} sessions on revoke...`
-                    )
-
-                    const sortedSessions = sessionsToDrop.sort((x) => x.buffer.oldestKafkaTimestamp ?? Infinity)
-
-                    // Flush all the sessions we are supposed to drop - until a timeout
-                    await allSettledWithConcurrency(
-                        this.config.SESSION_RECORDING_MAX_PARALLEL_FLUSHES,
-                        sortedSessions,
-                        async (sessionManager, ctx) => {
-                            if (startTime + SHUTDOWN_FLUSH_TIMEOUT_MS < Date.now()) {
-                                return ctx.break()
-                            }
-
-                            await sessionManager.flush('partition_shutdown')
-                        }
-                    )
-
-                    await this.commitAllOffsets(partitionsToDrop, sessionsToDrop)
-                }
-
-                await Promise.allSettled(sessionsToDrop.map((x) => x.destroy()))
-            },
-        })
+        await this.flushPartitions(revokedPartitions)
     }
 
     async flushAllReadySessions(heartbeat: () => void): Promise<void> {
@@ -771,6 +714,73 @@ export class SessionRecordingIngester {
         gaugeRealtimeSessions.set(
             Object.values(this.sessions).reduce((acc, sessionManager) => acc + (sessionManager.realtimeTail ? 1 : 0), 0)
         )
+    }
+
+    async flushPartitions(partitions: number[]): Promise<void> {
+        await runInstrumentedFunction({
+            statsKey: `recordingingester.flushPartitions`,
+            timeout: SHUTDOWN_FLUSH_TIMEOUT_MS, // same as the partition lock
+            func: async () => {
+                const sessionsToDrop: SessionManager[] = []
+                const partitionsToDrop: Record<number, PartitionMetrics> = {}
+
+                // First we pull out all sessions that are being dropped. This way if we get reassigned and start consuming, we don't accidentally destroy them
+                Object.entries(this.sessions).forEach(([key, sessionManager]) => {
+                    if (partitions.includes(sessionManager.partition)) {
+                        sessionsToDrop.push(sessionManager)
+                        delete this.sessions[key]
+                    }
+                })
+
+                // Reset all metrics for the revoked partitions
+                partitions.forEach((partition) => {
+                    partitionsToDrop[partition] = this.partitionMetrics[partition] ?? {}
+                    delete this.partitionMetrics[partition]
+
+                    // Revoke the high watermark for this partition, so we are essentially "reset"
+                    this.sessionHighWaterMarker.revoke({ topic: this.topic, partition })
+                    // TODO: We might want to remove this as it will be used by the committer
+                    this.persistentHighWaterMarker.revoke({ topic: this.topic, partition })
+                })
+
+                gaugeSessionsRevoked.set(sessionsToDrop.length)
+                gaugeSessionsHandled.remove()
+
+                const startTime = Date.now()
+
+                // First we pull out all sessions that are being dropped. This way if we get reassigned and start consuming, we don't accidentally destroy them
+                Object.entries(this.sessions).forEach(([key, sessionManager]) => {
+                    if (partitions.includes(sessionManager.partition)) {
+                        sessionsToDrop.push(sessionManager)
+                        delete this.sessions[key]
+                    }
+                })
+
+                if (!this.config.SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION) {
+                    return
+                }
+
+                status.info('🔁', `blob_ingester_consumer - flushing ${sessionsToDrop.length} sessions on revoke...`)
+
+                const sortedSessions = sessionsToDrop.sort((x) => x.buffer.oldestKafkaTimestamp ?? Infinity)
+
+                // Flush all the sessions we are supposed to drop - until a timeout
+                await allSettledWithConcurrency(
+                    this.config.SESSION_RECORDING_MAX_PARALLEL_FLUSHES,
+                    sortedSessions,
+                    async (sessionManager, ctx) => {
+                        if (startTime + SHUTDOWN_FLUSH_TIMEOUT_MS < Date.now()) {
+                            status.warn('🔁', `blob_ingester_consumer - flushing partitions timed out`)
+                            return ctx.break()
+                        }
+
+                        await sessionManager.flush('partition_shutdown')
+                    }
+                )
+
+                await this.commitAllOffsets(partitionsToDrop, sessionsToDrop)
+            },
+        })
     }
 
     public async commitAllOffsets(
