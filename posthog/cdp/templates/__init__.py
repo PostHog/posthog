@@ -17,7 +17,7 @@ from .zapier.template_zapier import template as zapier
 from .mailgun.template_mailgun import template_mailgun_send_email as mailgun
 from .avo.template_avo import template as avo
 from .loops.template_loops import template as loops, TemplateLoopsMigrator
-from .rudderstack.template_rudderstack import template as rudderstack
+from .rudderstack.template_rudderstack import template as rudderstack, TemplateRudderstackMigrator
 from .gleap.template_gleap import template as gleap
 from .google_pubsub.template_google_pubsub import template as google_pubsub, TemplateGooglePubSubMigrator
 from .engage.template_engage import template as engage, TemplateEngageMigrator
@@ -67,6 +67,7 @@ HOG_FUNCTION_MIGRATORS = {
     TemplateEngageMigrator.plugin_url: TemplateEngageMigrator,
     TemplatePostHogMigrator.plugin_url: TemplatePostHogMigrator,
     TemplateHubspotMigrator.plugin_url: TemplateHubspotMigrator,
+    TemplateRudderstackMigrator.plugin_url: TemplateRudderstackMigrator,
     TemplateLoopsMigrator.plugin_url: TemplateLoopsMigrator,
 }
 
