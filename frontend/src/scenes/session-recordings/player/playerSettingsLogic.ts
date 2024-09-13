@@ -22,7 +22,7 @@ export enum TimestampFormat {
     Device = 'device',
 }
 
-export enum PlaybackViewMode {
+export enum PlaybackMode {
     Recording = 'recording',
     Waterfall = 'waterfall',
 }
@@ -195,7 +195,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setQuickFilterProperties: (properties: string[]) => ({ properties }),
         setTimestampFormat: (format: TimestampFormat) => ({ format }),
         setPreferredSidebarStacking: (stacking: SessionRecordingSidebarStacking) => ({ stacking }),
-        setPlaybackViewMode: (mode: PlaybackViewMode) => ({ mode }),
+        setPlaybackMode: (mode: PlaybackMode) => ({ mode }),
         setSidebarOpen: (open: boolean) => ({ open }),
         setShowMouseTail: (showMouseTail: boolean) => ({ showMouseTail }),
         setShowSeekbarTicks: (show: boolean) => ({ show }),
@@ -213,11 +213,11 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
                 setPreferredSidebarStacking: (_, { stacking }) => stacking,
             },
         ],
-        playbackViewMode: [
-            PlaybackViewMode.Recording as PlaybackViewMode,
+        playbackMode: [
+            PlaybackMode.Recording as PlaybackMode,
             { persist: true },
             {
-                setPlaybackViewMode: (_, { mode }) => mode,
+                setPlaybackMode: (_, { mode }) => mode,
             },
         ],
         quickFilterProperties: [

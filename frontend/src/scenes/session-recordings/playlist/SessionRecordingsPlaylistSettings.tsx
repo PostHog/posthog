@@ -1,29 +1,29 @@
 import { LemonSegmentedButton, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 
-import { PlaybackViewMode, playerSettingsLogic } from '../player/playerSettingsLogic'
+import { PlaybackMode, playerSettingsLogic } from '../player/playerSettingsLogic'
 
 export function SessionRecordingsPlaylistSettings(): JSX.Element {
-    const { hideViewedRecordings, playbackViewMode } = useValues(playerSettingsLogic)
-    const { setHideViewedRecordings, setPlaybackViewMode } = useActions(playerSettingsLogic)
+    const { hideViewedRecordings, playbackMode } = useValues(playerSettingsLogic)
+    const { setHideViewedRecordings, setPlaybackMode } = useActions(playerSettingsLogic)
 
     return (
         <div className="relative flex flex-col gap-2 p-3 border-b">
             <div className="flex justify-between items-center">
                 <span className="text-black font-medium">Playback mode</span>
                 <LemonSegmentedButton
-                    value={playbackViewMode}
+                    value={playbackMode}
                     options={[
                         {
-                            value: PlaybackViewMode.Recording,
+                            value: PlaybackMode.Recording,
                             label: 'Recordings',
                         },
                         {
-                            value: PlaybackViewMode.Waterfall,
+                            value: PlaybackMode.Waterfall,
                             label: 'Waterfall',
                         },
                     ]}
-                    onChange={setPlaybackViewMode}
+                    onChange={setPlaybackMode}
                     size="xsmall"
                 />
             </div>

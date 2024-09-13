@@ -22,7 +22,7 @@ import { PlayerController } from './controller/PlayerController'
 import { PlayerFrame } from './PlayerFrame'
 import { PlayerFrameOverlay } from './PlayerFrameOverlay'
 import { PlayerMeta } from './PlayerMeta'
-import { PlaybackViewMode, playerSettingsLogic } from './playerSettingsLogic'
+import { PlaybackMode, playerSettingsLogic } from './playerSettingsLogic'
 import { PlayerSidebar } from './PlayerSidebar'
 import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
 import {
@@ -95,7 +95,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         sessionRecordingPlayerLogic(logicProps)
     )
     const speedHotkeys = useMemo(() => createPlaybackSpeedKey(setSpeed), [setSpeed])
-    const { preferredSidebarStacking, sidebarOpen, playbackViewMode } = useValues(playerSettingsLogic)
+    const { preferredSidebarStacking, sidebarOpen, playbackMode } = useValues(playerSettingsLogic)
     const { setPreferredSidebarStacking } = useActions(playerSettingsLogic)
 
     useKeyboardHotkeys(
@@ -217,7 +217,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                 ) : (
                                     <div className="flex w-full h-full">
                                         <div className="flex flex-col flex-1 w-full">
-                                            {playbackViewMode === PlaybackViewMode.Recording ? (
+                                            {playbackMode === PlaybackMode.Recording ? (
                                                 <>
                                                     {!noMeta || isFullScreen ? <PlayerMeta /> : null}
 
