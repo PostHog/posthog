@@ -1,5 +1,5 @@
 import { LemonTable, LemonTableColumn, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -19,7 +19,7 @@ import { pipelineAccessLogic } from '../pipelineAccessLogic'
 import { Destination, PipelineBackend } from '../types'
 import { pipelineNodeMenuCommonItems, RenderApp, RenderBatchExportIcon } from '../utils'
 import { DestinationsFilters } from './DestinationsFilters'
-import { pipelineDestinationsLogic, PipelineDestinationsLogicProps } from './destinationsLogic'
+import { pipelineDestinationsLogic } from './destinationsLogic'
 import { DestinationOptionsTable } from './NewDestinations'
 
 export function Destinations(): JSX.Element {
@@ -42,166 +42,164 @@ export function Destinations(): JSX.Element {
                     isEmpty={destinations.length === 0 && !loading}
                 />
             </PayGateMini>
-            <DestinationsTable syncFiltersWithUrl />
+            <DestinationsTable />
             <div className="mt-4" />
+            <h2>New destinations</h2>
             <DestinationOptionsTable />
         </>
     )
 }
 
-export function DestinationsTable({ ...props }: PipelineDestinationsLogicProps): JSX.Element {
+export function DestinationsTable(): JSX.Element {
     const { canConfigurePlugins, canEnableDestination } = useValues(pipelineAccessLogic)
-    const { loading, filteredDestinations, destinations } = useValues(pipelineDestinationsLogic(props))
-    const { resetFilters, toggleNode, deleteNode } = useActions(pipelineDestinationsLogic(props))
+    const { loading, filteredDestinations, destinations } = useValues(pipelineDestinationsLogic)
+    const { resetFilters, toggleNode, deleteNode } = useActions(pipelineDestinationsLogic)
     return (
         <div className="space-y-2">
             <DestinationsFilters />
 
-            <BindLogic logic={pipelineDestinationsLogic} props={props}>
-                <LemonTable
-                    dataSource={filteredDestinations}
-                    size="small"
-                    loading={loading}
-                    columns={[
-                        {
-                            title: 'App',
-                            width: 0,
-                            render: function RenderAppInfo(_, destination) {
-                                switch (destination.backend) {
-                                    case 'plugin':
-                                        return <RenderApp plugin={destination.plugin} />
-                                    case 'hog_function':
-                                        return <HogFunctionIcon src={destination.hog_function.icon_url} size="small" />
-                                    case 'batch_export':
-                                        return <RenderBatchExportIcon type={destination.service.type} />
-                                    default:
-                                        return null
-                                }
-                            },
+            <LemonTable
+                dataSource={filteredDestinations}
+                size="small"
+                loading={loading}
+                columns={[
+                    {
+                        title: 'App',
+                        width: 0,
+                        render: function RenderAppInfo(_, destination) {
+                            switch (destination.backend) {
+                                case 'plugin':
+                                    return <RenderApp plugin={destination.plugin} />
+                                case 'hog_function':
+                                    return <HogFunctionIcon src={destination.hog_function.icon_url} size="small" />
+                                case 'batch_export':
+                                    return <RenderBatchExportIcon type={destination.service.type} />
+                                default:
+                                    return null
+                            }
                         },
-                        {
-                            title: 'Name',
-                            sticky: true,
-                            sorter: true,
-                            key: 'name',
-                            dataIndex: 'name',
-                            render: function RenderPluginName(_, destination) {
-                                return (
-                                    <LemonTableLink
-                                        to={urls.pipelineNode(
-                                            PipelineStage.Destination,
-                                            destination.id,
-                                            PipelineNodeTab.Configuration
-                                        )}
-                                        title={
-                                            <>
-                                                <Tooltip title="Click to update configuration, view metrics, and more">
-                                                    <span>{destination.name}</span>
-                                                </Tooltip>
-                                            </>
-                                        }
-                                        description={destination.description}
-                                    />
-                                )
-                            },
+                    },
+                    {
+                        title: 'Name',
+                        sticky: true,
+                        sorter: true,
+                        key: 'name',
+                        dataIndex: 'name',
+                        render: function RenderPluginName(_, destination) {
+                            return (
+                                <LemonTableLink
+                                    to={urls.pipelineNode(
+                                        PipelineStage.Destination,
+                                        destination.id,
+                                        PipelineNodeTab.Configuration
+                                    )}
+                                    title={
+                                        <>
+                                            <Tooltip title="Click to update configuration, view metrics, and more">
+                                                <span>{destination.name}</span>
+                                            </Tooltip>
+                                        </>
+                                    }
+                                    description={destination.description}
+                                />
+                            )
                         },
-                        {
-                            title: 'Frequency',
-                            key: 'interval',
-                            render: function RenderFrequency(_, destination) {
-                                return destination.interval
-                            },
+                    },
+                    {
+                        title: 'Frequency',
+                        key: 'interval',
+                        render: function RenderFrequency(_, destination) {
+                            return destination.interval
                         },
-                        {
-                            title: 'Weekly volume',
-                            render: function RenderSuccessRate(_, destination) {
-                                return (
-                                    <Link
-                                        to={urls.pipelineNode(
-                                            PipelineStage.Destination,
-                                            destination.id,
-                                            PipelineNodeTab.Metrics
-                                        )}
-                                    >
-                                        {destination.backend === PipelineBackend.HogFunction ? (
-                                            <AppMetricSparkLineV2 id={destination.hog_function.id} />
-                                        ) : (
-                                            <AppMetricSparkLine pipelineNode={destination} />
-                                        )}
-                                    </Link>
-                                )
-                            },
+                    },
+                    {
+                        title: 'Weekly volume',
+                        render: function RenderSuccessRate(_, destination) {
+                            return (
+                                <Link
+                                    to={urls.pipelineNode(
+                                        PipelineStage.Destination,
+                                        destination.id,
+                                        PipelineNodeTab.Metrics
+                                    )}
+                                >
+                                    {destination.backend === PipelineBackend.HogFunction ? (
+                                        <AppMetricSparkLineV2 id={destination.hog_function.id} />
+                                    ) : (
+                                        <AppMetricSparkLine pipelineNode={destination} />
+                                    )}
+                                </Link>
+                            )
                         },
-                        updatedAtColumn() as LemonTableColumn<Destination, any>,
-                        {
-                            title: 'Status',
-                            key: 'enabled',
-                            sorter: (a) => (a.enabled ? 1 : -1),
-                            width: 0,
-                            render: function RenderStatus(_, destination) {
-                                return (
-                                    <>
-                                        {destination.enabled ? (
-                                            <LemonTag type="success" className="uppercase">
-                                                Active
-                                            </LemonTag>
-                                        ) : (
-                                            <LemonTag type="default" className="uppercase">
-                                                Paused
-                                            </LemonTag>
-                                        )}
-                                    </>
-                                )
-                            },
+                    },
+                    updatedAtColumn() as LemonTableColumn<Destination, any>,
+                    {
+                        title: 'Status',
+                        key: 'enabled',
+                        sorter: (a) => (a.enabled ? 1 : -1),
+                        width: 0,
+                        render: function RenderStatus(_, destination) {
+                            return (
+                                <>
+                                    {destination.enabled ? (
+                                        <LemonTag type="success" className="uppercase">
+                                            Active
+                                        </LemonTag>
+                                    ) : (
+                                        <LemonTag type="default" className="uppercase">
+                                            Paused
+                                        </LemonTag>
+                                    )}
+                                </>
+                            )
                         },
-                        {
-                            width: 0,
-                            render: function Render(_, destination) {
-                                return (
-                                    <More
-                                        overlay={
-                                            <LemonMenuOverlay
-                                                items={[
-                                                    {
-                                                        label: destination.enabled
-                                                            ? 'Pause destination'
-                                                            : 'Unpause destination',
-                                                        onClick: () => toggleNode(destination, !destination.enabled),
-                                                        disabledReason: !canConfigurePlugins
-                                                            ? 'You do not have permission to toggle destinations.'
-                                                            : !canEnableDestination(destination) && !destination.enabled
-                                                            ? 'Data pipelines add-on is required for enabling new destinations'
-                                                            : undefined,
-                                                    },
-                                                    ...pipelineNodeMenuCommonItems(destination),
-                                                    {
-                                                        label: 'Delete destination',
-                                                        status: 'danger' as const, // for typechecker happiness
-                                                        onClick: () => deleteNode(destination),
-                                                        disabledReason: canConfigurePlugins
-                                                            ? undefined
-                                                            : 'You do not have permission to delete destinations.',
-                                                    },
-                                                ]}
-                                            />
-                                        }
-                                    />
-                                )
-                            },
+                    },
+                    {
+                        width: 0,
+                        render: function Render(_, destination) {
+                            return (
+                                <More
+                                    overlay={
+                                        <LemonMenuOverlay
+                                            items={[
+                                                {
+                                                    label: destination.enabled
+                                                        ? 'Pause destination'
+                                                        : 'Unpause destination',
+                                                    onClick: () => toggleNode(destination, !destination.enabled),
+                                                    disabledReason: !canConfigurePlugins
+                                                        ? 'You do not have permission to toggle destinations.'
+                                                        : !canEnableDestination(destination) && !destination.enabled
+                                                        ? 'Data pipelines add-on is required for enabling new destinations'
+                                                        : undefined,
+                                                },
+                                                ...pipelineNodeMenuCommonItems(destination),
+                                                {
+                                                    label: 'Delete destination',
+                                                    status: 'danger' as const, // for typechecker happiness
+                                                    onClick: () => deleteNode(destination),
+                                                    disabledReason: canConfigurePlugins
+                                                        ? undefined
+                                                        : 'You do not have permission to delete destinations.',
+                                                },
+                                            ]}
+                                        />
+                                    }
+                                />
+                            )
                         },
-                    ]}
-                    emptyState={
-                        destinations.length === 0 && !loading ? (
-                            'No destinations found'
-                        ) : (
-                            <>
-                                No destinations matching filters.{' '}
-                                <Link onClick={() => resetFilters()}>Clear filters</Link>{' '}
-                            </>
-                        )
-                    }
-                />
-            </BindLogic>
+                    },
+                ]}
+                emptyState={
+                    destinations.length === 0 && !loading ? (
+                        'No destinations found'
+                    ) : (
+                        <>
+                            No destinations matching filters. <Link onClick={() => resetFilters()}>Clear filters</Link>{' '}
+                        </>
+                    )
+                }
+            />
         </div>
     )
 }
