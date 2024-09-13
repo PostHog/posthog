@@ -7,7 +7,7 @@ from posthog.schema import (
     ExperimentTrendQueryResponse,
     ExperimentVariantTrendResult,
 )
-from typing import Any
+from typing import Optional, Any
 import threading
 
 
@@ -24,7 +24,7 @@ class ExperimentTrendQueryRunner(QueryRunner):
         )
 
     def calculate(self) -> ExperimentTrendQueryResponse:
-        res_matrix = [None] * 2
+        res_matrix: list[Optional[Any]] = [None] * 2
         errors = []
 
         def run(index: int, query_runner: TrendsQueryRunner, is_parallel: bool):
@@ -49,13 +49,17 @@ class ExperimentTrendQueryRunner(QueryRunner):
                 threading.Thread(target=run, args=(0, self.query_runner, True)),
                 threading.Thread(target=run, args=(1, self.exposure_query_runner, True)),
             ]
-            [j.start() for j in jobs]
-            [j.join() for j in jobs]
+            [j.start() for j in jobs]  # type:ignore
+            [j.join() for j in jobs]  # type:ignore
 
         # Raise any errors raised in a separate thread
         if len(errors) > 0:
             raise errors[0]
+
         count_response, exposure_response = res_matrix
+
+        if count_response is None or exposure_response is None:
+            raise ValueError("One or both query runners failed to produce a response")
 
         results = self._process_results(count_response.results, exposure_response.results)
         return ExperimentTrendQueryResponse(insight="TRENDS", results=results)
@@ -79,4 +83,4 @@ class ExperimentTrendQueryRunner(QueryRunner):
         return processed_results
 
     def to_query(self) -> ast.SelectQuery:
-        raise ValueError(f"Cannot convert source query of type {self.query.source.kind} to query")
+        raise ValueError(f"Cannot convert source query of type {self.query.count_source.kind} to query")
