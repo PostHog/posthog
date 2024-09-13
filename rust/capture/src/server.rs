@@ -34,7 +34,7 @@ where
                 redis_client.clone(),
                 OVERFLOW_LIMITER_CACHE_KEY.to_string(),
                 config.redis_key_prefix.clone(),
-                QuotaResource::Recordings,
+                QuotaResource::Replay,
             )
             .expect("failed to start replay overflow limiter"),
         ),

@@ -12,6 +12,7 @@ import {
     PluginConfigWithPluginInfo,
     PluginInstallationType,
     PluginType,
+    ProjectType,
     PropertyFilterType,
     PropertyOperator,
     TeamType,
@@ -88,6 +89,13 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     live_events_columns: null,
     person_on_events_querying_enabled: true,
     live_events_token: '123',
+}
+
+export const MOCK_DEFAULT_PROJECT: ProjectType = {
+    id: MOCK_TEAM_ID,
+    name: 'MockHog App + Marketing',
+    organization_id: MOCK_ORGANIZATION_ID,
+    created_at: '2020-06-30T09:53:35.932534Z',
 }
 
 export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {

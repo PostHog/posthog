@@ -124,7 +124,7 @@ class RetentionQueryRunner(QueryRunner):
 
         return events_where
 
-    def actor_query(self, breakdown_values_filter: Optional[int] = None) -> ast.SelectQuery:
+    def actor_query(self, breakdown_values_filter: Optional[int] = None, cumulative: bool = False) -> ast.SelectQuery:
         start_of_interval_sql = self.query_date_range.get_start_of_interval_hogql(
             source=ast.Field(chain=["events", "timestamp"])
         )
@@ -170,7 +170,12 @@ class RetentionQueryRunner(QueryRunner):
                 {
                     "target_timestamps": target_timestamps,
                     "min_timestamp": self.query_date_range.date_to_start_of_interval_hogql(
-                        parse_expr("min(events.timestamp)")
+                        parse_expr(
+                            "minIf(events.timestamp, {target_entity_expr})",
+                            {
+                                "target_entity_expr": target_entity_expr,
+                            },
+                        )
                     ),
                 },
             )
@@ -197,6 +202,10 @@ class RetentionQueryRunner(QueryRunner):
                         ),
                     ),
                 )
+
+        intervals_from_base_array_aggregator = "arrayJoin"
+        if cumulative:
+            intervals_from_base_array_aggregator = "arrayMax"
 
         inner_query = ast.SelectQuery(
             select=[
@@ -264,11 +273,11 @@ class RetentionQueryRunner(QueryRunner):
                 ast.Alias(
                     alias="intervals_from_base",
                     expr=parse_expr(
-                        """
-                    arrayJoin(
+                        f"""
+                    {intervals_from_base_array_aggregator}(
                         arrayConcat(
                             if(
-                                {is_first_interval_from_base},
+                                {{is_first_interval_from_base}},
                                 [0],
                                 []
                             ),
@@ -308,11 +317,21 @@ class RetentionQueryRunner(QueryRunner):
         return inner_query
 
     def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
-        placeholders = {
-            "actor_query": self.actor_query(),
-        }
-
         with self.timings.measure("retention_query"):
+            if self.query.retentionFilter.cumulative:
+                actor_query = parse_select(
+                    """
+                    SELECT
+                        actor_id,
+                        arrayJoin(range(0, intervals_from_base + 1)) as intervals_from_base,
+                        breakdown_values
+                    FROM {actor_query}
+                    """,
+                    {"actor_query": self.actor_query(cumulative=True)},
+                )
+            else:
+                actor_query = self.actor_query()
+
             retention_query = parse_select(
                 """
                     SELECT [actor_activity.breakdown_values]       AS breakdown_values,
@@ -329,7 +348,7 @@ class RetentionQueryRunner(QueryRunner):
 
                     LIMIT 10000
                 """,
-                placeholders,
+                {"actor_query": actor_query},
                 timings=self.timings,
             )
         return retention_query

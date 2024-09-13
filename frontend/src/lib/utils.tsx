@@ -43,7 +43,11 @@ export function areObjectValuesEmpty(obj?: Record<string, any>): boolean {
 }
 
 // taken from https://stackoverflow.com/questions/10420352/converting-file-size-in-bytes-to-human-readable-string/10420404
-export const humanizeBytes = (fileSizeInBytes: number): string => {
+export const humanizeBytes = (fileSizeInBytes: number | null): string => {
+    if (fileSizeInBytes === null) {
+        return ''
+    }
+
     let i = -1
     const byteUnits = ['kB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB']
     do {

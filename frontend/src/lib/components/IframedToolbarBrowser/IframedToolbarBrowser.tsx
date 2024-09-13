@@ -35,12 +35,12 @@ export function IframedToolbarBrowser({
     iframeRef,
     userIntent,
 }: {
-    iframeRef?: React.MutableRefObject<HTMLIFrameElement | null>
+    iframeRef: React.MutableRefObject<HTMLIFrameElement | null>
     userIntent: ToolbarUserIntent
 }): JSX.Element | null {
-    const logic = iframedToolbarBrowserLogic()
+    const logic = iframedToolbarBrowserLogic({ iframeRef, userIntent: userIntent })
 
-    const { browserUrl } = useValues(logic)
+    const { browserUrl, initialPath } = useValues(logic)
     const { onIframeLoad, setIframeWidth } = useActions(logic)
 
     const { width: iframeWidth } = useResizeObserver<HTMLIFrameElement>({ ref: iframeRef })
@@ -55,7 +55,7 @@ export function IframedToolbarBrowser({
             <iframe
                 ref={iframeRef}
                 className="w-full h-full"
-                src={appEditorUrl(browserUrl, {
+                src={appEditorUrl(browserUrl + '/' + initialPath, {
                     userIntent: userIntent,
                 })}
                 // eslint-disable-next-line react/forbid-dom-props

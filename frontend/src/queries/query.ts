@@ -6,7 +6,7 @@ import posthog from 'posthog-js'
 
 import { OnlineExportContext, QueryExportContext } from '~/types'
 
-import { DataNode, HogQLQuery, HogQLQueryResponse, NodeKind, PersonsNode, QueryStatus } from './schema'
+import { DashboardFilter, DataNode, HogQLQuery, HogQLQueryResponse, NodeKind, PersonsNode, QueryStatus } from './schema'
 import {
     isAsyncResponse,
     isDataTableNode,
@@ -79,6 +79,7 @@ async function executeQuery<N extends DataNode>(
     refresh?: boolean,
     queryId?: string,
     setPollResponse?: (response: QueryStatus) => void,
+    filtersOverride?: DashboardFilter | null,
     /**
      * Whether to limit the function to just polling the provided query ID.
      * This is important in shared contexts, where we cannot create arbitrary queries via POST – we can only GET.
@@ -92,7 +93,7 @@ async function executeQuery<N extends DataNode>(
     const showProgress = !!featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.INSIGHT_LOADING_BAR]
 
     if (!pollOnly) {
-        const response = await api.query(queryNode, methodOptions, queryId, refresh, isAsyncQuery)
+        const response = await api.query(queryNode, methodOptions, queryId, refresh, isAsyncQuery, filtersOverride)
 
         if (!isAsyncResponse(response)) {
             // Executed query synchronously or from cache
@@ -124,6 +125,7 @@ export async function performQuery<N extends DataNode>(
     refresh?: boolean,
     queryId?: string,
     setPollResponse?: (status: QueryStatus) => void,
+    filtersOverride?: DashboardFilter | null,
     pollOnly = false
 ): Promise<NonNullable<N['response']>> {
     let response: NonNullable<N['response']>
@@ -134,7 +136,15 @@ export async function performQuery<N extends DataNode>(
         if (isPersonsNode(queryNode)) {
             response = await api.get(getPersonsEndpoint(queryNode), methodOptions)
         } else {
-            response = await executeQuery(queryNode, methodOptions, refresh, queryId, setPollResponse, pollOnly)
+            response = await executeQuery(
+                queryNode,
+                methodOptions,
+                refresh,
+                queryId,
+                setPollResponse,
+                filtersOverride,
+                pollOnly
+            )
             if (isHogQLQuery(queryNode) && response && typeof response === 'object') {
                 logParams.clickhouse_sql = (response as HogQLQueryResponse)?.clickhouse
             }

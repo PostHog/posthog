@@ -41,7 +41,7 @@ export function applyTemplate(obj: DashboardTile | JsonType, variables: Dashboar
             const variableId = obj.substring(1, obj.length - 1)
             const variable = variables.find((variable) => variable.id === variableId)
             if (variable && variable.default) {
-                return variable.default
+                return variable.default as JsonType
             }
             return obj
         }
