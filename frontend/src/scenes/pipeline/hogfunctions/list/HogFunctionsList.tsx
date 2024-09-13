@@ -38,13 +38,13 @@ export function HogFunctionList({
                     />
                 )}
                 <div className="flex-1" />
-                {typeof props.forceFilters?.onlyActive !== 'boolean' && (
+                {typeof props.forceFilters?.showPaused !== 'boolean' && (
                     <LemonCheckbox
-                        label="Only active"
+                        label="Show paused"
                         bordered
                         size="small"
-                        checked={filters.onlyActive}
-                        onChange={(e) => setFilters({ onlyActive: e ?? undefined })}
+                        checked={filters.showPaused}
+                        onChange={(e) => setFilters({ showPaused: e ?? undefined })}
                     />
                 )}
                 {extraControls}

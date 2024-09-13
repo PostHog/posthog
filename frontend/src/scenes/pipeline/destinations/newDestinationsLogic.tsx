@@ -250,7 +250,7 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
     }),
 
     urlToAction(({ actions, values }) => ({
-        '*': (_, searchParams) => {
+        ['*']: (_, searchParams) => {
             if (!objectsEqual(values.filters, searchParams)) {
                 actions.setFilters(searchParams)
             }

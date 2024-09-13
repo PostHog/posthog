@@ -37,7 +37,7 @@ export interface Fuse extends FuseClass<Destination> {}
 
 export type DestinationFilters = {
     search?: string
-    onlyActive?: boolean
+    showPaused?: boolean
     kind?: PipelineBackend
     filters?: Record<string, any>
 }
@@ -286,13 +286,13 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
         filteredDestinations: [
             (s) => [s.filters, s.destinations, s.destinationsFuse],
             (filters, destinations, destinationsFuse): Destination[] => {
-                const { search, onlyActive, kind } = filters
+                const { search, showPaused, kind } = filters
 
                 return (search ? destinationsFuse.search(search).map((x) => x.item) : destinations).filter((dest) => {
                     if (kind && dest.backend !== kind) {
                         return false
                     }
-                    if (onlyActive && !dest.enabled) {
+                    if (!showPaused && !dest.enabled) {
                         return false
                     }
                     return true

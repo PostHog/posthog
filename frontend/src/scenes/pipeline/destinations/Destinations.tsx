@@ -1,18 +1,8 @@
-import {
-    LemonCheckbox,
-    LemonInput,
-    LemonSelect,
-    LemonTable,
-    LemonTableColumn,
-    LemonTag,
-    Link,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { LemonTable, LemonTableColumn, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
@@ -28,7 +18,9 @@ import { NewButton } from '../NewButton'
 import { pipelineAccessLogic } from '../pipelineAccessLogic'
 import { Destination, PipelineBackend } from '../types'
 import { pipelineNodeMenuCommonItems, RenderApp, RenderBatchExportIcon } from '../utils'
+import { DestinationsFilters } from './DestinationsFilters'
 import { pipelineDestinationsLogic, PipelineDestinationsLogicProps } from './destinationsLogic'
+import { DestinationOptionsTable } from './NewDestinations'
 
 export function Destinations(): JSX.Element {
     const { destinations, loading } = useValues(pipelineDestinationsLogic({ syncFiltersWithUrl: true }))
@@ -51,57 +43,19 @@ export function Destinations(): JSX.Element {
                 />
             </PayGateMini>
             <DestinationsTable syncFiltersWithUrl />
+            <div className="mt-4" />
+            <DestinationOptionsTable />
         </>
     )
 }
 
 export function DestinationsTable({ ...props }: PipelineDestinationsLogicProps): JSX.Element {
     const { canConfigurePlugins, canEnableDestination } = useValues(pipelineAccessLogic)
-    const { loading, filteredDestinations, filters, destinations } = useValues(pipelineDestinationsLogic(props))
-    const { setFilters, resetFilters, toggleNode, deleteNode } = useActions(pipelineDestinationsLogic(props))
-
-    const hasHogFunctions = !!useFeatureFlag('HOG_FUNCTIONS')
-
+    const { loading, filteredDestinations, destinations } = useValues(pipelineDestinationsLogic(props))
+    const { resetFilters, toggleNode, deleteNode } = useActions(pipelineDestinationsLogic(props))
     return (
-        <>
-            <div className="flex items-center mb-2 gap-2">
-                {!props.forceFilters?.search && (
-                    <LemonInput
-                        type="search"
-                        placeholder="Search..."
-                        value={filters.search ?? ''}
-                        onChange={(e) => setFilters({ search: e })}
-                    />
-                )}
-                <div className="flex-1" />
-                {typeof props.forceFilters?.onlyActive !== 'boolean' && (
-                    <LemonCheckbox
-                        label="Only active"
-                        bordered
-                        size="small"
-                        checked={filters.onlyActive}
-                        onChange={(e) => setFilters({ onlyActive: e ?? undefined })}
-                    />
-                )}
-                {!props.forceFilters?.kind && (
-                    <LemonSelect
-                        type="secondary"
-                        size="small"
-                        options={
-                            [
-                                { label: 'All kinds', value: null },
-                                hasHogFunctions
-                                    ? { label: 'Realtime (new)', value: PipelineBackend.HogFunction }
-                                    : undefined,
-                                { label: 'Realtime', value: PipelineBackend.Plugin },
-                                { label: 'Batch exports', value: PipelineBackend.BatchExport },
-                            ].filter(Boolean) as { label: string; value: PipelineBackend | null }[]
-                        }
-                        value={filters.kind}
-                        onChange={(e) => setFilters({ kind: e ?? undefined })}
-                    />
-                )}
-            </div>
+        <div className="space-y-2">
+            <DestinationsFilters />
 
             <BindLogic logic={pipelineDestinationsLogic} props={props}>
                 <LemonTable
@@ -248,6 +202,6 @@ export function DestinationsTable({ ...props }: PipelineDestinationsLogicProps):
                     }
                 />
             </BindLogic>
-        </>
+        </div>
     )
 }
