@@ -11,7 +11,7 @@ on:
 
 jobs:
     build:
-        name: Build and publish container image
+        name: build ${{ matrix.image }}
         strategy:
             matrix:
                 image:
@@ -30,6 +30,12 @@ jobs:
 
         outputs:
             capture_digest: ${{ steps.digest.outputs.capture_digest }}
+            cyclotron-fetch_digest: ${{ steps.digest.outputs.cyclotron-fetch_digest }}
+            cyclotron-janitor_digest: ${{ steps.digest.outputs.cyclotron-janitor_digest }}
+            property-defs-rs_digest: ${{ steps.digest.outputs.property-defs-rs_digest }}
+            hook-api_digest: ${{ steps.digest.outputs.hook-api_digest }}
+            hook-janitor_digest: ${{ steps.digest.outputs.hook-janitor_digest }}
+            hook-worker_digest: ${{ steps.digest.outputs.hook-worker_digest }}
 
         defaults:
             run:
@@ -97,12 +103,42 @@ jobs:
               run: |
                   echo ${{ steps.docker_build.outputs.digest }}
                   echo "${{matrix.image}}_digest=${{ steps.docker_build.outputs.digest }}" >> $GITHUB_OUTPUT
+                  cat $GITHUB_OUTPUT
 
     deploy:
-        name: Deploy capture-replay
+        name: deploy ${{ matrix.release }}
         runs-on: ubuntu-latest
         needs: build
         if: github.ref == 'refs/heads/master'
+        strategy:
+            matrix:
+              include:
+              - release: capture
+                values:
+                  image:
+                    sha: "${{ needs.build.outputs.capture_digest }}"
+              - release: capture-replay
+                values:
+                  image:
+                    sha: "${{ needs.build.outputs.capture_digest }}"
+              - release: cyclotron
+                values:
+                  fetch_image:
+                    sha: "${{ needs.build.outputs.cyclotron-fetch_digest }}"
+                  janitor_image:
+                    sha: "${{ needs.build.outputs.cyclotron-janitor_digest }}"
+              - release: property-defs-rs
+                values:
+                  image:
+                    sha: "${{ needs.build.outputs.property-defs-rs_digest }}"
+              - release: hoghooks
+                values:
+                  api_image:
+                    sha: "${{ needs.build.outputs.hook-api_digest }}"
+                  janitor_image:
+                    sha: "${{ needs.build.outputs.hook-janitor_digest }}"
+                  worker_image:
+                    sha: "${{ needs.build.outputs.hook-worker_digest }}"
         steps:
             - name: get deployer token
               id: deployer
@@ -111,7 +147,7 @@ jobs:
                   app_id: ${{ secrets.DEPLOYER_APP_ID }}
                   private_key: ${{ secrets.DEPLOYER_APP_PRIVATE_KEY }}
 
-            - name: Trigger livestream deployment
+            - name: trigger ${{ matrix.release }} deployment
               uses: peter-evans/repository-dispatch@v3
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -119,12 +155,8 @@ jobs:
                   event-type: commit_state_update
                   client-payload: |
                       {
-                        "values": {
-                          "image": {
-                            "sha": "${{ needs.build.outputs.capture_digest }}"
-                          }
-                        },
-                        "release": "capture-replay",
+                        "values": ${{ toJson(matrix.values) }},
+                        "release": "${{ matrix.release }}",
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": ${{ toJson(github.repository) }},
                         "labels": [],
