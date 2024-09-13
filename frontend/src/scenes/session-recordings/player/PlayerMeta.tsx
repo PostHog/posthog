@@ -1,6 +1,6 @@
 import './PlayerMeta.scss'
 
-import { LemonBanner, LemonSwitch, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSwitch, LemonTabs, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -125,37 +125,47 @@ export function PlayerMeta(): JSX.Element {
                     'PlayerMeta--fullscreen': isFullScreen,
                 })}
             >
-                <div
-                    className={clsx('flex items-center justify-between gap-2 whitespace-nowrap overflow-hidden', {
-                        'p-2 h-10': !isFullScreen,
-                        'p-1 px-3 text-xs h-12': isFullScreen,
-                    })}
-                >
-                    {sessionPlayerMetaDataLoading ? (
+                <div className="flex">
+                    {sessionPlayerMetaDataLoading || !currentSegment ? (
                         <LemonSkeleton className="w-1/3 h-4 my-1" />
                     ) : (
-                        <>
-                            {windowIds.map((windowId, index) => (
-                                <span
-                                    className={activeWindowId === windowId ? 'bg-[var(--danger)]' : ''}
-                                    key={windowId}
-                                    onClick={() => setTrackedWindow(windowId)}
-                                >
-                                    {windowTitles[windowId] || `Window ${index}`}
-                                </span>
-                            ))}
+                        activeWindowId && (
+                            <>
+                                <div>
+                                    {/* {windowIds.map((windowId, index) => (
+                                        <span
+                                            className={activeWindowId === windowId ? 'bg-[var(--danger)]' : ''}
+                                            key={windowId}
+                                            onClick={() => setTrackedWindow(windowId)}
+                                        >
+                                            {windowTitles[windowId] || `Window ${index + 1}`}
+                                        </span>
+                                    ))} */}
+                                    <LemonTabs
+                                        size="small"
+                                        tabs={windowIds.map((windowId, index) => ({
+                                            key: windowId,
+                                            label: <span>{windowTitles[windowId] || `Window ${index + 1}`}</span>,
+                                        }))}
+                                        activeKey={activeWindowId}
+                                        onChange={(windowId) => setTrackedWindow(windowId)}
+                                        barClassName="mb-0"
+                                    />
+                                </div>
+                                <div className="flex flex-1 border-b justify-end px-2">
+                                    <LemonSwitch
+                                        label="Follow the user"
+                                        checked={trackedWindow === null}
+                                        onChange={() =>
+                                            trackedWindow
+                                                ? setTrackedWindow(null)
+                                                : setTrackedWindow(currentWindow as string)
+                                        }
+                                        disabledReason={!activeWindowId && 'There is no active window'}
+                                    />
+                                </div>
 
-                            <LemonSwitch
-                                label="Follow the user"
-                                checked={!trackedWindow}
-                                onChange={() =>
-                                    // TODO: Could be wrong
-                                    currentWindow ? setTrackedWindow(currentWindow) : setTrackedWindow(trackedWindow)
-                                }
-                                disabledReason={!activeWindowId && 'There is no active window'}
-                            />
-
-                            {/* <URLOrScreen lastUrl={lastUrl} />
+                                {/* <URLOrScreen lastUrl={lastUrl} />
                             {lastPageviewEvent?.properties?.['$screen_name'] && (
                                 <span className="flex items-center gap-2 truncate">
                                     <span>·</span>
@@ -164,9 +174,9 @@ export function PlayerMeta(): JSX.Element {
                                     </span>
                                 </span>
                             )} */}
-                        </>
+                            </>
+                        )
                     )}
-                    <div className={clsx('flex-1', isSmallPlayer ? 'min-w-[1rem]' : 'min-w-[5rem]')} />
                 </div>
                 <PlayerWarningsRow />
             </div>
