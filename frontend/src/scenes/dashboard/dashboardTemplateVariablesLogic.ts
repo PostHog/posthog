@@ -158,6 +158,7 @@ export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLog
                 id: action.id.toString(),
                 math: BaseMathType.UniqueUsers,
                 name: action.name,
+                custom_name: originalVariableName,
                 order: 0,
                 type: EntityTypes.ACTIONS,
                 selector: action.steps?.[0]?.selector,
@@ -177,6 +178,7 @@ export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLog
                 type: EntityTypes.EVENTS,
                 order: 0,
                 name: '$pageview',
+                custom_name: variableName,
                 properties: [
                     {
                         key: '$current_url',
