@@ -1,5 +1,4 @@
-use std::time::Duration;
-
+use crate::limiters::redis::RedisLimiter;
 use async_trait::async_trait;
 use health::HealthHandle;
 use metrics::{counter, gauge, histogram};
@@ -8,6 +7,7 @@ use rdkafka::message::{Header, OwnedHeaders};
 use rdkafka::producer::{DeliveryFuture, FutureProducer, FutureRecord, Producer};
 use rdkafka::util::Timeout;
 use rdkafka::ClientConfig;
+use std::time::Duration;
 use tokio::task::JoinSet;
 use tracing::log::{debug, error, info};
 use tracing::{info_span, instrument, Instrument};
@@ -114,6 +114,8 @@ pub struct KafkaSink {
     client_ingestion_warning_topic: String,
     exceptions_topic: String,
     heatmaps_topic: String,
+    replay_overflow_limiter: Option<RedisLimiter>,
+    replay_overflow_topic: String,
 }
 
 impl KafkaSink {
@@ -121,6 +123,7 @@ impl KafkaSink {
         config: KafkaConfig,
         liveness: HealthHandle,
         partition: Option<OverflowLimiter>,
+        replay_overflow_limiter: Option<RedisLimiter>,
     ) -> anyhow::Result<KafkaSink> {
         info!("connecting to Kafka brokers at {}...", config.kafka_hosts);
 
@@ -181,6 +184,8 @@ impl KafkaSink {
             client_ingestion_warning_topic: config.kafka_client_ingestion_warning_topic,
             exceptions_topic: config.kafka_exceptions_topic,
             heatmaps_topic: config.kafka_heatmaps_topic,
+            replay_overflow_topic: config.kafka_replay_overflow_topic,
+            replay_overflow_limiter,
         })
     }
 
@@ -222,14 +227,21 @@ impl KafkaSink {
             ),
             DataType::HeatmapMain => (&self.heatmaps_topic, Some(event_key.as_str())),
             DataType::ExceptionMain => (&self.exceptions_topic, Some(event_key.as_str())),
-            DataType::SnapshotMain => (
-                &self.main_topic,
-                Some(
-                    session_id
-                        .as_deref()
-                        .ok_or(CaptureError::MissingSessionId)?,
-                ),
-            ),
+            DataType::SnapshotMain => {
+                let session_id = session_id
+                    .as_deref()
+                    .ok_or(CaptureError::MissingSessionId)?;
+                let is_overflowing = match &self.replay_overflow_limiter {
+                    None => false,
+                    Some(limiter) => limiter.is_limited(session_id).await,
+                };
+
+                if is_overflowing {
+                    (&self.replay_overflow_topic, Some(session_id))
+                } else {
+                    (&self.main_topic, Some(session_id))
+                }
+            }
         };
 
         match self.producer.send_result(FutureRecord {
@@ -378,12 +390,13 @@ mod tests {
             kafka_client_ingestion_warning_topic: "events_plugin_ingestion".to_string(),
             kafka_exceptions_topic: "events_plugin_ingestion".to_string(),
             kafka_heatmaps_topic: "events_plugin_ingestion".to_string(),
+            kafka_replay_overflow_topic: "session_recording_snapshot_item_overflow".to_string(),
             kafka_tls: false,
             kafka_client_id: "".to_string(),
             kafka_metadata_max_age_ms: 60000,
             kafka_producer_max_retries: 2,
         };
-        let sink = KafkaSink::new(config, handle, limiter).expect("failed to create sink");
+        let sink = KafkaSink::new(config, handle, limiter, None).expect("failed to create sink");
         (cluster, sink)
     }
 

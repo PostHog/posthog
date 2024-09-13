@@ -74,6 +74,7 @@ export enum NodeKind {
     RecordingsQuery = 'RecordingsQuery',
     SessionAttributionExplorerQuery = 'SessionAttributionExplorerQuery',
     ErrorTrackingQuery = 'ErrorTrackingQuery',
+    ExperimentResultQuery = 'ExperimentResultQuery',
 
     // Interface nodes
     DataTableNode = 'DataTableNode',
@@ -95,6 +96,7 @@ export enum NodeKind {
     WebOverviewQuery = 'WebOverviewQuery',
     WebTopClicksQuery = 'WebTopClicksQuery',
     WebStatsTableQuery = 'WebStatsTableQuery',
+    WebExternalClicksTableQuery = 'WebExternalClicksTableQuery',
     WebGoalsQuery = 'WebGoalsQuery',
 
     // Database metadata
@@ -116,10 +118,12 @@ export type AnyDataNode =
     | HogQLAutocomplete
     | WebOverviewQuery
     | WebStatsTableQuery
+    | WebExternalClicksTableQuery
     | WebTopClicksQuery
     | WebGoalsQuery
     | SessionAttributionExplorerQuery
     | ErrorTrackingQuery
+    | ExperimentResultQuery
 
 /**
  * @discriminator kind
@@ -141,10 +145,12 @@ export type QuerySchema =
     | HogQLAutocomplete
     | WebOverviewQuery
     | WebStatsTableQuery
+    | WebExternalClicksTableQuery
     | WebTopClicksQuery
     | WebGoalsQuery
     | SessionAttributionExplorerQuery
     | ErrorTrackingQuery
+    | ExperimentResultQuery
 
     // Interface nodes
     | DataVisualizationNode
@@ -294,7 +300,13 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
     operand?: FilterLogicalOperator
     session_ids?: string[]
     person_uuid?: string
-    order: DurationType | 'start_time' | 'console_error_count'
+    order:
+        | DurationType
+        | 'start_time'
+        | 'console_error_count'
+        | 'click_count'
+        | 'keypress_count'
+        | 'mouse_activity_count'
     limit?: integer
     offset?: integer
 }
@@ -560,10 +572,12 @@ export interface DataTableNode
                     | HogQLQuery
                     | WebOverviewQuery
                     | WebStatsTableQuery
+                    | WebExternalClicksTableQuery
                     | WebTopClicksQuery
                     | WebGoalsQuery
                     | SessionAttributionExplorerQuery
                     | ErrorTrackingQuery
+                    | ExperimentResultQuery
                 )['response']
             >
         >,
@@ -578,10 +592,12 @@ export interface DataTableNode
         | HogQLQuery
         | WebOverviewQuery
         | WebStatsTableQuery
+        | WebExternalClicksTableQuery
         | WebTopClicksQuery
         | WebGoalsQuery
         | SessionAttributionExplorerQuery
         | ErrorTrackingQuery
+        | ExperimentResultQuery
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
     /** Columns that aren't shown in the table, even if in columns or returned data */
@@ -1152,6 +1168,7 @@ export interface QueryRequest {
      * see the [PostHog HogQL documentation](/docs/hogql#api-access).
      */
     query: QuerySchema
+    filters_override?: DashboardFilter
 }
 
 /**
@@ -1320,10 +1337,13 @@ export interface SessionsTimelineQuery extends DataNode<SessionsTimelineQueryRes
 }
 export type WebAnalyticsPropertyFilter = EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter
 export type WebAnalyticsPropertyFilters = WebAnalyticsPropertyFilter[]
-
+export type WebAnalyticsConversionGoal = {
+    actionId: integer
+}
 interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<R> {
     dateRange?: DateRange
     properties: WebAnalyticsPropertyFilters
+    conversionGoal?: WebAnalyticsConversionGoal | null
     sampling?: {
         enabled?: boolean
         forceSamplingRate?: SamplingRate
@@ -1409,6 +1429,22 @@ export interface WebStatsTableQueryResponse extends AnalyticsQueryResponseBase<u
     offset?: integer
 }
 export type CachedWebStatsTableQueryResponse = CachedQueryResponse<WebStatsTableQueryResponse>
+
+export interface WebExternalClicksTableQuery extends WebAnalyticsQueryBase<WebExternalClicksTableQueryResponse> {
+    kind: NodeKind.WebExternalClicksTableQuery
+    limit?: integer
+    stripQueryParams?: boolean
+}
+export interface WebExternalClicksTableQueryResponse extends AnalyticsQueryResponseBase<unknown[]> {
+    types?: unknown[]
+    columns?: unknown[]
+    hogql?: string
+    samplingRate?: SamplingRate
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+}
+export type CachedWebExternalClicksTableQueryResponse = CachedQueryResponse<WebExternalClicksTableQueryResponse>
 
 export interface WebGoalsQuery extends WebAnalyticsQueryBase<WebGoalsQueryResponse> {
     kind: NodeKind.WebGoalsQuery
@@ -1500,6 +1536,33 @@ export type InsightQueryNode =
     | PathsQuery
     | StickinessQuery
     | LifecycleQuery
+
+export interface ExperimentVariantTrendResult {
+    count: number
+}
+
+export interface ExperimentVariantFunnelResult {
+    success_count: number
+    failure_count: number
+}
+
+export interface ExperimentResultTrendQueryResponse {
+    insight: InsightType.TRENDS
+    results: Record<string, ExperimentVariantTrendResult>
+}
+
+export interface ExperimentResultFunnelQueryResponse {
+    insight: InsightType.FUNNELS
+    results: Record<string, ExperimentVariantFunnelResult>
+}
+
+export type ExperimentResultQueryResponse = ExperimentResultTrendQueryResponse | ExperimentResultFunnelQueryResponse
+
+export interface ExperimentResultQuery extends DataNode<ExperimentResultQueryResponse> {
+    kind: NodeKind.ExperimentResultQuery
+    source: TrendsQuery | FunnelsQuery
+    variants: string[]
+}
 
 /**
  * @discriminator kind

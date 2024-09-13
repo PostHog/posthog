@@ -330,6 +330,17 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
+    if kind == "WebExternalClicksTableQuery":
+        from .web_analytics.external_clicks import WebExternalClicksTableQueryRunner
+
+        return WebExternalClicksTableQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
     if kind == "SessionAttributionExplorerQuery":
         from .web_analytics.session_attribution_explorer_query_runner import SessionAttributionExplorerQueryRunner
 
@@ -345,6 +356,17 @@ def get_query_runner(
         from .error_tracking_query_runner import ErrorTrackingQueryRunner
 
         return ErrorTrackingQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "ExperimentResultQuery":
+        from .experiment_result_query_runner import ExperimentResultQueryRunner
+
+        return ExperimentResultQueryRunner(
             query=query,
             team=team,
             timings=timings,
