@@ -28,7 +28,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 'trackedWindow',
             ],
             sessionRecordingPlayerLogic(props),
-            ['currentTimestamp', 'currentPlayerTime', 'currentSegment'],
+            ['currentTimestamp', 'currentPlayerTime', 'currentSegment', 'windowTitles'],
             sessionRecordingsListPropertiesLogic,
             ['recordingPropertiesById', 'recordingPropertiesLoading'],
         ],
@@ -52,43 +52,52 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 return sessionPlayerData.start ?? null
             },
         ],
-        lastUrl: [
-            (s) => [s.urls, s.sessionPlayerMetaData, s.currentTimestamp],
-            (urls, sessionPlayerMetaData, currentTimestamp): string | undefined => {
+        lastUrls: [
+            (s) => [s.urls, s.currentTimestamp],
+            (urls, currentTimestamp): Record<string, string> => {
                 if (!urls.length || !currentTimestamp) {
-                    return sessionPlayerMetaData?.start_url ?? undefined
+                    return {}
                 }
 
-                // Go through the events in reverse to find the latest pageview
+                const windowUrls: Record<string, string> = {}
+
+                // Go through the urls in reverse to find the URL closest but before the current timestamp
                 for (let i = urls.length - 1; i >= 0; i--) {
-                    const urlTimestamp = urls[i]
-                    if (i === 0 || urlTimestamp.timestamp < currentTimestamp) {
-                        return urlTimestamp.url
+                    const url = urls[i]
+                    if (!(url.windowId in windowUrls) && url.timestamp < currentTimestamp) {
+                        windowUrls[url.windowId] = url.url
                     }
                 }
+
+                return windowUrls
             },
         ],
-        lastPageviewEvent: [
-            (s) => [s.sessionEventsData, s.currentPlayerTime],
-            (sessionEventsData, currentPlayerTime) => {
-                const playerTimeClosestSecond = ceilMsToClosestSecond(currentPlayerTime ?? 0)
 
+        latestScreenTitle: [
+            (s) => [s.sessionEventsData, s.currentPlayerTime],
+            (sessionEventsData, currentPlayerTime): string | null => {
                 if (!sessionEventsData?.length) {
                     return null
                 }
 
-                // Go through the events in reverse to find the latest pageview
-                for (let i = sessionEventsData.length - 1; i >= 0; i--) {
-                    const event = sessionEventsData[i]
-                    if (
-                        (event.event === '$screen' || event.event === '$pageview') &&
-                        (event.playerTime ?? 0) < playerTimeClosestSecond
-                    ) {
-                        return event
+                const playerTimeClosestSecond = ceilMsToClosestSecond(currentPlayerTime ?? 0)
+
+                const screenEvents = sessionEventsData.filter(
+                    (e) => e.event === '$screen' && e.properties['$screen_name']
+                )
+
+                // Go through the $screen events in reverse to find the event closest but before the current player time
+                for (let i = screenEvents.length - 1; i >= 0; i--) {
+                    const event = screenEvents[i]
+                    if ((event.playerTime ?? 0) < playerTimeClosestSecond) {
+                        return event.properties['$screen_name'] ?? null
                     }
                 }
+
+                return null
             },
         ],
+
         sessionProperties: [
             (s) => [s.sessionPlayerData, s.recordingPropertiesById, (_, props) => props],
             (sessionPlayerData, recordingPropertiesById, props) => {

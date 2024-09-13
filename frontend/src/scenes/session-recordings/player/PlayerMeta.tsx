@@ -1,6 +1,7 @@
 import './PlayerMeta.scss'
 
-import { LemonBanner, LemonSwitch, LemonTabs, Link } from '@posthog/lemon-ui'
+import { IconExternal } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonSwitch, LemonTabs, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -15,43 +16,65 @@ import { Logo } from '~/toolbar/assets/Logo'
 
 import { sessionRecordingPlayerLogic, SessionRecordingPlayerMode } from './sessionRecordingPlayerLogic'
 
-function URLOrScreen({ lastUrl }: { lastUrl: string | undefined }): JSX.Element | null {
-    if (!lastUrl) {
-        return null
-    }
+function WindowTab({
+    title,
+    url,
+    windowIndex,
+    active,
+}: {
+    title: string | null
+    url: string | undefined
+    windowIndex: number
+    active: boolean
+}): JSX.Element | null {
+    const displayTitle = title || url || `Window ${windowIndex}`
+    const copyableContent = url || title
 
-    // re-using the rrweb web schema means that this might be a mobile replay screen name
     let isValidUrl = false
     try {
-        new URL(lastUrl || '')
+        new URL(copyableContent || '')
         isValidUrl = true
     } catch (_e) {
         // no valid url
     }
 
     return (
-        <span className="flex items-center gap-2 truncate">
-            <span>·</span>
-            <span className="flex items-center gap-1 truncate">
-                {isValidUrl ? (
-                    <Tooltip title="Click to open url">
-                        <Link to={lastUrl} target="_blank" className="truncate">
-                            {lastUrl}
-                        </Link>
-                    </Tooltip>
-                ) : (
-                    lastUrl
-                )}
-                <span className="flex items-center">
+        <div className="px-2">
+            <Tooltip title={url}>
+                <span>{displayTitle}</span>
+            </Tooltip>
+            {active && copyableContent && (
+                <>
+                    {isValidUrl && (
+                        <LemonButton
+                            icon={<IconExternal />}
+                            tooltip={copyableContent}
+                            to={copyableContent}
+                            targetBlank
+                        />
+                    )}
                     <CopyToClipboardInline
-                        description={lastUrl}
-                        explicitValue={lastUrl}
+                        description={copyableContent}
+                        explicitValue={copyableContent}
                         iconStyle={{ color: 'var(--muted-alt)' }}
                         selectable={true}
+                        tooltipMessage="Copy URL"
                     />
-                </span>
-            </span>
-        </span>
+                </>
+            )}
+            {isValidUrl && active && url && (
+                <>
+                    <LemonButton icon={<IconExternal />} tooltip={url} to={url} targetBlank />
+                    <CopyToClipboardInline
+                        description={url}
+                        explicitValue={url}
+                        iconStyle={{ color: 'var(--muted-alt)' }}
+                        selectable={true}
+                        tooltipMessage="Copy URL"
+                    />
+                </>
+            )}
+        </div>
     )
 }
 
@@ -78,11 +101,9 @@ function PlayerWarningsRow(): JSX.Element | null {
 export function PlayerMeta(): JSX.Element {
     const { logicProps, isFullScreen, windowTitles } = useValues(sessionRecordingPlayerLogic)
 
-    const { windowIds, trackedWindow, currentSegment, sessionPlayerMetaDataLoading } = useValues(
-        playerMetaLogic(logicProps)
-    )
-
     const { setTrackedWindow } = useActions(playerMetaLogic(logicProps))
+    const { windowIds, trackedWindow, currentSegment, sessionPlayerMetaDataLoading, lastUrls, latestScreenTitle } =
+        useValues(playerMetaLogic(logicProps))
 
     const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
     const whitelabel = getCurrentExporterData()?.whitelabel ?? false
@@ -123,7 +144,14 @@ export function PlayerMeta(): JSX.Element {
                                         size="small"
                                         tabs={windowIds.map((windowId, index) => ({
                                             key: windowId,
-                                            label: <span>{windowTitles[windowId] || `Window ${index + 1}`}</span>,
+                                            label: (
+                                                <WindowTab
+                                                    title={latestScreenTitle || windowTitles[windowId]}
+                                                    url={lastUrls[windowId]}
+                                                    active={activeWindowId === windowId}
+                                                    windowIndex={index + 1}
+                                                />
+                                            ),
                                         }))}
                                         activeKey={activeWindowId}
                                         onChange={(windowId) => setTrackedWindow(windowId)}
@@ -131,27 +159,19 @@ export function PlayerMeta(): JSX.Element {
                                     />
                                 </div>
                                 <div className="flex flex-1 border-b justify-end px-2">
-                                    <LemonSwitch
-                                        label="Follow the user"
-                                        checked={trackedWindow === null}
-                                        onChange={() =>
-                                            trackedWindow
-                                                ? setTrackedWindow(null)
-                                                : setTrackedWindow(currentWindow as string)
-                                        }
-                                        disabledReason={!activeWindowId && 'There is no active window'}
-                                    />
+                                    {windowIds.length > 1 && (
+                                        <LemonSwitch
+                                            label="Follow the user"
+                                            checked={trackedWindow === null}
+                                            onChange={() =>
+                                                trackedWindow
+                                                    ? setTrackedWindow(null)
+                                                    : setTrackedWindow(currentWindow as string)
+                                            }
+                                            disabledReason={!activeWindowId && 'There is no active window'}
+                                        />
+                                    )}
                                 </div>
-
-                                {/* <URLOrScreen lastUrl={lastUrl} />
-                            {lastPageviewEvent?.properties?.['$screen_name'] && (
-                                <span className="flex items-center gap-2 truncate">
-                                    <span>·</span>
-                                    <span className="flex items-center gap-1 truncate">
-                                        {lastPageviewEvent?.properties['$screen_name']}
-                                    </span>
-                                </span>
-                            )} */}
                             </>
                         )
                     )}

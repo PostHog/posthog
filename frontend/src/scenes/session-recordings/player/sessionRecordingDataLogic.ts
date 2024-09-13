@@ -884,7 +884,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
         urls: [
             (s) => [s.snapshots],
-            (snapshots): { url: string; timestamp: number }[] => {
+            (snapshots): { url: string; timestamp: number; windowId: string }[] => {
                 return (
                     snapshots
                         .filter((snapshot) => getHrefFromSnapshot(snapshot))
@@ -892,6 +892,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                             return {
                                 url: getHrefFromSnapshot(snapshot) as string,
                                 timestamp: snapshot.timestamp,
+                                windowId: snapshot.windowId,
                             }
                         }) ?? []
                 )

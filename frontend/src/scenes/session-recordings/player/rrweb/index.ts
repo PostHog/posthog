@@ -106,10 +106,9 @@ export const WindowTitlePlugin = (cb: (windowId: string, title: string) => void)
                 if (e.type === EventType.FullSnapshot) {
                     titleElementIds.clear()
                     const el = extractTitleTextEl(e.data.node as Node)
-                    console.log(el)
                     if (windowId && el && el.textContent) {
                         titleElementIds.add(el.id)
-                        console.log('Gets here', windowId, el.textContent)
+                        e.timestamp
                         cb(windowId, el.textContent)
                     }
                 } else if (e.type === EventType.IncrementalSnapshot && e.data.source === IncrementalSource.Mutation) {
