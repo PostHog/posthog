@@ -26,7 +26,7 @@ export const destinationsFiltersLogic = kea([
         resetFilters: true,
         openFeedbackDialog: true,
     }),
-    reducers(({}) => ({
+    reducers(() => ({
         filters: [
             {} as DestinationsFilters,
             {
@@ -34,7 +34,9 @@ export const destinationsFiltersLogic = kea([
                     ...state,
                     ...filters,
                 }),
-                resetFilters: () => ({}),
+                resetFilters: () => ({
+                    showPaused: true,
+                }),
             },
         ],
     })),

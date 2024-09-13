@@ -159,6 +159,13 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
                 })
             },
         ],
+
+        hiddenDestinations: [
+            (s) => [s.destinations, s.filteredDestinations],
+            (destinations, filteredDestinations): NewDestinationItemType[] => {
+                return destinations.filter((dest) => !filteredDestinations.includes(dest))
+            },
+        ],
     })),
 
     afterMount(({ actions }) => {

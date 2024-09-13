@@ -264,6 +264,13 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                 })
             },
         ],
+
+        hiddenDestinations: [
+            (s) => [s.destinations, s.filteredDestinations],
+            (destinations, filteredDestinations): Destination[] => {
+                return destinations.filter((dest) => !filteredDestinations.includes(dest))
+            },
+        ],
     }),
     listeners(({ values, actions }) => ({
         toggleNode: ({ destination, enabled }) => {

@@ -19,6 +19,7 @@ import { pipelineAccessLogic } from '../pipelineAccessLogic'
 import { Destination, PipelineBackend } from '../types'
 import { pipelineNodeMenuCommonItems, RenderApp, RenderBatchExportIcon } from '../utils'
 import { DestinationsFilters } from './DestinationsFilters'
+import { destinationsFiltersLogic } from './destinationsFiltersLogic'
 import { pipelineDestinationsLogic } from './destinationsLogic'
 import { DestinationOptionsTable } from './NewDestinations'
 
@@ -52,8 +53,9 @@ export function Destinations(): JSX.Element {
 
 export function DestinationsTable(): JSX.Element {
     const { canConfigurePlugins, canEnableDestination } = useValues(pipelineAccessLogic)
-    const { loading, filteredDestinations, destinations } = useValues(pipelineDestinationsLogic)
-    const { resetFilters, toggleNode, deleteNode } = useActions(pipelineDestinationsLogic)
+    const { loading, filteredDestinations, destinations, hiddenDestinations } = useValues(pipelineDestinationsLogic)
+    const { resetFilters, toggleNode, deleteNode } = useActions(destinationsFiltersLogic)
+
     return (
         <div className="space-y-2">
             <DestinationsFilters />
@@ -200,6 +202,12 @@ export function DestinationsTable(): JSX.Element {
                     )
                 }
             />
+
+            {hiddenDestinations.length > 0 && (
+                <div className="text-muted-alt">
+                    {hiddenDestinations.length} hidden. <Link onClick={() => resetFilters()}>Show all</Link>
+                </div>
+            )}
         </div>
     )
 }
