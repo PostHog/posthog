@@ -4,7 +4,6 @@ import { LemonBanner, LemonSwitch, LemonTabs, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
@@ -79,18 +78,11 @@ function PlayerWarningsRow(): JSX.Element | null {
 export function PlayerMeta(): JSX.Element {
     const { logicProps, isFullScreen, windowTitles } = useValues(sessionRecordingPlayerLogic)
 
-    const { windowIds, trackedWindow, currentWindowIndex, currentSegment, sessionPlayerMetaDataLoading } = useValues(
+    const { windowIds, trackedWindow, currentSegment, sessionPlayerMetaDataLoading } = useValues(
         playerMetaLogic(logicProps)
     )
 
     const { setTrackedWindow } = useActions(playerMetaLogic(logicProps))
-
-    const { ref, size } = useResizeBreakpoints({
-        0: 'compact',
-        550: 'normal',
-    })
-
-    const isSmallPlayer = size === 'compact'
 
     const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
     const whitelabel = getCurrentExporterData()?.whitelabel ?? false
@@ -119,12 +111,7 @@ export function PlayerMeta(): JSX.Element {
 
     return (
         <DraggableToNotebook href={urls.replaySingle(logicProps.sessionRecordingId)} onlyWithModifierKey>
-            <div
-                ref={ref}
-                className={clsx('PlayerMeta', {
-                    'PlayerMeta--fullscreen': isFullScreen,
-                })}
-            >
+            <div className={clsx('PlayerMeta', { 'PlayerMeta--fullscreen': isFullScreen })}>
                 <div className="flex">
                     {sessionPlayerMetaDataLoading || !currentSegment ? (
                         <LemonSkeleton className="w-1/3 h-4 my-1" />
@@ -132,15 +119,6 @@ export function PlayerMeta(): JSX.Element {
                         activeWindowId && (
                             <>
                                 <div>
-                                    {/* {windowIds.map((windowId, index) => (
-                                        <span
-                                            className={activeWindowId === windowId ? 'bg-[var(--danger)]' : ''}
-                                            key={windowId}
-                                            onClick={() => setTrackedWindow(windowId)}
-                                        >
-                                            {windowTitles[windowId] || `Window ${index + 1}`}
-                                        </span>
-                                    ))} */}
                                     <LemonTabs
                                         size="small"
                                         tabs={windowIds.map((windowId, index) => ({
