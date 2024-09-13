@@ -1,3 +1,4 @@
+use feature_flags::feature_flag_match_reason::FeatureFlagMatchReason;
 /// These tests are common between all libraries doing local evaluation of feature flags.
 /// This ensures there are no mismatches between implementations.
 use feature_flags::flag_matching::{FeatureFlagMatch, FeatureFlagMatcher};
@@ -121,7 +122,7 @@ async fn it_is_consistent_with_rollout_calculation_for_simple_flags() {
                 FeatureFlagMatch {
                     matches: true,
                     variant: None,
-                    reason: Some("CONDITION_MATCH".to_string()),
+                    reason: FeatureFlagMatchReason::ConditionMatch,
                     condition_index: Some(0),
                     payload: None,
                 }
@@ -132,8 +133,8 @@ async fn it_is_consistent_with_rollout_calculation_for_simple_flags() {
                 FeatureFlagMatch {
                     matches: false,
                     variant: None,
-                    reason: Some("NO_CONDITION_MATCH".to_string()),
-                    condition_index: None,
+                    reason: FeatureFlagMatchReason::OutOfRolloutBound,
+                    condition_index: Some(0),
                     payload: None,
                 }
             );
@@ -1211,7 +1212,7 @@ async fn it_is_consistent_with_rollout_calculation_for_multivariate_flags() {
                 FeatureFlagMatch {
                     matches: true,
                     variant: Some(variant.clone()),
-                    reason: Some("CONDITION_MATCH".to_string()),
+                    reason: FeatureFlagMatchReason::ConditionMatch,
                     condition_index: Some(0),
                     payload: None,
                 }
@@ -1222,8 +1223,8 @@ async fn it_is_consistent_with_rollout_calculation_for_multivariate_flags() {
                 FeatureFlagMatch {
                     matches: false,
                     variant: None,
-                    reason: Some("NO_CONDITION_MATCH".to_string()),
-                    condition_index: None,
+                    reason: FeatureFlagMatchReason::OutOfRolloutBound,
+                    condition_index: Some(0),
                     payload: None,
                 }
             );

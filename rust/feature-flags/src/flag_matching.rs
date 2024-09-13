@@ -1,6 +1,7 @@
 use crate::{
     api::{FlagError, FlagValue, FlagsResponse},
     database::Client as DatabaseClient,
+    feature_flag_match_reason::FeatureFlagMatchReason,
     flag_definitions::{FeatureFlag, FeatureFlagList, FlagGroupType, PropertyFilter},
     property_matching::match_property,
 };
@@ -21,7 +22,7 @@ type GroupTypeIndex = i32;
 pub struct FeatureFlagMatch {
     pub matches: bool,
     pub variant: Option<String>,
-    pub reason: Option<String>,
+    pub reason: FeatureFlagMatchReason,
     pub condition_index: Option<usize>,
     pub payload: Option<Value>,
 }
@@ -371,13 +372,29 @@ impl FeatureFlagMatcher {
             return Ok(FeatureFlagMatch {
                 matches: false,
                 variant: None,
-                reason: Some("NO_GROUP_TYPE".to_string()),
+                reason: FeatureFlagMatchReason::NoGroupType,
                 condition_index: None,
                 payload: None,
             });
         }
 
-        // TODO super group management, the last of the new queries to be implemented
+        let mut highest_match = FeatureFlagMatchReason::NoConditionMatch;
+        let mut highest_index = None;
+
+        let (super_match, super_condition_value, super_reason) = self
+            .is_super_condition_match(flag, property_overrides.clone())
+            .await?;
+
+        if super_match {
+            let payload = self.get_matching_payload(None, flag);
+            return Ok(FeatureFlagMatch {
+                matches: super_condition_value,
+                variant: None,
+                reason: super_reason,
+                condition_index: Some(0),
+                payload,
+            });
+        }
 
         // Sort conditions with variant overrides to the top so that we can evaluate them first
         let mut sorted_conditions: Vec<(usize, &FlagGroupType)> =
@@ -387,42 +404,66 @@ impl FeatureFlagMatcher {
             .sort_by_key(|(_, condition)| if condition.variant.is_some() { 0 } else { 1 });
 
         for (index, condition) in sorted_conditions {
+            println!("evaluating condition: {:?}, index: {}", condition, index);
             let (is_match, reason) = self
                 .is_condition_match(flag, condition, property_overrides.clone())
                 .await?;
+            println!(
+                "condition_index {}, match: {}, reason: {:?}",
+                index, is_match, reason
+            );
+
+            // Update highest_match and highest_index regardless of is_match
+            let (new_highest_match, new_highest_index) = self
+                .get_highest_priority_match_evaluation(
+                    highest_match.clone(),
+                    highest_index,
+                    reason.clone(),
+                    Some(index),
+                );
+            highest_match = new_highest_match;
+            highest_index = new_highest_index;
 
             if is_match {
-                let variant = match &condition.variant {
-                    Some(variant_override)
-                        if flag
-                            .get_variants()
-                            .iter()
-                            .any(|v| &v.key == variant_override) =>
-                    {
-                        Some(variant_override.clone())
-                    }
-                    _ => self.get_matching_variant(flag).await?,
-                };
+                if highest_match == FeatureFlagMatchReason::SuperConditionValue {
+                    break; // Exit early if we've found a super condition match
+                }
 
+                let variant = self.get_matching_variant(flag).await?;
                 let payload = self.get_matching_payload(variant.as_deref(), flag);
 
                 return Ok(FeatureFlagMatch {
                     matches: true,
                     variant,
-                    reason: Some(reason),
-                    condition_index: Some(index),
+                    reason: highest_match,
+                    condition_index: highest_index,
                     payload,
                 });
             }
         }
 
+        // Return with the highest_match reason and index even if no conditions matched
         Ok(FeatureFlagMatch {
             matches: false,
             variant: None,
-            reason: Some("NO_CONDITION_MATCH".to_string()),
-            condition_index: None,
+            reason: highest_match,
+            condition_index: highest_index,
             payload: None,
         })
+    }
+
+    fn get_highest_priority_match_evaluation(
+        &self,
+        current_match: FeatureFlagMatchReason,
+        current_index: Option<usize>,
+        new_match: FeatureFlagMatchReason,
+        new_index: Option<usize>,
+    ) -> (FeatureFlagMatchReason, Option<usize>) {
+        if current_match <= new_match {
+            (new_match, new_index)
+        } else {
+            (current_match, current_index)
+        }
     }
 
     async fn is_condition_match(
@@ -430,7 +471,7 @@ impl FeatureFlagMatcher {
         feature_flag: &FeatureFlag,
         condition: &FlagGroupType,
         property_overrides: Option<HashMap<String, Value>>,
-    ) -> Result<(bool, String), FlagError> {
+    ) -> Result<(bool, FeatureFlagMatchReason), FlagError> {
         let rollout_percentage = condition.rollout_percentage.unwrap_or(100.0);
 
         if let Some(flag_property_filters) = &condition.properties {
@@ -471,11 +512,65 @@ impl FeatureFlagMatcher {
                 all_properties_match(flag_property_filters, &properties_to_check);
 
             if !properties_match {
-                return Ok((false, "NO_CONDITION_MATCH".to_string()));
+                return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
             }
         }
 
         self.check_rollout(feature_flag, rollout_percentage).await
+    }
+
+    // Placeholder for checking if super condition is set
+    fn super_condition_is_set(&self, _feature_flag: &FeatureFlag) -> bool {
+        // Implement your logic here
+        false
+    }
+
+    // Placeholder for getting the super condition value
+    fn super_condition_matches(&self, _feature_flag: &FeatureFlag) -> bool {
+        // Implement your logic here
+        false
+    }
+
+    async fn is_super_condition_match(
+        &mut self,
+        feature_flag: &FeatureFlag,
+        property_overrides: Option<HashMap<String, Value>>,
+    ) -> Result<(bool, bool, FeatureFlagMatchReason), FlagError> {
+        let super_condition_value_is_set = self.super_condition_is_set(feature_flag);
+        let super_condition_value = self.super_condition_matches(feature_flag);
+
+        if super_condition_value_is_set {
+            return Ok((
+                true,
+                super_condition_value,
+                FeatureFlagMatchReason::SuperConditionValue,
+            ));
+        }
+
+        // Evaluate if properties are empty
+        if let Some(super_conditions) = &feature_flag.filters.super_groups {
+            if !super_conditions.is_empty() {
+                let condition = &super_conditions[0];
+
+                if condition.properties.as_ref().map_or(true, |p| p.is_empty()) {
+                    let (is_match, evaluation_reason) = self
+                        .is_condition_match(feature_flag, condition, property_overrides.clone())
+                        .await?;
+
+                    return Ok((
+                        true,
+                        is_match,
+                        if evaluation_reason == FeatureFlagMatchReason::ConditionMatch {
+                            FeatureFlagMatchReason::SuperConditionValue
+                        } else {
+                            evaluation_reason
+                        },
+                    ));
+                }
+            }
+        }
+
+        Ok((false, false, FeatureFlagMatchReason::NoConditionMatch))
     }
 
     async fn get_group_properties_from_cache_or_db(
@@ -576,13 +671,16 @@ impl FeatureFlagMatcher {
         &mut self,
         feature_flag: &FeatureFlag,
         rollout_percentage: f64,
-    ) -> Result<(bool, String), FlagError> {
-        if rollout_percentage == 100.0
-            || self.get_hash(feature_flag, "").await? <= (rollout_percentage / 100.0)
-        {
-            Ok((true, "CONDITION_MATCH".to_string())) // TODO enum, I'll implement this when I implement evaluation reasons
+    ) -> Result<(bool, FeatureFlagMatchReason), FlagError> {
+        let hash = self.get_hash(feature_flag, "").await?;
+        println!(
+            "Rollout check: hash={}, rollout_percentage={}",
+            hash, rollout_percentage
+        );
+        if rollout_percentage == 100.0 || hash <= (rollout_percentage / 100.0) {
+            Ok((true, FeatureFlagMatchReason::ConditionMatch))
         } else {
-            Ok((false, "OUT_OF_ROLLOUT_BOUND".to_string())) // TODO enum, I'll implement this when I implement evaluation reasons
+            Ok((false, FeatureFlagMatchReason::OutOfRolloutBound))
         }
     }
 
@@ -1130,7 +1228,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(is_match, true);
-        assert_eq!(reason, "CONDITION_MATCH");
+        assert_eq!(reason, FeatureFlagMatchReason::ConditionMatch);
     }
 
     fn create_test_flag_with_variants(team_id: TeamId) -> FeatureFlag {
@@ -1913,7 +2011,7 @@ mod tests {
             .unwrap();
 
         assert!(is_match);
-        assert_eq!(reason, "CONDITION_MATCH");
+        assert_eq!(reason, FeatureFlagMatchReason::ConditionMatch);
     }
 
     #[tokio::test]
@@ -1982,5 +2080,117 @@ mod tests {
         let result = matcher.get_match(&flag, None).await.unwrap();
 
         assert!(result.matches);
+    }
+
+    #[tokio::test]
+    async fn test_super_condition_matches_boolean() {
+        let client = setup_pg_client(None).await;
+        let team = insert_new_team_in_pg(client.clone()).await.unwrap();
+
+        let flag = create_test_flag(
+            Some(1),
+            Some(team.id),
+            Some("Super Condition Flag".to_string()),
+            Some("super_condition_flag".to_string()),
+            Some(FlagFilters {
+                groups: vec![
+                    FlagGroupType {
+                        properties: Some(vec![PropertyFilter {
+                            key: "email".to_string(),
+                            value: json!("fake@posthog.com"),
+                            operator: Some(OperatorType::Exact),
+                            prop_type: "person".to_string(),
+                            group_type_index: None,
+                        }]),
+                        rollout_percentage: Some(0.0),
+                        variant: None,
+                    },
+                    FlagGroupType {
+                        properties: Some(vec![PropertyFilter {
+                            key: "email".to_string(),
+                            value: json!("test@posthog.com"),
+                            operator: Some(OperatorType::Exact),
+                            prop_type: "person".to_string(),
+                            group_type_index: None,
+                        }]),
+                        rollout_percentage: Some(100.0),
+                        variant: None,
+                    },
+                    FlagGroupType {
+                        properties: None,
+                        rollout_percentage: Some(50.0),
+                        variant: None,
+                    },
+                ],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: Some(vec![FlagGroupType {
+                    properties: Some(vec![PropertyFilter {
+                        key: "is_enabled".to_string(),
+                        value: json!(["true"]),
+                        operator: Some(OperatorType::Exact),
+                        prop_type: "person".to_string(),
+                        group_type_index: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }]),
+            }),
+            None,
+            None,
+            None,
+        );
+
+        insert_person_for_team_in_pg(
+            client.clone(),
+            team.id,
+            "test_id".to_string(),
+            Some(json!({"email": "test@posthog.com", "is_enabled": true})),
+        )
+        .await
+        .unwrap();
+
+        let mut matcher_test_id = FeatureFlagMatcher::new(
+            "test_id".to_string(),
+            team.id,
+            client.clone(),
+            None,
+            None,
+            None,
+        );
+
+        let mut matcher_example_id = FeatureFlagMatcher::new(
+            "lil_id".to_string(),
+            team.id,
+            client.clone(),
+            None,
+            None,
+            None,
+        );
+
+        let mut matcher_another_id = FeatureFlagMatcher::new(
+            "another_id".to_string(),
+            team.id,
+            client.clone(),
+            None,
+            None,
+            None,
+        );
+
+        let result_test_id = matcher_test_id.get_match(&flag, None).await.unwrap();
+        let result_example_id = matcher_example_id.get_match(&flag, None).await.unwrap();
+        let result_another_id = matcher_another_id.get_match(&flag, None).await.unwrap();
+
+        println!("result_test_id: {:?}", result_test_id);
+        println!("result_example_id: {:?}", result_example_id);
+        println!("result_another_id: {:?}", result_another_id);
+
+        assert!(result_test_id.matches);
+        assert!(result_test_id.reason == FeatureFlagMatchReason::ConditionMatch);
+        assert!(result_example_id.matches);
+        assert!(result_example_id.reason == FeatureFlagMatchReason::ConditionMatch);
+        assert!(!result_another_id.matches);
+        assert!(result_another_id.reason == FeatureFlagMatchReason::OutOfRolloutBound);
     }
 }
