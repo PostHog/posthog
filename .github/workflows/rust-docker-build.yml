@@ -14,14 +14,23 @@ jobs:
         name: build ${{ matrix.image }}
         strategy:
             matrix:
-                image:
-                    - capture
-                    - hook-api
-                    - hook-janitor
-                    - hook-worker
-                    - cyclotron-janitor
-                    - cyclotron-fetch
-                    - property-defs-rs
+                include:
+                - image: capture
+                  dockerfile: ./rust/Dockerfile
+                - image: hook-api
+                  dockerfile: ./rust/Dockerfile
+                - image: hook-janitor
+                  dockerfile: ./rust/Dockerfile
+                - image: hook-worker
+                  dockerfile: ./rust/Dockerfile
+                - image: hook-migrator
+                  dockerfile: ./rust/Dockerfile.migrate-hooks
+                - image: cyclotron-janitor
+                  dockerfile: ./rust/Dockerfile
+                - image: cyclotron-fetch
+                  dockerfile: ./rust/Dockerfile
+                - image: property-defs-rs
+                  dockerfile: ./rust/Dockerfile
         runs-on: depot-ubuntu-22.04-4
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
@@ -36,6 +45,7 @@ jobs:
             hook-api_digest: ${{ steps.digest.outputs.hook-api_digest }}
             hook-janitor_digest: ${{ steps.digest.outputs.hook-janitor_digest }}
             hook-worker_digest: ${{ steps.digest.outputs.hook-worker_digest }}
+            hook-migrator_digest: ${{ steps.digest.outputs.hook-migrator_digest }}
 
         defaults:
             run:
@@ -89,7 +99,7 @@ jobs:
               uses: depot/build-push-action@v1
               with:
                   context: ./rust/
-                  file: ./rust/Dockerfile
+                  file: ${{ matrix.dockerfile }}
                   push: true
                   tags: ${{ steps.meta.outputs.tags }}
                   labels: ${{ steps.meta.outputs.labels }}
@@ -139,6 +149,8 @@ jobs:
                     sha: "${{ needs.build.outputs.hook-janitor_digest }}"
                   worker_image:
                     sha: "${{ needs.build.outputs.hook-worker_digest }}"
+                  migrator_image:
+                    sha: "${{ needs.build.outputs.hook-migrator_digest }}"
         steps:
             - name: get deployer token
               id: deployer
