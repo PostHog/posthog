@@ -16,11 +16,6 @@ export type DestinationsFilters = {
     showPaused?: boolean
 }
 
-export type DestinationsFiltersLogicProps = {
-    defaultFilters?: DestinationsFilters
-    forceFilters?: DestinationsFilters
-}
-
 export const destinationsFiltersLogic = kea([
     path(() => ['scenes', 'pipeline', 'destinations', 'destinationsFiltersLogic']),
     connect({
@@ -31,18 +26,15 @@ export const destinationsFiltersLogic = kea([
         resetFilters: true,
         openFeedbackDialog: true,
     }),
-    reducers(({ props }) => ({
+    reducers(({}) => ({
         filters: [
-            { ...(props.defaultFilters || {}), ...(props.forceFilters || {}) } as DestinationsFilters,
+            {} as DestinationsFilters,
             {
                 setFilters: (state, { filters }) => ({
                     ...state,
                     ...filters,
-                    ...(props.forceFilters || {}),
                 }),
-                resetFilters: () => ({
-                    ...(props.forceFilters || {}),
-                }),
+                resetFilters: () => ({}),
             },
         ],
     })),

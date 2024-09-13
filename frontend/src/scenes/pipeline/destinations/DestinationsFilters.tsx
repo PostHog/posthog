@@ -7,11 +7,21 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { SidePanelTab } from '~/types'
 
 import { PipelineBackend } from '../types'
-import { destinationsFiltersLogic, DestinationsFiltersLogicProps } from './destinationsFiltersLogic'
+import { destinationsFiltersLogic } from './destinationsFiltersLogic'
 
-export function DestinationsFilters(props: DestinationsFiltersLogicProps): JSX.Element | null {
-    const { filters } = useValues(destinationsFiltersLogic(props))
-    const { setFilters, openFeedbackDialog } = useActions(destinationsFiltersLogic(props))
+export type DestinationsFiltersProps = {
+    hideSearch?: boolean
+    hideShowPaused?: boolean
+    hideKind?: boolean
+}
+
+export function DestinationsFilters({
+    hideSearch,
+    hideShowPaused,
+    hideKind,
+}: DestinationsFiltersProps): JSX.Element | null {
+    const { filters } = useValues(destinationsFiltersLogic)
+    const { setFilters, openFeedbackDialog } = useActions(destinationsFiltersLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const hogFunctionsEnabled = !!useFeatureFlag('HOG_FUNCTIONS')
 
@@ -32,7 +42,7 @@ export function DestinationsFilters(props: DestinationsFiltersLogicProps): JSX.E
             </FlaggedFeature>
 
             <div className="flex items-center gap-2">
-                {!props.forceFilters?.search && (
+                {!hideSearch && (
                     <LemonInput
                         type="search"
                         placeholder="Search..."
@@ -44,7 +54,7 @@ export function DestinationsFilters(props: DestinationsFiltersLogicProps): JSX.E
                     Can't find what you're looking for?
                 </Link>
                 <div className="flex-1" />
-                {typeof props.forceFilters?.showPaused !== 'boolean' && (
+                {typeof hideShowPaused !== 'boolean' && (
                     <LemonCheckbox
                         label="Show paused"
                         bordered
@@ -53,7 +63,7 @@ export function DestinationsFilters(props: DestinationsFiltersLogicProps): JSX.E
                         onChange={(e) => setFilters({ showPaused: e ?? undefined })}
                     />
                 )}
-                {!props.forceFilters?.kind && (
+                {!hideKind && (
                     <LemonSelect
                         type="secondary"
                         size="small"

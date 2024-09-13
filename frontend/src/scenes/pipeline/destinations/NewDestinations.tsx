@@ -16,7 +16,7 @@ export function NewDestinations(): JSX.Element {
     return (
         <div className="space-y-2">
             <PayGateMini feature={AvailableFeature.DATA_PIPELINES} />
-            <DestinationsFilters forceFilters={{ showPaused: false }} />
+            <DestinationsFilters hideShowPaused />
             <DestinationOptionsTable />
         </div>
     )
