@@ -3,7 +3,10 @@ from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.salesforce.template_salesforce import (
     template_create as template_salesforce_create,
     template_update as template_salesforce_update,
+    TemplatSalesforceMigrator,
 )
+from posthog.models import PluginConfig
+from posthog.test.base import BaseTest
 
 
 class TestTemplateSalesforceCreate(BaseHogFunctionTemplateTest):
@@ -68,3 +71,60 @@ class TestTemplateSalesforceUpdate(BaseHogFunctionTemplateTest):
                 },
             )
         )
+
+
+class TestTemplateMigration(BaseTest):
+    def get_plugin_config(self, config: dict):
+        _config = {
+            "eventsToInclude": "a,b",
+            "eventPath": "ignored",
+            "eventMethodType": "POST",
+            "propertiesToInclude": "email,$browser",
+            "eventEndpointMapping": "",  # ignored
+            "fieldMappings": "",  # ignored
+        }
+        _config.update(config)
+        return PluginConfig(enabled=True, order=0, config=_config)
+
+    def test_default_config(self):
+        obj = self.get_plugin_config({})
+        template = TemplatSalesforceMigrator.migrate(obj)
+        assert template["inputs"] == snapshot({"path": {"value": "ignored"}})
+        assert template["filters"] == {}
+
+    #
+    # def test_disable_geoip(self):
+    #     obj = self.get_plugin_config({"disable_geoip": "Yes"})
+    #     template = TemplatSalesforceMigrator.migrate(obj)
+    #     assert template["inputs"] == snapshot(
+    #         {
+    #             "host": {"value": "us.i.example.com"},
+    #             "token": {"value": "apikey"},
+    #             "include_all_properties": {"value": True},
+    #             "properties": {"value": {"$geoip_disable": True}},
+    #         }
+    #     )
+    #     assert template["filters"] == {}
+    #
+    # def test_ignore_events(self):
+    #     obj = self.get_plugin_config({"events_to_ignore": "event1, event2, 'smore"})
+    #     template = TemplatSalesforceMigrator.migrate(obj)
+    #     assert template["inputs"] == snapshot(
+    #         {
+    #             "host": {"value": "us.i.example.com"},
+    #             "token": {"value": "apikey"},
+    #             "include_all_properties": {"value": True},
+    #             "properties": {"value": {}},
+    #         }
+    #     )
+    #     assert template["filters"] == {
+    #         "events": [
+    #             {
+    #                 "id": None,
+    #                 "name": "All events",
+    #                 "type": "events",
+    #                 "order": 0,
+    #                 "properties": [{"type": "hogql", "key": "event not in ('event1', 'event2', '\\'smore')"}],
+    #             }
+    #         ]
+    #     }
