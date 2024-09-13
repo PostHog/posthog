@@ -404,7 +404,7 @@ impl FeatureFlagMatcher {
                     _ => self.get_matching_variant(flag).await?,
                 };
 
-                let payload = self.get_matching_payload(true, variant.as_deref(), flag);
+                let payload = self.get_matching_payload(variant.as_deref(), flag);
 
                 return Ok(FeatureFlagMatch {
                     matches: true,
@@ -601,19 +601,11 @@ impl FeatureFlagMatcher {
 
     fn get_matching_payload(
         &self,
-        is_match: bool,
         match_variant: Option<&str>,
         feature_flag: &FeatureFlag,
     ) -> Option<serde_json::Value> {
-        if is_match {
-            if let Some(variant) = match_variant {
-                feature_flag.get_payload(variant)
-            } else {
-                feature_flag.get_payload("true")
-            }
-        } else {
-            None
-        }
+        let variant = match_variant.unwrap_or("true");
+        feature_flag.get_payload(variant)
     }
 }
 
