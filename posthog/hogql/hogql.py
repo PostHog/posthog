@@ -24,7 +24,7 @@ def translate_hogql(
         raise QueryError("Empty query")
 
     # TRICKY: As `translate_hogql` is only used in legacy queries (not the all-HogQL ones), we must guard against
-    # the PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED being used here, as that is not supported in legacyz
+    # the PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED being used here, as that is not supported in legacy
     actual_poe_mode = context.modifiers.personsOnEventsMode
     try:
         context.modifiers.personsOnEventsMode = alias_poe_mode_for_legacy(actual_poe_mode)
