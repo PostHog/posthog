@@ -22,8 +22,8 @@ export interface DashboardTemplateVariablesLogicProps {
 
 const FALLBACK_EVENT = {
     id: '$pageview',
-    math: 'dau',
-    type: 'events',
+    math: BaseMathType.UniqueUsers,
+    type: EntityTypes.EVENTS,
 }
 
 export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLogicType>([
@@ -39,6 +39,7 @@ export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLog
             filterGroup,
         }),
         setVariableFromAction: (variableName: string, action: ActionType) => ({ variableName, action }),
+        setVariableForPageview: (variableName: string, url: string) => ({ variableName, url }),
         setActiveVariableIndex: (index: number) => ({ index }),
         incrementActiveVariableIndex: true,
         possiblyIncrementActiveVariableIndex: true,
@@ -160,6 +161,28 @@ export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLog
                 actions: [step],
             }
             actions.setVariable(originalVariableName, filterGroup)
+            actions.setIsCurrentlySelectingElement(false)
+        },
+        setVariableForPageview: ({ variableName, url }) => {
+            const step: TemplateVariableStep = {
+                id: '$pageview',
+                math: BaseMathType.UniqueUsers,
+                type: EntityTypes.EVENTS,
+                order: 0,
+                name: '$pageview',
+                properties: [
+                    {
+                        key: '$current_url',
+                        value: url,
+                        operator: 'icontains',
+                        type: 'event',
+                    },
+                ],
+            }
+            const filterGroup: FilterType = {
+                events: [step],
+            }
+            actions.setVariable(variableName, filterGroup)
             actions.setIsCurrentlySelectingElement(false)
         },
         toolbarMessageReceived: ({ type, payload }) => {
