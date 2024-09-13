@@ -582,7 +582,6 @@ export class SessionRecordingIngester {
                 // NOTE: We have to get the partitions before we stop the consumer as it throws if disconnected
                 const assignedPartitions = this.assignedTopicPartitions
 
-                // Simulate a revoke command to try and flush all sessions
                 // There is a race between the revoke callback and this function - Either way one of them gets there and covers the revocations
                 void this.scheduleWork(this.realtimeManager.unsubscribe())
                 void this.scheduleWork(this.flushPartitions(assignedPartitions.map((x) => x.partition)))
@@ -676,8 +675,8 @@ export class SessionRecordingIngester {
             async ([key, sessionManager], ctx) => {
                 heartbeat()
 
-                if (this.isStopping) {
-                    // We can end up with a large number of flushes. We want to stop early if we hit shutdown
+                if (this.stoppingPromise) {
+                    // Stopping does its own flushing so we want to intercept to not get in the way of it
                     return ctx.break()
                 }
 
