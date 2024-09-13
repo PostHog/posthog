@@ -84,18 +84,24 @@ export function PlayerSidebar({
                                 key: tabId,
                                 label: capitalizeFirstLetter(tabId),
                             }))}
-                            barClassName="mb-0 SessionRecordingPlayer__sidebar__tabs"
+                            barClassName="mb-0"
                         />
                         <div className="flex flex-1 border-b shrink-0" />
                         <div className="flex gap-1 border-b px-1 items-center">
                             {toggleLayoutStacking && (
                                 <LemonButton
-                                    size="xsmall"
+                                    size="small"
                                     icon={isVerticallyStacked ? <IconSidePanel /> : <IconBottomPanel />}
                                     onClick={toggleLayoutStacking}
+                                    tooltip={`Dock to ${isVerticallyStacked ? 'right' : 'bottom'}`}
                                 />
                             )}
-                            <LemonButton size="xsmall" icon={<IconX />} onClick={() => setSidebarOpen(false)} />
+                            <LemonButton
+                                size="small"
+                                icon={<IconX />}
+                                onClick={() => setSidebarOpen(false)}
+                                tooltip="Close sidebar"
+                            />
                         </div>
                     </div>
                     {activeTab === SessionRecordingSidebarTab.INSPECTOR ? (
