@@ -8,7 +8,14 @@ import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { InsightViz, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { WebOverview } from '~/queries/nodes/WebOverview/WebOverview'
 import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
-import { AnyResponseType, DataTableNode, DataVisualizationNode, InsightVizNode, Node } from '~/queries/schema'
+import {
+    AnyResponseType,
+    DashboardFilter,
+    DataTableNode,
+    DataVisualizationNode,
+    InsightVizNode,
+    Node,
+} from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
 
 import { DataTableVisualization } from '../nodes/DataVisualization/DataVisualization'
@@ -39,10 +46,12 @@ export interface QueryProps<Q extends Node> {
     readOnly?: boolean
     /** Reduce UI elements to only show data */
     embedded?: boolean
+    /** Dashboard filters to override the ones in the query */
+    filtersOverride?: DashboardFilter | null
 }
 
 export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null {
-    const { query: propsQuery, setQuery: propsSetQuery, readOnly, embedded } = props
+    const { query: propsQuery, setQuery: propsSetQuery, readOnly, embedded, filtersOverride } = props
 
     const [localQuery, localSetQuery] = useState(propsQuery)
     useEffect(() => {
@@ -104,6 +113,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 readOnly={readOnly}
                 uniqueKey={uniqueKey}
                 embedded={embedded}
+                filtersOverride={filtersOverride}
             />
         )
     } else if (isWebOverviewQuery(query)) {

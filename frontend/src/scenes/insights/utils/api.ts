@@ -1,7 +1,7 @@
 import api from 'lib/api'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { RefreshType } from '~/queries/schema'
+import { DashboardFilter, RefreshType } from '~/queries/schema'
 import { InsightShortId, QueryBasedInsightModel } from '~/types'
 
 async function _perform(
@@ -19,9 +19,10 @@ export const insightsApi = {
     async getByShortId(
         shortId: InsightShortId,
         basic?: boolean,
-        refresh?: RefreshType
+        refresh?: RefreshType,
+        filtersOverride?: DashboardFilter | null
     ): Promise<QueryBasedInsightModel | null> {
-        const legacyInsights = await api.insights.loadInsight(shortId, basic, refresh)
+        const legacyInsights = await api.insights.loadInsight(shortId, basic, refresh, filtersOverride)
         if (legacyInsights.results.length === 0) {
             return null
         }
