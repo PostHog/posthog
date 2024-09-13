@@ -100,6 +100,15 @@ function emptyPayloadMessage(
     )
 }
 
+function StartedAt({ item }: { item: PerformanceEvent }): JSX.Element | null {
+    const friendlyMillis = humanFriendlyMilliseconds(item.start_time || item.fetch_start)
+    return friendlyMillis ? (
+        <>
+            started at <b>{friendlyMillis}</b> and
+        </>
+    ) : null
+}
+
 export function ItemPerformanceEvent({
     item,
     finalTimestamp,
@@ -223,12 +232,13 @@ export function ItemPerformanceEvent({
                     <>
                         <StatusRow item={item} />
                         <p>
-                            Request started at <b>{humanFriendlyMilliseconds(item.start_time || item.fetch_start)}</b>{' '}
-                            and took <b>{humanFriendlyMilliseconds(item.duration)}</b>
-                            {sizeInfo.formattedDecodedBodySize ? (
+                            Request
+                            <StartedAt item={item} /> took <b>{humanFriendlyMilliseconds(item.duration)}</b>
+                            {sizeInfo.formattedDecodedBodySize || sizeInfo.formattedBytes ? (
                                 <>
                                     {' '}
-                                    to load <b>{sizeInfo.formattedDecodedBodySize}</b> of data
+                                    to load <b>{sizeInfo.formattedDecodedBodySize || sizeInfo.formattedBytes}</b> of
+                                    data
                                 </>
                             ) : null}
                             {sizeInfo.isFromLocalCache ? (

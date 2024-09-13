@@ -889,6 +889,13 @@ class ClickhouseTestMixin(QueryMatchingTest):
 
     snapshot: Any
 
+    @staticmethod
+    def generalize_sql(value: str):
+        """Makes sure we can use inline_snapshot() for query SQL snapshots - swaps concrete team_id for placeholder."""
+        if "team_id," in value:
+            return re.sub(r"team_id, \d+", "team_id, <TEAM_ID>", value)
+        return value
+
     def capture_select_queries(self):
         return self.capture_queries_startswith(("SELECT", "WITH", "select", "with"))
 

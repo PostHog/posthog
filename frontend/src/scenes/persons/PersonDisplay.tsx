@@ -5,7 +5,7 @@ import { router } from 'kea-router'
 import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture, ProfilePictureProps } from 'lib/lemon-ui/ProfilePicture'
-import { useMemo, useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 
 import { asDisplay, asLink } from './person-utils'
@@ -23,6 +23,7 @@ export interface PersonDisplayProps {
     noEllipsis?: boolean
     noPopover?: boolean
     isCentered?: boolean
+    children?: React.ReactChild
 }
 
 export function PersonIcon({
@@ -58,6 +59,7 @@ export function PersonDisplay({
     noLink,
     isCentered,
     href = asLink(person),
+    children,
 }: PersonDisplayProps): JSX.Element {
     const display = asDisplay(person)
     const [visible, setVisible] = useState(false)
@@ -75,7 +77,7 @@ export function PersonDisplay({
         return
     }
 
-    let content = (
+    let content = children || (
         <span className={clsx('flex items-center', isCentered && 'justify-center')}>
             {withIcon && <PersonIcon person={person} size={typeof withIcon === 'string' ? withIcon : 'md'} />}
             <span className={clsx('ph-no-capture', !noEllipsis && 'truncate')}>{display}</span>

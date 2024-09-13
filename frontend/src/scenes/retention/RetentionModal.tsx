@@ -27,7 +27,7 @@ export function RetentionModal(): JSX.Element | null {
     const { results } = useValues(retentionLogic(insightProps))
     const { people, peopleLoading, peopleLoadingMore } = useValues(retentionPeopleLogic(insightProps))
     const { loadMorePeople } = useActions(retentionPeopleLogic(insightProps))
-    const { aggregationTargetLabel, selectedInterval, exploreUrl, actorsQuery, retentionFilter } = useValues(
+    const { aggregationTargetLabel, selectedInterval, exploreUrl, actorsQuery } = useValues(
         retentionModalLogic(insightProps)
     )
     const { closeModal } = useActions(retentionModalLogic(insightProps))
@@ -95,7 +95,7 @@ export function RetentionModal(): JSX.Element | null {
                 </div>
             }
             width={isEmpty ? undefined : '90%'}
-            title={`${dayjs(row.date).format('MMMM D, YYYY')} Cohort`}
+            title={`${dayjs.utc(row.date).format('MMMM D, YYYY')} Cohort`}
         >
             {people && !!people.missing_persons && (
                 <MissingPersonsAlert actorLabel={aggregationTargetLabel} missingActorsCount={people.missing_persons} />
@@ -111,32 +111,20 @@ export function RetentionModal(): JSX.Element | null {
                             <tbody>
                                 <tr>
                                     <th>{capitalizeFirstLetter(aggregationTargetLabel.singular)}</th>
-                                    {row.values?.map((data: any, index: number) => {
-                                        let cumulativeCount = data.count
-                                        if (retentionFilter?.cumulative) {
-                                            for (let i = index + 1; i < row.values.length; i++) {
-                                                cumulativeCount += row.values[i].count
-                                            }
-                                            cumulativeCount = Math.min(cumulativeCount, row.values[0].count)
-                                        }
-                                        const percentageValue =
-                                            row.values[0].count > 0 ? cumulativeCount / row.values[0].count : 0
-
-                                        return (
-                                            <th key={index}>
-                                                <div>{results[index].label}</div>
-                                                <div>
-                                                    {cumulativeCount}
-                                                    &nbsp;
-                                                    {cumulativeCount > 0 && (
-                                                        <span className="text-muted">
-                                                            ({percentage(percentageValue)})
-                                                        </span>
-                                                    )}
-                                                </div>
-                                            </th>
-                                        )
-                                    })}
+                                    {row.values?.map((data: any, index: number) => (
+                                        <th key={index}>
+                                            <div>{results[index].label}</div>
+                                            <div>
+                                                {data.count}
+                                                &nbsp;
+                                                {data.count > 0 && (
+                                                    <span className="text-muted">
+                                                        ({percentage(data.count / row?.values[0]['count'])})
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </th>
+                                    ))}
                                 </tr>
                                 {people.result &&
                                     people.result.map((personAppearances: RetentionTableAppearanceType) => (

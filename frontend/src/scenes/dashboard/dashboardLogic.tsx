@@ -1082,6 +1082,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         type: 'dashboard_load',
                         context: 'dashboard',
                         action,
+                        status: 'success',
                         primary_interaction_id: dashboardQueryId,
                         time_to_see_data_ms: Math.floor(performance.now() - startTime),
                         api_response_bytes: responseBytes,
@@ -1170,6 +1171,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         type: 'dashboard_load',
                         context: 'dashboard',
                         action,
+                        status: 'success',
                         primary_interaction_id: dashboardQueryId,
                         api_response_bytes: totalResponseBytes,
                         time_to_see_data_ms: Math.floor(performance.now() - refreshStartTime),
@@ -1320,7 +1322,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
         '/dashboard/:id': () => {
             actions.setSubscriptionMode(false, undefined)
             actions.setTextTileId(null)
-            actions.setDashboardMode(null, DashboardEventSource.Browser)
         },
         '/dashboard/:id/sharing': () => {
             actions.setSubscriptionMode(false, undefined)

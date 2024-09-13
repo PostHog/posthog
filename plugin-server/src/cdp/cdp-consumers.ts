@@ -86,7 +86,7 @@ const gaugeBatchUtilization = new Gauge({
     labelNames: ['queue'],
 })
 
-const guageJobsProcessed = new Gauge({
+const counterJobsProcessed = new Counter({
     name: 'cdp_cyclotron_jobs_processed',
     help: 'The number of jobs we are managing to process',
     labelNames: ['queue'],
@@ -807,7 +807,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
         }
 
         await this.processBatch(invocations)
-        guageJobsProcessed.labels({ queue: this.queue }).set(jobs.length)
+        counterJobsProcessed.inc({ queue: this.queue }, jobs.length)
     }
 
     public async start() {
@@ -834,7 +834,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
     }
 }
 
-// Mostly used for testing
+// Mostly used for testing the fetch executor
 export class CdpCyclotronWorkerFetch extends CdpCyclotronWorker {
     protected name = 'CdpCyclotronWorkerFetch'
     protected queue = 'fetch' as const
