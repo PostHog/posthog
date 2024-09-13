@@ -14,6 +14,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { humanFriendlyCurrency } from 'lib/utils'
 import { useEffect } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -156,7 +157,8 @@ export function Billing(): JSX.Element {
                                                 Current bill total
                                             </LemonLabel>
                                             <div className="font-bold text-6xl">
-                                                ${billing.current_total_amount_usd_after_discount}
+                                                $
+                                                {humanFriendlyCurrency(billing.current_total_amount_usd_after_discount)}
                                             </div>
                                             {billing.discount_percent && (
                                                 <div>
@@ -180,8 +182,7 @@ export function Billing(): JSX.Element {
                                                             placement="bottom-start"
                                                         >
                                                             <strong>
-                                                                $
-                                                                {parseInt(billing.discount_amount_usd).toLocaleString()}
+                                                                ${humanFriendlyCurrency(billing.discount_amount_usd)}
                                                             </strong>
                                                         </Tooltip>{' '}
                                                         remaining credits applied to your bill.
