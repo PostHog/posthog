@@ -8,6 +8,9 @@ import { DashboardType } from '~/types'
 import { onboardingLogic, OnboardingStepKey } from '../onboardingLogic'
 import type { onboardingTemplateConfigLogicType } from './onboardingTemplateConfigLogicType'
 
+// TODO: We should have a variables logic that is keyed for each variable and can handle its state independently.
+// Right now we have fields like customEventFieldShown that, if used outside of onboarding, will impact all variables.
+
 export const onboardingTemplateConfigLogic = kea<onboardingTemplateConfigLogicType>([
     path(['scenes', 'onboarding', 'productAnalyticsSteps', 'onboardingTemplateConfigLogic']),
     connect({
@@ -21,6 +24,8 @@ export const onboardingTemplateConfigLogic = kea<onboardingTemplateConfigLogicTy
     }),
     actions({
         setDashboardCreatedDuringOnboarding: (dashboard: DashboardType | null) => ({ dashboard }),
+        showCustomEventField: true,
+        hideCustomEventField: true,
     }),
     reducers({
         dashboardCreatedDuringOnboarding: [
@@ -29,6 +34,13 @@ export const onboardingTemplateConfigLogic = kea<onboardingTemplateConfigLogicTy
             {
                 submitNewDashboardSuccessWithResult: (_, { result }) => result,
                 setDashboardCreatedDuringOnboarding: (_, { dashboard }) => dashboard,
+            },
+        ],
+        customEventFieldShown: [
+            false,
+            {
+                showCustomEventField: () => true,
+                hideCustomEventField: () => false,
             },
         ],
     }),

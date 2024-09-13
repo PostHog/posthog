@@ -38,8 +38,9 @@ const UrlInput = ({ iframeRef }: { iframeRef: React.RefObject<HTMLIFrameElement>
     const theDashboardTemplateVariablesLogic = dashboardTemplateVariablesLogic({
         variables: activeDashboardTemplate?.variables || [],
     })
-    const { setVariableForPageview } = useActions(theDashboardTemplateVariablesLogic)
+    const { setVariableForPageview, setActiveVariableCustomEventName } = useActions(theDashboardTemplateVariablesLogic)
     const { activeVariable } = useValues(theDashboardTemplateVariablesLogic)
+    const { hideCustomEventField } = useActions(onboardingTemplateConfigLogic)
 
     useEffect(() => {
         setInputValue(currentPath)
@@ -90,7 +91,11 @@ const UrlInput = ({ iframeRef }: { iframeRef: React.RefObject<HTMLIFrameElement>
                 size="small"
                 type="primary"
                 status="alt"
-                onClick={() => setVariableForPageview(activeVariable.name, currentFullUrl)}
+                onClick={() => {
+                    setVariableForPageview(activeVariable.name, currentFullUrl)
+                    setActiveVariableCustomEventName(null)
+                    hideCustomEventField()
+                }}
             >
                 Select pageview
             </LemonButton>
