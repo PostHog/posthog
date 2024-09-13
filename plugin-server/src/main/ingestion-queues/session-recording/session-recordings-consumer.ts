@@ -147,7 +147,7 @@ export class SessionRecordingIngester {
     topic: string
     consumerGroupId: string
     totalNumPartitions = 0
-    isStopping = false
+    stoppingPromise: Promise<PromiseSettledResult<any>[]> | undefined = undefined
 
     private promises: Set<Promise<any>> = new Set()
     // if ingestion is lagging on a single partition it is often hard to identify _why_,
@@ -342,6 +342,12 @@ export class SessionRecordingIngester {
     }
 
     public async handleEachBatch(messages: Message[], heartbeat: () => void): Promise<void> {
+        if (this.stoppingPromise) {
+            // If we are stopping we don't want to process any more messages even though we might still be connected
+            await this.stoppingPromise
+            return
+        }
+
         heartbeat()
 
         if (messages.length !== 0) {
@@ -570,32 +576,36 @@ export class SessionRecordingIngester {
     }
 
     public async stop(): Promise<PromiseSettledResult<any>[]> {
-        status.info('🔁', 'blob_ingester_consumer - stopping')
-        this.isStopping = true
+        if (!this.stoppingPromise) {
+            status.info('🔁', 'blob_ingester_consumer - stopping')
+            this.stoppingPromise = (async () => {
+                // NOTE: We have to get the partitions before we stop the consumer as it throws if disconnected
+                const assignedPartitions = this.assignedTopicPartitions
 
-        // NOTE: We have to get the partitions before we stop the consumer as it throws if disconnected
-        const assignedPartitions = this.assignedTopicPartitions
-        // Mark as stopping so that we don't actually process any more incoming messages, but still keep the process alive
-        await this.batchConsumer?.stop()
+                // Simulate a revoke command to try and flush all sessions
+                // There is a race between the revoke callback and this function - Either way one of them gets there and covers the revocations
+                void this.scheduleWork(this.realtimeManager.unsubscribe())
+                void this.scheduleWork(this.flushPartitions(assignedPartitions.map((x) => x.partition)))
 
-        // Simulate a revoke command to try and flush all sessions
-        // There is a race between the revoke callback and this function - Either way one of them gets there and covers the revocations
-        void this.scheduleWork(this.onRevokePartitions(assignedPartitions))
-        void this.scheduleWork(this.realtimeManager.unsubscribe())
+                const promiseResults = await Promise.allSettled(this.promises)
 
-        const promiseResults = await Promise.allSettled(this.promises)
+                await this.batchConsumer?.stop()
 
-        if (this.sharedClusterProducerWrapper) {
-            await this.sharedClusterProducerWrapper.disconnect()
+                if (this.sharedClusterProducerWrapper) {
+                    await this.sharedClusterProducerWrapper.disconnect()
+                }
+
+                // Finally we clear up redis once we are sure everything else has been handled
+                await this.redisPool.drain()
+                await this.redisPool.clear()
+
+                status.info('👍', 'blob_ingester_consumer - stopped!')
+
+                return promiseResults
+            })()
         }
 
-        // Finally we clear up redis once we are sure everything else has been handled
-        await this.redisPool.drain()
-        await this.redisPool.clear()
-
-        status.info('👍', 'blob_ingester_consumer - stopped!')
-
-        return promiseResults
+        return this.stoppingPromise
     }
 
     public isHealthy() {
@@ -801,12 +811,6 @@ export class SessionRecordingIngester {
                     topic: this.topic,
                     partition,
                 }
-
-                // status.info('🔁', `blob_ingester_consumer - committing offset for partition`, {
-                //     ...tp,
-                //     partitionBlockingSessions,
-                // })
-
                 let potentiallyBlockingSession: SessionManager | undefined
 
                 let activeSessionsOnThisPartition = 0
