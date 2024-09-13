@@ -8,7 +8,7 @@ from pydantic import BaseModel
 import sentry_sdk
 import structlog
 from prometheus_client import Histogram
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, APIException
 
 from posthog import celery, redis
 from posthog.clickhouse.client.async_task_chain import add_task_to_on_commit
@@ -198,7 +198,7 @@ def execute_process_query(
         raise
     except Exception as err:
         query_status.results = None  # Clear results in case they are faulty
-        if isinstance(err, ExposedHogQLError | ExposedCHQueryError) or is_staff_user:
+        if isinstance(err, APIException | ExposedHogQLError | ExposedCHQueryError) or is_staff_user:
             # We can only expose the error message if it's a known safe error OR if the user is PostHog staff
             query_status.error_message = str(err)
         logger.exception("Error processing query async", team_id=team_id, query_id=query_id, exc_info=True)

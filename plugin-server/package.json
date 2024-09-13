@@ -144,5 +144,9 @@
         "patchedDependencies": {
             "node-rdkafka@2.17.0": "patches/node-rdkafka@2.17.0.patch"
         }
+    },
+    "cyclotron": {
+        "//This is a short term workaround to ensure that cyclotron changes trigger a rebuild": true,
+        "version": "0.1.1"
     }
 }

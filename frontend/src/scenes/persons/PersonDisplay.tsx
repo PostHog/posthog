@@ -5,7 +5,7 @@ import { router } from 'kea-router'
 import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture, ProfilePictureProps } from 'lib/lemon-ui/ProfilePicture'
-import { useMemo, useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 
 import { asDisplay, asLink } from './person-utils'
@@ -23,7 +23,7 @@ export interface PersonDisplayProps {
     noEllipsis?: boolean
     noPopover?: boolean
     isCentered?: boolean
-    children?: React.ReactNode
+    children?: React.ReactChild
 }
 
 export function PersonIcon({

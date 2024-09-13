@@ -208,7 +208,7 @@ export interface DataNode<R extends Record<string, any> = Record<string, any>> e
 /** HogQL Query Options are automatically set per team. However, they can be overriden in the query. */
 export interface HogQLQueryModifiers {
     personsOnEventsMode?:
-        | 'disabled'
+        | 'disabled' // `disabled` is deprecated and set for removal - `person_id_override_properties_joined` is its faster functional equivalent
         | 'person_id_no_override_properties_on_events'
         | 'person_id_override_properties_on_events'
         | 'person_id_override_properties_joined'
@@ -1168,6 +1168,7 @@ export interface QueryRequest {
      * see the [PostHog HogQL documentation](/docs/hogql#api-access).
      */
     query: QuerySchema
+    filters_override?: DashboardFilter
 }
 
 /**
@@ -1336,10 +1337,13 @@ export interface SessionsTimelineQuery extends DataNode<SessionsTimelineQueryRes
 }
 export type WebAnalyticsPropertyFilter = EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter
 export type WebAnalyticsPropertyFilters = WebAnalyticsPropertyFilter[]
-
+export type WebAnalyticsConversionGoal = {
+    actionId: integer
+}
 interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<R> {
     dateRange?: DateRange
     properties: WebAnalyticsPropertyFilters
+    conversionGoal?: WebAnalyticsConversionGoal | null
     sampling?: {
         enabled?: boolean
         forceSamplingRate?: SamplingRate

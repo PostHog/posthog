@@ -37,7 +37,10 @@ pub const OVERFLOW_LIMITER_CACHE_KEY: &str = "@posthog/capture-overflow/";
 #[derive(Debug)]
 pub enum QuotaResource {
     Events,
+    // due to historical reasons we use different suffixes for quota limits and overflow
+    // hopefully we can unify these in the future
     Recordings,
+    Replay,
 }
 
 impl QuotaResource {
@@ -45,6 +48,7 @@ impl QuotaResource {
         match self {
             Self::Events => "events",
             Self::Recordings => "recordings",
+            Self::Replay => "replay",
         }
     }
 }
@@ -102,7 +106,11 @@ impl RedisLimiter {
                 match RedisLimiter::fetch_limited(&redis, &key).await {
                     Ok(set) => {
                         let set = HashSet::from_iter(set.iter().cloned());
-                        gauge!("capture_billing_limits_loaded_tokens",).set(set.len() as f64);
+                        gauge!(
+                            "capture_billing_limits_loaded_tokens",
+                            "cache_key" => key.clone(),
+                        )
+                        .set(set.len() as f64);
 
                         let mut limited_lock = limited.write().await;
                         *limited_lock = set;
@@ -149,7 +157,7 @@ mod tests {
     #[tokio::test]
     async fn test_dynamic_limited() {
         let client = MockRedisClient::new().zrangebyscore_ret(
-            "@posthog/capture-overflow/recordings",
+            "@posthog/capture-overflow/replay",
             vec![String::from("banana")],
         );
         let client = Arc::new(client);
@@ -159,7 +167,7 @@ mod tests {
             client,
             OVERFLOW_LIMITER_CACHE_KEY.to_string(),
             None,
-            QuotaResource::Recordings,
+            QuotaResource::Replay,
         )
         .expect("Failed to create billing limiter");
         tokio::time::sleep(std::time::Duration::from_millis(30)).await;
