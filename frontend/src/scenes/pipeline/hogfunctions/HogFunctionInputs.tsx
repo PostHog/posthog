@@ -408,14 +408,14 @@ export function HogFunctionInputWithSchema({ schema }: HogFunctionInputWithSchem
                                         />
                                     )}
                                 </div>
-                                {value?.secret ? (
+                                {configuration?.encrypted_inputs?.[schema.key] ? (
                                     <div className="border border-dashed rounded p-1 flex gap-2 items-center">
                                         <span className="flex-1 text-muted-alt italic p-1">
                                             This value is secret and is not displayed here.
                                         </span>
                                         <LemonButton
                                             onClick={() => {
-                                                onChange({ value: undefined })
+                                                setConfigurationValue(`encrypted_inputs.${schema.key}`, value)
                                             }}
                                             size="small"
                                             type="secondary"

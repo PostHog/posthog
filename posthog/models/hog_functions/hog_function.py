@@ -1,5 +1,6 @@
 import enum
 from typing import Optional
+import encrypted_fields
 
 from django.db import models
 from django.db.models.signals import post_save
@@ -45,6 +46,10 @@ class HogFunction(UUIDModel):
     bytecode = models.JSONField(null=True, blank=True)
     inputs_schema = models.JSONField(null=True)
     inputs = models.JSONField(null=True)
+    encrypted_inputs: encrypted_fields.fields.EncryptedJSONField = encrypted_fields.fields.EncryptedJSONField(
+        null=True, blank=True
+    )  # type: ignore
+
     filters = models.JSONField(null=True, blank=True)
     masking = models.JSONField(null=True, blank=True)
     template_id = models.CharField(max_length=400, null=True, blank=True)
@@ -102,6 +107,7 @@ class HogFunction(UUIDModel):
         from posthog.cdp.filters import compile_filters_bytecode
 
         self.filters = compile_filters_bytecode(self.filters, self.team)
+
         return super().save(*args, **kwargs)
 
     def __str__(self):

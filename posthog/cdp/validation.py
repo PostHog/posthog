@@ -115,19 +115,23 @@ def validate_inputs_schema(value: list) -> list:
     return serializer.validated_data or []
 
 
-def validate_inputs(inputs_schema: list, inputs: dict) -> dict:
+def validate_inputs(inputs_schema: list, inputs: dict, secret_inputs: dict) -> tuple[dict, dict]:
     validated_inputs = {}
+    validated_secret_inputs = {}
 
     for schema in inputs_schema:
-        value = inputs.get(schema["key"], {})
+        value = secret_inputs.get(schema["key"], {}) if schema.get("secret") else inputs.get(schema["key"])
         serializer = InputsItemSerializer(data=value, context={"schema": schema})
 
         if not serializer.is_valid():
             raise serializers.ValidationError(serializer.errors)
 
-        validated_inputs[schema["key"]] = serializer.validated_data
+        if schema.get("secret"):
+            validated_secret_inputs[schema["key"]] = serializer.validated_data
+        else:
+            validated_inputs[schema["key"]] = serializer.validated_data
 
-    return validated_inputs
+    return validated_inputs, validated_secret_inputs
 
 
 def compile_hog(hog: str, supported_functions: Optional[set[str]] = None) -> list[Any]:

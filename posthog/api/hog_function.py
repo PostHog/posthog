@@ -90,6 +90,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "bytecode",
             "inputs_schema",
             "inputs",
+            "encrypted_inputs",
             "filters",
             "masking",
             "icon_url",
@@ -154,6 +155,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             attrs["filters"] = attrs.get("filters", {})
             attrs["inputs_schema"] = attrs.get("inputs_schema", [])
             attrs["inputs"] = attrs.get("inputs", {})
+            attrs["encrypted_inputs"] = attrs.get("encrypted_inputs", {})
 
         if "inputs_schema" in attrs:
             attrs["inputs_schema"] = validate_inputs_schema(attrs["inputs_schema"])
@@ -161,17 +163,22 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         if "filters" in attrs:
             attrs["filters"] = compile_filters_bytecode(attrs["filters"], team)
 
-        if "inputs" in attrs:
-            # If we are updating, we check all input values with secret: true and instead
-            # use the existing value if set
-            if instance:
-                for key, val in attrs["inputs"].items():
-                    if val.get("secret"):
-                        attrs["inputs"][key] = instance.inputs.get(key)
+        if "inputs" in attrs or "encrypted_inputs" in attrs:
+            inputs = attrs.get("inputs", {})
+            encrypted_inputs = attrs.get("encrypted_inputs", {})
 
-                attrs["inputs_schema"] = attrs.get("inputs_schema", instance.inputs_schema)
+            if instance and instance.encrypted_inputs:
+                # Encrypted inputs are only given if being overridden so we add the existing ones if not present
+                for key, val in instance.encrypted_inputs.items():
+                    encrypted_inputs[key] = encrypted_inputs[key] or val
 
-            attrs["inputs"] = validate_inputs(attrs["inputs_schema"], attrs["inputs"])
+            attrs["inputs_schema"] = attrs.get("inputs_schema", instance.inputs_schema if instance else [])
+
+            validated_inputs, validate_encrypted_inputs = validate_inputs(
+                attrs["inputs_schema"], inputs, encrypted_inputs
+            )
+            attrs["inputs"] = validated_inputs
+            attrs["encrypted_inputs"] = validate_encrypted_inputs
         if "hog" in attrs:
             attrs["bytecode"] = compile_hog(attrs["hog"])
 
@@ -179,15 +186,13 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
     def to_representation(self, data):
         data = super().to_representation(data)
+        encrypted_inputs = data.get("encrypted_inputs", {})
 
-        inputs_schema = data.get("inputs_schema", [])
-        inputs = data.get("inputs", {})
+        # TRICKY: We don't want to return the encrypted inputs but we want to indicate if a value is set
+        for key in encrypted_inputs:
+            encrypted_inputs[key] = True
 
-        for schema in inputs_schema:
-            if schema.get("secret") and inputs.get(schema["key"]):
-                inputs[schema["key"]] = {"secret": True}
-
-        data["inputs"] = inputs
+        data["encrypted_inputs"] = encrypted_inputs
 
         return data
 
