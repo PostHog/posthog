@@ -3,7 +3,6 @@ from copy import deepcopy
 
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, HogFunctionTemplateMigrator
 
-
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="alpha",
     id="template-rudderstack",
@@ -11,7 +10,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Send data to RudderStack",
     icon_url="/static/services/rudderstack.png",
     hog="""
-fn getPayload() {
+fun getPayload() {
     let rudderPayload := {
         'context': {
             'app': {
@@ -104,7 +103,7 @@ fetch(f'{inputs.host}/v1/batch', getPayload())
             "key": "host",
             "type": "string",
             "label": "Rudderstack host",
-            "description": "The destination of the Rudderstack instance",
+            "description": "The Rudderstack destination instance",
             "default": "https://hosted.rudderlabs.com",
             "secret": False,
             "required": True,
@@ -114,7 +113,7 @@ fetch(f'{inputs.host}/v1/batch', getPayload())
             "type": "string",
             "label": "Write API key",
             "description": "RudderStack Source Writekey",
-            "secret": False,
+            "secret": True,
             "required": True,
         },
         {
@@ -142,7 +141,8 @@ class TemplateRudderstackMigrator(HogFunctionTemplateMigrator):
         hf["inputs"] = {
             "host": {"value": host},
             "token": {"value": token},
-            "identifier": {"value": "{event.distinct_id}"},
+            "identifier": {"value": "{event.properties.$user_id ?? event.distinct_id ?? person.uuid}"},
         }
+        hf["filters"] = {}
 
         return hf
