@@ -113,7 +113,7 @@ fetch(f'{inputs.host}/v1/batch', getPayload())
             "type": "string",
             "label": "Write API key",
             "description": "RudderStack Source Writekey",
-            "secret": False,
+            "secret": True,
             "required": True,
         },
         {
