@@ -153,7 +153,7 @@ class TemplateAvoMigrator(HogFunctionTemplateMigrator):
                 {"id": event, "name": event, "type": "events", "order": 0} for event in events_to_include
             ]
         elif events_to_exclude:
-            event_string = ", ".join(f"'{event}'" for event in events_to_exclude)
+            event_string = ", ".join(escape_hogql_string(event) for event in events_to_exclude)
             hf["filters"]["events"] = [
                 {
                     "id": "All events",
