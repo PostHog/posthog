@@ -18,8 +18,15 @@ async fn janitor_test(db: PgPool) {
 
     // Purposefully MUCH smaller than would be used in production, so
     // we can simulate stalled or poison jobs quickly
-    let stall_timeout = Duration::milliseconds(10);
+    let stall_timeout = Duration::milliseconds(20);
     let max_touches = 3;
+
+    // Workers by default drop any heartbeats for the first 5 seconds, or between
+    // the last heartbeat and the next 5 seconds. We need to override that window
+    // to be smaller here, to test heartbeat behaviour
+    let mut worker = worker;
+    worker.heartbeat_window = stall_timeout / 2;
+    let worker = worker;
 
     let (mock_cluster, mock_producer) = create_mock_kafka().await;
     mock_cluster

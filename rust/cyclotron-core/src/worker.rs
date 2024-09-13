@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use sqlx::PgPool;
 use std::sync::Mutex;
 use uuid::Uuid;
@@ -35,6 +35,8 @@ pub struct Worker {
     // context (since most functions below can be sync). We have to be careful never to
     // hold a lock across an await point, though.
     pending: Mutex<HashMap<Uuid, JobUpdate>>,
+
+    pub heartbeat_window: Duration, // The worker will only pass one heartbeat to the DB every heartbeat_window
 }
 
 impl Worker {
@@ -43,6 +45,7 @@ impl Worker {
         Ok(Self {
             pool,
             pending: Default::default(),
+            heartbeat_window: Duration::seconds(5),
         })
     }
 
@@ -50,6 +53,7 @@ impl Worker {
         Self {
             pool,
             pending: Default::default(),
+            heartbeat_window: Duration::seconds(5),
         }
     }
 
@@ -142,7 +146,7 @@ impl Worker {
             }
         };
         let mut connection = self.pool.acquire().await?;
-        flush_job(connection.as_mut(), job_id, update).await
+        flush_job(&mut *connection, job_id, update).await
     }
 
     /// Jobs are reaped after some seconds (the number is deployment specific, and may become
@@ -153,11 +157,21 @@ impl Worker {
     /// if e.g. the job was reaped out from under you).
     pub async fn heartbeat(&self, job_id: Uuid) -> Result<(), QueueError> {
         let lock_id = {
-            let pending = self.pending.lock().unwrap();
-            pending
-                .get(&job_id)
-                .ok_or(QueueError::UnknownJobId(job_id))?
-                .lock_id
+            let mut pending = self.pending.lock().unwrap();
+            let update = pending
+                .get_mut(&job_id)
+                .ok_or(QueueError::UnknownJobId(job_id))?;
+
+            let should_heartbeat = update
+                .last_heartbeat
+                .map_or(true, |last| Utc::now() - last > self.heartbeat_window);
+
+            if !should_heartbeat {
+                return Ok(());
+            }
+
+            update.last_heartbeat = Some(Utc::now());
+            update.lock_id
         };
         let mut connection = self.pool.acquire().await?;
         set_heartbeat(connection.as_mut(), job_id, lock_id).await
