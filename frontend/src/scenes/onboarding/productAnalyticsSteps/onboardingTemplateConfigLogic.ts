@@ -19,13 +19,16 @@ export const onboardingTemplateConfigLogic = kea<onboardingTemplateConfigLogicTy
             ['goToPreviousStep', 'setOnCompleteOnboardingRedirectUrl'],
         ],
     }),
-    actions({}),
+    actions({
+        setDashboardCreatedDuringOnboarding: (dashboard: DashboardType | null) => ({ dashboard }),
+    }),
     reducers({
         dashboardCreatedDuringOnboarding: [
             null as DashboardType | null,
             { persist: true },
             {
                 submitNewDashboardSuccessWithResult: (_, { result }) => result,
+                setDashboardCreatedDuringOnboarding: (_, { dashboard }) => dashboard,
             },
         ],
     }),
