@@ -1,5 +1,7 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
+import dataclasses
+from copy import deepcopy
 
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, HogFunctionTemplateMigrator
 
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="alpha",
@@ -8,7 +10,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Send data to RudderStack",
     icon_url="/static/services/rudderstack.png",
     hog="""
-fn getPayload() {
+fun getPayload() {
     let rudderPayload := {
         'context': {
             'app': {
@@ -101,7 +103,7 @@ fetch(f'{inputs.host}/v1/batch', getPayload())
             "key": "host",
             "type": "string",
             "label": "Rudderstack host",
-            "description": "The destination of the Rudderstack instance",
+            "description": "The Rudderstack destination instance",
             "default": "https://hosted.rudderlabs.com",
             "secret": False,
             "required": True,
@@ -124,3 +126,23 @@ fetch(f'{inputs.host}/v1/batch', getPayload())
         },
     ],
 )
+
+
+class TemplateRudderstackMigrator(HogFunctionTemplateMigrator):
+    plugin_url = "https://github.com/PostHog/rudderstack-posthog-plugin"
+
+    @classmethod
+    def migrate(cls, obj):
+        hf = deepcopy(dataclasses.asdict(template))
+
+        dataPlaneUrl = obj.config.get("dataPlaneUrl", "")
+        writeKey = obj.config.get("writeKey", "")
+
+        hf["inputs"] = {
+            "host": {"value": dataPlaneUrl},
+            "token": {"value": writeKey},
+            "identifier": {"value": "{person.uuid}"},
+        }
+        hf["filters"] = {}
+
+        return hf
