@@ -3808,6 +3808,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             session_id="1",
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
+            ensure_analytics_event_in_session=False,
         )
         # the session needs to have multiple matching or not matching events
         for _ in range(10):
@@ -3827,6 +3828,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             first_timestamp=self.an_hour_ago + relativedelta(seconds=30),
             team_id=self.team.id,
             click_count=10,
+            ensure_analytics_event_in_session=False,
         )
 
         for _ in range(10):
@@ -3845,6 +3847,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
             click_count=10,
+            ensure_analytics_event_in_session=False,
         )
 
         # there are 2 pageviews
