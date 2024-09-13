@@ -47,20 +47,6 @@ export interface HogFunctionFilters {
     bytecode?: HogBytecode
 }
 
-// We have a "parsed" clickhous event type to make it easier to work with calls from kafka as well as those from the frontend
-export interface ParsedClickhouseEvent {
-    uuid: string
-    event: string
-    team_id: number
-    distinct_id: string
-    person_id?: string
-    timestamp: string
-    created_at: string
-    properties: Record<string, any>
-    person_created_at?: string
-    person_properties: Record<string, any>
-}
-
 export type GroupType = {
     id: string // the "key" of the group
     type: string
@@ -105,6 +91,10 @@ export type HogFunctionFilterGlobals = {
     event: string
     timestamp: string
     elements_chain: string
+    elements_chain_href: string
+    elements_chain_texts: string[]
+    elements_chain_ids: string[]
+    elements_chain_elements: string[]
     properties: Record<string, any>
 
     person?: {
@@ -156,8 +146,10 @@ export interface HogFunctionTiming {
 export type HogFunctionQueueParametersFetchRequest = {
     url: string
     method: string
-    body: string
-    headers: Record<string, string>
+    body?: string
+    return_queue: string
+    max_tries?: number
+    headers?: Record<string, string>
 }
 
 export type HogFunctionQueueParametersFetchResponse = {
@@ -166,7 +158,7 @@ export type HogFunctionQueueParametersFetchResponse = {
     /** The data to be passed to the Hog function from the response */
     response?: {
         status: number
-        body: any
+        body?: string
     } | null
     timings?: HogFunctionTiming[]
     logs?: LogEntry[]
@@ -181,6 +173,7 @@ export type HogFunctionInvocation = {
     globals: HogFunctionInvocationGlobals
     teamId: Team['id']
     hogFunction: HogFunctionType
+    priority: number
     queue: 'hog' | 'fetch'
     queueParameters?: HogFunctionInvocationQueueParameters
     // The current vmstate (set if the invocation is paused)

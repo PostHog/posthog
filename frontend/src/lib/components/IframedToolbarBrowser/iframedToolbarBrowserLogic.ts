@@ -10,11 +10,14 @@ import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner'
 import posthog from 'posthog-js'
 import { RefObject } from 'react'
 
+import { ToolbarUserIntent } from '~/types'
+
 import type { iframedToolbarBrowserLogicType } from './iframedToolbarBrowserLogicType'
 
 export type IframedToolbarBrowserLogicProps = {
     iframeRef: RefObject<HTMLIFrameElement | null>
     clearBrowserUrlOnUnmount?: boolean
+    userIntent?: ToolbarUserIntent
 }
 
 export interface IFrameBanner {
@@ -50,9 +53,15 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
         setIframeBanner: (banner: IFrameBanner | null) => ({ banner }),
         startTrackingLoading: true,
         stopTrackingLoading: true,
+        enableElementSelector: true,
+        disableElementSelector: true,
+        setNewActionName: (name: string | null) => ({ name }),
+        toolbarMessageReceived: (type: PostHogAppToolbarEvent, payload: Record<string, any>) => ({ type, payload }),
+        setCurrentPath: (path: string) => ({ path }),
+        setInitialPath: (path: string) => ({ path }),
     }),
 
-    reducers({
+    reducers(({ props }) => ({
         // they're called common filters in the toolbar because they're shared between heatmaps and clickmaps
         // the name is continued here since they're passed down into the embedded iframe
         commonFilters: [
@@ -87,9 +96,25 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
         ],
         browserUrl: [
             null as string | null,
-            { persist: true },
+            { persist: props.userIntent == 'heatmaps' },
             {
                 setBrowserUrl: (_, { url }) => url,
+            },
+        ],
+        currentPath: [
+            // this does not have the leading / because we always need that to be a given since this value is user-editable
+            '' as string,
+            {
+                setCurrentPath: (_, { path }) => path,
+            },
+        ],
+        initialPath: [
+            // similar to currentPath, this also does not have the leading /
+            // this is used to set the initial browser URL if the user provides a path to navigate to
+            // we can't do this from within the iFrame with window.location.href = currentPath because we get XSS errors
+            '' as string,
+            {
+                setInitialPath: (_, { path }) => path,
             },
         ],
         loading: [
@@ -107,7 +132,7 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
                 setIframeBanner: (_, { banner }) => banner,
             },
         ],
-    }),
+    })),
 
     selectors({
         isBrowserUrlAuthorized: [
@@ -126,6 +151,12 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
                 return iframeWidth ? calculateViewportRange(heatmapFilters, iframeWidth) : { min: 0, max: 1800 }
             },
         ],
+        currentFullUrl: [
+            (s) => [s.browserUrl, s.currentPath],
+            (browserUrl, currentPath) => {
+                return browserUrl + '/' + currentPath
+            },
+        ],
     }),
 
     listeners(({ actions, cache, props, values }) => ({
@@ -138,7 +169,7 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
                 '*'
             )
         },
-
+        // heatmaps
         patchHeatmapFilters: ({ filters }) => {
             actions.sendToolbarMessage(PostHogAppToolbarEvent.PH_PATCH_HEATMAP_FILTERS, { filters })
         },
@@ -159,6 +190,17 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
             actions.sendToolbarMessage(PostHogAppToolbarEvent.PH_HEATMAPS_COMMON_FILTERS, { commonFilters: filters })
         },
 
+        // actions
+        enableElementSelector: () => {
+            actions.sendToolbarMessage(PostHogAppToolbarEvent.PH_ELEMENT_SELECTOR, { enabled: true })
+        },
+        disableElementSelector: () => {
+            actions.sendToolbarMessage(PostHogAppToolbarEvent.PH_ELEMENT_SELECTOR, { enabled: false })
+        },
+        setNewActionName: ({ name }) => {
+            actions.sendToolbarMessage(PostHogAppToolbarEvent.PH_NEW_ACTION_NAME, { name })
+        },
+
         onIframeLoad: () => {
             // we get this callback whether the iframe loaded successfully or not
             // and don't get a signal if the load was successful, so we have to check
@@ -171,13 +213,20 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
                     fixedPositionMode: values.heatmapFixedPositionMode,
                     commonFilters: values.commonFilters,
                 })
-                actions.sendToolbarMessage(PostHogAppToolbarEvent.PH_HEATMAPS_CONFIG, {
-                    enabled: true,
-                })
+                switch (props.userIntent) {
+                    case 'heatmaps':
+                        actions.sendToolbarMessage(PostHogAppToolbarEvent.PH_HEATMAPS_CONFIG, {
+                            enabled: true,
+                        })
+                        break
+                }
             }
 
             const onIframeMessage = (e: MessageEvent): void => {
                 const type: PostHogAppToolbarEvent = e?.data?.type
+                const payload = e?.data?.payload
+
+                actions.toolbarMessageReceived(type, payload)
 
                 if (!type || !type.startsWith('ph-')) {
                     return
@@ -195,14 +244,17 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
                     case PostHogAppToolbarEvent.PH_TOOLBAR_INIT:
                         return init()
                     case PostHogAppToolbarEvent.PH_TOOLBAR_READY:
-                        posthog.capture('in-app heatmap frame loaded', {
-                            inapp_heatmap_page_url_visited: values.browserUrl,
-                            inapp_heatmap_filters: values.heatmapFilters,
-                            inapp_heatmap_color_palette: values.heatmapColorPalette,
-                            inapp_heatmap_fixed_position_mode: values.heatmapFixedPositionMode,
-                        })
-                        // reset loading tracking - if we're e.g. slow this will avoid a flash of warning message
-                        return actions.startTrackingLoading()
+                        if (props.userIntent === 'heatmaps') {
+                            posthog.capture('in-app heatmap frame loaded', {
+                                inapp_heatmap_page_url_visited: values.browserUrl,
+                                inapp_heatmap_filters: values.heatmapFilters,
+                                inapp_heatmap_color_palette: values.heatmapColorPalette,
+                                inapp_heatmap_fixed_position_mode: values.heatmapFixedPositionMode,
+                            })
+                            // reset loading tracking - if we're e.g. slow this will avoid a flash of warning message
+                            return actions.startTrackingLoading()
+                        }
+                        return
                     case PostHogAppToolbarEvent.PH_TOOLBAR_HEATMAP_LOADING:
                         return actions.startTrackingLoading()
                     case PostHogAppToolbarEvent.PH_TOOLBAR_HEATMAP_LOADED:
@@ -223,6 +275,13 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
                         actions.stopTrackingLoading()
                         actions.setIframeBanner({ level: 'error', message: 'The heatmap failed to load.' })
                         return
+                    case PostHogAppToolbarEvent.PH_NEW_ACTION_CREATED:
+                        actions.setNewActionName(null)
+                        actions.disableElementSelector()
+                        return
+                    case PostHogAppToolbarEvent.PH_TOOLBAR_NAVIGATED:
+                        // remove leading / from path
+                        return actions.setCurrentPath(payload.path.replace(/^\/+/, ''))
                     default:
                         console.warn(`[PostHog Heatmaps] Received unknown child window message: ${type}`)
                 }
@@ -238,7 +297,6 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
                 actions.startTrackingLoading()
             }
         },
-
         startTrackingLoading: () => {
             actions.setIframeBanner(null)
 

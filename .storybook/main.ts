@@ -13,7 +13,7 @@ const config: StorybookConfig = {
         'storybook-addon-pseudo-states',
     ],
 
-    staticDirs: ['public'],
+    staticDirs: ['public', { from: '../frontend/public', to: '/static' }],
 
     webpackFinal: (config) => {
         const mainConfig = createEntry('main')

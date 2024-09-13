@@ -96,7 +96,7 @@ pub struct RawEvent {
     pub set_once: Option<HashMap<String, Value>>,
 }
 
-static GZIP_MAGIC_NUMBERS: [u8; 3] = [0x1f, 0x8b, 8];
+pub static GZIP_MAGIC_NUMBERS: [u8; 3] = [0x1f, 0x8b, 8];
 
 #[derive(Deserialize)]
 #[serde(untagged)]

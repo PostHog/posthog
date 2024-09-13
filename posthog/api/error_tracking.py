@@ -13,7 +13,7 @@ import json
 class ErrorTrackingGroupSerializer(serializers.ModelSerializer):
     class Meta:
         model = ErrorTrackingGroup
-        fields = ["assignee"]
+        fields = ["assignee", "status"]
 
 
 class ErrorTrackingGroupViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):

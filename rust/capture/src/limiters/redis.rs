@@ -1,5 +1,11 @@
 use metrics::gauge;
-use std::{collections::HashSet, ops::Sub, sync::Arc};
+use std::time::Duration as StdDuration;
+use std::{collections::HashSet, sync::Arc};
+use time::{Duration, OffsetDateTime};
+use tokio::sync::RwLock;
+use tokio::task;
+use tokio::time::interval;
+use tracing::instrument;
 
 use crate::redis::Client;
 
@@ -17,24 +23,24 @@ use crate::redis::Client;
 /// 2. Capture should cope with redis being _totally down_, and fail open
 /// 3. We should not hit redis for every single request
 ///
-/// The solution here is to read from the cache until a time interval is hit, and then fetch new
-/// data. The write requires taking a lock that stalls all readers, though so long as redis reads
-/// stay fast we're ok.
+/// The solution here is to read from the cache and update the set in a background thread.
+/// We have to lock all readers briefly while we update the set, but we don't hold the lock
+/// until we already have the response from redis so it should be very short.
 ///
 /// Some small delay between an account being limited and the limit taking effect is acceptable.
 /// However, ideally we should not allow requests from some pods but 429 from others.
-use thiserror::Error;
-use time::{Duration, OffsetDateTime};
-use tokio::sync::RwLock;
-use tracing::instrument;
 
 // todo: fetch from env
-const QUOTA_LIMITER_CACHE_KEY: &str = "@posthog/quota-limits/";
+pub const QUOTA_LIMITER_CACHE_KEY: &str = "@posthog/quota-limits/";
+pub const OVERFLOW_LIMITER_CACHE_KEY: &str = "@posthog/capture-overflow/";
 
 #[derive(Debug)]
 pub enum QuotaResource {
     Events,
+    // due to historical reasons we use different suffixes for quota limits and overflow
+    // hopefully we can unify these in the future
     Recordings,
+    Replay,
 }
 
 impl QuotaResource {
@@ -42,23 +48,17 @@ impl QuotaResource {
         match self {
             Self::Events => "events",
             Self::Recordings => "recordings",
+            Self::Replay => "replay",
         }
     }
-}
-
-#[derive(Error, Debug)]
-pub enum LimiterError {
-    #[error("updater already running - there can only be one")]
-    UpdaterRunning,
 }
 
 #[derive(Clone)]
 pub struct RedisLimiter {
     limited: Arc<RwLock<HashSet<String>>>,
     redis: Arc<dyn Client + Send + Sync>,
-    redis_key_prefix: String,
+    key: String,
     interval: Duration,
-    updated: Arc<RwLock<OffsetDateTime>>,
 }
 
 impl RedisLimiter {
@@ -73,104 +73,79 @@ impl RedisLimiter {
     pub fn new(
         interval: Duration,
         redis: Arc<dyn Client + Send + Sync>,
+        limiter_cache_key: String,
         redis_key_prefix: Option<String>,
+        resource: QuotaResource,
     ) -> anyhow::Result<RedisLimiter> {
         let limited = Arc::new(RwLock::new(HashSet::new()));
+        let key_prefix = redis_key_prefix.unwrap_or_default();
 
-        // Force an update immediately if we have any reasonable interval
-        let updated = OffsetDateTime::from_unix_timestamp(0)?;
-        let updated = Arc::new(RwLock::new(updated));
-
-        Ok(RedisLimiter {
-            interval,
+        let limiter = RedisLimiter {
             limited,
-            updated,
-            redis,
-            redis_key_prefix: redis_key_prefix.unwrap_or_default(),
-        })
+            redis: redis.clone(),
+            key: format!("{key_prefix}{limiter_cache_key}{}", resource.as_str()),
+            interval,
+        };
+
+        // Spawn a background task to periodically fetch data from Redis
+        limiter.spawn_background_update();
+
+        Ok(limiter)
+    }
+
+    fn spawn_background_update(&self) {
+        let limited = Arc::clone(&self.limited);
+        let redis = Arc::clone(&self.redis);
+        let interval_duration = StdDuration::from_nanos(self.interval.whole_nanoseconds() as u64);
+        let key = self.key.clone();
+
+        // Spawn a task to periodically update the cache from Redis
+        task::spawn(async move {
+            let mut interval = interval(interval_duration);
+            loop {
+                match RedisLimiter::fetch_limited(&redis, &key).await {
+                    Ok(set) => {
+                        let set = HashSet::from_iter(set.iter().cloned());
+                        gauge!(
+                            "capture_billing_limits_loaded_tokens",
+                            "cache_key" => key.clone(),
+                        )
+                        .set(set.len() as f64);
+
+                        let mut limited_lock = limited.write().await;
+                        *limited_lock = set;
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to update cache from Redis: {:?}", e);
+                    }
+                }
+
+                interval.tick().await;
+            }
+        });
     }
 
     #[instrument(skip_all)]
     async fn fetch_limited(
         client: &Arc<dyn Client + Send + Sync>,
-        key_prefix: &str,
-        resource: &QuotaResource,
+        key: &String,
     ) -> anyhow::Result<Vec<String>> {
         let now = OffsetDateTime::now_utc().unix_timestamp();
-        let key = format!("{key_prefix}{QUOTA_LIMITER_CACHE_KEY}{}", resource.as_str());
         client
-            .zrangebyscore(key, now.to_string(), String::from("+Inf"))
+            .zrangebyscore(key.to_string(), now.to_string(), String::from("+Inf"))
             .await
     }
 
-    #[instrument(skip_all, fields(key = key))]
-    pub async fn is_limited(&self, key: &str, resource: QuotaResource) -> bool {
-        // hold the read lock to clone it, very briefly. clone is ok because it's very small 🤏
-        // rwlock can have many readers, but one writer. the writer will wait in a queue with all
-        // the readers, so we want to hold read locks for the smallest time possible to avoid
-        // writers waiting for too long. and vice versa.
-        let updated = {
-            let updated = self.updated.read().await;
-            *updated
-        };
-
-        let now = OffsetDateTime::now_utc();
-        let since_update = now.sub(updated);
-
-        // If an update is due, fetch the set from redis + cache it until the next update is due.
-        // Otherwise, return a value from the cache
-        //
-        // This update will block readers! Keep it fast.
-        if since_update > self.interval {
-            // open the update lock to change the update, and prevent anyone else from doing so
-            let mut updated = self.updated.write().await;
-            *updated = OffsetDateTime::now_utc();
-
-            let span = tracing::debug_span!("updating billing cache from redis");
-            let _span = span.enter();
-
-            // a few requests might end up in here concurrently, but I don't think a few extra will
-            // be a big problem. If it is, we can rework the concurrency a bit.
-            // On prod atm we call this around 15 times per second at peak times, and it usually
-            // completes in <1ms.
-
-            let set = Self::fetch_limited(&self.redis, &self.redis_key_prefix, &resource).await;
-
-            tracing::debug!("fetched set from redis, caching");
-
-            if let Ok(set) = set {
-                let set = HashSet::from_iter(set.iter().cloned());
-                gauge!(
-                    "capture_billing_limits_loaded_tokens",
-                    "resource" => resource.as_str(),
-                )
-                .set(set.len() as f64);
-
-                let mut limited = self.limited.write().await;
-                *limited = set;
-
-                tracing::debug!("updated cache from redis");
-
-                limited.contains(key)
-            } else {
-                tracing::error!("failed to fetch from redis in time, failing open");
-                // If we fail to fetch the set, something really wrong is happening. To avoid
-                // dropping events that we don't mean to drop, fail open and accept data. Better
-                // than angry customers :)
-                //
-                // TODO: Consider backing off our redis checks
-                false
-            }
-        } else {
-            let l = self.limited.read().await;
-
-            l.contains(key)
-        }
+    #[instrument(skip_all, fields(value = value))]
+    pub async fn is_limited(&self, value: &str) -> bool {
+        let limited = self.limited.read().await;
+        limited.contains(value)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::limiters::redis::{OVERFLOW_LIMITER_CACHE_KEY, QUOTA_LIMITER_CACHE_KEY};
     use std::sync::Arc;
     use time::Duration;
 
@@ -181,19 +156,24 @@ mod tests {
 
     #[tokio::test]
     async fn test_dynamic_limited() {
-        let client = MockRedisClient::new()
-            .zrangebyscore_ret("@posthog/quota-limits/events", vec![String::from("banana")]);
+        let client = MockRedisClient::new().zrangebyscore_ret(
+            "@posthog/capture-overflow/replay",
+            vec![String::from("banana")],
+        );
         let client = Arc::new(client);
 
-        let limiter = RedisLimiter::new(Duration::microseconds(1), client, None)
-            .expect("Failed to create billing limiter");
+        let limiter = RedisLimiter::new(
+            Duration::seconds(1),
+            client,
+            OVERFLOW_LIMITER_CACHE_KEY.to_string(),
+            None,
+            QuotaResource::Replay,
+        )
+        .expect("Failed to create billing limiter");
+        tokio::time::sleep(std::time::Duration::from_millis(30)).await;
 
-        assert!(
-            !limiter
-                .is_limited("not_limited", QuotaResource::Events)
-                .await,
-        );
-        assert!(limiter.is_limited("banana", QuotaResource::Events).await);
+        assert!(!limiter.is_limited("not_limited").await);
+        assert!(limiter.is_limited("banana").await);
     }
 
     #[tokio::test]
@@ -205,27 +185,29 @@ mod tests {
         let client = Arc::new(client);
 
         // Default lookup without prefix fails
-        let limiter = RedisLimiter::new(Duration::microseconds(1), client.clone(), None)
-            .expect("Failed to create billing limiter");
-        assert!(!limiter.is_limited("banana", QuotaResource::Events).await);
+        let limiter = RedisLimiter::new(
+            Duration::seconds(1),
+            client.clone(),
+            QUOTA_LIMITER_CACHE_KEY.to_string(),
+            None,
+            QuotaResource::Events,
+        )
+        .expect("Failed to create billing limiter");
+        tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+        assert!(!limiter.is_limited("banana").await);
 
         // Limiter using the correct prefix
         let prefixed_limiter = RedisLimiter::new(
             Duration::microseconds(1),
             client,
+            QUOTA_LIMITER_CACHE_KEY.to_string(),
             Some("prefix//".to_string()),
+            QuotaResource::Events,
         )
         .expect("Failed to create billing limiter");
+        tokio::time::sleep(std::time::Duration::from_millis(30)).await;
 
-        assert!(
-            !prefixed_limiter
-                .is_limited("not_limited", QuotaResource::Events)
-                .await,
-        );
-        assert!(
-            prefixed_limiter
-                .is_limited("banana", QuotaResource::Events)
-                .await
-        );
+        assert!(!prefixed_limiter.is_limited("not_limited").await);
+        assert!(prefixed_limiter.is_limited("banana").await);
     }
 }

@@ -1,14 +1,12 @@
-use chrono::{DateTime, Duration, Timelike, Utc};
+use chrono::{Duration, Timelike, Utc};
 use common_kafka::kafka_messages::app_metrics2::{
     AppMetric2, Kind as AppMetric2Kind, Source as AppMetric2Source,
 };
 use cyclotron_core::{JobInit, JobState, QueueManager, Worker};
 use cyclotron_janitor::{config::JanitorSettings, janitor::Janitor};
 use rdkafka::consumer::{Consumer, StreamConsumer};
-use rdkafka::types::{RDKafkaApiKey, RDKafkaRespErr};
 use rdkafka::{ClientConfig, Message};
 use sqlx::PgPool;
-use std::str::FromStr;
 use uuid::Uuid;
 
 use common_kafka::{test::create_mock_kafka, APP_METRICS2_TOPIC};
@@ -20,8 +18,15 @@ async fn janitor_test(db: PgPool) {
 
     // Purposefully MUCH smaller than would be used in production, so
     // we can simulate stalled or poison jobs quickly
-    let stall_timeout = Duration::milliseconds(10);
+    let stall_timeout = Duration::milliseconds(20);
     let max_touches = 3;
+
+    // Workers by default drop any heartbeats for the first 5 seconds, or between
+    // the last heartbeat and the next 5 seconds. We need to override that window
+    // to be smaller here, to test heartbeat behaviour
+    let mut worker = worker;
+    worker.heartbeat_window = stall_timeout / 2;
+    let worker = worker;
 
     let (mock_cluster, mock_producer) = create_mock_kafka().await;
     mock_cluster
@@ -58,7 +63,7 @@ async fn janitor_test(db: PgPool) {
         queue_name: queue_name.clone(),
         priority: 0,
         scheduled: now,
-        function_id: Some(uuid.clone()),
+        function_id: Some(uuid),
         vm_state: None,
         parameters: None,
         blob: None,

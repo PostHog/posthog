@@ -12,7 +12,7 @@ import {
     HogFunctionQueueParametersFetchRequest,
     HogFunctionQueueParametersFetchResponse,
 } from './types'
-import { gzipObject, serializeInvocation } from './utils'
+import { gzipObject, serializeHogFunctionInvocation } from './utils'
 
 export const BUCKETS_KB_WRITTEN = [0, 128, 512, 1024, 2024, 4096, 10240, Infinity]
 
@@ -40,10 +40,12 @@ export class FetchExecutor {
 
     async execute(invocation: HogFunctionInvocation): Promise<HogFunctionInvocationResult | undefined> {
         if (invocation.queue !== 'fetch' || !invocation.queueParameters) {
-            throw new Error('Bad invocation')
+            status.error('🦔', `[HogExecutor] Bad invocation`, { invocation })
+            return
         }
 
         const params = invocation.queueParameters as HogFunctionQueueParametersFetchRequest
+
         if (params.body) {
             histogramFetchPayloadSize.observe(params.body.length / 1024)
         }
@@ -52,7 +54,7 @@ export class FetchExecutor {
             if (this.hogHookEnabledForTeams(invocation.teamId)) {
                 // This is very temporary until we are commited to Cyclotron
                 const payload: HogFunctionInvocationAsyncRequest = {
-                    state: await gzipObject(serializeInvocation(invocation)),
+                    state: await gzipObject(serializeHogFunctionInvocation(invocation)),
                     teamId: invocation.teamId,
                     hogFunctionId: invocation.hogFunction.id,
                     asyncFunctionRequest: {
@@ -88,11 +90,11 @@ export class FetchExecutor {
         }
 
         const params = invocation.queueParameters as HogFunctionQueueParametersFetchRequest
+        let responseBody = ''
 
         const resParams: HogFunctionQueueParametersFetchResponse = {
             response: {
                 status: 0,
-                body: {},
             },
             error: null,
             timings: [],
@@ -107,12 +109,7 @@ export class FetchExecutor {
                 timeout: this.serverConfig.EXTERNAL_REQUEST_TIMEOUT_MS,
             })
 
-            let responseBody = await fetchResponse.text()
-            try {
-                responseBody = JSON.parse(responseBody)
-            } catch (err) {
-                // Ignore
-            }
+            responseBody = await fetchResponse.text()
 
             const duration = performance.now() - start
 

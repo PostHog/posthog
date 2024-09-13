@@ -215,6 +215,12 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         name: 'New survey',
         defaultDocsPath: '/docs/surveys/creating-surveys',
     },
+    [Scene.DataModel]: {
+        projectBased: true,
+        name: 'Visualize person schema',
+        defaultDocsPath: '/docs/data-datawarehouse',
+        layout: 'app-canvas',
+    },
     [Scene.DataWarehouse]: {
         projectBased: true,
         name: 'Data warehouse',
@@ -252,6 +258,12 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     [Scene.ProjectHomepage]: {
         projectBased: true,
         name: 'Homepage',
+    },
+    [Scene.Max]: {
+        projectBased: true,
+        name: 'Max',
+        layout: 'app-raw',
+        hideProjectNotice: true, // FIXME: Currently doesn't render well...
     },
     [Scene.IntegrationsRedirect]: {
         name: 'Integrations redirect',
@@ -343,7 +355,7 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     },
     [Scene.Notebook]: {
         projectBased: true,
-        hideProjectNotice: true, // Currently doesn't render well...
+        hideProjectNotice: true, // FIXME: Currently doesn't render well...
         name: 'Notebook',
         layout: 'app-raw',
         activityScope: ActivityScope.NOTEBOOK,
@@ -508,6 +520,7 @@ export const routes: Record<string, Scene> = {
     [urls.surveys()]: Scene.Surveys,
     [urls.survey(':id')]: Scene.Survey,
     [urls.surveyTemplates()]: Scene.SurveyTemplates,
+    [urls.dataModel()]: Scene.DataModel,
     [urls.dataWarehouse()]: Scene.DataWarehouse,
     [urls.dataWarehouseView(':id')]: Scene.DataWarehouse,
     [urls.dataWarehouseTable()]: Scene.DataWarehouseTable,
@@ -517,6 +530,7 @@ export const routes: Record<string, Scene> = {
     [urls.annotations()]: Scene.DataManagement,
     [urls.annotation(':id')]: Scene.DataManagement,
     [urls.projectHomepage()]: Scene.ProjectHomepage,
+    [urls.max()]: Scene.Max,
     [urls.projectCreateFirst()]: Scene.ProjectCreateFirst,
     [urls.organizationBilling()]: Scene.Billing,
     [urls.organizationCreateFirst()]: Scene.OrganizationCreateFirst,

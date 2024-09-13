@@ -234,6 +234,25 @@ function combineLegacyRecordingFilters(
     }
 }
 
+function sortRecordings(recordings: SessionRecordingType[], order: RecordingsQuery['order']): SessionRecordingType[] {
+    const orderKey:
+        | 'recording_duration'
+        | 'active_seconds'
+        | 'inactive_seconds'
+        | 'console_error_count'
+        | 'click_count'
+        | 'keypress_count'
+        | 'mouse_activity_count'
+        | 'start_time' = order === 'duration' ? 'recording_duration' : order
+
+    return recordings.sort((a, b) => {
+        const orderA = a[orderKey]
+        const orderB = b[orderKey]
+        const incomparible = orderA === undefined || orderB === undefined
+        return incomparible ? 0 : orderA > orderB ? -1 : 1
+    })
+}
+
 export interface SessionRecordingPlaylistLogicProps {
     logicKey?: string
     personUUID?: PersonUUID
@@ -333,7 +352,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             {
                 results: [],
                 has_next: false,
-            } as RecordingsQueryResponse,
+                order: 'start_time',
+            } as RecordingsQueryResponse & { order: RecordingsQuery['order'] },
             {
                 loadSessionRecordings: async ({ direction }, breakpoint) => {
                     const params: RecordingsQuery = {
@@ -343,22 +363,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         limit: RECORDINGS_LIMIT,
                     }
 
-                    if (values.orderBy === 'start_time') {
-                        if (direction === 'older') {
-                            params.date_to = values.sessionRecordings[values.sessionRecordings.length - 1]?.start_time
-                        }
+                    if (direction === 'older') {
+                        params.offset = values.sessionRecordings.length
+                    }
 
-                        if (direction === 'newer') {
-                            params.date_from = values.sessionRecordings[0]?.start_time
-                        }
-                    } else {
-                        if (direction === 'older') {
-                            params.offset = values.sessionRecordings.length
-                        }
-
-                        if (direction === 'newer') {
-                            params.offset = 0
-                        }
+                    if (direction === 'newer') {
+                        params.offset = 0
                     }
 
                     await breakpoint(400) // Debounce for lots of quick filter changes
@@ -377,6 +387,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                                 ? values.sessionRecordingsResponse?.has_next ?? true
                                 : response.has_next,
                         results: response.results,
+                        order: values.orderBy,
                     }
                 },
             },
@@ -496,9 +507,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         }
                     })
 
-                    mergedResults.sort((a, b) => (a.start_time > b.start_time ? -1 : 1))
-
-                    return mergedResults
+                    return sortRecordings(mergedResults, sessionRecordingsResponse.order)
                 },
 
                 setSelectedRecordingId: (state, { id }) =>
@@ -691,19 +700,19 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 selectedRecordingId,
                 orderBy
             ): SessionRecordingType[] => {
-                return sessionRecordings
-                    .filter((rec) => {
-                        if (pinnedRecordings.find((pinned) => pinned.id === rec.id)) {
-                            return false
-                        }
+                const filteredRecordings = sessionRecordings.filter((rec) => {
+                    if (pinnedRecordings.find((pinned) => pinned.id === rec.id)) {
+                        return false
+                    }
 
-                        if (hideViewedRecordings && rec.viewed && rec.id !== selectedRecordingId) {
-                            return false
-                        }
+                    if (hideViewedRecordings && rec.viewed && rec.id !== selectedRecordingId) {
+                        return false
+                    }
 
-                        return true
-                    })
-                    .sort((a, b) => (a[orderBy] > b[orderBy] ? -1 : 1))
+                    return true
+                })
+
+                return sortRecordings(filteredRecordings, orderBy)
             },
         ],
 

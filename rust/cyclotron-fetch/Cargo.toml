@@ -19,6 +19,7 @@ cyclotron-core = { path = "../cyclotron-core" }
 common-metrics = { path = "../common/metrics" }
 common-dns = { path = "../common/dns" }
 common-kafka = { path = "../common/kafka" }
+common-alloc = { path = "../common/alloc" }
 health = { path = "../common/health" }
 reqwest = { workspace = true }
 serde = { workspace = true }
