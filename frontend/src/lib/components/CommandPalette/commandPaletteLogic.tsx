@@ -63,7 +63,15 @@ import { userLogic } from 'scenes/userLogic'
 import { SIDE_PANEL_TABS } from '~/layout/navigation-3000/sidepanel/SidePanel'
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { InsightType } from '~/types'
+import {
+    FilterLogicalOperator,
+    InsightType,
+    PropertyFilterType,
+    PropertyOperator,
+    RecordingDurationFilter,
+    RecordingUniversalFilters,
+    ReplayTabs,
+} from '~/types'
 
 import { commandBarLogic } from '../CommandBar/commandBarLogic'
 import { BarStatus } from '../CommandBar/types'
@@ -134,6 +142,18 @@ function resolveCommand(source: Command | CommandFlow, argument?: string, prefix
         return { ...result, source }
     })
     return resultsWithCommand
+}
+
+function isURLLike(candidate: string | undefined): boolean {
+    if (!candidate?.trim().length) {
+        return false
+    }
+    try {
+        new URL(candidate)
+        return true
+    } catch {
+        return false
+    }
 }
 
 export const commandPaletteLogic = kea<commandPaletteLogicType>([
@@ -684,6 +704,70 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                 },
             }
 
+            const watchRecordingsOf: Command = {
+                key: 'watch-recordings-of',
+                scope: GLOBAL_COMMAND_SCOPE,
+                resolver: (argument: string | undefined) => {
+                    if (argument === undefined) {
+                        return null
+                    }
+
+                    const replayFilter = (
+                        key: 'snapshot_source' | 'visited_page',
+                        value: string
+                    ): Partial<RecordingUniversalFilters> => ({
+                        date_from: '-3d',
+                        filter_group: {
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                {
+                                    type: FilterLogicalOperator.And,
+                                    values: [
+                                        {
+                                            key: key,
+                                            value: [value],
+                                            operator: PropertyOperator.Exact,
+                                            type: PropertyFilterType.Recording,
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                        duration: [
+                            {
+                                type: PropertyFilterType.Recording,
+                                key: 'duration',
+                                value: 1,
+                                operator: 'gt',
+                            } as RecordingDurationFilter,
+                        ],
+                    })
+
+                    if (argument === 'web' || argument === 'mobile') {
+                        const commandResult: CommandResultTemplate = {
+                            icon: IconRewindPlay,
+                            display: `Watch ${argument} recordings`,
+                            executor: () => {
+                                push(urls.replay(ReplayTabs.Home, replayFilter('snapshot_source', argument)))
+                            },
+                        }
+                        return commandResult
+                    }
+
+                    if (isURLLike(argument)) {
+                        const commandResult: CommandResultTemplate = {
+                            icon: IconRewindPlay,
+                            display: `Watch recordings of visits to ${argument}`,
+                            executor: () => {
+                                push(urls.replay(ReplayTabs.Home, replayFilter('visited_page', argument)))
+                            },
+                        }
+                        return commandResult
+                    }
+                    return null
+                },
+            }
+
             const calculator: Command = {
                 key: 'calculator',
                 scope: GLOBAL_COMMAND_SCOPE,
@@ -931,6 +1015,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
             actions.registerCommand(toggleHedgehogMode)
             actions.registerCommand(shortcuts)
             actions.registerCommand(sidepanel)
+            actions.registerCommand(watchRecordingsOf)
         },
         beforeUnmount: () => {
             actions.deregisterCommand('go-to')
@@ -945,6 +1030,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
             actions.deregisterCommand('toggle-hedgehog-mode')
             actions.deregisterCommand('shortcuts')
             actions.deregisterCommand('sidepanel')
+            actions.deregisterCommand('watch-recordings-of')
         },
     })),
 ])
