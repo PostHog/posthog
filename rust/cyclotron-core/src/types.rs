@@ -99,6 +99,8 @@ pub struct JobUpdate {
     pub metadata: Option<Option<Bytes>>,
     pub parameters: Option<Option<Bytes>>,
     pub blob: Option<Option<Bytes>>,
+    #[serde(skip)]
+    pub last_heartbeat: Option<DateTime<Utc>>,
 }
 
 impl JobUpdate {
@@ -113,6 +115,7 @@ impl JobUpdate {
             metadata: None,
             parameters: None,
             blob: None,
+            last_heartbeat: Some(Utc::now()), // Dequeueing a job always touches the heartbeat
         }
     }
 }

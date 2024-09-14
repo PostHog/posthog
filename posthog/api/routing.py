@@ -38,32 +38,6 @@ else:
 class DefaultRouterPlusPlus(ExtendedDefaultRouter):
     """DefaultRouter with optional trailing slash and drf-extensions nesting."""
 
-    # This is an override because of changes in djangorestframework 3.15, which is required for python 3.11
-    # changes taken from and explained here: https://github.com/nautobot/nautobot/pull/5546/files#diff-81850a2ccad5814aab4f477d447f85cc0a82e9c10fd88fd72327cda51a750471R30
-    def _register(self, prefix, viewset, basename=None):
-        """
-        Override DRF's BaseRouter.register() to bypass an unnecessary restriction added in version 3.15.0.
-        (Reference: https://github.com/encode/django-rest-framework/pull/8438)
-        """
-        if basename is None:
-            basename = self.get_default_basename(viewset)
-
-        # DRF:
-        # if self.is_already_registered(basename):
-        #     msg = (f'Router with basename "{basename}" is already registered. '
-        #            f'Please provide a unique basename for viewset "{viewset}"')
-        #     raise ImproperlyConfigured(msg)
-        #
-        # We bypass this because we have at least one use case (/api/extras/jobs/) where we are *intentionally*
-        # registering two viewsets with the same basename, but have carefully defined them so as not to conflict.
-
-        # resuming standard DRF code...
-        self.registry.append((prefix, viewset, basename))
-
-        # invalidate the urls cache
-        if hasattr(self, "_urls"):
-            del self._urls
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.trailing_slash = r"/?"
@@ -72,7 +46,7 @@ class DefaultRouterPlusPlus(ExtendedDefaultRouter):
 # NOTE: Previously known as the StructuredViewSetMixin
 # IMPORTANT: Almost all viewsets should inherit from this mixin. It should be the first thing it inherits from to ensure
 # that typing works as expected
-class TeamAndOrgViewSetMixin(_GenericViewSet):
+class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" in name
     # This flag disables nested routing handling, reverting to the old request.user.team behavior
     # Allows for a smoother transition from the old flat API structure to the newer nested one
     param_derived_from_user_current_team: Optional[Literal["team_id", "project_id"]] = None

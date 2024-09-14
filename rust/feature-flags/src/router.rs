@@ -9,8 +9,8 @@ use crate::{
 
 #[derive(Clone)]
 pub struct State {
+    // TODO add writers when ready
     pub redis: Arc<dyn RedisClient + Send + Sync>,
-    // TODO: Add pgClient when ready
     pub postgres: Arc<dyn DatabaseClient + Send + Sync>,
     pub geoip: Arc<GeoIpClient>,
 }
