@@ -50,7 +50,6 @@ export function loadPostHogJS(): void {
                 _onCapture: (window as any)._cypress_posthog_captures
                     ? (_, event) => (window as any)._cypress_posthog_captures.push(event)
                     : undefined,
-                session_idle_timeout_seconds: 60 * 10, // 10 minutes
             })
         )
 
