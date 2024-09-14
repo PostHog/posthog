@@ -14,65 +14,62 @@ fn getPayload() {
             'app': {
                 'name': 'PostHogPlugin',
             },
-            'os': {
-                'name': event.properties.$os
-            },
-            'browser': event.properties.$browser,
-            'browser_version': event.properties.$browser_version,
-            'page': {
-                'host': event.properties.$host,
-                'url': event.properties.$current_url,
-                'path': event.properties.$pathname,
-                'referrer': event.properties.$referrer,
-                'initial_referrer': event.properties.$initial_referrer,
-                'referring_domain': event.properties.$referring_domain,
-                'initial_referring_domain': event.properties.$initial_referring_domain,
-            },
-            'screen': {
-                'height': event.properties.$screen_height,
-                'width': event.properties.$screen_width,
-            },
-            'library': {
-                'name': event.properties.$lib,
-                'version': event.properties.$lib_version,
-            },
-            'ip': event.$ip,
-            'active_feature_flags': event.properties.$active_feature_flags,
-            'token': event.properties.token
+            'os': {},
+            'page': {},
+            'screen': {},
+            'library': {},
         },
         'channel': 's2s',
-        'messageId': event.uuid,
-        'originalTimestamp': event.timestamp,
-        'userId': inputs.identifier,
-        'anonymousId': event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.properties.distinct_id,
         'type': 'track',
         'properties': {},
     }
 
+    if (not empty(event.properties.$os)) rudderPayload.context.os.name := event.properties.$os
+    if (not empty(event.properties.$browser)) rudderPayload.context.browser := event.properties.$browser
+    if (not empty(event.properties.$browser_version)) rudderPayload.context.browser_version := event.properties.$browser_version
+    if (not empty(event.properties.$host)) rudderPayload.context.page.host := event.properties.$host
+    if (not empty(event.properties.$current_url)) rudderPayload.context.page.url := event.properties.$current_url
+    if (not empty(event.properties.$path)) rudderPayload.context.page.path := event.properties.$path
+    if (not empty(event.properties.$referrer)) rudderPayload.context.page.referrer := event.properties.$referrer
+    if (not empty(event.properties.$initial_referrer)) rudderPayload.context.page.initial_referrer := event.properties.$initial_referrer
+    if (not empty(event.properties.$referring_domain)) rudderPayload.context.page.referring_domain := event.properties.$referring_domain
+    if (not empty(event.properties.$initial_referring_domain)) rudderPayload.context.page.initial_referring_domain := event.properties.$initial_referring_domain
+    if (not empty(event.properties.$screen_height)) rudderPayload.context.screen.height := event.properties.$screen_height
+    if (not empty(event.properties.$screen_width)) rudderPayload.context.screen.width := event.properties.$screen_width
+    if (not empty(event.properties.$lib)) rudderPayload.context.library.name := event.properties.$lib
+    if (not empty(event.properties.$lib_version)) rudderPayload.context.library.version := event.properties.$lib_version
+    if (not empty(event.$ip)) rudderPayload.context.ip := event.$ip
+    if (not empty(event.properties.$active_feature_flags)) rudderPayload.context.active_feature_flags := event.properties.$active_feature_flags
+    if (not empty(event.properties.token)) rudderPayload.context.token := event.properties.token
+    if (not empty(event.uuid)) rudderPayload.messageId := event.uuid
+    if (not empty(event.timestamp)) rudderPayload.originalTimestamp := event.timestamp
+    if (not empty(inputs.identifier)) rudderPayload.userId := inputs.identifier
+    if (not empty(event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.properties.distinct_id)) rudderPayload.anonymousId := event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.properties.distinct_id
+
     if (event.name in ('$identify', '$set')) {
         rudderPayload.type := 'identify'
-        rudderPayload.context.trait := event.properties.$set
-        rudderPayload.traits := event.properties.$set
+        if (not empty(event.properties.$set)) rudderPayload.context.trait := event.properties.$set
+        if (not empty(event.properties.$set)) rudderPayload.traits := event.properties.$set
     } else if (event.name == '$create_alias') {
         rudderPayload.type := 'alias'
-        rudderPayload.userId := event.properties.alias
-        rudderPayload.previousId := event.distinct_id
+        if (not empty(event.properties.alias)) rudderPayload.userId := event.properties.alias
+        if (not empty(event.distinct_id)) rudderPayload.previousId := event.distinct_id
     } else if (event.name == '$pageview') {
         rudderPayload.type := 'page'
-        rudderPayload.name := event.properties.name
-        rudderPayload.properties.host := event.properties.$host
-        rudderPayload.properties.url := event.properties.$current_url
-        rudderPayload.properties.path := event.properties.$pathname
-        rudderPayload.properties.referrer := event.properties.$referrer
-        rudderPayload.properties.initial_referrer := event.properties.$initial_referrer
-        rudderPayload.properties.referring_domain := event.properties.$referring_domain
-        rudderPayload.properties.initial_referring_domain := event.properties.$initial_referring_domain
+        if (not empty(event.properties.name)) rudderPayload.name := event.properties.name
+        if (not empty(event.properties.$host)) rudderPayload.properties.host := event.properties.$host
+        if (not empty(event.properties.$current_url)) rudderPayload.properties.url := event.properties.$current_url
+        if (not empty(event.properties.$pathname)) rudderPayload.properties.path := event.properties.$pathname
+        if (not empty(event.properties.$referrer)) rudderPayload.properties.referrer := event.properties.$referrer
+        if (not empty(event.properties.$initial_referrer)) rudderPayload.properties.initial_referrer := event.properties.$initial_referrer
+        if (not empty(event.properties.$referring_domain)) rudderPayload.properties.referring_domain := event.properties.$referring_domain
+        if (not empty(event.properties.$initial_referring_domain)) rudderPayload.properties.initial_referring_domain := event.properties.$initial_referring_domain
     } else if (event.name == '$autocapture') {
         rudderPayload.type := 'track'
-        rudderPayload.event := event.properties.$event_type
+        if (not empty(event.properties.$event_type)) rudderPayload.event := event.properties.$event_type
     } else {
         rudderPayload.type := 'track'
-        rudderPayload.event := event.name
+        if (not empty(event.name)) rudderPayload.event := event.name
     }
 
     for (let key, value in event.properties) {
