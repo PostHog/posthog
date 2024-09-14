@@ -156,6 +156,10 @@ function isURLLike(candidate: string | undefined): boolean {
     }
 }
 
+function isUUIDLike(candidate: string): boolean {
+    return candidate.length === 36 && !!candidate.toLowerCase().match(/^[0-9a-f-]+$/)?.length
+}
+
 export const commandPaletteLogic = kea<commandPaletteLogicType>([
     path(['lib', 'components', 'CommandPalette', 'commandPaletteLogic']),
     connect({
@@ -765,6 +769,19 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         }
                         return commandResult
                     }
+
+                    const uuid = words.find((word) => isUUIDLike(word))
+
+                    if (uuid) {
+                        return {
+                            icon: IconRewindPlay,
+                            display: `Watch recording of session: ${uuid}`,
+                            executor: () => {
+                                push(urls.replay(ReplayTabs.Home, undefined, uuid))
+                            },
+                        }
+                    }
+
                     return null
                 },
             }
