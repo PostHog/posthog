@@ -46,6 +46,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     incremental_field = serializers.SerializerMethodField(read_only=True)
     incremental_field_type = serializers.SerializerMethodField(read_only=True)
     sync_frequency = serializers.SerializerMethodField(read_only=True)
+    status = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = ExternalDataSchema
@@ -73,6 +74,12 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "latest_error",
             "status",
         ]
+
+    def get_status(self, schema: ExternalDataSchema) -> str | None:
+        if schema.status == ExternalDataSchema.Status.CANCELLED:
+            return "Billing limits"
+
+        return schema.status
 
     def get_incremental(self, schema: ExternalDataSchema) -> bool:
         return schema.is_incremental

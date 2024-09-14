@@ -43,7 +43,11 @@ export function areObjectValuesEmpty(obj?: Record<string, any>): boolean {
 }
 
 // taken from https://stackoverflow.com/questions/10420352/converting-file-size-in-bytes-to-human-readable-string/10420404
-export const humanizeBytes = (fileSizeInBytes: number): string => {
+export const humanizeBytes = (fileSizeInBytes: number | null): string => {
+    if (fileSizeInBytes === null) {
+        return ''
+    }
+
     let i = -1
     const byteUnits = ['kB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB']
     do {
@@ -1674,6 +1678,10 @@ export function downloadFile(file: File): void {
 
 export function inStorybookTestRunner(): boolean {
     return navigator.userAgent.includes('StorybookTestRunner')
+}
+
+export function inStorybook(): boolean {
+    return '__STORYBOOK_CLIENT_API__' in window
 }
 
 /** We issue a cancel request, when the request is aborted or times out (frontend side), since in these cases the backend query might still be running. */

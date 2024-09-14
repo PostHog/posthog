@@ -90,3 +90,19 @@ def calculate_cost(object, marked: set | None = None) -> int:
     elif isinstance(object, str):
         return COST_PER_UNIT + len(object)
     return COST_PER_UNIT
+
+
+def unify_comparison_types(left, right):
+    if isinstance(left, int | float) and isinstance(right, str):
+        return left, float(right)
+    if isinstance(left, str) and isinstance(right, int | float):
+        return float(left), right
+    if isinstance(left, bool) and isinstance(right, str):
+        return left, bool(right)
+    if isinstance(left, str) and isinstance(right, bool):
+        return bool(left), right
+    if isinstance(left, int | float) and isinstance(right, bool):
+        return left, int(right)
+    if isinstance(left, bool) and isinstance(right, int | float):
+        return int(left), right
+    return left, right

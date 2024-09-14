@@ -12,8 +12,8 @@ import { getPluginServerCapabilities } from '../capabilities'
 import { CdpApi } from '../cdp/cdp-api'
 import {
     CdpCyclotronWorker,
+    CdpCyclotronWorkerFetch,
     CdpFunctionCallbackConsumer,
-    CdpOverflowConsumer,
     CdpProcessedEventsConsumer,
 } from '../cdp/cdp-consumers'
 import { defaultConfig, sessionRecordingConsumerConfig } from '../config/config'
@@ -463,22 +463,21 @@ export async function startPluginsServer(
             }
         }
 
-        if (capabilities.cdpFunctionOverflow) {
-            const hub = await setupHub()
-            const consumer = new CdpOverflowConsumer(hub)
-            await consumer.start()
-            services.push(consumer.service)
-        }
-
         if (capabilities.cdpCyclotronWorker) {
             const hub = await setupHub()
-            if (hub.CYCLOTRON_DATABASE_URL) {
+
+            if (!hub.CYCLOTRON_DATABASE_URL) {
+                status.error('💥', 'Cyclotron database URL not set.')
+            } else {
                 const worker = new CdpCyclotronWorker(hub)
                 await worker.start()
                 services.push(worker.service)
-            } else {
-                // This is a temporary solution until we *require* Cyclotron to be configured.
-                status.warn('💥', 'CYCLOTRON_DATABASE_URL is not set, not running Cyclotron worker')
+
+                if (process.env.EXPERIMENTAL_CDP_FETCH_WORKER) {
+                    const workerFetch = new CdpCyclotronWorkerFetch(hub)
+                    await workerFetch.start()
+                    services.push(workerFetch.service)
+                }
             }
         }
 

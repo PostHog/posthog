@@ -81,6 +81,7 @@ describe('HogFunctionManager', () => {
     })
 
     afterEach(async () => {
+        await manager.stop()
         await closeHub(hub)
     })
 
@@ -93,7 +94,7 @@ describe('HogFunctionManager', () => {
                 team_id: teamId1,
                 name: 'Test Hog Function team 1',
                 enabled: true,
-                bytecode: null,
+                bytecode: {},
                 filters: null,
                 inputs_schema: [
                     {

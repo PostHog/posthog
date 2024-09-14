@@ -116,7 +116,7 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                             {id ? (
                                 <LemonButton
                                     type="secondary"
-                                    to={urls.replay(ReplayTabs.Recent, {
+                                    to={urls.replay(ReplayTabs.Home, {
                                         filter_group: {
                                             type: FilterLogicalOperator.And,
                                             values: [

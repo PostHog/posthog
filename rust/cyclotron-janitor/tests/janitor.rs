@@ -1,14 +1,12 @@
-use chrono::{DateTime, Duration, Utc};
+use chrono::{Duration, Timelike, Utc};
 use common_kafka::kafka_messages::app_metrics2::{
     AppMetric2, Kind as AppMetric2Kind, Source as AppMetric2Source,
 };
 use cyclotron_core::{JobInit, JobState, QueueManager, Worker};
 use cyclotron_janitor::{config::JanitorSettings, janitor::Janitor};
 use rdkafka::consumer::{Consumer, StreamConsumer};
-use rdkafka::types::{RDKafkaApiKey, RDKafkaRespErr};
 use rdkafka::{ClientConfig, Message};
 use sqlx::PgPool;
-use std::str::FromStr;
 use uuid::Uuid;
 
 use common_kafka::{test::create_mock_kafka, APP_METRICS2_TOPIC};
@@ -20,8 +18,15 @@ async fn janitor_test(db: PgPool) {
 
     // Purposefully MUCH smaller than would be used in production, so
     // we can simulate stalled or poison jobs quickly
-    let stall_timeout = Duration::milliseconds(10);
+    let stall_timeout = Duration::milliseconds(20);
     let max_touches = 3;
+
+    // Workers by default drop any heartbeats for the first 5 seconds, or between
+    // the last heartbeat and the next 5 seconds. We need to override that window
+    // to be smaller here, to test heartbeat behaviour
+    let mut worker = worker;
+    worker.heartbeat_window = stall_timeout / 2;
+    let worker = worker;
 
     let (mock_cluster, mock_producer) = create_mock_kafka().await;
     mock_cluster
@@ -58,7 +63,7 @@ async fn janitor_test(db: PgPool) {
         queue_name: queue_name.clone(),
         priority: 0,
         scheduled: now,
-        function_id: Some(uuid.clone()),
+        function_id: Some(uuid),
         vm_state: None,
         parameters: None,
         blob: None,
@@ -66,6 +71,7 @@ async fn janitor_test(db: PgPool) {
     };
 
     // First test - if we mark a job as completed, the janitor will clean it up
+    let mut job_now = Utc::now();
     manager.create_job(job_init.clone()).await.unwrap();
     let job = worker
         .dequeue_jobs(&queue_name, 1)
@@ -92,7 +98,13 @@ async fn janitor_test(db: PgPool) {
             app_metric,
             AppMetric2 {
                 team_id: 1,
-                timestamp: DateTime::<Utc>::from_str("2024-08-30T19:00:00Z").unwrap(),
+                timestamp: job_now
+                    .with_minute(0)
+                    .unwrap()
+                    .with_second(0)
+                    .unwrap()
+                    .with_nanosecond(0)
+                    .unwrap(),
                 app_source: AppMetric2Source::Cyclotron,
                 app_source_id: uuid.to_string(),
                 instance_id: None,
@@ -104,6 +116,7 @@ async fn janitor_test(db: PgPool) {
     }
 
     // Second test - if we mark a job as failed, the janitor will clean it up
+    job_now = Utc::now();
     manager.create_job(job_init.clone()).await.unwrap();
     let job = worker
         .dequeue_jobs(&queue_name, 1)
@@ -130,7 +143,13 @@ async fn janitor_test(db: PgPool) {
             app_metric,
             AppMetric2 {
                 team_id: 1,
-                timestamp: DateTime::<Utc>::from_str("2024-08-30T19:00:00Z").unwrap(),
+                timestamp: job_now
+                    .with_minute(0)
+                    .unwrap()
+                    .with_second(0)
+                    .unwrap()
+                    .with_nanosecond(0)
+                    .unwrap(),
                 app_source: AppMetric2Source::Cyclotron,
                 app_source_id: uuid.to_string(),
                 instance_id: None,

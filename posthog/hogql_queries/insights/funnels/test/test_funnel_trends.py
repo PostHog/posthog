@@ -1,5 +1,6 @@
 from datetime import date, datetime, timedelta
 from typing import cast
+from unittest.mock import patch, Mock
 
 from zoneinfo import ZoneInfo
 from freezegun.api import freeze_time
@@ -10,7 +11,7 @@ from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.queries.funnels.funnel_trends_persons import ClickhouseFunnelTrendsActors
-from posthog.schema import FunnelsQuery
+from posthog.schema import FunnelsQuery, FunnelsQueryResponse
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -23,7 +24,8 @@ FORMAT_TIME = "%Y-%m-%d %H:%M:%S"
 FORMAT_TIME_DAY_END = "%Y-%m-%d 23:59:59"
 
 
-class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
+class BaseTestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
+    __test__ = False
     maxDiff = None
 
     def _get_actors_at_step(self, filter, entrance_period_start, drop_off):
@@ -130,43 +132,43 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
             [
                 {
                     "reached_to_step_count": 0,
-                    "conversion_rate": 0,
+                    "conversion_rate": 0.0,
                     "reached_from_step_count": 1,
                     "timestamp": datetime(2021, 6, 7, 0, 0).replace(tzinfo=ZoneInfo("UTC")),
                 },
                 {
                     "reached_to_step_count": 0,
-                    "conversion_rate": 0,
+                    "conversion_rate": 0.0,
                     "reached_from_step_count": 0,
                     "timestamp": datetime(2021, 6, 8, 0, 0).replace(tzinfo=ZoneInfo("UTC")),
                 },
                 {
                     "reached_to_step_count": 0,
-                    "conversion_rate": 0,
+                    "conversion_rate": 0.0,
                     "reached_from_step_count": 0,
                     "timestamp": datetime(2021, 6, 9, 0, 0).replace(tzinfo=ZoneInfo("UTC")),
                 },
                 {
                     "reached_to_step_count": 0,
-                    "conversion_rate": 0,
+                    "conversion_rate": 0.0,
                     "reached_from_step_count": 0,
                     "timestamp": datetime(2021, 6, 10, 0, 0).replace(tzinfo=ZoneInfo("UTC")),
                 },
                 {
                     "reached_to_step_count": 0,
-                    "conversion_rate": 0,
+                    "conversion_rate": 0.0,
                     "reached_from_step_count": 0,
                     "timestamp": datetime(2021, 6, 11, 0, 0).replace(tzinfo=ZoneInfo("UTC")),
                 },
                 {
                     "reached_to_step_count": 0,
-                    "conversion_rate": 0,
+                    "conversion_rate": 0.0,
                     "reached_from_step_count": 0,
                     "timestamp": datetime(2021, 6, 12, 0, 0).replace(tzinfo=ZoneInfo("UTC")),
                 },
                 {
                     "reached_to_step_count": 0,
-                    "conversion_rate": 0,
+                    "conversion_rate": 0.0,
                     "reached_from_step_count": 0,
                     "timestamp": datetime(2021, 6, 13, 0, 0).replace(tzinfo=ZoneInfo("UTC")),
                 },
@@ -1611,3 +1613,28 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
         self.assertEqual(len(results), 1)
+
+
+@patch("posthoganalytics.feature_enabled", new=Mock(return_value=False))
+class TestFunnelTrends(BaseTestFunnelTrends):
+    __test__ = True
+
+    def test_assert_flag_is_working(self):
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_viz_type": "trends",
+            "display": TRENDS_LINEAR,
+            "interval": "hour",
+            "date_from": "2021-05-01 00:00:00",
+            "funnel_window_interval": 7,
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+                {"id": "step three", "order": 2},
+            ],
+        }
+
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        results = cast(FunnelsQueryResponse, FunnelsQueryRunner(query=query, team=self.team).calculate())
+
+        self.assertFalse(results.isUdf)

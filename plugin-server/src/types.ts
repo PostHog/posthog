@@ -83,7 +83,6 @@ export enum PluginServerMode {
     recordings_blob_ingestion_overflow = 'recordings-blob-ingestion-overflow',
     cdp_processed_events = 'cdp-processed-events',
     cdp_function_callbacks = 'cdp-function-callbacks',
-    cdp_function_overflow = 'cdp-function-overflow',
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
     functional_tests = 'functional-tests',
 }
@@ -114,10 +113,13 @@ export type CdpConfig = {
     CDP_WATCHER_DISABLED_TEMPORARY_TTL: number // How long a function should be temporarily disabled for
     CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT: number // How many times a function can be disabled before it is disabled permanently
     CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS: string
-    CDP_ASYNC_FUNCTIONS_CYCLOTRON_TEAMS: string
+    CDP_CYCLOTRON_ENABLED_TEAMS: string
+    CDP_CYCLOTRON_BATCH_SIZE: number
+    CDP_CYCLOTRON_BATCH_DELAY_MS: number
     CDP_REDIS_HOST: string
     CDP_REDIS_PORT: number
     CDP_REDIS_PASSWORD: string
+    CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: boolean
 }
 
 export interface PluginsServerConfig extends CdpConfig {
@@ -342,7 +344,6 @@ export interface PluginServerCapabilities {
     sessionRecordingBlobOverflowIngestion?: boolean
     cdpProcessedEvents?: boolean
     cdpFunctionCallbacks?: boolean
-    cdpFunctionOverflow?: boolean
     cdpCyclotronWorker?: boolean
     appManagementSingleton?: boolean
     preflightSchedules?: boolean // Used for instance health checks on hobby deploy, not useful on cloud

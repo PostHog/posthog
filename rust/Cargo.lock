@@ -620,6 +620,7 @@ dependencies = [
  "axum-test-helper",
  "base64 0.22.0",
  "bytes",
+ "common-alloc",
  "envconfig",
  "flate2",
  "futures",
@@ -700,6 +701,13 @@ dependencies = [
  "pin-project-lite",
  "tokio",
  "tokio-util",
+]
+
+[[package]]
+name = "common-alloc"
+version = "0.1.0"
+dependencies = [
+ "tikv-jemallocator",
 ]
 
 [[package]]
@@ -877,6 +885,7 @@ version = "0.1.0"
 dependencies = [
  "axum 0.7.5",
  "chrono",
+ "common-alloc",
  "common-dns",
  "common-kafka",
  "common-metrics",
@@ -906,6 +915,7 @@ version = "0.1.0"
 dependencies = [
  "axum 0.7.5",
  "chrono",
+ "common-alloc",
  "common-kafka",
  "common-metrics",
  "cyclotron-core",
@@ -1155,8 +1165,12 @@ dependencies = [
  "async-trait",
  "axum 0.7.5",
  "axum-client-ip",
+ "base64 0.22.0",
  "bytes",
+ "common-alloc",
  "envconfig",
+ "flate2",
+ "futures",
  "maxminddb",
  "once_cell",
  "rand",
@@ -1205,7 +1219,7 @@ checksum = "55ac459de2512911e4b674ce33cf20befaba382d05b62b008afc1c8b57cbf181"
 dependencies = [
  "futures-core",
  "futures-sink",
- "spin 0.9.8",
+ "spin",
 ]
 
 [[package]]
@@ -1586,6 +1600,7 @@ name = "hook-api"
 version = "0.1.0"
 dependencies = [
  "axum 0.7.5",
+ "common-alloc",
  "common-metrics",
  "envconfig",
  "eyre",
@@ -1627,6 +1642,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "axum 0.7.5",
+ "common-alloc",
  "common-kafka",
  "common-metrics",
  "envconfig",
@@ -1652,6 +1668,7 @@ version = "0.1.0"
 dependencies = [
  "axum 0.7.5",
  "chrono",
+ "common-alloc",
  "common-dns",
  "common-kafka",
  "common-metrics",
@@ -2043,11 +2060,11 @@ dependencies = [
 
 [[package]]
 name = "lazy_static"
-version = "1.4.0"
+version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e2abad23fbc42b3700f2f279844dc832adb2b2eb069b2df918f455c4e18cc646"
+checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 dependencies = [
- "spin 0.5.2",
+ "spin",
 ]
 
 [[package]]
@@ -2847,6 +2864,7 @@ dependencies = [
  "ahash",
  "axum 0.7.5",
  "chrono",
+ "common-alloc",
  "common-metrics",
  "envconfig",
  "futures",
@@ -3208,7 +3226,7 @@ dependencies = [
  "cfg-if",
  "getrandom",
  "libc",
- "spin 0.9.8",
+ "spin",
  "untrusted",
  "windows-sys 0.52.0",
 ]
@@ -3588,12 +3606,6 @@ dependencies = [
  "libc",
  "windows-sys 0.48.0",
 ]
-
-[[package]]
-name = "spin"
-version = "0.5.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e63cff320ae2c57904679ba7cb63280a3dc4613885beafb148ee7bf9aa9042d"
 
 [[package]]
 name = "spin"
@@ -3978,6 +3990,26 @@ checksum = "3fdd6f064ccff2d6567adcb3873ca630700f00b5ad3f060c25b5dcfd9a4ce152"
 dependencies = [
  "cfg-if",
  "once_cell",
+]
+
+[[package]]
+name = "tikv-jemalloc-sys"
+version = "0.6.0+5.3.0-1-ge13ca993e8ccb9ba9847cc330696e02839f328f7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cd3c60906412afa9c2b5b5a48ca6a5abe5736aec9eb48ad05037a677e52e4e2d"
+dependencies = [
+ "cc",
+ "libc",
+]
+
+[[package]]
+name = "tikv-jemallocator"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4cec5ff18518d81584f477e9bfdf957f5bb0979b0bac3af4ca30b5b3ae2d2865"
+dependencies = [
+ "libc",
+ "tikv-jemalloc-sys",
 ]
 
 [[package]]

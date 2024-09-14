@@ -300,7 +300,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
         },
         newExperiment: () => {
             // if (!values.buttonExperimentsVisible) {
-                actions.showButtonExperiments()
+            actions.showButtonExperiments()
             // }
             toolbarLogic.actions.setVisibleMenu('experiments')
         },

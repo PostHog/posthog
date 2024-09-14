@@ -349,7 +349,7 @@
 # name: TestFormula.test_breakdown_hogql
   '''
   
-  SELECT concat(ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, '$some_prop'), ''), 'null'), '^"|"$', '')), ''), ' : ', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'location'), ''), 'null'), '^"|"$', '')), '')) AS value,
+  SELECT concat(ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, '$some_prop'), ''), 'null'), '^"|"$', '')), ''), ' : ', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'location'), ''), 'null'), '^"|"$', '')), '')) AS value,
          sum(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) as count
   FROM events e
   INNER JOIN
@@ -379,7 +379,7 @@
 # name: TestFormula.test_breakdown_hogql.1
   '''
   
-  SELECT concat(ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, '$some_prop'), ''), 'null'), '^"|"$', '')), ''), ' : ', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'location'), ''), 'null'), '^"|"$', '')), '')) AS value,
+  SELECT concat(ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, '$some_prop'), ''), 'null'), '^"|"$', '')), ''), ' : ', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'location'), ''), 'null'), '^"|"$', '')), '')) AS value,
          avg(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) as count
   FROM events e
   INNER JOIN
@@ -439,7 +439,7 @@
                        day_start
               UNION ALL SELECT sum(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) as total,
                                toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                               transform(ifNull(nullIf(concat(ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, '$some_prop'), ''), 'null'), '^"|"$', '')), ''), ' : ', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'location'), ''), 'null'), '^"|"$', '')), '')), ''), '$$_posthog_breakdown_null_$$'), (['some_val : London', 'some_val : Paris']), (['some_val : London', 'some_val : Paris']), '$$_posthog_breakdown_other_$$') as breakdown_value
+                               transform(ifNull(nullIf(concat(ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, '$some_prop'), ''), 'null'), '^"|"$', '')), ''), ' : ', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'location'), ''), 'null'), '^"|"$', '')), '')), ''), '$$_posthog_breakdown_null_$$'), (['some_val : London', 'some_val : Paris']), (['some_val : London', 'some_val : Paris']), '$$_posthog_breakdown_other_$$') as breakdown_value
               FROM events e
               INNER JOIN
                 (SELECT distinct_id,
@@ -494,7 +494,7 @@
                        day_start
               UNION ALL SELECT avg(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) as total,
                                toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                               transform(ifNull(nullIf(concat(ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, '$some_prop'), ''), 'null'), '^"|"$', '')), ''), ' : ', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'location'), ''), 'null'), '^"|"$', '')), '')), ''), '$$_posthog_breakdown_null_$$'), (['some_val : London', 'some_val : Paris']), (['some_val : London', 'some_val : Paris']), '$$_posthog_breakdown_other_$$') as breakdown_value
+                               transform(ifNull(nullIf(concat(ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, '$some_prop'), ''), 'null'), '^"|"$', '')), ''), ' : ', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'location'), ''), 'null'), '^"|"$', '')), '')), ''), '$$_posthog_breakdown_null_$$'), (['some_val : London', 'some_val : Paris']), (['some_val : London', 'some_val : Paris']), '$$_posthog_breakdown_other_$$') as breakdown_value
               FROM events e
               INNER JOIN
                 (SELECT distinct_id,

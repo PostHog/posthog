@@ -122,7 +122,7 @@ def org_quota_limited_until(
     if organization.never_drop_data or trust_score == 15:
         return None
 
-    team_tokens = get_team_attribute_by_quota_resource(organization, resource)
+    team_tokens = get_team_attribute_by_quota_resource(organization)
     team_being_limited = any(x in previously_quota_limited_team_tokens for x in team_tokens)
 
     if team_being_limited:
@@ -134,7 +134,7 @@ def org_quota_limited_until(
 
     if posthoganalytics.feature_enabled(
         QUOTA_LIMIT_DATA_RETENTION_FLAG,
-        organization.id,
+        str(organization.id),
         groups={"organization": str(organization.id)},
         group_properties={"organization": {"id": str(organization.id)}},
     ):
@@ -237,7 +237,7 @@ def sync_org_quota_limits(organization: Organization):
         previously_quota_limited_team_tokens = list_limited_team_attributes(
             resource, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
         )
-        team_attributes = get_team_attribute_by_quota_resource(organization, resource)
+        team_attributes = get_team_attribute_by_quota_resource(organization)
         result = org_quota_limited_until(organization, resource, previously_quota_limited_team_tokens)
 
         if result:
@@ -264,24 +264,14 @@ def sync_org_quota_limits(organization: Organization):
             remove_limited_team_tokens(resource, team_attributes, QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY)
 
 
-def get_team_attribute_by_quota_resource(organization: Organization, resource: QuotaResource):
-    if resource in [QuotaResource.EVENTS, QuotaResource.RECORDINGS]:
-        team_tokens: list[str] = [x for x in list(organization.teams.values_list("api_token", flat=True)) if x]
+def get_team_attribute_by_quota_resource(organization: Organization):
+    team_tokens: list[str] = [x for x in list(organization.teams.values_list("api_token", flat=True)) if x]
 
-        if not team_tokens:
-            capture_exception(Exception(f"quota_limiting: No team tokens found for organization: {organization.id}"))
-            return
+    if not team_tokens:
+        capture_exception(Exception(f"quota_limiting: No team tokens found for organization: {organization.id}"))
+        return
 
-        return team_tokens
-
-    if resource == QuotaResource.ROWS_SYNCED:
-        team_ids: list[str] = [x for x in list(organization.teams.values_list("id", flat=True)) if x]
-
-        if not team_ids:
-            capture_exception(Exception(f"quota_limiting: No team ids found for organization: {organization.id}"))
-            return
-
-        return team_ids
+    return team_tokens
 
 
 def set_org_usage_summary(

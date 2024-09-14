@@ -2,12 +2,17 @@
 This module contains serializers that are used across other serializers for nested representations.
 """
 
-from typing import Optional
+import copy
+from typing import Any, Optional
 
 from rest_framework import serializers
 
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
+from posthog.models.project import Project
+from rest_framework.fields import SkipField
+from rest_framework.relations import PKOnlyObject
+from rest_framework.utils import model_meta
 
 
 class UserBasicSerializer(serializers.ModelSerializer):
@@ -34,6 +39,112 @@ class UserBasicSerializer(serializers.ModelSerializer):
                 "accessories": user.hedgehog_config.get("accessories"),
             }
         return None
+
+
+class ProjectBasicSerializer(serializers.ModelSerializer):
+    """
+    Serializer for `Project` model with minimal attributes to speeed up loading and transfer times.
+    Also used for nested serializers.
+    """
+
+    class Meta:
+        model = Project
+        fields = (
+            "id",
+            "uuid",  # Compat with TeamSerializer
+            "organization",
+            "api_token",  # Compat with TeamSerializer
+            "name",
+            "completed_snippet_onboarding",  # Compat with TeamSerializer
+            "has_completed_onboarding_for",  # Compat with TeamSerializer
+            "ingested_event",  # Compat with TeamSerializer
+            "is_demo",  # Compat with TeamSerializer
+            "timezone",  # Compat with TeamSerializer
+            "access_control",  # Compat with TeamSerializer
+        )
+        read_only_fields = fields
+        team_passthrough_fields = {
+            "uuid",
+            "api_token",
+            "completed_snippet_onboarding",
+            "has_completed_onboarding_for",
+            "ingested_event",
+            "is_demo",
+            "timezone",
+            "access_control",
+        }
+
+    def get_fields(self):
+        declared_fields = copy.deepcopy(self._declared_fields)
+
+        info = model_meta.get_field_info(Project)
+        team_info = model_meta.get_field_info(Team)
+        for field_name, field in team_info.fields.items():
+            if field_name in info.fields:
+                continue
+            info.fields[field_name] = field
+            info.fields_and_pk[field_name] = field
+        for field_name, relation in team_info.forward_relations.items():
+            if field_name in info.forward_relations:
+                continue
+            info.forward_relations[field_name] = relation
+            info.relations[field_name] = relation
+        for accessor_name, relation in team_info.reverse_relations.items():
+            if accessor_name in info.reverse_relations:
+                continue
+            info.reverse_relations[accessor_name] = relation
+            info.relations[accessor_name] = relation
+
+        field_names = self.get_field_names(declared_fields, info)
+
+        extra_kwargs = self.get_extra_kwargs()
+        extra_kwargs, hidden_fields = self.get_uniqueness_extra_kwargs(field_names, declared_fields, extra_kwargs)
+
+        fields = {}
+        for field_name in field_names:
+            if field_name in declared_fields:
+                fields[field_name] = declared_fields[field_name]
+                continue
+            extra_field_kwargs = extra_kwargs.get(field_name, {})
+            source = extra_field_kwargs.get("source", "*")
+            if source == "*":
+                source = field_name
+            field_class, field_kwargs = self.build_field(source, info, model_class=Project, nested_depth=0)
+            field_kwargs = self.include_extra_kwargs(field_kwargs, extra_field_kwargs)
+            fields[field_name] = field_class(**field_kwargs)
+        fields.update(hidden_fields)
+        return fields
+
+    def build_field(self, field_name, info, model_class, nested_depth):
+        if field_name in self.Meta.team_passthrough_fields:
+            model_class = Team
+        return super().build_field(field_name, info, model_class, nested_depth)
+
+    def to_representation(self, instance):
+        """
+        Object instance -> Dict of primitive datatypes. Basically copied from Serializer.to_representation
+        """
+        ret: dict[str, Any] = {}
+        fields = self._readable_fields
+
+        for field in fields:
+            assert field.field_name is not None
+            try:
+                attribute_source = instance
+                if field.field_name in self.Meta.team_passthrough_fields:
+                    # This branch is the only material change from the original method
+                    attribute_source = instance.passthrough_team
+                attribute = field.get_attribute(attribute_source)
+            except SkipField:
+                continue
+
+            check_for_none = attribute.pk if isinstance(attribute, PKOnlyObject) else attribute
+            if check_for_none is None:
+                ret[field.field_name] = None
+            else:
+                ret[field.field_name] = field.to_representation(attribute)
+
+        return ret
 
 
 class TeamBasicSerializer(serializers.ModelSerializer):

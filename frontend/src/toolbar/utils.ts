@@ -4,8 +4,10 @@ import { cssEscape } from 'lib/utils/cssEscape'
 import { querySelectorAllDeep } from 'query-selector-shadow-dom'
 import { CSSProperties } from 'react'
 
-import {ActionStepForm, ElementRect, ExperimentForm} from '~/toolbar/types'
+import { ActionStepForm, ElementRect } from '~/toolbar/types'
 import { ActionStepType } from '~/types'
+
+import { ActionStepPropertyKey } from './actions/ActionStep'
 
 export const TOOLBAR_ID = '__POSTHOG_TOOLBAR__'
 export const LOCALSTORAGE_KEY = '_postHogToolbarParams'
@@ -61,19 +63,6 @@ export function elementToQuery(element: HTMLElement, dataAttributes: string[]): 
 }
 
 export function elementToActionStep(element: HTMLElement, dataAttributes: string[]): ActionStepType {
-    const query = elementToQuery(element, dataAttributes)
-
-    return {
-        event: '$autocapture',
-        href: element.getAttribute('href') || '',
-        text: getSafeText(element) || '',
-        selector: query || '',
-        url: window.location.protocol + '//' + window.location.host + window.location.pathname,
-        url_matching: 'exact',
-    }
-}
-
-export function elementToExperimentStep(element: HTMLElement, dataAttributes: string[]): ActionStepType {
     const query = elementToQuery(element, dataAttributes)
 
     return {
@@ -278,11 +267,11 @@ export function getBoxColors(color: 'blue' | 'red' | 'green', hover = false, opa
     }
 }
 
-export function experimentStepToExperimentStepFormItem(step: ExperimentS): ExperimentForm {
-
-}
-
-export function actionStepToActionStepFormItem(step: ActionStepType, isNew = false): ActionStepForm {
+export function actionStepToActionStepFormItem(
+    step: ActionStepType,
+    isNew = false,
+    includedPropertyKeys?: ActionStepPropertyKey[]
+): ActionStepForm {
     if (!step) {
         return {}
     }
@@ -298,24 +287,24 @@ export function actionStepToActionStepFormItem(step: ActionStepType, isNew = fal
                 ...step,
                 href_selected: true,
                 selector_selected: hasSelector,
-                text_selected: false,
-                url_selected: false,
+                text_selected: includedPropertyKeys?.includes('text') || false,
+                url_selected: includedPropertyKeys?.includes('url') || false,
             }
         } else if (step.tag_name === 'button') {
             return {
                 ...step,
                 text_selected: true,
                 selector_selected: hasSelector,
-                href_selected: false,
-                url_selected: false,
+                href_selected: includedPropertyKeys?.includes('href') || false,
+                url_selected: includedPropertyKeys?.includes('url') || false,
             }
         }
         return {
             ...step,
             selector_selected: hasSelector,
-            text_selected: false,
-            url_selected: false,
-            href_selected: false,
+            text_selected: includedPropertyKeys?.includes('text') || false,
+            url_selected: includedPropertyKeys?.includes('url') || false,
+            href_selected: includedPropertyKeys?.includes('href') || false,
         }
     }
 

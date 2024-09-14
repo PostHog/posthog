@@ -20,6 +20,7 @@ asgiref==3.7.2
     # via
     #   -c requirements.txt
     #   django
+    #   django-stubs
 asttokens==2.4.1
     # via inline-snapshot
 async-timeout==4.0.2
@@ -37,7 +38,7 @@ black==23.9.1
     #   -r requirements-dev.in
     #   datamodel-code-generator
     #   inline-snapshot
-boto3-stubs[s3]==1.34.84
+boto3-stubs==1.34.84
     # via -r requirements-dev.in
 botocore-stubs==1.34.84
     # via boto3-stubs
@@ -62,7 +63,7 @@ click==8.1.7
     #   inline-snapshot
 colorama==0.4.4
     # via pytest-watch
-coverage[toml]==5.5
+coverage==5.5
     # via pytest-cov
 cryptography==39.0.2
     # via
@@ -76,7 +77,9 @@ django==4.2.15
     #   django-stubs
     #   django-stubs-ext
 django-stubs==5.0.4
-    # via djangorestframework-stubs
+    # via
+    #   -r requirements-dev.in
+    #   djangorestframework-stubs
 django-stubs-ext==5.0.4
     # via django-stubs
 djangorestframework-stubs==3.14.5
@@ -95,7 +98,7 @@ executing==2.0.1
     # via inline-snapshot
 faker==17.5.0
     # via -r requirements-dev.in
-fakeredis[lua]==2.23.3
+fakeredis==2.23.3
     # via -r requirements-dev.in
 flaky==3.7.0
     # via -r requirements-dev.in
@@ -120,7 +123,7 @@ inflect==5.6.2
     # via datamodel-code-generator
 iniconfig==1.1.1
     # via pytest
-inline-snapshot==0.10.2
+inline-snapshot==0.12.1
     # via -r requirements-dev.in
 isort==5.2.2
     # via datamodel-code-generator
@@ -154,6 +157,7 @@ multidict==6.0.2
     #   aiohttp
     #   yarl
 mypy==1.11.1
+    # via -r requirements-dev.in
 mypy-baseline==0.7.0
     # via -r requirements-dev.in
 mypy-boto3-s3==1.34.65
@@ -167,7 +171,7 @@ openapi-schema-validator==0.6.2
     # via openapi-spec-validator
 openapi-spec-validator==0.7.1
     # via -r requirements-dev.in
-packaging==23.1
+packaging==24.1
     # via
     #   -c requirements.txt
     #   -r requirements-dev.in
@@ -195,7 +199,7 @@ pycparser==2.20
     # via
     #   -c requirements.txt
     #   cffi
-pydantic[email]==2.5.3
+pydantic==2.5.3
     # via
     #   -c requirements.txt
     #   datamodel-code-generator
@@ -281,6 +285,7 @@ ruamel-yaml==0.18.6
 ruamel-yaml-clib==0.2.8
     # via ruamel-yaml
 ruff==0.6.1
+    # via -r requirements-dev.in
 six==1.16.0
     # via
     #   -c requirements.txt
@@ -317,7 +322,6 @@ types-python-dateutil==2.8.3
 types-pytz==2023.3.0.0
     # via
     #   -r requirements-dev.in
-    #   django-stubs
     #   types-tzlocal
 types-pyyaml==6.0.1
     # via
@@ -346,6 +350,7 @@ typing-extensions==4.12.2
     #   django-stubs
     #   django-stubs-ext
     #   djangorestframework-stubs
+    #   inline-snapshot
     #   mypy
     #   mypy-boto3-s3
     #   pydantic
