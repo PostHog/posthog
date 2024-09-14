@@ -743,7 +743,8 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         ],
                     })
 
-                    if (argument === 'web' || argument === 'mobile') {
+                    const words = argument.split(' ')
+                    if (words.includes('web') || words.includes('mobile')) {
                         const commandResult: CommandResultTemplate = {
                             icon: IconRewindPlay,
                             display: `Watch ${argument} recordings`,
