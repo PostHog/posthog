@@ -15,7 +15,7 @@ from .mailjet.template_mailjet import (
 )
 from .zapier.template_zapier import template as zapier
 from .mailgun.template_mailgun import template_mailgun_send_email as mailgun
-from .avo.template_avo import template as avo
+from .avo.template_avo import template as avo, TemplateAvoMigrator
 from .loops.template_loops import template as loops, TemplateLoopsMigrator
 from .rudderstack.template_rudderstack import template as rudderstack, TemplateRudderstackMigrator
 from .gleap.template_gleap import template as gleap
@@ -69,6 +69,7 @@ HOG_FUNCTION_MIGRATORS = {
     TemplateHubspotMigrator.plugin_url: TemplateHubspotMigrator,
     TemplateRudderstackMigrator.plugin_url: TemplateRudderstackMigrator,
     TemplateLoopsMigrator.plugin_url: TemplateLoopsMigrator,
+    TemplateAvoMigrator.plugin_url: TemplateAvoMigrator,
 }
 
 __all__ = ["HOG_FUNCTION_TEMPLATES", "HOG_FUNCTION_TEMPLATES_BY_ID"]

@@ -831,6 +831,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         _create_person(team_id=self.team.pk, distinct_ids=["person2"])
         _create_person(team_id=self.team.pk, distinct_ids=["person3"])
         _create_person(team_id=self.team.pk, distinct_ids=["person4"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person5"])
 
         _create_events(
             self.team,
@@ -862,7 +863,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(
             pluck(result, "values", "count"),
-            [[2, 1, 1, 0, 0], [1, 1, 0, 0], [3, 2, 0], [2, 0], [0]],
+            [[2, 1, 1, 0, 0], [1, 1, 0, 0], [3, 2, 0], [3, 0], [0]],
         )
 
     def test_all_events(self):

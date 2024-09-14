@@ -944,6 +944,16 @@ export enum SessionRecordingUsageType {
     LOADED = 'loaded',
 }
 
+export enum SessionRecordingSidebarTab {
+    INSPECTOR = 'inspector',
+    DEBUGGER = 'debugger',
+}
+
+export enum SessionRecordingSidebarStacking {
+    Vertical = 'vertical',
+    Horizontal = 'horizontal',
+}
+
 export enum SessionRecordingPlayerTab {
     ALL = 'all',
     EVENTS = 'events',
@@ -2157,6 +2167,7 @@ export interface TemplateVariableStep {
     href?: string | null
     url?: string | null
     properties?: Record<string, any>[]
+    custom_name?: string
 }
 
 export interface PropertiesTimelineFilterType {
