@@ -749,29 +749,27 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
 
                     const words = argument.split(' ')
                     if (words.includes('web') || words.includes('mobile')) {
-                        const commandResult: CommandResultTemplate = {
+                        return {
                             icon: IconRewindPlay,
                             display: `Watch ${argument} recordings`,
                             executor: () => {
                                 push(urls.replay(ReplayTabs.Home, replayFilter('snapshot_source', argument)))
                             },
                         }
-                        return commandResult
                     }
 
-                    if (isURLLike(argument)) {
-                        const commandResult: CommandResultTemplate = {
+                    const url = words.find((word) => isURLLike(word))
+                    if (url) {
+                        return {
                             icon: IconRewindPlay,
-                            display: `Watch recordings of visits to ${argument}`,
+                            display: `Watch recordings of visits to ${url}`,
                             executor: () => {
-                                push(urls.replay(ReplayTabs.Home, replayFilter('visited_page', argument)))
+                                push(urls.replay(ReplayTabs.Home, replayFilter('visited_page', url)))
                             },
                         }
-                        return commandResult
                     }
 
                     const uuid = words.find((word) => isUUIDLike(word))
-
                     if (uuid) {
                         return {
                             icon: IconRewindPlay,
