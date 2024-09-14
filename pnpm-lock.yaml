@@ -269,8 +269,8 @@ dependencies:
     specifier: ^9.3.0
     version: 9.3.0(postcss@8.4.31)
   posthog-js:
-    specifier: 1.161.3
-    version: 1.161.3
+    specifier: file:.yalc/posthog-js
+    version: file:.yalc/posthog-js
   posthog-js-lite:
     specifier: 3.0.0
     version: 3.0.0
@@ -17674,14 +17674,6 @@ packages:
     resolution: {integrity: sha512-dyajjnfzZD1tht4N7p7iwf7nBnR1MjVaVu+MKr+7gBgA39bn28wizCIJZztZPtHy4PY0YwtSGgwfBCuG/hnHgA==}
     dev: false
 
-  /posthog-js@1.161.3:
-    resolution: {integrity: sha512-TQ77jtLemkUJUyJAPrwGay6tLqcAmXEM1IJgXOx5Tr4UohiTx8JTznzrCuh/SdwPIrbcSM1r2YPwb72XwTC3wg==}
-    dependencies:
-      fflate: 0.4.8
-      preact: 10.23.2
-      web-vitals: 4.2.3
-    dev: false
-
   /potpack@2.0.0:
     resolution: {integrity: sha512-Q+/tYsFU9r7xoOJ+y/ZTtdVQwTWfzjbiXBDMM/JKUux3+QPP02iUuIoeBQ+Ot6oEDlC+/PGjB/5A3K7KKb7hcw==}
     dev: false
@@ -21623,4 +21615,13 @@ packages:
 
   /zxcvbn@4.4.2:
     resolution: {integrity: sha512-Bq0B+ixT/DMyG8kgX2xWcI5jUvCwqrMxSFam7m0lAf78nf04hv6lNCsyLYdyYTrCVMqNDY/206K7eExYCeSyUQ==}
+    dev: false
+
+  file:.yalc/posthog-js:
+    resolution: {directory: .yalc/posthog-js, type: directory}
+    name: posthog-js
+    dependencies:
+      fflate: 0.4.8
+      preact: 10.23.2
+      web-vitals: 4.2.3
     dev: false

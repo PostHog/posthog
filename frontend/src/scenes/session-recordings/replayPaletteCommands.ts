@@ -101,7 +101,7 @@ export const watchRecordingsOfCommand = (
                 icon: IconRewindPlay,
                 display: `Watch recording of session: ${uuid}`,
                 executor: () => {
-                    push(urls.replay(ReplayTabs.Home, undefined, uuid))
+                    push(urls.replaySingle(uuid))
                 },
             }
         }
