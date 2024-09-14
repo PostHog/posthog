@@ -56,6 +56,7 @@ import posthog from 'posthog-js'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { insightTypeURL } from 'scenes/insights/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { WATCH_RECORDINGS_OF_KEY, watchRecordingsOfCommand } from 'scenes/session-recordings/replayPaletteCommands'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -63,15 +64,7 @@ import { userLogic } from 'scenes/userLogic'
 import { SIDE_PANEL_TABS } from '~/layout/navigation-3000/sidepanel/SidePanel'
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import {
-    FilterLogicalOperator,
-    InsightType,
-    PropertyFilterType,
-    PropertyOperator,
-    RecordingDurationFilter,
-    RecordingUniversalFilters,
-    ReplayTabs,
-} from '~/types'
+import { InsightType } from '~/types'
 
 import { commandBarLogic } from '../CommandBar/commandBarLogic'
 import { BarStatus } from '../CommandBar/types'
@@ -127,7 +120,7 @@ export type RegExpCommandPairs = [RegExp | null, Command][]
 
 const RESULTS_MAX = 5
 
-const GLOBAL_COMMAND_SCOPE = 'global'
+export const GLOBAL_COMMAND_SCOPE = 'global'
 
 function resolveCommand(source: Command | CommandFlow, argument?: string, prefixApplied?: string): CommandResult[] {
     // run resolver or use ready-made results
@@ -142,22 +135,6 @@ function resolveCommand(source: Command | CommandFlow, argument?: string, prefix
         return { ...result, source }
     })
     return resultsWithCommand
-}
-
-function isURLLike(candidate: string | undefined): boolean {
-    if (!candidate?.trim().length) {
-        return false
-    }
-    try {
-        new URL(candidate)
-        return true
-    } catch {
-        return false
-    }
-}
-
-function isUUIDLike(candidate: string): boolean {
-    return candidate.length === 36 && !!candidate.toLowerCase().match(/^[0-9a-f-]+$/)?.length
 }
 
 export const commandPaletteLogic = kea<commandPaletteLogicType>([
@@ -708,82 +685,6 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                 },
             }
 
-            const watchRecordingsOf: Command = {
-                key: 'watch-recordings-of',
-                scope: GLOBAL_COMMAND_SCOPE,
-                resolver: (argument: string | undefined) => {
-                    if (argument === undefined) {
-                        return null
-                    }
-
-                    const replayFilter = (
-                        key: 'snapshot_source' | 'visited_page',
-                        value: string
-                    ): Partial<RecordingUniversalFilters> => ({
-                        date_from: '-3d',
-                        filter_group: {
-                            type: FilterLogicalOperator.And,
-                            values: [
-                                {
-                                    type: FilterLogicalOperator.And,
-                                    values: [
-                                        {
-                                            key: key,
-                                            value: [value],
-                                            operator: PropertyOperator.Exact,
-                                            type: PropertyFilterType.Recording,
-                                        },
-                                    ],
-                                },
-                            ],
-                        },
-                        duration: [
-                            {
-                                type: PropertyFilterType.Recording,
-                                key: 'duration',
-                                value: 1,
-                                operator: 'gt',
-                            } as RecordingDurationFilter,
-                        ],
-                    })
-
-                    const words = argument.split(' ')
-                    if (words.includes('web') || words.includes('mobile')) {
-                        return {
-                            icon: IconRewindPlay,
-                            display: `Watch ${argument} recordings`,
-                            executor: () => {
-                                push(urls.replay(ReplayTabs.Home, replayFilter('snapshot_source', argument)))
-                            },
-                        }
-                    }
-
-                    const url = words.find((word) => isURLLike(word))
-                    if (url) {
-                        return {
-                            icon: IconRewindPlay,
-                            display: `Watch recordings of visits to ${url}`,
-                            executor: () => {
-                                push(urls.replay(ReplayTabs.Home, replayFilter('visited_page', url)))
-                            },
-                        }
-                    }
-
-                    const uuid = words.find((word) => isUUIDLike(word))
-                    if (uuid) {
-                        return {
-                            icon: IconRewindPlay,
-                            display: `Watch recording of session: ${uuid}`,
-                            executor: () => {
-                                push(urls.replay(ReplayTabs.Home, undefined, uuid))
-                            },
-                        }
-                    }
-
-                    return null
-                },
-            }
-
             const calculator: Command = {
                 key: 'calculator',
                 scope: GLOBAL_COMMAND_SCOPE,
@@ -1031,7 +932,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
             actions.registerCommand(toggleHedgehogMode)
             actions.registerCommand(shortcuts)
             actions.registerCommand(sidepanel)
-            actions.registerCommand(watchRecordingsOf)
+            actions.registerCommand(watchRecordingsOfCommand(push))
         },
         beforeUnmount: () => {
             actions.deregisterCommand('go-to')
@@ -1046,7 +947,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
             actions.deregisterCommand('toggle-hedgehog-mode')
             actions.deregisterCommand('shortcuts')
             actions.deregisterCommand('sidepanel')
-            actions.deregisterCommand('watch-recordings-of')
+            actions.deregisterCommand(WATCH_RECORDINGS_OF_KEY)
         },
     })),
 ])
