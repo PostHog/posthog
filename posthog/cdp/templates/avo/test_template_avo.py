@@ -153,15 +153,17 @@ class TestTemplateMigration(BaseTest):
         return PluginConfig(enabled=True, order=0, config=_config)
 
     def test_default_config(self):
-        obj = self.get_plugin_config({})
+        obj = self.get_plugin_config(
+            {"excludeProperties": "price, currency", "includeProperties": "account_status, plan"}
+        )
         template = TemplateAvoMigrator.migrate(obj)
         assert template["inputs"] == snapshot(
             {
                 "apiKey": {"value": "1234567890"},
                 "environment": {"value": "dev"},
                 "appName": {"value": "PostHog"},
-                "excludeProperties": {"value": ""},
-                "includeProperties": {"value": ""},
+                "excludeProperties": {"value": "price, currency"},
+                "includeProperties": {"value": "account_status, plan"},
             }
         )
         assert template["filters"] == {"events": []}
@@ -206,5 +208,26 @@ class TestTemplateMigration(BaseTest):
                     "order": 0,
                     "properties": [{"key": "event not in ('sign up', 'page view')", "type": "hogql"}],
                 },
+            ]
+        }
+
+    def test_include_and_exclude_events(self):
+        obj = self.get_plugin_config(
+            {"excludeEvents": "page view, log in,page leave", "includeEvents": "sign up,page view"}
+        )
+        template = TemplateAvoMigrator.migrate(obj)
+        assert template["inputs"] == snapshot(
+            {
+                "apiKey": {"value": "1234567890"},
+                "environment": {"value": "dev"},
+                "appName": {"value": "PostHog"},
+                "excludeProperties": {"value": ""},
+                "includeProperties": {"value": ""},
+            }
+        )
+        assert template["filters"] == {
+            "events": [
+                {"id": "sign up", "name": "sign up", "type": "events", "order": 0},
+                {"id": "page view", "name": "page view", "type": "events", "order": 0},
             ]
         }
