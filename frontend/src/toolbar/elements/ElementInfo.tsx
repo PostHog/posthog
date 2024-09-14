@@ -93,10 +93,26 @@ export function ElementInfo(): JSX.Element | null {
                         )}
                     </>
                 )}
-
-                <LemonButton size="small" type="secondary" onClick={() => createAction(element)} icon={<IconPlus />}>
-                    {automaticActionCreationEnabled ? 'Select element' : 'Create a new action'}
-                </LemonButton>
+                {automaticActionCreationEnabled ? (
+                    <LemonButton
+                        size="small"
+                        type="primary"
+                        status="alt"
+                        onClick={() => createAction(element)}
+                        icon={<IconPlus />}
+                    >
+                        Select element
+                    </LemonButton>
+                ) : (
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        onClick={() => createAction(element)}
+                        icon={<IconPlus />}
+                    >
+                        Create a new action
+                    </LemonButton>
+                )}
             </div>
         </>
     )
