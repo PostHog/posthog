@@ -1,5 +1,6 @@
 import { IconRewindPlay } from '@posthog/icons'
 import { Command, GLOBAL_COMMAND_SCOPE } from 'lib/components/CommandPalette/commandPaletteLogic'
+import { isURL } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import {
@@ -10,18 +11,6 @@ import {
     RecordingUniversalFilters,
     ReplayTabs,
 } from '~/types'
-
-function isURLLike(candidate: string | undefined): boolean {
-    if (!candidate?.trim().length) {
-        return false
-    }
-    try {
-        new URL(candidate)
-        return true
-    } catch {
-        return false
-    }
-}
 
 function isUUIDLike(candidate: string): boolean {
     return candidate.length === 36 && !!candidate.toLowerCase().match(/^[0-9a-f-]+$/)?.length
@@ -84,7 +73,7 @@ export const watchRecordingsOfCommand = (
             }
         }
 
-        const url = words.find((word) => isURLLike(word))
+        const url = words.find((word) => isURL(word))
         if (url) {
             return {
                 icon: IconRewindPlay,
