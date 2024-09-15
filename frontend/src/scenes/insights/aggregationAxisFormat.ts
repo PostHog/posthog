@@ -1,5 +1,5 @@
 import { LemonSelectOptionLeaf } from 'lib/lemon-ui/LemonSelect'
-import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
+import { DEFAULT_DECIMAL_PLACES, humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
 
 import { TrendsFilter } from '~/queries/schema'
 import { ChartDisplayType, TrendsFilterType } from '~/types'
@@ -23,7 +23,9 @@ export const formatAggregationAxisValue = (
 ): string => {
     value = Number(value)
     const decimalPlaces =
-        (trendsFilter as TrendsFilter)?.decimalPlaces ?? (trendsFilter as Partial<TrendsFilterType>)?.decimal_places
+        (trendsFilter as TrendsFilter)?.decimalPlaces ??
+        (trendsFilter as Partial<TrendsFilterType>)?.decimal_places ??
+        DEFAULT_DECIMAL_PLACES
     const aggregationAxisFormat =
         (trendsFilter as TrendsFilter)?.aggregationAxisFormat ??
         (trendsFilter as Partial<TrendsFilterType>)?.aggregation_axis_format
