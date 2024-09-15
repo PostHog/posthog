@@ -500,34 +500,45 @@ describe('lib/utils', () => {
         })
     })
     describe('humanFriendlyDuration()', () => {
-        it('returns correct value for <= 60', () => {
-            expect(humanFriendlyDuration(60)).toEqual('1m')
-            expect(humanFriendlyDuration(45)).toEqual('45s')
-            expect(humanFriendlyDuration(44.8)).toEqual('45s')
-            expect(humanFriendlyDuration(45.2)).toEqual('45s')
-        })
-        it('returns correct value for 60 < t < 120', () => {
-            expect(humanFriendlyDuration(90)).toEqual('1m 30s')
-        })
-        it('returns correct value for t > 120', () => {
-            expect(humanFriendlyDuration(360)).toEqual('6m')
-        })
-        it('returns correct value for t >= 3600', () => {
-            expect(humanFriendlyDuration(3600)).toEqual('1h')
-            expect(humanFriendlyDuration(3601)).toEqual('1h 1s')
-            expect(humanFriendlyDuration(3961)).toEqual('1h 6m 1s')
-            expect(humanFriendlyDuration(3961.333)).toEqual('1h 6m 1s')
-            expect(humanFriendlyDuration(3961.666)).toEqual('1h 6m 2s')
-        })
-        it('returns correct value for t >= 86400', () => {
-            expect(humanFriendlyDuration(86400)).toEqual('1d')
-            expect(humanFriendlyDuration(86400.12)).toEqual('1d')
-        })
-        it('truncates to specified # of units', () => {
-            expect(humanFriendlyDuration(3961, 2)).toEqual('1h 6m')
-            expect(humanFriendlyDuration(30, 2)).toEqual('30s') // no change
-            expect(humanFriendlyDuration(30, 0)).toEqual('') // returns no units (useless)
-        })
+        it.each([
+            [10, '10s', undefined, undefined],
+            [9.5, '10s', undefined, undefined],
+            [4, '4s', undefined, undefined],
+            [3.5, '4s', undefined, undefined],
+            [3.5, '3.5s', undefined, 1],
+            [0.4, '0s', undefined, undefined],
+            [0.4, '0.4s', undefined, 1],
+            [0.4, '0.4s', undefined, 2],
+            [0.15, '0s', undefined, undefined],
+            [0.15, '0.2s', undefined, 1],
+            [0.15, '0.15s', undefined, 2],
+            [0.01, '0s', undefined, undefined],
+            [0.01, '0s', undefined, 1],
+            [0.01, '0.01s', undefined, 2],
+            [60, '1m', undefined, undefined],
+            [45, '45s', undefined, undefined],
+            [44.8, '45s', undefined, undefined],
+            [45.2, '45s', undefined, undefined],
+            [90, '1m 30s', undefined, undefined],
+            [360, '6m', undefined, undefined],
+            [360.1, '6m 0.1s', undefined, 2],
+            [3601, '1h 1s', undefined, undefined],
+            [3961, '1h 6m 1s', undefined, undefined],
+            [3961.333, '1h 6m 1s', undefined, undefined],
+            [3961.666, '1h 6m 2s', undefined, undefined],
+            [86400, '1d', undefined, undefined],
+            [86400.12, '1d', undefined, undefined],
+            [3961, '1h 6m', 2, undefined],
+            [3963.5, '1h 6m 3.5s', undefined, 2],
+            [30, '30s', 2, undefined],
+            [30, '30s', 1, undefined],
+            [30, '', 0, undefined],
+        ])(
+            `when duration is %s correctly returns "%s"`,
+            (input: number, expected: string, maxUnits: number | undefined, decimalPlaces: number | undefined) => {
+                expect(humanFriendlyDuration(input, maxUnits, decimalPlaces)).toEqual(expected)
+            }
+        )
         it('returns an empty string for nullish inputs', () => {
             expect(humanFriendlyDuration('', 2)).toEqual('')
             expect(humanFriendlyDuration(null, 2)).toEqual('')

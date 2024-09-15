@@ -37,16 +37,16 @@ export const formatAggregationAxisValue = (
     if (aggregationAxisFormat) {
         switch (aggregationAxisFormat) {
             case 'duration':
-                formattedValue = humanFriendlyDuration(value)
+                formattedValue = humanFriendlyDuration(value, undefined, decimalPlaces)
                 break
             case 'duration_ms':
-                formattedValue = humanFriendlyDuration(value / 1000)
+                formattedValue = humanFriendlyDuration(value / 1000, undefined, decimalPlaces)
                 break
             case 'percentage':
-                formattedValue = percentage(value / 100)
+                formattedValue = percentage(value / 100, decimalPlaces, !!decimalPlaces)
                 break
             case 'percentage_scaled':
-                formattedValue = percentage(value)
+                formattedValue = percentage(value, decimalPlaces, !!decimalPlaces)
                 break
             case 'numeric': // numeric is default
             default:

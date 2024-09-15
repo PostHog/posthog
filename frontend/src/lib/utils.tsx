@@ -313,6 +313,7 @@ export function objectClean<T extends Record<string | number | symbol, unknown>>
     })
     return response
 }
+
 export function objectCleanWithEmpty<T extends Record<string | number | symbol, unknown>>(
     obj: T,
     ignoredKeys: string[] = []
@@ -463,17 +464,38 @@ export const humanFriendlyMilliseconds = (timestamp: number | undefined): string
 
     return `${(timestamp / 1000).toFixed(2)}s`
 }
-export function humanFriendlyDuration(d: string | number | null | undefined, maxUnits?: number): string {
+
+function customRound(value: number, decimalPlaces: number | undefined): number {
+    const factor = Math.pow(10, decimalPlaces ?? 0)
+    return Math.round(value * factor) / factor
+}
+
+/**
+ * Converts a number of seconds to a human-readable duration string.
+ * constructs days, hours, minutes, seconds
+ * returns either the number of days and hours (when over 1 day)
+ * or the number of hours, minutes, and seconds (when under 1 day)
+ *
+ * @param d the number of seconds to convert
+ * @param maxUnits the maximum number of units to display (from the left) (e.g. 2 would display only hours and minutes)
+ * @param decimalPlaces is applied to the right most value this is most useful when dealing with small number of seconds e.g. to distinguish 1.2 and 1.4 seconds instead of showing 1s for both
+ */
+export function humanFriendlyDuration(
+    d: string | number | null | undefined,
+    maxUnits?: number,
+    decimalPlaces?: number
+): string {
     // Convert `d` (seconds) to a human-readable duration string.
     // Example: `1d 10hrs 9mins 8s`
     if (d === '' || d === null || d === undefined) {
         return ''
     }
     d = Number(d)
-    const days = Math.floor(d / 86400)
-    const h = Math.floor((d % 86400) / 3600)
-    const m = Math.floor((d % 3600) / 60)
-    const s = Math.round((d % 3600) % 60)
+    const days = parseFloat(Math.floor(d / 86400).toFixed(decimalPlaces))
+    const h = parseFloat(Math.floor((d % 86400) / 3600).toFixed(decimalPlaces))
+    const m = parseFloat(Math.floor((d % 3600) / 60).toFixed(decimalPlaces))
+
+    const s = customRound((d % 3600) % 60, decimalPlaces)
 
     const dayDisplay = days > 0 ? days + 'd' : ''
     const hDisplay = h > 0 ? h + 'h' : ''
@@ -1108,6 +1130,7 @@ export function is12HoursOrLess(dateFrom: string | undefined | null): boolean {
     }
     return dateFrom.search(/^-([0-9]|1[0-2])h$/) != -1
 }
+
 export function isLessThan2Days(dateFrom: string | undefined | null): boolean {
     if (!dateFrom) {
         return false
