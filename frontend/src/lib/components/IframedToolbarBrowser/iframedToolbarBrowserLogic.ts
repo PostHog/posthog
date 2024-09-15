@@ -31,6 +31,8 @@ export const UserIntentVerb: {
     heatmaps: 'view the heatmap',
     'add-action': 'add actions',
     'edit-action': 'edit the action',
+    'add-experiment': 'add web experiment',
+    'edit-experiment': 'edit the experiment',
 }
 
 export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
