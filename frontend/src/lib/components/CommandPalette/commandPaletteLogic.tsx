@@ -56,6 +56,7 @@ import posthog from 'posthog-js'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { insightTypeURL } from 'scenes/insights/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { WATCH_RECORDINGS_OF_KEY, watchRecordingsOfCommand } from 'scenes/session-recordings/replayPaletteCommands'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -119,7 +120,7 @@ export type RegExpCommandPairs = [RegExp | null, Command][]
 
 const RESULTS_MAX = 5
 
-const GLOBAL_COMMAND_SCOPE = 'global'
+export const GLOBAL_COMMAND_SCOPE = 'global'
 
 function resolveCommand(source: Command | CommandFlow, argument?: string, prefixApplied?: string): CommandResult[] {
     // run resolver or use ready-made results
@@ -931,6 +932,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
             actions.registerCommand(toggleHedgehogMode)
             actions.registerCommand(shortcuts)
             actions.registerCommand(sidepanel)
+            actions.registerCommand(watchRecordingsOfCommand(push))
         },
         beforeUnmount: () => {
             actions.deregisterCommand('go-to')
@@ -945,6 +947,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
             actions.deregisterCommand('toggle-hedgehog-mode')
             actions.deregisterCommand('shortcuts')
             actions.deregisterCommand('sidepanel')
+            actions.deregisterCommand(WATCH_RECORDINGS_OF_KEY)
         },
     })),
 ])
