@@ -3,6 +3,7 @@ from typing import Any, Optional
 from unittest.mock import ANY, patch
 
 from django.db import connection
+from freezegun import freeze_time
 from inline_snapshot import snapshot
 from rest_framework import status
 
@@ -272,8 +273,10 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "secret": True,
             }
         }
-        # Check not returned
-        res = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data={**payload})
+        # Fernet encryption is deterministic, but has a temporal component and utilizes os.urandom() for the IV
+        with freeze_time("2024-01-01T00:01:00Z"):
+            with patch("os.urandom", return_value=b"\x00" * 16):
+                res = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data={**payload})
         assert res.status_code == status.HTTP_201_CREATED, res.json()
         assert res.json()["inputs"] == expectation
         res = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{res.json()['id']}")
@@ -295,9 +298,10 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         }
 
         raw_encrypted_inputs = get_db_field_value("encrypted_inputs", obj.id)
+
         assert (
             raw_encrypted_inputs
-            == "gAAAAABm5_wtAD5RAZfHP8C4penjaFre66N4up_TsFkmpTySdKU2wxQd1GQe6D1nWOcrKKPV4IN9_tBPF7tZjGhmqxzd4zCq53LWqIi00hJdT1oyyO3MxWUw9uznulg5UiT88kMRG90cRmgtgfIqiNO5s0qry9j9ZgAJgkHOlEXRxaQgyb-HslY="
+            == "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAAEx9NjkHozEIpr88sZFSwgVZWWVGhTZXkr6Y7uw_UwUEapVuRFgmPIfijCG6lAzNk_Z33D8eoBLEMubWVOsi-ZqUiOZVzZP-S16Bhvdr_stga8vfTR1oA0_WRVM8gh0Dh4LSDn5J6hpEGSDCyfBDK68="
         )
 
     def test_secret_inputs_not_updated_if_not_changed(self, *args):
