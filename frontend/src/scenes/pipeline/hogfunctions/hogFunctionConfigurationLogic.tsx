@@ -81,7 +81,6 @@ export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFu
             } catch (e) {
                 // Ignore
             }
-            return
         }
 
         sanitizedInputs[input.key] = {
