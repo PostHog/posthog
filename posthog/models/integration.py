@@ -53,7 +53,7 @@ class Integration(models.Model):
     integration_id = models.TextField(null=True, blank=True)
     # Any config that COULD be passed to the frontend
     config = models.JSONField(default=dict)
-    # Any sensitive config that SHOULD NOT be passed to the frontend
+
     sensitive_config = models.JSONField(default=dict)
 
     errors = models.TextField()

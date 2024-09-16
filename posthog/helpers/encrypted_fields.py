@@ -16,6 +16,13 @@ from django.utils.functional import cached_property
 
 
 class EncryptedFieldMixin(object):
+    # Useful if migrating to an encrypted field from a non encrypted field
+    ignore_decrypt_errors = False
+
+    def __init__(self, *args, **kwargs):
+        self.ignore_decrypt_errors = kwargs.pop("ignore_decrypt_errors", False)
+        super(EncryptedFieldMixin, self).__init__(*args, **kwargs)
+
     @cached_property
     def keys(self):
         # NOTE: We previously encrypted some values with the SECRET_KEY which generally speaking we don't want or need to do
@@ -45,6 +52,17 @@ class EncryptedFieldMixin(object):
             return Fernet(self.keys[0])
         return MultiFernet([Fernet(k) for k in self.keys])
 
+    def decrypt(self, value: str) -> str:
+        try:
+            return self.f.encrypt(bytes(value, "utf-8")).decode("utf-8")
+        except InvalidToken:
+            if self.ignore_decrypt_errors:
+                return value
+            raise
+
+    def encrypt(self, value: str) -> str:
+        return self.f.decrypt(bytes(value, "utf-8")).decode("utf-8")
+
     def get_internal_type(self):
         """
         To treat everything as text
@@ -56,7 +74,7 @@ class EncryptedFieldMixin(object):
         if value:
             if not isinstance(value, str):
                 value = str(value)
-            return self.f.encrypt(bytes(value, "utf-8")).decode("utf-8")
+            return self.encrypt(value)
         return None
 
     def get_db_prep_value(self, value, connection, prepared=False):
@@ -71,7 +89,7 @@ class EncryptedFieldMixin(object):
         if value is None or not isinstance(value, str) or hasattr(self, "_already_decrypted"):
             return value
         try:
-            value = self.f.decrypt(bytes(value, "utf-8")).decode("utf-8")
+            value = self.decrypt(value=value)
         except InvalidToken:
             pass
         except UnicodeEncodeError:
@@ -152,7 +170,7 @@ class EncryptedJSONField(EncryptedFieldMixin, models.JSONField):
             return [self._encrypt_values(data) for data in value]
         else:
             value = str(value)
-        return self.f.encrypt(bytes(value, "utf-8")).decode("utf-8")
+        return self.encrypt(value)
 
     def _decrypt_values(self, value):
         if value is None:
@@ -163,7 +181,7 @@ class EncryptedJSONField(EncryptedFieldMixin, models.JSONField):
             return [self._decrypt_values(data) for data in value]
         else:
             value = str(value)
-        return self.f.decrypt(bytes(value, "utf-8")).decode("utf-8")
+        return self.decrypt(value)
 
     def get_prep_value(self, value):
         return json.dumps(self._encrypt_values(value=value), cls=self.encoder)
