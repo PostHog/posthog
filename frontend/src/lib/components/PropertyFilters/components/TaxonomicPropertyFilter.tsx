@@ -64,10 +64,7 @@ export function TaxonomicPropertyFilter({
         item
     ) => {
         selectItem(taxonomicGroup, value, item?.propertyFilterType)
-        if (
-            taxonomicGroup.type === TaxonomicFilterGroupType.Cohorts ||
-            taxonomicGroup.type === TaxonomicFilterGroupType.HogQLExpression
-        ) {
+        if (taxonomicGroup.type === TaxonomicFilterGroupType.HogQLExpression) {
             onComplete?.()
         }
     }
@@ -87,14 +84,9 @@ export function TaxonomicPropertyFilter({
     const valuePresent = filter?.type === 'cohort' || !!filter?.key
     const showInitialSearchInline =
         !disablePopover &&
-        ((!filter?.type && (!filter || !(filter as any)?.key)) ||
-            filter?.type === PropertyFilterType.Cohort ||
-            filter?.type === PropertyFilterType.HogQL)
-    const showOperatorValueSelect =
-        filter?.type &&
-        filter?.key &&
-        filter?.type !== PropertyFilterType.Cohort &&
-        filter?.type !== PropertyFilterType.HogQL
+        ((!filter?.type && (!filter || !(filter as any)?.key)) || filter?.type === PropertyFilterType.HogQL)
+    const showOperatorValueSelect = filter?.type && filter?.key && filter?.type !== PropertyFilterType.HogQL
+    const placeOperatorValueSelectOnLeft = filter?.type && filter?.key && filter?.type === PropertyFilterType.Cohort
 
     const { propertyDefinitionsByType } = useValues(propertyDefinitionsModel)
 
@@ -114,6 +106,37 @@ export function TaxonomicPropertyFilter({
             schemaColumns={schemaColumns}
             propertyAllowList={propertyAllowList}
             optionsFromProp={taxonomicFilterOptionsFromProp}
+        />
+    )
+
+    const operatorValueSelect = (
+        <OperatorValueSelect
+            propertyDefinitions={propertyDefinitionsByType(
+                filter?.type || PropertyDefinitionType.Event,
+                isGroupPropertyFilter(filter) ? filter?.group_type_index : undefined
+            )}
+            type={filter?.type}
+            propertyKey={filter?.key}
+            operator={isPropertyFilterWithOperator(filter) ? filter.operator : null}
+            value={filter?.value}
+            placeholder="Enter value..."
+            endpoint={filter?.key && activeTaxonomicGroup?.valuesEndpoint?.(filter.key)}
+            eventNames={eventNames}
+            addRelativeDateTimeOptions={allowRelativeDateOptions}
+            onChange={(newOperator, newValue) => {
+                if (filter?.key && filter?.type) {
+                    setFilter(index, {
+                        key: filter?.key,
+                        value: newValue || null,
+                        operator: newOperator,
+                        type: filter?.type,
+                        ...(isGroupPropertyFilter(filter) ? { group_type_index: filter.group_type_index } : {}),
+                    } as AnyPropertyFilter)
+                }
+                if (newOperator && newValue && !isOperatorMulti(newOperator) && !isOperatorRegex(newOperator)) {
+                    onComplete()
+                }
+            }}
         />
     )
 
@@ -157,6 +180,7 @@ export function TaxonomicPropertyFilter({
                         </div>
                     )}
                     <div className="TaxonomicPropertyFilter__row-items">
+                        {showOperatorValueSelect && placeOperatorValueSelectOnLeft && operatorValueSelect}
                         <LemonDropdown
                             overlay={taxonomicFilter}
                             placement="bottom-start"
@@ -184,43 +208,7 @@ export function TaxonomicPropertyFilter({
                                 )}
                             </LemonButton>
                         </LemonDropdown>
-                        {showOperatorValueSelect && (
-                            <OperatorValueSelect
-                                propertyDefinitions={propertyDefinitionsByType(
-                                    filter?.type || PropertyDefinitionType.Event,
-                                    isGroupPropertyFilter(filter) ? filter?.group_type_index : undefined
-                                )}
-                                type={filter?.type}
-                                propertyKey={filter?.key}
-                                operator={isPropertyFilterWithOperator(filter) ? filter.operator : null}
-                                value={filter?.value}
-                                placeholder="Enter value..."
-                                endpoint={filter?.key && activeTaxonomicGroup?.valuesEndpoint?.(filter.key)}
-                                eventNames={eventNames}
-                                addRelativeDateTimeOptions={allowRelativeDateOptions}
-                                onChange={(newOperator, newValue) => {
-                                    if (filter?.key && filter?.type) {
-                                        setFilter(index, {
-                                            key: filter?.key,
-                                            value: newValue || null,
-                                            operator: newOperator,
-                                            type: filter?.type,
-                                            ...(isGroupPropertyFilter(filter)
-                                                ? { group_type_index: filter.group_type_index }
-                                                : {}),
-                                        } as AnyPropertyFilter)
-                                    }
-                                    if (
-                                        newOperator &&
-                                        newValue &&
-                                        !isOperatorMulti(newOperator) &&
-                                        !isOperatorRegex(newOperator)
-                                    ) {
-                                        onComplete()
-                                    }
-                                }}
-                            />
-                        )}
+                        {showOperatorValueSelect && !placeOperatorValueSelectOnLeft && operatorValueSelect}
                     </div>
                 </div>
             )}

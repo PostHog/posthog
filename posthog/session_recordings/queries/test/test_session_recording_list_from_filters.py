@@ -3752,6 +3752,36 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual([sr["session_id"] for sr in session_recordings], [session_id])
 
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {
+                "properties": [
+                    {
+                        "key": "name",
+                        "value": ["org one"],
+                        "operator": "exact",
+                        "type": "group",
+                        "group_type_index": 1,
+                    }
+                ],
+            }
+        )
+        self.assertEqual([sr["session_id"] for sr in session_recordings], [session_id])
+
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {
+                "properties": [
+                    {
+                        "key": "name",
+                        "value": ["org one"],
+                        "operator": "exact",
+                        "type": "group",
+                        "group_type_index": 2,
+                    }
+                ],
+            }
+        )
+        self.assertEqual(session_recordings, [])
+
     @freeze_time("2021-01-21T20:00:00.000Z")
     @snapshot_clickhouse_queries
     def test_ordering(self):
