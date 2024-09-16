@@ -21,9 +21,11 @@ export function validatePassword(password: string = ''): ValidatedPasswordResult
         }
     }
 
+    const { suggestions } = result.feedback
+
     return {
         score: password ? result.score + 1 : 0,
-        feedback: result.feedback.suggestions.join(' '),
+        feedback: suggestions.length === 0 ? undefined : suggestions.join(' '),
     }
 }
 
