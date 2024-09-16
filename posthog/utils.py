@@ -344,7 +344,7 @@ def render_template(
     }
 
     geo_ip_country_code = get_geoip_properties(get_ip_address(request)).get("$geoip_country_code", None)
-    posthog_app_context["is_region_blocked"] = geo_ip_country_code in settings.BLOCKED_GEOIP_REGIONS or True
+    posthog_app_context["is_region_blocked"] = geo_ip_country_code in settings.BLOCKED_GEOIP_REGIONS
 
     posthog_bootstrap: dict[str, Any] = {}
     posthog_distinct_id: Optional[str] = None
