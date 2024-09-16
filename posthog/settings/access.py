@@ -4,7 +4,7 @@ import sys
 
 import structlog
 
-from posthog.settings.base_variables import DEBUG, TEST
+from posthog.settings.base_variables import DEBUG, STATIC_COLLECTION, TEST
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
 logger = structlog.get_logger(__name__)
@@ -60,7 +60,7 @@ DEFAULT_SECRET_KEY = "<randomly generated secret key>"
 SECRET_KEY: str = os.getenv("SECRET_KEY", DEFAULT_SECRET_KEY)
 
 
-if not DEBUG and not TEST and SECRET_KEY == DEFAULT_SECRET_KEY:
+if not DEBUG and not TEST and not STATIC_COLLECTION and SECRET_KEY == DEFAULT_SECRET_KEY:
     logger.critical(
         """
 You are using the default SECRET_KEY in a production environment!
