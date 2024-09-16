@@ -46,7 +46,7 @@ pub struct Worker {
     // some conditions.
     flush_batch: Arc<Mutex<FlushBatch>>,
 
-    pub heartbeat_window: Duration, // The worker will only pass one heartbeat to the DB every heartbeat_window
+    pub heartbeat_window: Duration, // The worker will only pass one heartbeat to the DB per job every heartbeat_window
     pub linger: Duration,           // Updates will be held at most this long
     pub max_buffered: usize,        // Updates will be flushed after this many are buffered
     pub max_bytes: usize, // Updates will be flushed after the vm_state and blob sizes combined exceed this
