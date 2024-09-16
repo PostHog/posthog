@@ -156,8 +156,16 @@ function HedgehogColor(): JSX.Element {
     const { hedgehogConfig } = useValues(hedgehogBuddyLogic)
     const { patchHedgehogConfig } = useActions(hedgehogBuddyLogic)
     const skinSpiderHogEnabled = !!useFeatureFlag('HEDGEHOG_SKIN_SPIDERHOG')
+    const skinHogzillaEnabled = !!useFeatureFlag('HEDGEHOG_SKIN_HOGZILLA')
 
-    const skins: HedgehogSkin[] = skinSpiderHogEnabled ? ['default', 'spiderhog'] : ['default']
+    const skins: HedgehogSkin[] = ['default']
+
+    if (skinSpiderHogEnabled) {
+        skins.push('spiderhog')
+    }
+    if (skinHogzillaEnabled) {
+        skins.push('hogzilla')
+    }
 
     return (
         <>

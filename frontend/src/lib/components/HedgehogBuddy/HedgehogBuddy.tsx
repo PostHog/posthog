@@ -180,6 +180,12 @@ export class HedgehogActor {
                 },
             },
             {
+                keys: ['h', 'o', 'g', 'z', 'i', 'l', 'l', 'a'],
+                action: () => {
+                    this.hedgehogConfig.skin = 'hogzilla'
+                },
+            },
+            {
                 keys: [
                     'arrowup',
                     'arrowup',

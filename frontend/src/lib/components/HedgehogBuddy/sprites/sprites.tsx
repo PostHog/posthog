@@ -232,4 +232,11 @@ export const skins: Record<HedgehogSkin, { [key: string]: SpriteInfo }> = {
         walk: standardAnimations.walk,
         wave: standardAnimations.wave,
     },
+    hogzilla: {
+        stop: standardAnimations.stop,
+        fall: standardAnimations.fall,
+        jump: standardAnimations.jump,
+        walk: { ...standardAnimations.walk, frames: 10 },
+        wave: { ...standardAnimations.wave, frames: 25 },
+    },
 }
