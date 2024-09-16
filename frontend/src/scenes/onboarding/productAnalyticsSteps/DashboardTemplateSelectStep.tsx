@@ -6,6 +6,7 @@ import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
 import { onboardingLogic, OnboardingStepKey } from '../onboardingLogic'
 import { OnboardingStep } from '../OnboardingStep'
+import { onboardingTemplateConfigLogic } from './onboardingTemplateConfigLogic'
 
 export const OnboardingDashboardTemplateSelectStep = ({
     stepKey = OnboardingStepKey.DASHBOARD_TEMPLATE,
@@ -14,6 +15,7 @@ export const OnboardingDashboardTemplateSelectStep = ({
 }): JSX.Element => {
     const { goToNextStep } = useActions(onboardingLogic)
     const { clearActiveDashboardTemplate } = useActions(newDashboardLogic)
+    const { setDashboardCreatedDuringOnboarding } = useActions(onboardingTemplateConfigLogic)
 
     // TODO: this is hacky, find a better way to clear the active template when coming back to this screen
     useEffect(() => {
@@ -40,7 +42,15 @@ export const OnboardingDashboardTemplateSelectStep = ({
                 Get useful insights from your events super fast with our dashboard templates. Select one to get started
                 with based on your market and industry.
             </p>
-            <DashboardTemplateChooser onItemClick={goToNextStep} redirectAfterCreation={false} />
+            <DashboardTemplateChooser
+                onItemClick={(template) => {
+                    setDashboardCreatedDuringOnboarding(null)
+                    if (template.variables?.length && template.variables.length > 0) {
+                        goToNextStep()
+                    }
+                }}
+                redirectAfterCreation={false}
+            />
         </OnboardingStep>
     )
 }

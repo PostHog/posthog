@@ -2,11 +2,13 @@ import { IconCheckCircle, IconInfo, IconTarget, IconTrash } from '@posthog/icons
 import { LemonBanner, LemonButton, LemonCollapse, LemonInput, LemonLabel, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { iframedToolbarBrowserLogic } from 'lib/components/IframedToolbarBrowser/iframedToolbarBrowserLogic'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { dashboardTemplateVariablesLogic } from 'scenes/dashboard/dashboardTemplateVariablesLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
-import { DashboardTemplateVariableType } from '~/types'
+import { DashboardTemplateVariableType, EntityTypes } from '~/types'
+
+import { onboardingTemplateConfigLogic } from './onboardingTemplateConfigLogic'
 
 function VariableSelector({
     variableName,
@@ -27,12 +29,17 @@ function VariableSelector({
         goToNextUntouchedActiveVariableIndex,
         incrementActiveVariableIndex,
         setIsCurrentlySelectingElement,
+        setActiveVariableCustomEventName,
     } = useActions(theDashboardTemplateVariablesLogic)
-    const { allVariablesAreTouched, variables, activeVariableIndex, isCurrentlySelectingElement } = useValues(
-        theDashboardTemplateVariablesLogic
-    )
-    const [customEventName, setCustomEventName] = useState<string | null>(null)
-    const [showCustomEventField, setShowCustomEventField] = useState(false)
+    const {
+        allVariablesAreTouched,
+        variables,
+        activeVariableIndex,
+        isCurrentlySelectingElement,
+        activeVariableCustomEventName,
+    } = useValues(theDashboardTemplateVariablesLogic)
+    const { customEventFieldShown } = useValues(onboardingTemplateConfigLogic)
+    const { showCustomEventField, hideCustomEventField } = useActions(onboardingTemplateConfigLogic)
     const { enableElementSelector, disableElementSelector, setNewActionName } = useActions(
         iframedToolbarBrowserLogic({ iframeRef, clearBrowserUrlOnUnmount: true })
     )
@@ -49,14 +56,14 @@ function VariableSelector({
                     <IconInfo /> {variable.description}
                 </p>
             </div>
-            {!showCustomEventField && activeVariableIndex == 0 && hasSelectedSite && !variable.touched && (
+            {!customEventFieldShown && activeVariableIndex == 0 && hasSelectedSite && !variable.touched && (
                 <LemonBanner type="info" className="mb-4">
                     <p>
                         <strong>Tip:</strong> Navigate to the page you want before you start selecting.
                     </p>
                 </LemonBanner>
             )}
-            {variable.touched && !customEventName && (
+            {variable.touched && !activeVariableCustomEventName && (
                 <div className="flex justify-between items-center bg-bg-3000-light p-2 pl-3 rounded mb-4">
                     <div>
                         <p className="mb-2">
@@ -64,16 +71,26 @@ function VariableSelector({
                             <span className="text-success font-bold">Selected</span>
                         </p>
                         <div className="ml-4">
-                            <p className="text-muted mb-0 text-xs">
-                                <span className="font-bold">CSS selector:</span>{' '}
-                                {variable.default.selector || 'not set'}
-                            </p>
-                            <p className="text-muted mb-0 text-xs">
-                                <span className="font-bold">Element href:</span> {variable.default.href || 'not set'}
-                            </p>
-                            <p className="text-muted mb-1 text-xs">
-                                <span className="font-bold">Page URL:</span> {variable.default.url || 'any url'}
-                            </p>
+                            {variable.default.type === EntityTypes.ACTIONS ? (
+                                <>
+                                    <p className="text-muted mb-0 text-xs">
+                                        <span className="font-bold">CSS selector:</span>{' '}
+                                        {variable.default.selector || 'not set'}
+                                    </p>
+                                    <p className="text-muted mb-0 text-xs">
+                                        <span className="font-bold">Element href:</span>{' '}
+                                        {variable.default.href || 'not set'}
+                                    </p>
+                                    <p className="text-muted mb-1 text-xs">
+                                        <span className="font-bold">Page URL:</span> {variable.default.url || 'any url'}
+                                    </p>
+                                </>
+                            ) : variable.default.type === EntityTypes.EVENTS ? (
+                                <p className="text-muted mb-1 text-xs">
+                                    <span className="font-bold">Pageview URL:</span>{' '}
+                                    {variable.default.properties?.[0].value || 'any url'}
+                                </p>
+                            ) : null}
                         </div>
                     </div>
                     <div>
@@ -86,7 +103,7 @@ function VariableSelector({
                     </div>
                 </div>
             )}
-            {showCustomEventField && (
+            {customEventFieldShown && (
                 <div className="mb-4">
                     <LemonLabel>Custom event name</LemonLabel>
                     <p>
@@ -98,23 +115,23 @@ function VariableSelector({
                             className="grow"
                             onChange={(v) => {
                                 if (v) {
-                                    setCustomEventName(v)
+                                    setActiveVariableCustomEventName(v)
                                     setVariable(variable.name, {
                                         events: [{ id: v, math: 'dau', type: 'events' }],
                                     })
                                 } else {
-                                    setCustomEventName(null)
+                                    setActiveVariableCustomEventName(null)
                                     resetVariable(variable.id)
                                 }
                             }}
                             onBlur={() => {
-                                if (customEventName) {
+                                if (activeVariableCustomEventName) {
                                     setVariable(variable.name, {
-                                        events: [{ id: customEventName, math: 'dau', type: 'events' }],
+                                        events: [{ id: activeVariableCustomEventName, math: 'dau', type: 'events' }],
                                     })
                                 } else {
                                     resetVariable(variable.id)
-                                    setShowCustomEventField(false)
+                                    hideCustomEventField()
                                 }
                             }}
                         />
@@ -127,8 +144,8 @@ function VariableSelector({
                                     disableElementSelector()
                                     setNewActionName(null)
                                     resetVariable(variable.id)
-                                    setCustomEventName(null)
-                                    setShowCustomEventField(false)
+                                    setActiveVariableCustomEventName(null)
+                                    hideCustomEventField()
                                 }}
                             />
                         </div>
@@ -177,7 +194,7 @@ function VariableSelector({
                                 type="primary"
                                 status="alt"
                                 onClick={() => {
-                                    setShowCustomEventField(false)
+                                    hideCustomEventField()
                                     enableElementSelector()
                                     setNewActionName(variable.name)
                                     setIsCurrentlySelectingElement(true)
@@ -195,7 +212,7 @@ function VariableSelector({
                             onClick={() => {
                                 disableElementSelector()
                                 setNewActionName(null)
-                                setShowCustomEventField(true)
+                                showCustomEventField()
                                 setIsCurrentlySelectingElement(false)
                             }}
                             fullWidth

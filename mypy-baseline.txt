@@ -108,7 +108,6 @@ posthog/hogql/database/schema/groups.py:0: note: "Dict" is invariant -- see http
 posthog/hogql/database/schema/groups.py:0: note: Consider using "Mapping" instead, which is covariant in the value type
 posthog/hogql/database/schema/persons.py:0: error: Incompatible types in assignment (expression has type "Organization | None", variable has type "Organization")  [assignment]
 posthog/batch_exports/service.py:0: error: Argument 4 to "backfill_export" has incompatible type "datetime | None"; expected "datetime"  [arg-type]
-posthog/models/filters/base_filter.py:0: error: "HogQLContext" has no attribute "person_on_events_mode"  [attr-defined]
 posthog/models/team/team.py:0: error: Statement is unreachable  [unreachable]
 posthog/models/team/team.py:0: error: Statement is unreachable  [unreachable]
 posthog/models/hog_functions/hog_function.py:0: error: Argument 1 to "get" of "dict" has incompatible type "str | None"; expected "str"  [arg-type]
@@ -356,7 +355,6 @@ posthog/queries/actor_base_query.py:0: error: Incompatible types (expression has
 posthog/queries/actor_base_query.py:0: error: Incompatible types (expression has type "datetime", TypedDict item "created_at" has type "str | None")  [typeddict-item]
 posthog/hogql_queries/insights/funnels/base.py:0: error: Incompatible type for lookup 'pk': (got "str | int | None", expected "str | int")  [misc]
 posthog/queries/foss_cohort_query.py:0: error: Incompatible type for lookup 'pk': (got "str | int | list[str]", expected "str | int")  [misc]
-posthog/queries/funnels/base.py:0: error: "HogQLContext" has no attribute "person_on_events_mode"  [attr-defined]
 posthog/queries/funnels/base.py:0: error: Incompatible types in assignment (expression has type "int | str | None", variable has type "str | None")  [assignment]
 posthog/queries/funnels/base.py:0: error: Unsupported right operand type for in ("object")  [operator]
 posthog/queries/funnels/base.py:0: error: "object" has no attribute "append"  [attr-defined]
@@ -390,9 +388,6 @@ posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Module "d
 posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Statement is unreachable  [unreachable]
 posthog/hogql_queries/insights/stickiness_query_runner.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "datetime"  [attr-defined]
 posthog/hogql_queries/insights/retention_query_runner.py:0: error: Item "None" of "JoinExpr | None" has no attribute "sample"  [union-attr]
-posthog/hogql_queries/insights/retention_query_runner.py:0: error: Argument 2 to "parse_select" has incompatible type "dict[str, SelectQuery]"; expected "dict[str, Expr] | None"  [arg-type]
-posthog/hogql_queries/insights/retention_query_runner.py:0: note: "Dict" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
-posthog/hogql_queries/insights/retention_query_runner.py:0: note: Consider using "Mapping" instead, which is covariant in the value type
 posthog/hogql_queries/insights/retention_query_runner.py:0: error: Unsupported operand types for - ("int" and "None")  [operator]
 posthog/hogql_queries/insights/retention_query_runner.py:0: note: Right operand is of type "int | None"
 posthog/hogql_queries/insights/retention_query_runner.py:0: error: Item "SelectUnionQuery" of "SelectQuery | SelectUnionQuery" has no attribute "select"  [union-attr]
