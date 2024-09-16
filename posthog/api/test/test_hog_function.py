@@ -65,7 +65,7 @@ EXAMPLE_FULL = {
 def get_db_field_value(field, model_id):
     cursor = connection.cursor()
     cursor.execute(f"select {field} from posthog_hogfunction where id='{model_id}';")
-    return cursor.fetchone()[0]  # type: ignore
+    return cursor.fetchone()[0]
 
 
 class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):

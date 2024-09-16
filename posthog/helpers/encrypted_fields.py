@@ -82,7 +82,7 @@ class EncryptedFieldMixin:
         during cleaning of a form
         """
         self._already_decrypted = True
-        ret = super().clean(value, model_instance)
+        ret = super().clean(value, model_instance)  # type: ignore
         del self._already_decrypted
         return ret
 
