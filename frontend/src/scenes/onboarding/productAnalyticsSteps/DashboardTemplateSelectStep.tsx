@@ -17,7 +17,7 @@ export const OnboardingDashboardTemplateSelectStep = ({
 }): JSX.Element => {
     const { goToNextStep } = useActions(onboardingLogic)
     const { clearActiveDashboardTemplate } = useActions(newDashboardLogic)
-    const { setDashboardCreatedDuringOnboarding } = useActions(onboardingTemplateConfigLogic)
+    const { setDashboardCreatedDuringOnboarding, reportTemplateSelected } = useActions(onboardingTemplateConfigLogic)
 
     // TODO: this is hacky, find a better way to clear the active template when coming back to this screen
     useEffect(() => {
@@ -46,7 +46,9 @@ export const OnboardingDashboardTemplateSelectStep = ({
             </p>
             <DashboardTemplateChooser
                 onItemClick={(template) => {
+                    // clear the saved dashboard so we don't skip the next step
                     setDashboardCreatedDuringOnboarding(null)
+                    reportTemplateSelected(template)
                     if (template.variables?.length && template.variables.length > 0) {
                         goToNextStep()
                     }

@@ -328,6 +328,12 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
             clearTimeout(cache.errorTimeout)
             clearTimeout(cache.warnTimeout)
         },
+        setIframeBanner: ({ banner }) => {
+            posthog.capture('in-app iFrame banner set', {
+                level: banner?.level,
+                message: banner?.message,
+            })
+        },
     })),
 
     afterMount(({ actions, values }) => {
