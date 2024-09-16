@@ -1,7 +1,8 @@
 import re
+from collections.abc import Mapping
 from decimal import Decimal
 from functools import lru_cache
-from typing import TYPE_CHECKING, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 from uuid import UUID
 from zoneinfo import ZoneInfo
 from django.core.cache import cache
@@ -38,7 +39,7 @@ from posthog.settings.utils import get_list
 from posthog.utils import GenericEmails
 
 from ...hogql.modifiers import set_default_modifier_values
-from ...schema import HogQLQueryModifiers, PathCleaningFilter, PersonsOnEventsMode
+from ...schema import HogQLQueryModifiers, PathCleaningFilter, PersonsOnEventsMode, PropertyGroupsMode
 from .team_caching import get_team_in_cache, set_team_in_cache
 
 if TYPE_CHECKING:
@@ -168,6 +169,10 @@ def get_default_data_attributes() -> list[str]:
     return ["data-attr"]
 
 
+def get_default_modifiers() -> Mapping[str, Any]:
+    return {"propertyGroupsMode": PropertyGroupsMode.OPTIMIZED}
+
+
 class WeekStartDay(models.IntegerChoices):
     SUNDAY = 0, "Sunday"
     MONDAY = 1, "Monday"
@@ -281,7 +286,7 @@ class Team(UUIDClassicModel):
     extra_settings = models.JSONField(null=True, blank=True)
 
     # Project level default HogQL query modifiers
-    modifiers = models.JSONField(null=True, blank=True)
+    modifiers = models.JSONField(null=True, blank=True, default=get_default_modifiers)
 
     # This is meant to be used as a stopgap until https://github.com/PostHog/meta/pull/39 gets implemented
     # Switches _most_ queries to using distinct_id as aggregator instead of person_id
