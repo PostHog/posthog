@@ -54,7 +54,8 @@ export function Destinations(): JSX.Element {
 export function DestinationsTable(): JSX.Element {
     const { canConfigurePlugins, canEnableDestination } = useValues(pipelineAccessLogic)
     const { loading, filteredDestinations, destinations, hiddenDestinations } = useValues(pipelineDestinationsLogic)
-    const { resetFilters, toggleNode, deleteNode } = useActions(destinationsFiltersLogic)
+    const { toggleNode, deleteNode } = useActions(pipelineDestinationsLogic)
+    const { resetFilters } = useActions(destinationsFiltersLogic)
 
     return (
         <div className="space-y-2">
