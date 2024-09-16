@@ -363,17 +363,6 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
-    if kind == "ExperimentResultQuery":
-        from .experiment_result_query_runner import ExperimentResultQueryRunner
-
-        return ExperimentResultQueryRunner(
-            query=query,
-            team=team,
-            timings=timings,
-            modifiers=modifiers,
-            limit_context=limit_context,
-        )
-
     if kind == "ExperimentFunnelQuery":
         from .experiment_funnel_query_runner import ExperimentFunnelQueryRunner
 

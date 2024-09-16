@@ -158,7 +158,6 @@ export type QuerySchema =
     | ExperimentTrendQuery
 
     // Interface nodes
-    // Interface nodes
     | DataVisualizationNode
     | DataTableNode
     | SavedInsightNode
