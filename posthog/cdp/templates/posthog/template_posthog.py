@@ -1,5 +1,8 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
+import dataclasses
+from copy import deepcopy
 
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, HogFunctionTemplateMigrator
+from posthog.hogql.escape_sql import escape_hogql_string
 
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
@@ -38,7 +41,7 @@ fetch(f'{host}/e', {
             "type": "string",
             "label": "PostHog host",
             "description": "For cloud accounts this is either https://us.i.posthog.com or https://eu.i.posthog.com",
-            "default": "https://us.posthog.com",
+            "default": "https://us.i.posthog.com",
             "secret": False,
             "required": True,
         },
@@ -69,3 +72,39 @@ fetch(f'{host}/e', {
         },
     ],
 )
+
+
+class TemplatePostHogMigrator(HogFunctionTemplateMigrator):
+    plugin_url = "https://github.com/PostHog/posthog-plugin-replicator"
+
+    @classmethod
+    def migrate(cls, obj):
+        hf = deepcopy(dataclasses.asdict(template))
+
+        host = obj.config.get("host", "")
+        project_api_key = obj.config.get("project_api_key", "")
+        # replication = obj.config.get("replication", "") # not used
+        events_to_ignore = [x.strip() for x in obj.config.get("events_to_ignore", "").split(",") if x]
+        disable_geoip = obj.config.get("disable_geoip", "No") == "Yes"
+
+        hf["inputs"] = {
+            "host": {"value": host},
+            "token": {"value": project_api_key},
+            "include_all_properties": {"value": True},
+            "properties": {"value": {"$geoip_disable": True} if disable_geoip else {}},
+        }
+
+        hf["filters"] = {}
+        if events_to_ignore:
+            event_names = ", ".join([escape_hogql_string(event) for event in events_to_ignore])
+            hf["filters"]["events"] = [
+                {
+                    "id": None,
+                    "name": "All events",
+                    "type": "events",
+                    "order": 0,
+                    "properties": [{"type": "hogql", "key": f"event not in ({event_names})"}],
+                }
+            ]
+
+        return hf

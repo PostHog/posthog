@@ -1,5 +1,5 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { customEvent } from '@rrweb/types'
+import { customEvent, EventType, eventWithTime, IncrementalSource } from '@rrweb/types'
 import { captureException } from '@sentry/react'
 import {
     actions,
@@ -186,6 +186,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         playerErrorSeen: (error: any) => ({ error }),
         fingerprintReported: (fingerprint: string) => ({ fingerprint }),
         reportMessageTooLargeWarningSeen: (sessionRecordingId: string) => ({ sessionRecordingId }),
+        setDebugSnapshotTypes: (types: EventType[]) => ({ types }),
+        setDebugSnapshotIncrementalSources: (incrementalSources: IncrementalSource[]) => ({ incrementalSources }),
     }),
     reducers(() => ({
         reportedReplayerErrors: [
@@ -356,6 +358,19 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 reportMessageTooLargeWarningSeen: (_, { sessionRecordingId }) => sessionRecordingId,
             },
         ],
+        debugSettings: [
+            {
+                types: [EventType.FullSnapshot, EventType.IncrementalSnapshot],
+                incrementalSources: [IncrementalSource.Mutation],
+            } as {
+                types: EventType[]
+                incrementalSources: IncrementalSource[]
+            },
+            {
+                setDebugSnapshotTypes: (s, { types }) => ({ ...s, types }),
+                setDebugSnapshotIncrementalSources: (s, { incrementalSources }) => ({ ...s, incrementalSources }),
+            },
+        ],
     })),
     selectors({
         // Prop references for use by other logics
@@ -477,6 +492,20 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             (s) => [s.customRRWebEvents],
             (customRRWebEvents: customEvent[]) => {
                 return customRRWebEvents.filter((event) => event.data.tag === 'Message too large')
+            },
+        ],
+
+        debugSnapshots: [
+            (s) => [s.sessionPlayerData, s.debugSettings],
+            (sessionPlayerData: SessionPlayerData, debugSettings): eventWithTime[] => {
+                const allSnapshots = Object.values(sessionPlayerData.snapshotsByWindowId).flat()
+                const visualSnapshots = allSnapshots.filter(
+                    (s) =>
+                        debugSettings.types.includes(s.type) &&
+                        (s.type != EventType.IncrementalSnapshot ||
+                            debugSettings.incrementalSources.includes(s.data.source))
+                )
+                return visualSnapshots.sort((a, b) => a.timestamp - b.timestamp)
             },
         ],
     }),
@@ -1063,7 +1092,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         cache.hasInitialized = false
         document.removeEventListener('fullscreenchange', cache.fullScreenListener)
         cache.pausedMediaElements = []
-        values.player?.replayer?.pause()
+        values.player?.replayer?.destroy()
         actions.setPlayer(null)
         cache.unmountConsoleWarns?.()
 

@@ -1,6 +1,7 @@
 from typing import Any
 
 import structlog
+from asgiref.sync import async_to_sync
 from django.conf import settings
 from django.db import transaction
 from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
@@ -8,13 +9,17 @@ from rest_framework.decorators import action
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import SerializedField, create_hogql_database, serialize_fields
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.metadata import is_valid_view
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
+from posthog.temporal.common.client import sync_connect
+from posthog.temporal.data_modeling.run_workflow import RunWorkflowInputs, Selector
 from posthog.warehouse.models import DataWarehouseJoin, DataWarehouseModelPath, DataWarehouseSavedQuery
+import uuid
 
 logger = structlog.get_logger(__name__)
 
@@ -153,6 +158,29 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         return response.Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(methods=["POST"], detail=True)
+    def run(self, request: request.Request, *args, **kwargs) -> response.Response:
+        """Run this saved query."""
+        ancestors = request.data.get("ancestors", 0)
+        descendants = request.data.get("descendants", 0)
+
+        saved_query = self.get_object()
+
+        temporal = sync_connect()
+        inputs = RunWorkflowInputs(
+            team_id=saved_query.team_id,
+            select=[Selector(label=saved_query.id.hex, ancestors=ancestors, descendants=descendants)],
+        )
+        workflow_id = f"data-modeling-run-{saved_query.id.hex}"
+        async_to_sync(temporal.start_workflow)(  # type: ignore
+            "data-modeling-run",  # type: ignore
+            inputs,  # type: ignore
+            id=workflow_id,
+            task_queue=DATA_WAREHOUSE_TASK_QUEUE,
+        )
+
+        return response.Response(status=status.HTTP_200_OK)
+
+    @action(methods=["POST"], detail=True)
     def ancestors(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Return the ancestors of this saved query.
 
@@ -171,14 +199,14 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         if not paths:
             return response.Response({"ancestors": []})
 
-        ancestors: set[str] = set()
+        ancestors: set[str | uuid.UUID] = set()
         for model_path in paths:
             if up_to_level is None:
                 start = 0
             else:
                 start = (int(up_to_level) * -1) - 1
 
-            ancestors = ancestors.union(model_path.path[start:-1])
+            ancestors = ancestors.union(map(try_convert_to_uuid, model_path.path[start:-1]))
 
         return response.Response({"ancestors": ancestors})
 
@@ -201,7 +229,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         if not paths:
             return response.Response({"descendants": []})
 
-        descendants: set[str] = set()
+        descendants: set[str | uuid.UUID] = set()
         for model_path in paths:
             start = model_path.path.index(saved_query_id) + 1
             if up_to_level is None:
@@ -209,6 +237,13 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             else:
                 end = start + up_to_level
 
-            descendants = descendants.union(model_path.path[start:end])
+            descendants = descendants.union(map(try_convert_to_uuid, model_path.path[start:end]))
 
         return response.Response({"descendants": descendants})
+
+
+def try_convert_to_uuid(s: str) -> uuid.UUID | str:
+    try:
+        return str(uuid.UUID(s))
+    except ValueError:
+        return s

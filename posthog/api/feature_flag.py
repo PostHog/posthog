@@ -65,6 +65,8 @@ DATABASE_FOR_LOCAL_EVALUATION = (
 
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
 
+MAX_PROPERTY_VALUES = 1000
+
 
 class FeatureFlagThrottle(BurstRateThrottle):
     # Throttle class that's scoped just to the local evaluation endpoint.
@@ -222,6 +224,16 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
 
             for property in condition.get("properties", []):
                 prop = Property(**property)
+                if isinstance(prop.value, list):
+                    upper_limit = MAX_PROPERTY_VALUES
+                    if settings.TEST:
+                        upper_limit = 10
+
+                    if len(prop.value) > upper_limit:
+                        raise serializers.ValidationError(
+                            f"Property group expressions of type {prop.key} cannot contain more than {upper_limit} values."
+                        )
+
                 if prop.type == "cohort":
                     try:
                         initial_cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=self.context["team_id"])

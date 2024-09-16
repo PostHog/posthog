@@ -132,15 +132,7 @@ export default function SurveyEdit(): JSX.Element {
                                                     description="Automatically appears when PostHog JS is installed"
                                                     value={SurveyType.Popover}
                                                 >
-                                                    <div
-                                                        // eslint-disable-next-line react/forbid-dom-props
-                                                        style={{
-                                                            transform: 'scale(.8)',
-                                                            position: 'absolute',
-                                                            top: '-1rem',
-                                                            left: '-1rem',
-                                                        }}
-                                                    >
+                                                    <div className="scale-[0.8] absolute -top-4 -left-4">
                                                         <SurveyAppearancePreview survey={survey} previewPageIndex={0} />
                                                     </div>
                                                 </PresentationTypeCard>

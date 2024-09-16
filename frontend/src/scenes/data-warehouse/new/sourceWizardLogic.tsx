@@ -567,6 +567,45 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
         ],
         caption: 'Select an existing Salesforce account to link to PostHog or create a new connection',
     },
+    Vitally: {
+        name: 'Vitally',
+        fields: [
+            {
+                name: 'secret_token',
+                label: 'Secret token',
+                type: 'text',
+                required: true,
+                placeholder: 'sk_live_...',
+            },
+            {
+                type: 'select',
+                name: 'region',
+                label: 'Vitally region',
+                required: true,
+                defaultValue: 'EU',
+                options: [
+                    {
+                        label: 'EU',
+                        value: 'EU',
+                    },
+                    {
+                        label: 'US',
+                        value: 'US',
+                        fields: [
+                            {
+                                name: 'subdomain',
+                                label: 'Vitally subdomain',
+                                type: 'text',
+                                required: true,
+                                placeholder: '',
+                            },
+                        ],
+                    },
+                ],
+            },
+        ],
+        caption: '',
+    },
 }
 
 export const buildKeaFormDefaultFromSourceDetails = (

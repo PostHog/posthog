@@ -99,7 +99,10 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     maybe_has_session_replay SimpleAggregateFunction(max, Bool), -- will be written False to by the events table mv and True to by the replay table mv
 
     -- as a performance optimisation, also keep track of the uniq events for all of these combined, a bounce is a session with <2 of these
-    page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID))
+    page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
+
+    -- web vitals
+    vitals_lcp AggregateFunction(argMin, Nullable(Float64), DateTime64(6, 'UTC'))
 ) ENGINE = {engine}
 """
 
@@ -152,6 +155,11 @@ def source_string_column(column_name: str) -> str:
 
 def source_int_column(column_name: str) -> str:
     return f"JSONExtractInt(properties, '{column_name}')"
+
+
+def source_nullable_float_column(column_name: str) -> str:
+    # this is what we do in queries, but it seems pretty awful
+    return f"""accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '{column_name}'), ''), 'null'), '^"|"$', ''), 'Float64')"""
 
 
 RAW_SESSION_TABLE_BACKFILL_SELECT_SQL = (
@@ -220,7 +228,10 @@ SELECT
     false as maybe_has_session_replay,
 
     -- perf
-    initializeAggregation('uniqUpToState(1)', if(event='$pageview' OR event='$screen' OR event='$autocapture', uuid, NULL)) as page_screen_autocapture_uniq_up_to
+    initializeAggregation('uniqUpToState(1)', if(event='$pageview' OR event='$screen' OR event='$autocapture', uuid, NULL)) as page_screen_autocapture_uniq_up_to,
+
+    -- vitals
+    initializeAggregation('argMinState', {vitals_lcp}, timestamp) as vitals_lcp
 FROM {database}.events
 WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
 """.format(
@@ -259,6 +270,7 @@ WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')),
         mc_cid=source_string_column("mc_cid"),
         igshid=source_string_column("igshid"),
         ttclid=source_string_column("ttclid"),
+        vitals_lcp=source_nullable_float_column("$web_vitals_LCP_value"),
     )
 )
 
@@ -329,7 +341,10 @@ SELECT
     false as maybe_has_session_replay,
 
     -- perf
-    uniqUpToState(1)(if(event='$pageview' OR event='$screen' OR event='$autocapture', uuid, NULL)) as page_screen_autocapture_uniq_up_to
+    uniqUpToState(1)(if(event='$pageview' OR event='$screen' OR event='$autocapture', uuid, NULL)) as page_screen_autocapture_uniq_up_to,
+
+    -- web vitals
+    argMinState({vitals_lcp}, timestamp) as vitals_lcp
 FROM {database}.sharded_events
 WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7)
 GROUP BY
@@ -373,6 +388,7 @@ GROUP BY
         mc_cid=source_string_column("mc_cid"),
         igshid=source_string_column("igshid"),
         ttclid=source_string_column("ttclid"),
+        vitals_lcp=source_nullable_float_column("$web_vitals_LCP_value"),
     )
 )
 
@@ -490,7 +506,9 @@ SELECT
 
     max(maybe_has_session_replay) as maybe_has_session_replay,
 
-    uniqUpToMerge(1)(page_screen_autocapture_uniq_up_to) as page_screen_autocapture_uniq_up_to
+    uniqUpToMerge(1)(page_screen_autocapture_uniq_up_to) as page_screen_autocapture_uniq_up_to,
+
+    argMinMerge(vitals_lcp) as vitals_lcp
 FROM {TABLE_BASE_NAME}
 GROUP BY session_id_v7, team_id
 """
