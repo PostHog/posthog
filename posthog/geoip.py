@@ -17,7 +17,9 @@ except Exception as e:
     capture_exception(e)
     geoip = None
 
-    print("GeoIP not available. Please install GeoIP dependencies or check GEOIP_PATH setting:", settings.GEOIP_PATH)
+    logger.warn(
+        "GeoIP not available. Please install GeoIP dependencies or check GEOIP_PATH setting:", settings.GEOIP_PATH
+    )
 
 VALID_GEOIP_PROPERTIES = [
     "city_name",
