@@ -1,6 +1,5 @@
 import enum
 from typing import Optional
-import encrypted_fields
 
 from django.db import models
 from django.db.models.signals import post_save
@@ -8,6 +7,7 @@ from django.dispatch.dispatcher import receiver
 import structlog
 
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
+from posthog.helpers.cryptography import EncryptedJSONStringField
 from posthog.models.action.action import Action
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDModel
@@ -46,9 +46,7 @@ class HogFunction(UUIDModel):
     bytecode = models.JSONField(null=True, blank=True)
     inputs_schema = models.JSONField(null=True)
     inputs = models.JSONField(null=True)
-    encrypted_inputs: encrypted_fields.fields.EncryptedJSONField = encrypted_fields.fields.EncryptedJSONField(
-        null=True, blank=True
-    )  # type: ignore
+    encrypted_inputs = EncryptedJSONStringField(null=True, blank=True)
 
     filters = models.JSONField(null=True, blank=True)
     masking = models.JSONField(null=True, blank=True)
