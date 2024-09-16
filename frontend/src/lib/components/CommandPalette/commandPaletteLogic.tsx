@@ -716,35 +716,47 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                 scope: GLOBAL_COMMAND_SCOPE,
                 prefixes: ['open', 'visit'],
                 resolver: (argument) => {
-                    if (argument && isURL(argument)) {
+                    const words = argument?.split(' ')
+                    const url = words?.find((word) => isURL(word))
+                    if (url) {
                         return {
-                            icon: IconExternal,
-                            display: `Open ${argument}`,
-                            synonyms: [`Visit ${argument}`],
-                            executor: () => {
-                                open(argument)
-                            },
-                        }
-                    }
-                    const results: CommandResultTemplate[] = (teamLogic.values.currentTeam?.app_urls ?? []).map(
-                        (url: string) => ({
                             icon: IconExternal,
                             display: `Open ${url}`,
                             synonyms: [`Visit ${url}`],
                             executor: () => {
                                 open(url)
                             },
+                        }
+                    }
+
+                    if (
+                        words &&
+                        words.length > 0 &&
+                        words[0].toLowerCase() === 'open' &&
+                        words[0].toLowerCase() === 'visit'
+                    ) {
+                        const results: CommandResultTemplate[] = (teamLogic.values.currentTeam?.app_urls ?? []).map(
+                            (url: string) => ({
+                                icon: IconExternal,
+                                display: `Open ${url}`,
+                                synonyms: [`Visit ${url}`],
+                                executor: () => {
+                                    open(url)
+                                },
+                            })
+                        )
+                        results.push({
+                            icon: IconExternal,
+                            display: 'Open PostHog Docs',
+                            synonyms: ['technical documentation'],
+                            executor: () => {
+                                open('https://posthog.com/docs')
+                            },
                         })
-                    )
-                    results.push({
-                        icon: IconExternal,
-                        display: 'Open PostHog Docs',
-                        synonyms: ['technical documentation'],
-                        executor: () => {
-                            open('https://posthog.com/docs')
-                        },
-                    })
-                    return results
+                        return results
+                    }
+
+                    return null
                 },
             }
 
