@@ -716,6 +716,16 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                 scope: GLOBAL_COMMAND_SCOPE,
                 prefixes: ['open', 'visit'],
                 resolver: (argument) => {
+                    if (argument && isURL(argument)) {
+                        return {
+                            icon: IconExternal,
+                            display: `Open ${argument}`,
+                            synonyms: [`Visit ${argument}`],
+                            executor: () => {
+                                open(argument)
+                            },
+                        }
+                    }
                     const results: CommandResultTemplate[] = (teamLogic.values.currentTeam?.app_urls ?? []).map(
                         (url: string) => ({
                             icon: IconExternal,
@@ -726,16 +736,6 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                             },
                         })
                     )
-                    if (argument && isURL(argument)) {
-                        results.push({
-                            icon: IconExternal,
-                            display: `Open ${argument}`,
-                            synonyms: [`Visit ${argument}`],
-                            executor: () => {
-                                open(argument)
-                            },
-                        })
-                    }
                     results.push({
                         icon: IconExternal,
                         display: 'Open PostHog Docs',
