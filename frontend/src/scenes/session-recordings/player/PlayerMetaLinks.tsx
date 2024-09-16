@@ -51,23 +51,25 @@ function PinToPlaylistButton({
         description = 'Save'
     }
 
-    return logicProps.setPinned ? (
+    return logicProps.setPinned && !logicProps.pinned ? (
         <LemonButton
             {...buttonProps}
             onClick={() => {
-                if (nodeLogic && !logicProps.pinned) {
+                if (nodeLogic) {
                     // If we are in a node, then pinning should persist the recording
                     maybePersistRecording()
                 }
 
-                logicProps.setPinned?.(!logicProps.pinned)
+                logicProps.setPinned?.(true)
             }}
             tooltip={tooltip}
             data-attr={logicProps.pinned ? 'unpin-from-this-list' : 'pin-to-this-list'}
-            icon={logicProps.pinned ? <IconPinFilled /> : <IconPin />}
+            icon={<IconPin />}
         />
     ) : (
-        <PlaylistPopoverButton {...buttonProps}>{buttonContent(description)}</PlaylistPopoverButton>
+        <PlaylistPopoverButton icon={logicProps.pinned ? <IconPinFilled /> : <IconPin />} {...buttonProps}>
+            {buttonContent(description)}
+        </PlaylistPopoverButton>
     )
 }
 
