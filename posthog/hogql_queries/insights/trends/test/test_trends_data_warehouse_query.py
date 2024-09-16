@@ -99,7 +99,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
         )
 
     def create_parquet_file(self):
-        if not OBJECT_STORAGE_ACCESS_KEY_ID or not OBJECT_STORAGE_ACCESS_KEY_ID:
+        if not OBJECT_STORAGE_ACCESS_KEY_ID or not OBJECT_STORAGE_SECRET_ACCESS_KEY:
             raise Exception("Missing vars")
 
         fs = s3fs.S3FileSystem(
