@@ -149,7 +149,7 @@ export function ProjectNotice(): JSX.Element | null {
         },
         region_blocked: {
             message:
-                'PostHog is not available in your region due to legal restrictions and will soon be blocked. Please contact support if you believe this is a mistake.',
+                'PostHog is not available in your region due to legal restrictions. People in restricted regions will soon be blocked from accessing PostHog. Please contact support if you believe this is a mistake.',
             type: 'error',
             action: {
                 'data-attr': 'region-blocked-support',
