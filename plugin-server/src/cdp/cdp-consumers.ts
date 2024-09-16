@@ -116,7 +116,7 @@ abstract class CdpConsumerBase {
 
     constructor(protected hub: Hub) {
         this.redis = createCdpRedisPool(hub)
-        this.hogFunctionManager = new HogFunctionManager(hub.postgres, hub)
+        this.hogFunctionManager = new HogFunctionManager(hub)
         this.hogWatcher = new HogWatcher(hub, this.redis, (id, state) => {
             void this.captureInternalPostHogEvent(id, 'hog function state changed', { state })
         })

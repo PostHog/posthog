@@ -19,7 +19,7 @@ describe('HogFunctionManager', () => {
     beforeEach(async () => {
         hub = await createHub()
         await resetTestDatabase()
-        manager = new HogFunctionManager(hub.postgres, hub)
+        manager = new HogFunctionManager(hub)
 
         const team = await hub.db.fetchTeam(2)
 

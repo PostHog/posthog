@@ -244,6 +244,7 @@ export type HogFunctionType = {
     bytecode: HogBytecode
     inputs_schema?: HogFunctionInputSchemaType[]
     inputs?: Record<string, HogFunctionInputType>
+    encrypted_inputs?: Record<string, HogFunctionInputType>
     filters?: HogFunctionFilters | null
     masking?: HogFunctionFiltersMasking | null
     depends_on_integration_ids?: Set<IntegrationType['id']>
