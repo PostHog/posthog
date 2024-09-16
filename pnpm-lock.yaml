@@ -269,8 +269,8 @@ dependencies:
     specifier: ^9.3.0
     version: 9.3.0(postcss@8.4.31)
   posthog-js:
-    specifier: 1.161.3
-    version: 1.161.3
+    specifier: 1.161.4
+    version: 1.161.4
   posthog-js-lite:
     specifier: 3.0.0
     version: 3.0.0
@@ -7051,7 +7051,7 @@ packages:
       '@storybook/csf': 0.1.11
       '@storybook/global': 5.0.0
       '@storybook/types': 7.6.20
-      '@types/qs': 6.9.15
+      '@types/qs': 6.9.16
       dequal: 2.0.3
       lodash: 4.17.21
       memoizerific: 1.11.3
@@ -8474,8 +8474,8 @@ packages:
     resolution: {integrity: sha512-bZcOkJ6uWrL0Qb2NAWKa7TBU+mJHPzhx9jjLL1KHF+XpzEcR7EXHvjbHlGtR/IsP1vyPrehuS6XqkmaePy//mg==}
     dev: false
 
-  /@types/qs@6.9.15:
-    resolution: {integrity: sha512-uXHQKES6DQKKCLh441Xv/dwxOq1TVS3JPUMlEqoEglvlhR6Mxnlew/Xq/LRVHpLyk7iK3zODe1qYHIMltO7XGg==}
+  /@types/qs@6.9.16:
+    resolution: {integrity: sha512-7i+zxXdPD0T4cKDuxCUXJ4wHcsJLwENa6Z3dCu8cfCK743OGy5Nu1RmAGqDPsoTDINVEcdXKRvR/zre+P2Ku1A==}
     dev: true
 
   /@types/query-selector-shadow-dom@1.0.0:
@@ -13867,7 +13867,7 @@ packages:
       hogan.js: 3.0.2
       htm: 3.1.1
       instantsearch-ui-components: 0.3.0
-      preact: 10.23.2
+      preact: 10.24.0
       qs: 6.9.7
       search-insights: 2.13.0
     dev: false
@@ -17674,11 +17674,11 @@ packages:
     resolution: {integrity: sha512-dyajjnfzZD1tht4N7p7iwf7nBnR1MjVaVu+MKr+7gBgA39bn28wizCIJZztZPtHy4PY0YwtSGgwfBCuG/hnHgA==}
     dev: false
 
-  /posthog-js@1.161.3:
-    resolution: {integrity: sha512-TQ77jtLemkUJUyJAPrwGay6tLqcAmXEM1IJgXOx5Tr4UohiTx8JTznzrCuh/SdwPIrbcSM1r2YPwb72XwTC3wg==}
+  /posthog-js@1.161.4:
+    resolution: {integrity: sha512-1KekYpef+NL85knnlBci/QRLYj0rsbNvzCzKohYs/bgvqoHHT8quBJouni5e78ymN2eF6KAOss037z9iG1kdJw==}
     dependencies:
       fflate: 0.4.8
-      preact: 10.23.2
+      preact: 10.24.0
       web-vitals: 4.2.3
     dev: false
 
@@ -17686,8 +17686,8 @@ packages:
     resolution: {integrity: sha512-Q+/tYsFU9r7xoOJ+y/ZTtdVQwTWfzjbiXBDMM/JKUux3+QPP02iUuIoeBQ+Ot6oEDlC+/PGjB/5A3K7KKb7hcw==}
     dev: false
 
-  /preact@10.23.2:
-    resolution: {integrity: sha512-kKYfePf9rzKnxOAKDpsWhg/ysrHPqT+yQ7UW4JjdnqjFIeNUnNcEJvhuA8fDenxAGWzUqtd51DfVg7xp/8T9NA==}
+  /preact@10.24.0:
+    resolution: {integrity: sha512-aK8Cf+jkfyuZ0ZZRG9FbYqwmEiGQ4y/PUO4SuTWoyWL244nZZh7bd5h2APd4rSNDYTBNghg1L+5iJN3Skxtbsw==}
     dev: false
 
   /prelude-ls@1.2.1:
@@ -18265,7 +18265,7 @@ packages:
       react: '>=15'
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.77.0
+      unlayer-types: 1.78.0
     dev: false
 
   /react-error-boundary@3.1.4(react@18.2.0):
@@ -20799,8 +20799,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  /unlayer-types@1.77.0:
-    resolution: {integrity: sha512-/eIyHiGWO/EFb3GuD7FqD+jV9sXAj2FMhwn3QTVaio2FUz30RRAh8kQS+qNwPKIcLEZWKzfH41SBi3afudEVAA==}
+  /unlayer-types@1.78.0:
+    resolution: {integrity: sha512-yw/341vpxMyE3GR2mk86HWGeF5F8ZVtMC+XgEi58Kf6xCq/b8qW+Bu0Bpo95lkzJkTF8DoyL4TTL506ePf14vg==}
     dev: false
 
   /unpipe@1.0.0:
