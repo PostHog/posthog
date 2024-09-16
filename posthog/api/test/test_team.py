@@ -551,11 +551,8 @@ def team_api_test_factory():
 
             response = self.client.patch("/api/environments/@current/", {"primary_dashboard": d.id})
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-            response = self.client.get("/api/environments/@current/")
-            response_data = response.json()
             self.assertEqual(
-                response_data,
+                response.json(),
                 self.validation_error_response("Dashboard does not belong to this team.", attr="primary_dashboard"),
             )
 

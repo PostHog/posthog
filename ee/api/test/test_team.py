@@ -8,6 +8,7 @@ from rest_framework.status import (
 
 from ee.api.test.base import APILicensedTest
 from ee.models.explicit_team_membership import ExplicitTeamMembership
+from posthog.models.dashboard import Dashboard
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.project import Project
 from posthog.models.team import Team
@@ -74,9 +75,10 @@ def team_enterprise_api_test_factory():  # type: ignore
             )
 
         def test_cannot_create_team_with_primary_dashboard_id(self):
+            dashboard_x = Dashboard.objects.create(team=self.team, name="Test")
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
-            response = self.client.post("/api/environments/", {"name": "Test", "primary_dashboard": 2137})
+            response = self.client.post("/api/environments/", {"name": "Test", "primary_dashboard": dashboard_x.id})
             self.assertEqual(response.status_code, HTTP_400_BAD_REQUEST, response.json())
             self.assertEqual(
                 response.json(),
