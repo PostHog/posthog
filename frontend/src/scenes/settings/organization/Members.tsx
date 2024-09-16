@@ -259,6 +259,18 @@ export function Members(): JSX.Element | null {
             sorter: (a, b) => a.joined_at.localeCompare(b.joined_at),
         },
         {
+            title: 'Last Signed In',
+            key: 'last_login',
+            render: function RenderLastLogin(_, member) {
+                return (
+                    <div className="whitespace-nowrap">
+                        {member.user.last_login ? <TZLabel time={member.user.last_login} /> : 'Never'}
+                    </div>
+                )
+            },
+            sorter: (a, b) => a.joined_at.localeCompare(b.joined_at),
+        },
+        {
             key: 'actions',
             width: 0,
             render: ActionsComponent,

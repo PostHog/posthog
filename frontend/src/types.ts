@@ -231,6 +231,7 @@ interface UserBaseType {
     first_name: string
     last_name?: string
     email: string
+    last_login?: string
 }
 
 /* Type for User objects in nested serializers (e.g. created_by) */
