@@ -2617,6 +2617,32 @@
             },
             "type": "object"
         },
+        "ConditionalFormattingRule": {
+            "additionalProperties": false,
+            "properties": {
+                "bytecode": {
+                    "items": {},
+                    "type": "array"
+                },
+                "color": {
+                    "type": "string"
+                },
+                "columnName": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "input": {
+                    "type": "string"
+                },
+                "templateId": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "templateId", "columnName", "bytecode", "input", "color"],
+            "type": "object"
+        },
         "CountPerActorMathType": {
             "enum": [
                 "avg_count_per_actor",
@@ -5519,6 +5545,17 @@
         "HedgehogColorOptions": {
             "enum": ["green", "red", "blue", "purple", "dark", "light", "sepia", "invert", "invert-hue", "greyscale"],
             "type": "string"
+        },
+        "HogCompileResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "bytecode": {
+                    "items": {},
+                    "type": "array"
+                }
+            },
+            "required": ["bytecode"],
+            "type": "object"
         },
         "HogLanguage": {
             "enum": ["hog", "hogJson", "hogQL", "hogQLExpr", "hogTemplate"],
@@ -10208,6 +10245,12 @@
                 "columns": {
                     "items": {
                         "$ref": "#/definitions/ChartAxis"
+                    },
+                    "type": "array"
+                },
+                "conditionalFormatting": {
+                    "items": {
+                        "$ref": "#/definitions/ConditionalFormattingRule"
                     },
                     "type": "array"
                 }

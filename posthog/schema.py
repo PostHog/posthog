@@ -264,6 +264,18 @@ class CompareFilter(BaseModel):
     compare_to: Optional[str] = None
 
 
+class ConditionalFormattingRule(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    bytecode: list
+    color: str
+    columnName: str
+    id: str
+    input: str
+    templateId: str
+
+
 class CountPerActorMathType(StrEnum):
     AVG_COUNT_PER_ACTOR = "avg_count_per_actor"
     MIN_COUNT_PER_ACTOR = "min_count_per_actor"
@@ -609,6 +621,13 @@ class HedgehogColorOptions(StrEnum):
     INVERT = "invert"
     INVERT_HUE = "invert-hue"
     GREYSCALE = "greyscale"
+
+
+class HogCompileResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    bytecode: list
 
 
 class HogLanguage(StrEnum):
@@ -3698,6 +3717,7 @@ class TableSettings(BaseModel):
         extra="forbid",
     )
     columns: Optional[list[ChartAxis]] = None
+    conditionalFormatting: Optional[list[ConditionalFormattingRule]] = None
 
 
 class WebExternalClicksTableQuery(BaseModel):
