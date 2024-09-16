@@ -23,7 +23,7 @@ class EncryptedFieldMixin(object):
         # The SECRET_KEY should only be used for ephemeral data like access tokens
 
         # First we use the ENCRYPTION_SALT_KEYS env variable to generate keys
-        keys = settings.ENCRYPTION_SALT_KEYS
+        keys = [base64.urlsafe_b64encode(x.encode("utf-8")) for x in settings.ENCRYPTION_SALT_KEYS]
 
         # TODO: Remove support for these once the migration is complete
         # Generate keys for each salt key and secret key

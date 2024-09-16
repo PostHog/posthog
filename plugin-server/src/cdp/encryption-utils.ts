@@ -12,7 +12,7 @@ export class EncryptedFields {
             throw new Error('Encryption keys are not set')
         }
 
-        this.fernets = saltKeys.map((key) => new Fernet(key))
+        this.fernets = saltKeys.map((key) => new Fernet(Buffer.from(key, 'utf-8').toString('base64')))
     }
 
     encrypt(value: string): string {

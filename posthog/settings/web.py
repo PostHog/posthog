@@ -372,7 +372,7 @@ KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS = int(os.getenv("KAFKA_PRODUCE_ACK_TIMEOUT_SEC
 # We keep the number of buckets low to reduce resource usage on the Prometheus
 PROMETHEUS_LATENCY_BUCKETS = [0.1, 0.3, 0.9, 2.7, 8.1, float("inf")]
 
-DEFAULT_SALT_KEY = "zyxwvutsrqponmlkjihgfedcba9876543210"
+DEFAULT_SALT_KEY = "ABCDEFGHIJKLMNOPQRSTUVWXYZ012345"
 ENCRYPTION_SALT_KEYS = get_list(os.getenv("ENCRYPTION_SALT_KEYS", DEFAULT_SALT_KEY))
 
 if not DEBUG and not TEST and DEFAULT_SALT_KEY in ENCRYPTION_SALT_KEYS:

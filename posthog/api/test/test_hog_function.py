@@ -300,7 +300,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         assert (
             raw_encrypted_inputs
-            == "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAAEx9NjkHozEIpr88sZFSwgVZWWVGhTZXkr6Y7uw_UwUEapVuRFgmPIfijCG6lAzNk_Z33D8eoBLEMubWVOsi-ZqUiOZVzZP-S16Bhvdr_stga8vfTR1oA0_WRVM8gh0Dh4LSDn5J6hpEGSDCyfBDK68="
+            == "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAAOvzJp7Au10tTU28I3-B_HWNPvTUSIuOkk6xUwL_oxTgz1nY6gpSIK0SWHWSUbFUbRZEHF86kMehopdj5jECCS9M7Uv08qytd4d4yBkzaQVnPkL0p5q3aefQDZscFXX1mRcluSZUp9PJ7rST2vMbzLY="
         )
 
     def test_secret_inputs_not_updated_if_not_changed(self, *args):

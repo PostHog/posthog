@@ -7,8 +7,7 @@ describe('Encrypted fields', () => {
     let encryptedFields: EncryptedFields
 
     const mockHub: Partial<Hub> = {
-        DJANGO_ENCRYPTION_SECRET_KEYS: '<randomly generated secret key>',
-        DJANGO_ENCRYPTION_SALT_KEYS: '0123456789abcdefghijklmnopqrstuvwxyz',
+        DJANGO_ENCRYPTION_SALT_KEYS: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ012345',
     }
 
     beforeEach(() => {
@@ -25,7 +24,7 @@ describe('Encrypted fields', () => {
 
         it('should decode django example', () => {
             const encrypted =
-                'gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAAEN-py1-Ob8hr3zEp5LsfNqusw0ovJsBR3jbfRxnBhPcv3xe1hmNpEPdNXU5Xv47OQ=='
+                'gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAAFoHDFl5z8lrvd6QPZj0FC-Hxr567WC_EQxa95EGyjRwCJ94LDuO4y7PzhSE77D0hA=='
             const decrypted = encryptedFields.decrypt(encrypted)
             expect(decrypted).toEqual('test-case')
         })
