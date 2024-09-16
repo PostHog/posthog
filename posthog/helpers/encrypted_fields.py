@@ -19,23 +19,36 @@ class EncryptedFieldMixin(object):
     @cached_property
     def keys(self):
         keys = []
-        secret_keys = [settings.SECRET_KEY]
-        if isinstance(settings.SECRET_KEY_FALLBACKS, list):
-            secret_keys += settings.SECRET_KEY_FALLBACKS
+
+        # NOTE: We previously encrypted some values with the SECRET_KEY which generally speaking we don't want or need to do
+        # The SALT_KEY env is rather our list of comma seperated keys that we want to use as our symmetric keys.
+        # The SECRET_KEY should only be used for ephemeral data like access tokens
+
+        # First we use the ENCRYPTION_SALT_KEYS env variable to generate keys
+        keys = []
+
+        if isinstance(settings.ENCRYPTION_SALT_KEYS, list):
+            keys = settings.ENCRYPTION_SALT_KEYS
+        elif isinstance(settings.ENCRYPTION_SALT_KEYS, str):
+            keys = settings.ENCRYPTION_SALT_KEYS.split(",")
+
+        keys = [key for key in keys if key.strip()]
+
+        # Support for legacy key values
+        # TODO: Remove support for these once the migration is complete
         salt_keys = settings.SALT_KEY if isinstance(settings.SALT_KEY, list) else [settings.SALT_KEY]
 
         # Generate keys for each salt key and secret key
         for salt_key in salt_keys:
-            for secret_key in secret_keys:
-                salt = bytes(salt_key, "utf-8")
-                kdf = PBKDF2HMAC(
-                    algorithm=hashes.SHA256(),
-                    length=32,
-                    salt=salt,
-                    iterations=100000,
-                    backend=default_backend(),
-                )
-                keys.append(base64.urlsafe_b64encode(kdf.derive(secret_key.encode("utf-8"))))
+            salt = bytes(salt_key, "utf-8")
+            kdf = PBKDF2HMAC(
+                algorithm=hashes.SHA256(),
+                length=32,
+                salt=salt,
+                iterations=100000,
+                backend=default_backend(),
+            )
+            keys.append(base64.urlsafe_b64encode(kdf.derive(settings.SECRET_KEY.encode("utf-8"))))
         return keys
 
     @cached_property
