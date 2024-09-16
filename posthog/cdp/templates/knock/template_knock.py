@@ -72,7 +72,7 @@ if (res.status >= 400) {
             "label": "Attribute mapping",
             "description": "Map of Knock.app attributes and their values. You can use the filters section to filter out unwanted events.",
             "default": {
-                "phone": "{event.properties.price}",
+                "price": "{event.properties.price}",
             },
             "secret": False,
             "required": False,
