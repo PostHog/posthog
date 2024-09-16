@@ -18,8 +18,6 @@ from django.utils.functional import cached_property
 class EncryptedFieldMixin(object):
     @cached_property
     def keys(self):
-        keys = []
-
         # NOTE: We previously encrypted some values with the SECRET_KEY which generally speaking we don't want or need to do
         # The SALT_KEY env is rather our list of comma seperated keys that we want to use as our symmetric keys.
         # The SECRET_KEY should only be used for ephemeral data like access tokens
