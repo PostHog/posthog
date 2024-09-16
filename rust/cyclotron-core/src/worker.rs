@@ -43,11 +43,7 @@ pub struct Worker {
     running: Mutex<HashMap<Uuid, JobUpdate>>,
 
     // When a user calls release, we queue up the update to be flushed, but only flush on
-    // some conditions. THIS is an async mutex, because we iterate across pending updates
-    // and flush in a transaction, and that's async. Arc'd because we need to spin off a
-    // task to flush the batch in the future in the case where no other flushes happen
-    // between when the first task is written into the batch and when the linger time is
-    // exceeded.
+    // some conditions.
     flush_batch: Arc<Mutex<FlushBatch>>,
 
     pub heartbeat_window: Duration, // The worker will only pass one heartbeat to the DB every heartbeat_window
