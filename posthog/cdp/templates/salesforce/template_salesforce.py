@@ -219,7 +219,9 @@ class TemplatSalesforceMigrator(HogFunctionTemplateMigrator):
             ]
 
         if propertiesToInclude:
-            hf["inputs_schema"][2]["default"] = {prop: f"{{event.properties.{prop}}}" for prop in propertiesToInclude}
+            hf["inputs"]["properties"] = {
+                "value": {prop: f"{{event.properties.{prop}}}" for prop in propertiesToInclude}
+            }
         elif eventsToInclude and "$identify" in eventsToInclude:
             hf["inputs"]["include_all_person_properties"] = {"value": True}
         else:

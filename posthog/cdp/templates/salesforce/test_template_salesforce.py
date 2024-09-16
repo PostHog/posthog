@@ -145,7 +145,14 @@ class TestTemplateMigration(BaseTest):
     def test_default_config(self):
         obj = self.get_plugin_config({})
         template = TemplatSalesforceMigrator.migrate(obj)
-        assert template["inputs"] == snapshot({"path": {"value": "ignored"}})
+        assert template["inputs"] == snapshot(
+            {
+                "path": {"value": "ignored"},
+                "properties": {
+                    "value": {"email": "{event.properties.email}", "$browser": "{event.properties.$browser}"}
+                },
+            }
+        )
         assert template["filters"] == {
             "events": [
                 {"id": "a", "name": "a", "order": 0, "type": "events"},
@@ -153,39 +160,18 @@ class TestTemplateMigration(BaseTest):
             ]
         }
 
-    #
-    # def test_disable_geoip(self):
-    #     obj = self.get_plugin_config({"disable_geoip": "Yes"})
-    #     template = TemplatSalesforceMigrator.migrate(obj)
-    #     assert template["inputs"] == snapshot(
-    #         {
-    #             "host": {"value": "us.i.example.com"},
-    #             "token": {"value": "apikey"},
-    #             "include_all_properties": {"value": True},
-    #             "properties": {"value": {"$geoip_disable": True}},
-    #         }
-    #     )
-    #     assert template["filters"] == {}
-    #
-    # def test_ignore_events(self):
-    #     obj = self.get_plugin_config({"events_to_ignore": "event1, event2, 'smore"})
-    #     template = TemplatSalesforceMigrator.migrate(obj)
-    #     assert template["inputs"] == snapshot(
-    #         {
-    #             "host": {"value": "us.i.example.com"},
-    #             "token": {"value": "apikey"},
-    #             "include_all_properties": {"value": True},
-    #             "properties": {"value": {}},
-    #         }
-    #     )
-    #     assert template["filters"] == {
-    #         "events": [
-    #             {
-    #                 "id": None,
-    #                 "name": "All events",
-    #                 "type": "events",
-    #                 "order": 0,
-    #                 "properties": [{"type": "hogql", "key": "event not in ('event1', 'event2', '\\'smore')"}],
-    #             }
-    #         ]
-    #     }
+    def test_include_all(self):
+        obj = self.get_plugin_config({"propertiesToInclude": ""})
+        template = TemplatSalesforceMigrator.migrate(obj)
+        assert template["inputs"] == snapshot(
+            {
+                "path": {"value": "ignored"},
+                "include_all_event_properties": {"value": True},
+            }
+        )
+        assert template["filters"] == {
+            "events": [
+                {"id": "a", "name": "a", "order": 0, "type": "events"},
+                {"id": "b", "name": "b", "order": 0, "type": "events"},
+            ]
+        }
