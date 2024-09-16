@@ -2,6 +2,7 @@ import json
 from functools import cached_property
 from typing import Any, Optional, cast
 from datetime import timedelta
+from uuid import UUID
 
 from django.shortcuts import get_object_or_404
 from loginas.utils import is_impersonated_session
@@ -27,6 +28,7 @@ from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import APIScopeObjectOrNotSupported
+from posthog.models.project import Project
 from posthog.models.signals import mute_selected_signals
 from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data
 from posthog.models.utils import UUIDT
@@ -110,6 +112,8 @@ class CachingTeamSerializer(serializers.ModelSerializer):
 
 
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin):
+    instance: Optional[Team]
+
     effective_membership_level = serializers.SerializerMethodField()
     has_group_types = serializers.SerializerMethodField()
     live_events_token = serializers.SerializerMethodField()
@@ -512,20 +516,29 @@ class RootTeamViewSet(TeamViewSet):
 
 
 def validate_team_attrs(
-    attrs: dict[str, Any], view: TeamAndOrgViewSetMixin, request: request.Request, instance
+    attrs: dict[str, Any], view: TeamAndOrgViewSetMixin, request: request.Request, instance: Optional[Team | Project]
 ) -> dict[str, Any]:
-    if "primary_dashboard" in attrs and attrs["primary_dashboard"].team_id != instance.id:
-        raise exceptions.PermissionDenied("Dashboard does not belong to this team.")
+    if "primary_dashboard" in attrs:
+        if not instance:
+            raise exceptions.ValidationError(
+                {"primary_dashboard": "Primary dashboard cannot be set on project creation."}
+            )
+        if attrs["primary_dashboard"].team_id != instance.id:
+            raise exceptions.ValidationError({"primary_dashboard": "Dashboard does not belong to this team."})
 
     if "access_control" in attrs:
         assert isinstance(request.user, User)
+        # We get the instance's organization_id, unless we're handling creation, in which case there's no instance yet
+        organization_id = instance.organization_id if instance is not None else cast(UUID | str, view.organization_id)
         # Only organization-wide admins and above should be allowed to switch the project between open and private
         # If a project-only admin who is only an org member disabled this it, they wouldn't be able to reenable it
         org_membership: OrganizationMembership = OrganizationMembership.objects.only("level").get(
-            organization_id=instance.organization_id, user=request.user
+            organization_id=organization_id, user=request.user
         )
         if org_membership.level < OrganizationMembership.Level.ADMIN:
-            raise exceptions.PermissionDenied("Your organization access level is insufficient.")
+            raise exceptions.PermissionDenied(
+                "Your organization access level is insufficient to configure project access restrictions."
+            )
 
     if "autocapture_exceptions_errors_to_ignore" in attrs:
         if not isinstance(attrs["autocapture_exceptions_errors_to_ignore"], list):

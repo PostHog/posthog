@@ -1,5 +1,7 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
-
+import dataclasses
+from copy import deepcopy
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, HogFunctionTemplateMigrator
+from posthog.hogql.escape_sql import escape_hogql_string
 
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
@@ -33,7 +35,7 @@ let avoEvent := {
     'eventProperties': []
 }
 
-fn getPropValueType(propValue) {
+fun getPropValueType(propValue) {
     let propType := typeof(propValue)
     if (propValue == null) {
         return 'null'
@@ -124,3 +126,51 @@ fetch('https://api.avo.app/inspector/posthog/v1/track', {
         },
     ],
 )
+
+
+class TemplateAvoMigrator(HogFunctionTemplateMigrator):
+    plugin_url = "https://github.com/PostHog/posthog-avo-plugin"
+
+    @classmethod
+    def migrate(cls, obj):
+        hf = deepcopy(dataclasses.asdict(template))
+
+        apiKey = obj.config.get("avoApiKey", "")
+        environment = obj.config.get("environment", "dev")
+        appName = obj.config.get("appName", "PostHog")
+        excludeEvents = obj.config.get("excludeEvents", "")
+        includeEvents = obj.config.get("includeEvents", "")
+        excludeProperties = obj.config.get("excludeProperties", "")
+        includeProperties = obj.config.get("includeProperties", "")
+
+        hf["filters"] = {}
+        hf["filters"]["events"] = []
+
+        events_to_include = [event.strip() for event in includeEvents.split(",") if event.strip()]
+        events_to_exclude = [event.strip() for event in excludeEvents.split(",") if event.strip()]
+
+        if events_to_include:
+            hf["filters"]["events"] = [
+                {"id": event, "name": event, "type": "events", "order": 0} for event in events_to_include
+            ]
+        elif events_to_exclude:
+            event_string = ", ".join(escape_hogql_string(event) for event in events_to_exclude)
+            hf["filters"]["events"] = [
+                {
+                    "id": "All events",
+                    "name": "All events",
+                    "type": "events",
+                    "order": 0,
+                    "properties": [{"key": f"event not in ({event_string})", "type": "hogql"}],
+                }
+            ]
+
+        hf["inputs"] = {
+            "apiKey": {"value": apiKey},
+            "environment": {"value": environment},
+            "appName": {"value": appName},
+            "excludeProperties": {"value": excludeProperties},
+            "includeProperties": {"value": includeProperties},
+        }
+
+        return hf

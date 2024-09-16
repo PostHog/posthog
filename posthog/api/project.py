@@ -43,6 +43,8 @@ from posthog.utils import get_ip_address, get_week_start_for_country_code
 
 
 class ProjectSerializer(ProjectBasicSerializer, UserPermissionsSerializerMixin):
+    instance: Optional[Project]
+
     effective_membership_level = serializers.SerializerMethodField()  # Compat with TeamSerializer
     has_group_types = serializers.SerializerMethodField()  # Compat with TeamSerializer
     live_events_token = serializers.SerializerMethodField()  # Compat with TeamSerializer
