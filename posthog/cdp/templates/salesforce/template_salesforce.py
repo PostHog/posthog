@@ -28,19 +28,19 @@ template_create: HogFunctionTemplate = HogFunctionTemplate(
     icon_url="/static/services/salesforce.png",
     hog="""
 let getPayload := () -> {
-  let properties = {}
+  let properties := {}
   if (inputs.include_all_event_properties) {
     for (let key, value in event.properties) {
-      properties[key] = value
+      properties[key] := value
     }
   }
   if (inputs.include_all_person_properties) {
     for (let key, value in person.properties) {
-      properties[key] = value
+      properties[key] := value
     }
   }
   for (let key, value in inputs.properties) {
-    properties[key] = value
+    properties[key] := value
   }
   return properties
 }
@@ -110,19 +110,19 @@ template_update: HogFunctionTemplate = HogFunctionTemplate(
     icon_url="/static/services/salesforce.png",
     hog="""
 let getPayload := () -> {
-  let properties = {}
+  let properties := {}
   if (inputs.include_all_event_properties) {
     for (let key, value in event.properties) {
-      properties[key] = value
+      properties[key] := value
     }
   }
   if (inputs.include_all_person_properties) {
     for (let key, value in person.properties) {
-      properties[key] = value
+      properties[key] := value
     }
   }
   for (let key, value in inputs.properties) {
-    properties[key] = value
+    properties[key] := value
   }
   return properties
 }

@@ -40,6 +40,34 @@ class TestTemplateSalesforceCreate(BaseHogFunctionTemplateTest):
             )
         )
 
+    def test_add_all_event_properties(self):
+        self.mock_fetch_response = lambda *args: {"status": 200, "body": {"ok": True}}  # type: ignore
+        self.run_function(self._inputs(include_all_event_properties=True))
+        assert self.get_mock_fetch_calls()[0] == snapshot(
+            (
+                "https://example.my.salesforce.com/services/data/v61.0/sobjects/Contact",
+                {
+                    "body": {"$current_url": "https://example.com", "foo": "bar"},
+                    "method": "POST",
+                    "headers": {"Authorization": "Bearer oauth-1234", "Content-Type": "application/json"},
+                },
+            )
+        )
+
+    def test_add_all_person_properties(self):
+        self.mock_fetch_response = lambda *args: {"status": 200, "body": {"ok": True}}  # type: ignore
+        self.run_function(self._inputs(include_all_person_properties=True))
+        assert self.get_mock_fetch_calls()[0] == snapshot(
+            (
+                "https://example.my.salesforce.com/services/data/v61.0/sobjects/Contact",
+                {
+                    "body": {"email": "example@posthog.com", "foo": "bar"},
+                    "method": "POST",
+                    "headers": {"Authorization": "Bearer oauth-1234", "Content-Type": "application/json"},
+                },
+            )
+        )
+
 
 class TestTemplateSalesforceUpdate(BaseHogFunctionTemplateTest):
     template = template_salesforce_update
@@ -72,6 +100,34 @@ class TestTemplateSalesforceUpdate(BaseHogFunctionTemplateTest):
             )
         )
 
+    def test_add_all_event_properties(self):
+        self.mock_fetch_response = lambda *args: {"status": 200, "body": {"ok": True}}  # type: ignore
+        self.run_function(self._inputs(include_all_event_properties=True))
+        assert self.get_mock_fetch_calls()[0] == snapshot(
+            (
+                "https://example.my.salesforce.com/services/data/v61.0/sobjects/Lead/Email/example@posthog.com",
+                {
+                    "body": {"$current_url": "https://example.com", "foo": "bar"},
+                    "method": "PATCH",
+                    "headers": {"Authorization": "Bearer oauth-1234", "Content-Type": "application/json"},
+                },
+            )
+        )
+
+    def test_add_all_person_properties(self):
+        self.mock_fetch_response = lambda *args: {"status": 200, "body": {"ok": True}}  # type: ignore
+        self.run_function(self._inputs(include_all_person_properties=True))
+        assert self.get_mock_fetch_calls()[0] == snapshot(
+            (
+                "https://example.my.salesforce.com/services/data/v61.0/sobjects/Lead/Email/example@posthog.com",
+                {
+                    "body": {"email": "example@posthog.com", "foo": "bar"},
+                    "method": "PATCH",
+                    "headers": {"Authorization": "Bearer oauth-1234", "Content-Type": "application/json"},
+                },
+            )
+        )
+
 
 class TestTemplateMigration(BaseTest):
     def get_plugin_config(self, config: dict):
@@ -90,7 +146,12 @@ class TestTemplateMigration(BaseTest):
         obj = self.get_plugin_config({})
         template = TemplatSalesforceMigrator.migrate(obj)
         assert template["inputs"] == snapshot({"path": {"value": "ignored"}})
-        assert template["filters"] == {}
+        assert template["filters"] == {
+            "events": [
+                {"id": "a", "name": "a", "order": 0, "type": "events"},
+                {"id": "b", "name": "b", "order": 0, "type": "events"},
+            ]
+        }
 
     #
     # def test_disable_geoip(self):
