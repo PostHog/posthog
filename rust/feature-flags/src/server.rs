@@ -1,7 +1,9 @@
 use std::future::Future;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
+use health::{HealthHandle, HealthRegistry};
 use tokio::net::TcpListener;
 
 use crate::config::Config;
@@ -38,8 +40,22 @@ where
         }
     };
 
+    let health = HealthRegistry::new("liveness");
+
+    // TODO - we don't have a more complex health check yet, but we should add e.g. some around DB operations
+    let simple_loop = health
+        .register("simple_loop".to_string(), Duration::from_secs(30))
+        .await;
+    tokio::spawn(liveness_loop(simple_loop));
+
     // You can decide which client to pass to the router, or pass both if needed
-    let app = router::router(redis_client, read_postgres_client, geoip_service);
+    let app = router::router(
+        redis_client,
+        read_postgres_client,
+        geoip_service,
+        health,
+        config.enable_metrics,
+    );
 
     tracing::info!("listening on {:?}", listener.local_addr().unwrap());
     axum::serve(
@@ -49,4 +65,11 @@ where
     .with_graceful_shutdown(shutdown)
     .await
     .unwrap()
+}
+
+async fn liveness_loop(handle: HealthHandle) {
+    loop {
+        handle.report_healthy().await;
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    }
 }

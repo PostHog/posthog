@@ -30,6 +30,9 @@ pub struct Config {
 
     #[envconfig(from = "MAXMIND_DB_PATH", default = "")]
     pub maxmind_db_path: String,
+
+    #[envconfig(default = "true")]
+    pub enable_metrics: bool,
 }
 
 impl Config {
@@ -44,6 +47,7 @@ impl Config {
             max_pg_connections: 100,
             acquire_timeout_secs: 1,
             maxmind_db_path: "".to_string(),
+            enable_metrics: true,
         }
     }
 

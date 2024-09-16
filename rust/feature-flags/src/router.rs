@@ -1,6 +1,11 @@
-use std::sync::Arc;
+use std::{future::ready, sync::Arc};
 
-use axum::{routing::post, Router};
+use axum::{
+    routing::{get, post},
+    Router,
+};
+use common_metrics::setup_metrics_recorder;
+use health::HealthRegistry;
 
 use crate::{
     database::Client as DatabaseClient, geoip::GeoIpClient, redis::Client as RedisClient,
@@ -15,7 +20,13 @@ pub struct State {
     pub geoip: Arc<GeoIpClient>,
 }
 
-pub fn router<R, D>(redis: Arc<R>, postgres: Arc<D>, geoip: Arc<GeoIpClient>) -> Router
+pub fn router<R, D>(
+    redis: Arc<R>,
+    postgres: Arc<D>,
+    geoip: Arc<GeoIpClient>,
+    liveness: HealthRegistry,
+    metrics: bool,
+) -> Router
 where
     R: RedisClient + Send + Sync + 'static,
     D: DatabaseClient + Send + Sync + 'static,
@@ -26,9 +37,29 @@ where
         geoip,
     };
 
-    Router::new()
+    let status_router = Router::new()
+        .route("/", get(index))
+        .route("/_readiness", get(index))
+        .route("/_liveness", get(move || ready(liveness.get_status())));
+
+    let flags_router = Router::new()
         .route("/flags", post(v0_endpoint::flags).get(v0_endpoint::flags))
-        .with_state(state)
+        .with_state(state);
+
+    let router = Router::new().merge(status_router).merge(flags_router);
+
+    // Don't install metrics unless asked to
+    // Global metrics recorders can play poorly with e.g. tests
+    if metrics {
+        let recorder_handle = setup_metrics_recorder();
+        router.route("/metrics", get(move || ready(recorder_handle.render())))
+    } else {
+        router
+    }
+}
+
+pub async fn index() -> &'static str {
+    "feature flags service"
 }
 
 // TODO, eventually we can differentiate read and write postgres clients, if needed
