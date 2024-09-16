@@ -166,7 +166,7 @@ export function ProjectNotice(): JSX.Element | null {
             type={relevantNotice.type || 'info'}
             className="my-4"
             action={relevantNotice.action}
-            onClose={relevantNotice.isClosable ? () => closeProjectNotice(projectNoticeVariant) : undefined}
+            onClose={relevantNotice.closeable ? () => closeProjectNotice(projectNoticeVariant) : undefined}
         >
             {relevantNotice.message}
         </LemonBanner>
