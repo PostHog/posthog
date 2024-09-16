@@ -14,7 +14,8 @@ from posthog.schema import (
     DateRange,
     SessionTableVersion,
     HogQLQueryModifiers,
-    WebAnalyticsConversionGoal,
+    CustomEventConversionGoal,
+    ActionConversionGoal,
 )
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.base import (
@@ -70,6 +71,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         limit_context: Optional[LimitContext] = None,
         filter_test_accounts: Optional[bool] = False,
         action: Optional[Action] = None,
+        custom_event: Optional[str] = None,
     ):
         modifiers = HogQLQueryModifiers(sessionTableVersion=session_table_version)
         query = WebOverviewQuery(
@@ -78,7 +80,11 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             compare=compare,
             modifiers=modifiers,
             filterTestAccounts=filter_test_accounts,
-            conversionGoal=WebAnalyticsConversionGoal(actionId=action.id) if action else None,
+            conversionGoal=ActionConversionGoal(actionId=action.id)
+            if action
+            else CustomEventConversionGoal(customEventName=custom_event)
+            if custom_event
+            else None,
         )
         runner = WebOverviewQueryRunner(team=self.team, query=query, limit_context=limit_context)
         return runner.calculate()
@@ -350,7 +356,30 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         conversion_rate = results[3]
         assert conversion_rate.value == 100
 
-    def test_conversion_goal_one_custom_conversion(self):
+    def test_conversion_goal_one_custom_event_conversion(self):
+        s1 = str(uuid7("2023-12-01"))
+        self._create_events(
+            [
+                ("p1", [("2023-12-01", s1, "https://www.example.com/foo")]),
+            ],
+            event="custom_event",
+        )
+
+        results = self._run_web_overview_query("2023-12-01", "2023-12-03", custom_event="custom_event").results
+
+        visitors = results[0]
+        assert visitors.value == 1
+
+        conversion = results[1]
+        assert conversion.value == 1
+
+        unique_conversions = results[2]
+        assert unique_conversions.value == 1
+
+        conversion_rate = results[3]
+        assert conversion_rate.value == 100
+
+    def test_conversion_goal_one_custom_action_conversion(self):
         s1 = str(uuid7("2023-12-01"))
         self._create_events(
             [

@@ -1354,9 +1354,13 @@ export interface SessionsTimelineQuery extends DataNode<SessionsTimelineQueryRes
 }
 export type WebAnalyticsPropertyFilter = EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter
 export type WebAnalyticsPropertyFilters = WebAnalyticsPropertyFilter[]
-export type WebAnalyticsConversionGoal = {
+export type ActionConversionGoal = {
     actionId: integer
 }
+export type CustomEventConversionGoal = {
+    customEventName: string
+}
+export type WebAnalyticsConversionGoal = ActionConversionGoal | CustomEventConversionGoal
 interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<R> {
     dateRange?: DateRange
     properties: WebAnalyticsPropertyFilters

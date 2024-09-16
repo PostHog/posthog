@@ -13,7 +13,13 @@ from posthog.hogql_queries.web_analytics.web_analytics_query_runner import (
 )
 from posthog.models import Action
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.schema import CachedWebOverviewQueryResponse, WebOverviewQueryResponse, WebOverviewQuery
+from posthog.schema import (
+    CachedWebOverviewQueryResponse,
+    WebOverviewQueryResponse,
+    WebOverviewQuery,
+    ActionConversionGoal,
+    CustomEventConversionGoal,
+)
 
 
 class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
@@ -88,8 +94,15 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
 
     @cached_property
     def conversion_goal_action(self) -> Optional[Action]:
-        if self.query.conversionGoal:
+        if isinstance(self.query.conversionGoal, ActionConversionGoal):
             return Action.objects.get(pk=self.query.conversionGoal.actionId)
+        else:
+            return None
+
+    @cached_property
+    def conversion_goal_custom_event(self) -> Optional[str]:
+        if isinstance(self.query.conversionGoal, CustomEventConversionGoal):
+            return self.query.conversionGoal.customEventName
         else:
             return None
 
@@ -103,6 +116,24 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
                     ast.Call(
                         name="if",
                         args=[action_expr, ast.Field(chain=["events", "person_id"]), ast.Constant(value=None)],
+                    )
+                ],
+            )
+        elif self.conversion_goal_custom_event:
+            return ast.Call(
+                name="any",
+                args=[
+                    ast.Call(
+                        name="if",
+                        args=[
+                            ast.CompareOperation(
+                                left=ast.Field(chain=["event"]),
+                                op=ast.CompareOperationOp.Eq,
+                                right=ast.Constant(value=self.conversion_goal_custom_event),
+                            ),
+                            ast.Field(chain=["events", "person_id"]),
+                            ast.Constant(value=None),
+                        ],
                     )
                 ],
             )
@@ -130,6 +161,17 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
         if self.conversion_goal_action:
             action_expr = action_to_expr(self.conversion_goal_action)
             return ast.Call(name="countIf", args=[action_expr])
+        elif self.conversion_goal_custom_event:
+            return ast.Call(
+                name="countIf",
+                args=[
+                    ast.CompareOperation(
+                        left=ast.Field(chain=["event"]),
+                        op=ast.CompareOperationOp.Eq,
+                        right=ast.Constant(value=self.conversion_goal_custom_event),
+                    )
+                ],
+            )
         else:
             return ast.Constant(value=None)
 
@@ -141,6 +183,18 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
 
         if self.conversion_goal_action:
             return ast.Call(name="or", args=[pageview_expr, action_to_expr(self.conversion_goal_action)])
+        elif self.conversion_goal_custom_event:
+            return ast.Call(
+                name="or",
+                args=[
+                    pageview_expr,
+                    ast.CompareOperation(
+                        left=ast.Field(chain=["event"]),
+                        op=ast.CompareOperationOp.Eq,
+                        right=ast.Constant(value=self.conversion_goal_custom_event),
+                    ),
+                ],
+            )
         else:
             return pageview_expr
 
