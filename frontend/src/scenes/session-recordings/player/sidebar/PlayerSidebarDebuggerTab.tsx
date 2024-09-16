@@ -69,7 +69,9 @@ export function PlayerSidebarDebuggerTab(): JSX.Element {
                     value={typeValues}
                     mode="multiple"
                     allowCustomValues={false}
-                    onChange={(newVal) => setDebugSnapshotTypes(newVal.map(parseInt) as unknown as EventType[])}
+                    onChange={(newVal) => {
+                        setDebugSnapshotTypes(newVal.map((v) => parseInt(v)) as unknown as EventType[])
+                    }}
                     options={Object.entries(snapshotTypes).map(([key, value]) => ({
                         key: key,
                         label: value,
@@ -83,7 +85,9 @@ export function PlayerSidebarDebuggerTab(): JSX.Element {
                     mode="multiple"
                     allowCustomValues={false}
                     onChange={(newVal) =>
-                        setDebugSnapshotIncrementalSources(newVal.map(parseInt) as unknown as IncrementalSource[])
+                        setDebugSnapshotIncrementalSources(
+                            newVal.map((v) => parseInt(v)) as unknown as IncrementalSource[]
+                        )
                     }
                     options={Object.entries(incrementalSource).map(([key, value]) => ({
                         key: key,
