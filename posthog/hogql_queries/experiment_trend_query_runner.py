@@ -7,7 +7,7 @@ from posthog.schema import (
     ExperimentTrendQueryResponse,
     ExperimentVariantTrendResult,
 )
-from typing import Optional, Any
+from typing import Any
 import threading
 
 
@@ -24,13 +24,13 @@ class ExperimentTrendQueryRunner(QueryRunner):
         )
 
     def calculate(self) -> ExperimentTrendQueryResponse:
-        res_matrix: list[Optional[Any]] = [None] * 2
+        count_response = None
+        exposure_response = None
         errors = []
 
-        def run(index: int, query_runner: TrendsQueryRunner, is_parallel: bool):
+        def run(query_runner: TrendsQueryRunner, is_parallel: bool):
             try:
-                response = query_runner.calculate()
-                res_matrix[index] = response
+                return query_runner.calculate()
             except Exception as e:
                 errors.append(e)
             finally:
@@ -42,21 +42,22 @@ class ExperimentTrendQueryRunner(QueryRunner):
 
         # This exists so that we're not spawning threads during unit tests
         if settings.IN_UNIT_TESTING:
-            run(0, self.query_runner, False)
-            run(1, self.exposure_query_runner, False)
+            count_response = run(self.query_runner, False)
+            exposure_response = run(self.exposure_query_runner, False)
         else:
             jobs = [
-                threading.Thread(target=run, args=(0, self.query_runner, True)),
-                threading.Thread(target=run, args=(1, self.exposure_query_runner, True)),
+                threading.Thread(target=run, args=(self.query_runner, True)),
+                threading.Thread(target=run, args=(self.exposure_query_runner, True)),
             ]
-            [j.start() for j in jobs]  # type:ignore
-            [j.join() for j in jobs]  # type:ignore
+            [j.start() for j in jobs]  # type: ignore
+            [j.join() for j in jobs]  # type: ignore
+
+            count_response = getattr(jobs[0], "result", None)
+            exposure_response = getattr(jobs[1], "result", None)
 
         # Raise any errors raised in a separate thread
         if len(errors) > 0:
             raise errors[0]
-
-        count_response, exposure_response = res_matrix
 
         if count_response is None or exposure_response is None:
             raise ValueError("One or both query runners failed to produce a response")
