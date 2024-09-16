@@ -729,12 +729,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         }
                     }
 
-                    if (
-                        words &&
-                        words.length > 0 &&
-                        words[0].toLowerCase() === 'open' &&
-                        words[0].toLowerCase() === 'visit'
-                    ) {
+                    if (words && words.length > 0 && ['open', 'visit'].includes(words[0].toLowerCase())) {
                         const results: CommandResultTemplate[] = (teamLogic.values.currentTeam?.app_urls ?? []).map(
                             (url: string) => ({
                                 icon: IconExternal,
