@@ -342,7 +342,6 @@ async fn flush_loop(
     max_bytes: usize,
     interval: Duration,
 ) {
-    // contemplating the bounds checker, sync mutexes and Send bounds on the tree of woe.
     loop {
         let Some(batch) = batch.upgrade() else {
             // The batch has been dropped, we should exit.
