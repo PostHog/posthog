@@ -4,6 +4,8 @@ import { useEffect } from 'react'
 import { DashboardTemplateChooser } from 'scenes/dashboard/DashboardTemplateChooser'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
+import { TemplateAvailabilityContext } from '~/types'
+
 import { onboardingLogic, OnboardingStepKey } from '../onboardingLogic'
 import { OnboardingStep } from '../OnboardingStep'
 import { onboardingTemplateConfigLogic } from './onboardingTemplateConfigLogic'
@@ -50,6 +52,7 @@ export const OnboardingDashboardTemplateSelectStep = ({
                     }
                 }}
                 redirectAfterCreation={false}
+                availabilityContexts={[TemplateAvailabilityContext.ONBOARDING]}
             />
         </OnboardingStep>
     )

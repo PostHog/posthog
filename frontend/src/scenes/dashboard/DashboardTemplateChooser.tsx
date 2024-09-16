@@ -13,12 +13,13 @@ import {
 } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
-import { DashboardTemplateType } from '~/types'
+import { DashboardTemplateType, TemplateAvailabilityContext } from '~/types'
 
 export function DashboardTemplateChooser({
     scope = 'default',
     onItemClick,
     redirectAfterCreation = true,
+    availabilityContexts,
 }: DashboardTemplateProps): JSX.Element {
     const templatesLogic = dashboardTemplatesLogic({ scope })
     const { allTemplates, allTemplatesLoading } = useValues(templatesLogic)
@@ -35,61 +36,72 @@ export function DashboardTemplateChooser({
     return (
         <div>
             <div className="DashboardTemplateChooser">
-                <TemplateItem
-                    template={{
-                        template_name: 'Blank dashboard',
-                        dashboard_description: 'Create a blank dashboard',
-                        image_url: BlankDashboardHog,
-                    }}
-                    onClick={() => {
-                        if (isLoading) {
-                            return
-                        }
-                        setIsLoading(true)
-                        addDashboard({
-                            name: 'New Dashboard',
-                            show: true,
-                        })
-                    }}
-                    index={0}
-                    data-attr="create-dashboard-blank"
-                />
+                {(availabilityContexts || []).includes(TemplateAvailabilityContext.GENERAL) || !availabilityContexts ? (
+                    <TemplateItem
+                        template={{
+                            template_name: 'Blank dashboard',
+                            dashboard_description: 'Create a blank dashboard',
+                            image_url: BlankDashboardHog,
+                        }}
+                        onClick={() => {
+                            if (isLoading) {
+                                return
+                            }
+                            setIsLoading(true)
+                            addDashboard({
+                                name: 'New Dashboard',
+                                show: true,
+                            })
+                        }}
+                        index={0}
+                        data-attr="create-dashboard-blank"
+                    />
+                ) : null}
                 {allTemplatesLoading ? (
                     <Spinner className="text-6xl" />
                 ) : (
-                    allTemplates.map((template, index) => (
-                        <TemplateItem
-                            key={index}
-                            template={template}
-                            onClick={() => {
-                                if (isLoading) {
-                                    return
-                                }
-                                setIsLoading(true)
-                                // while we might receive templates from the external repository
-                                // we need to handle templates that don't have variables
-                                if ((template.variables || []).length === 0) {
-                                    if (template.variables === null) {
-                                        template.variables = []
+                    allTemplates
+                        .filter((template) => {
+                            if (availabilityContexts) {
+                                return availabilityContexts.some((context) =>
+                                    template.availability_contexts?.includes(context)
+                                )
+                            }
+                            return true
+                        })
+                        .map((template, index) => (
+                            <TemplateItem
+                                key={index}
+                                template={template}
+                                onClick={() => {
+                                    if (isLoading) {
+                                        return
                                     }
-                                    createDashboardFromTemplate(
-                                        template,
-                                        template.variables || [],
-                                        redirectAfterCreation
-                                    )
-                                } else {
-                                    if (!newDashboardModalVisible) {
-                                        showVariableSelectModal(template)
+                                    setIsLoading(true)
+                                    // while we might receive templates from the external repository
+                                    // we need to handle templates that don't have variables
+                                    if ((template.variables || []).length === 0) {
+                                        if (template.variables === null) {
+                                            template.variables = []
+                                        }
+                                        createDashboardFromTemplate(
+                                            template,
+                                            template.variables || [],
+                                            redirectAfterCreation
+                                        )
                                     } else {
-                                        setActiveDashboardTemplate(template)
+                                        if (!newDashboardModalVisible) {
+                                            showVariableSelectModal(template)
+                                        } else {
+                                            setActiveDashboardTemplate(template)
+                                        }
                                     }
-                                }
-                                onItemClick?.(template)
-                            }}
-                            index={index + 1}
-                            data-attr="create-dashboard-from-template"
-                        />
-                    ))
+                                    onItemClick?.(template)
+                                }}
+                                index={index + 1}
+                                data-attr="create-dashboard-from-template"
+                            />
+                        ))
                 )}
             </div>
         </div>
