@@ -198,8 +198,7 @@ export function getDefaultConfig(): PluginsServerConfig {
             ? 'postgres://posthog:posthog@localhost:5432/cyclotron'
             : '',
 
-        DJANGO_ENCRYPTION_SECRET_KEYS: isDevEnv() ? '<randomly generated secret key>' : '',
-        DJANGO_ENCRYPTION_SALT_KEYS: isDevEnv() ? '0123456789abcdefghijklmnopqrstuvwxyz' : '',
+        DJANGO_ENCRYPTION_SALT_KEYS: isDevEnv() ? 'zyxwvutsrqponmlkjihgfedcba9876543210' : '',
     }
 }
 

@@ -23,21 +23,11 @@ class EncryptedFieldMixin(object):
         # The SECRET_KEY should only be used for ephemeral data like access tokens
 
         # First we use the ENCRYPTION_SALT_KEYS env variable to generate keys
-        keys = []
+        keys = settings.ENCRYPTION_SALT_KEYS
 
-        if isinstance(settings.ENCRYPTION_SALT_KEYS, list):
-            keys = settings.ENCRYPTION_SALT_KEYS
-        elif isinstance(settings.ENCRYPTION_SALT_KEYS, str):
-            keys = settings.ENCRYPTION_SALT_KEYS.split(",")
-
-        keys = [key for key in keys if key.strip()]
-
-        # Support for legacy key values
         # TODO: Remove support for these once the migration is complete
-        salt_keys = settings.SALT_KEY if isinstance(settings.SALT_KEY, list) else [settings.SALT_KEY]
-
         # Generate keys for each salt key and secret key
-        for salt_key in salt_keys:
+        for salt_key in settings.SALT_KEY:
             salt = bytes(salt_key, "utf-8")
             kdf = PBKDF2HMAC(
                 algorithm=hashes.SHA256(),
