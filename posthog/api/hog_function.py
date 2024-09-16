@@ -186,7 +186,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
     def to_representation(self, data):
         data = super().to_representation(data)
-        encrypted_inputs = data.get("encrypted_inputs", {})
+        encrypted_inputs = data.get("encrypted_inputs") or {}
 
         # TRICKY: We don't want to return the encrypted inputs but we want to indicate if a value is set
         for key in encrypted_inputs:
