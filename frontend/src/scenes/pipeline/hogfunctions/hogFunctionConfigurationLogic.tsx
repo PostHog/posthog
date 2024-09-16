@@ -61,10 +61,19 @@ const NEW_FUNCTION_TEMPLATE: HogFunctionTemplateType = {
 
 export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFunctionConfigurationType {
     const sanitizedInputs: Record<string, HogFunctionInputType> = {}
-    const sanitizedEncryptedInputs: Record<string, HogFunctionInputType> = {}
 
     data.inputs_schema?.forEach((input) => {
+        const secret = data.inputs?.[input.key]?.secret
         let value = data.inputs?.[input.key]?.value
+
+        if (secret) {
+            // If set this means we haven't changed the value
+            sanitizedInputs[input.key] = {
+                value: '********', // Don't send the actual value
+                secret: true,
+            }
+            return
+        }
 
         if (input.type === 'json' && typeof value === 'string') {
             try {
@@ -75,14 +84,8 @@ export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFu
             return
         }
 
-        if (input.secret) {
-            sanitizedEncryptedInputs[input.key] = {
-                value: value,
-            }
-        } else {
-            sanitizedInputs[input.key] = {
-                value: value,
-            }
+        sanitizedInputs[input.key] = {
+            value: value,
         }
     })
 
@@ -90,7 +93,6 @@ export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFu
         ...data,
         filters: data.filters,
         inputs: sanitizedInputs,
-        encrypted_inputs: sanitizedEncryptedInputs,
         masking: data.masking?.hash ? data.masking : null,
         icon_url: data.icon_url,
     }

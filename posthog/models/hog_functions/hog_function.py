@@ -46,7 +46,7 @@ class HogFunction(UUIDModel):
     bytecode = models.JSONField(null=True, blank=True)
     inputs_schema = models.JSONField(null=True)
     inputs = models.JSONField(null=True)
-    encrypted_inputs = EncryptedJSONStringField(null=True, blank=True)
+    encrypted_inputs: EncryptedJSONStringField = EncryptedJSONStringField(null=True, blank=True)
 
     filters = models.JSONField(null=True, blank=True)
     masking = models.JSONField(null=True, blank=True)

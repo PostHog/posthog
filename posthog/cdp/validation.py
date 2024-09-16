@@ -115,12 +115,21 @@ def validate_inputs_schema(value: list) -> list:
     return serializer.validated_data or []
 
 
-def validate_inputs(inputs_schema: list, inputs: dict, secret_inputs: dict) -> tuple[dict, dict]:
+def validate_inputs(inputs_schema: list, inputs: dict, existing_secret_inputs: dict) -> tuple[dict, dict]:
+    """
+    Tricky: We want to allow overriding the secret inputs, but not return them.
+    If we have a given input then we use it, otherwise we pull it from the existing secrets
+    """
     validated_inputs = {}
     validated_secret_inputs = {}
 
     for schema in inputs_schema:
-        value = secret_inputs.get(schema["key"], {}) if schema.get("secret") else inputs.get(schema["key"], {})
+        value = inputs.get(schema["key"]) or {}
+
+        # We only load the existing secret if the schema is secret and the given value has "secret" set
+        if schema.get("secret") and value and value.get("secret"):
+            value = existing_secret_inputs.get(schema["key"]) or {}
+
         serializer = InputsItemSerializer(data=value, context={"schema": schema})
 
         if not serializer.is_valid():

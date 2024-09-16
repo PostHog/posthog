@@ -74,6 +74,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
     template = HogFunctionTemplateSerializer(read_only=True)
     status = HogFunctionStatusSerializer(read_only=True, required=False, allow_null=True)
     masking = HogFunctionMaskingSerializer(required=False, allow_null=True)
+    encrypted_inputs = serializers.HiddenField(default={})
 
     class Meta:
         model = HogFunction
@@ -90,13 +91,13 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "bytecode",
             "inputs_schema",
             "inputs",
-            "encrypted_inputs",
             "filters",
             "masking",
             "icon_url",
             "template",
             "template_id",
             "status",
+            "encrypted_inputs",
         ]
         read_only_fields = [
             "id",
@@ -106,6 +107,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "bytecode",
             "template",
             "status",
+            "encrypted_inputs",
         ]
         extra_kwargs = {
             "hog": {"required": False},
@@ -152,10 +154,9 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
         if self.context.get("view") and self.context["view"].action == "create":
             # Ensure we have sensible defaults when created
-            attrs["filters"] = attrs.get("filters", {})
-            attrs["inputs_schema"] = attrs.get("inputs_schema", [])
-            attrs["inputs"] = attrs.get("inputs", {})
-            attrs["encrypted_inputs"] = attrs.get("encrypted_inputs", {})
+            attrs["filters"] = attrs.get("filters") or {}
+            attrs["inputs_schema"] = attrs.get("inputs_schema") or []
+            attrs["inputs"] = attrs.get("inputs") or {}
 
         if "inputs_schema" in attrs:
             attrs["inputs_schema"] = validate_inputs_schema(attrs["inputs_schema"])
@@ -163,35 +164,40 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         if "filters" in attrs:
             attrs["filters"] = compile_filters_bytecode(attrs["filters"], team)
 
-        if "inputs" in attrs or "encrypted_inputs" in attrs:
-            inputs = attrs.get("inputs", {})
-            encrypted_inputs = attrs.get("encrypted_inputs", {})
+        if "inputs" in attrs:
+            inputs = attrs["inputs"] or {}
+            existing_encrypted_inputs = {}
 
             if instance and instance.encrypted_inputs:
-                # Encrypted inputs are only given if being overridden so we add the existing ones if not present
-                for key, val in instance.encrypted_inputs.items():
-                    encrypted_inputs[key] = encrypted_inputs[key] or val
+                existing_encrypted_inputs = instance.encrypted_inputs
 
             attrs["inputs_schema"] = attrs.get("inputs_schema", instance.inputs_schema if instance else [])
             validated_inputs, validate_encrypted_inputs = validate_inputs(
-                attrs["inputs_schema"], inputs, encrypted_inputs
+                attrs["inputs_schema"], inputs, existing_encrypted_inputs
             )
             attrs["inputs"] = validated_inputs
             attrs["encrypted_inputs"] = validate_encrypted_inputs
+
         if "hog" in attrs:
             attrs["bytecode"] = compile_hog(attrs["hog"])
 
         return super().validate(attrs)
 
     def to_representation(self, data):
+        encrypted_inputs = data.encrypted_inputs if isinstance(data, HogFunction) else None
         data = super().to_representation(data)
-        encrypted_inputs = data.get("encrypted_inputs") or {}
+        data["inputs"] = data.get("inputs") or {}
 
-        # TRICKY: We don't want to return the encrypted inputs but we want to indicate if a value is set
-        for key in encrypted_inputs:
-            encrypted_inputs[key] = True
+        if encrypted_inputs:
+            inputs_schema = data.get("inputs_schema", [])
+            inputs = data.get("inputs", {})
 
-        data["encrypted_inputs"] = encrypted_inputs
+            for schema in inputs_schema:
+                if schema.get("secret") and encrypted_inputs.get(schema["key"]):
+                    # Marker to indicate to the user that a secret is set
+                    inputs[schema["key"]] = {"secret": True}
+
+            data["inputs"] = inputs
 
         return data
 
