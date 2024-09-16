@@ -8,6 +8,7 @@ import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
 
 import { PipelineBackend } from '../types'
+import type { destinationsFiltersLogicType } from './destinationsFiltersLogicType'
 
 export type DestinationsFilters = {
     search?: string
@@ -16,7 +17,7 @@ export type DestinationsFilters = {
     showPaused?: boolean
 }
 
-export const destinationsFiltersLogic = kea([
+export const destinationsFiltersLogic = kea<destinationsFiltersLogicType>([
     path(() => ['scenes', 'pipeline', 'destinations', 'destinationsFiltersLogic']),
     connect({
         values: [userLogic, ['user'], featureFlagLogic, ['featureFlags']],
@@ -47,7 +48,6 @@ export const destinationsFiltersLogic = kea([
                 await breakpoint(1000)
                 posthog.capture('cdp destination search', { search: filters.search })
             }
-            console.log('filters', filters)
         },
 
         openFeedbackDialog: async (_, breakpoint) => {
