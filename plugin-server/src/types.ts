@@ -18,6 +18,7 @@ import { Kafka } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { VM } from 'vm2'
 
+import { EncryptedFields } from './cdp/encryption-utils'
 import { ObjectStorage } from './main/services/object_storage'
 import { DB } from './utils/db/db'
 import { KafkaProducerWrapper } from './utils/db/kafka-producer-wrapper'
@@ -287,6 +288,9 @@ export interface PluginsServerConfig extends CdpConfig {
     SESSION_RECORDING_KAFKA_CONSUMPTION_STATISTICS_EVENT_INTERVAL_MS: number
 
     CYCLOTRON_DATABASE_URL: string
+
+    DJANGO_ENCRYPTION_SECRET_KEYS: string
+    DJANGO_ENCRYPTION_SALT_KEYS: string
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -327,6 +331,7 @@ export interface Hub extends PluginsServerConfig {
     pluginConfigsToSkipElementsParsing: ValueMatcher<number>
     // lookups
     eventsToDropByToken: Map<string, string[]>
+    encryptedFields: EncryptedFields
 }
 
 export interface PluginServerCapabilities {
