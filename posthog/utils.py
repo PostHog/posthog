@@ -49,7 +49,6 @@ from posthog.exceptions import (
     UnspecifiedCompressionFallbackParsingError,
 )
 from posthog.git import get_git_branch, get_git_commit_short
-from posthog.geoip import get_geoip_properties
 from posthog.metrics import KLUDGES_COUNTER
 from posthog.redis import get_client
 
@@ -286,6 +285,8 @@ def render_template(
     *,
     team_for_public_context: Optional["Team"] = None,
 ) -> HttpResponse:
+    from posthog.geoip import get_geoip_properties
+
     """Render Django template.
 
     If team_for_public_context is provided, this means this is a public page such as a shared dashboard.

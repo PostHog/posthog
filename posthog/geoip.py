@@ -3,6 +3,7 @@ from typing import Optional
 import structlog
 from django.contrib.gis.geoip2 import GeoIP2
 from sentry_sdk import capture_exception
+from django.conf import settings
 
 logger = structlog.get_logger(__name__)
 
@@ -15,6 +16,8 @@ except Exception as e:
     # Inform Sentry, but don't bring down the app
     capture_exception(e)
     geoip = None
+
+    print("GeoIP not available. Please install GeoIP dependencies or check GEOIP_PATH setting:", settings.GEOIP_PATH)
 
 VALID_GEOIP_PROPERTIES = [
     "city_name",
@@ -40,7 +43,6 @@ def get_geoip_properties(ip_address: Optional[str]) -> dict[str, str]:
         $geoip_postal_code
         $geoip_time_zone
     """
-    ip_address = "46.17.46.213"
     if not ip_address or not geoip or ip_address == "127.0.0.1":
         # "127.0.0.1" would throw "The address 127.0.0.1 is not in the database." below
         return {}
