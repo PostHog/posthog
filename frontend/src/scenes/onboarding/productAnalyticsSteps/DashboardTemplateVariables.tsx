@@ -1,5 +1,5 @@
 import { IconCheckCircle, IconInfo, IconTarget, IconTrash } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCollapse, LemonInput, LemonLabel, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCollapse, LemonInput, LemonLabel, LemonMenu, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { iframedToolbarBrowserLogic } from 'lib/components/IframedToolbarBrowser/iframedToolbarBrowserLogic'
 import { useEffect } from 'react'
@@ -25,6 +25,8 @@ function VariableSelector({
     })
     const {
         setVariable,
+        setVariableForPageview,
+        setVariableForScreenview,
         resetVariable,
         goToNextUntouchedActiveVariableIndex,
         incrementActiveVariableIndex,
@@ -41,6 +43,9 @@ function VariableSelector({
     const { customEventFieldShown } = useValues(onboardingTemplateConfigLogic)
     const { showCustomEventField, hideCustomEventField } = useActions(onboardingTemplateConfigLogic)
     const { enableElementSelector, disableElementSelector, setNewActionName } = useActions(
+        iframedToolbarBrowserLogic({ iframeRef, clearBrowserUrlOnUnmount: true })
+    )
+    const { currentFullUrl, browserUrl, currentPath } = useValues(
         iframedToolbarBrowserLogic({ iframeRef, clearBrowserUrlOnUnmount: true })
     )
 
@@ -85,9 +90,15 @@ function VariableSelector({
                                         <span className="font-bold">Page URL:</span> {variable.default.url || 'any url'}
                                     </p>
                                 </>
+                            ) : variable.default.type === EntityTypes.EVENTS &&
+                              variable.default.name == '$screenview' ? (
+                                <p className="text-muted mb-1 text-xs">
+                                    <span className="font-bold">Screenview:</span>{' '}
+                                    {variable.default.properties?.[0].value || 'any screenview'}
+                                </p>
                             ) : variable.default.type === EntityTypes.EVENTS ? (
                                 <p className="text-muted mb-1 text-xs">
-                                    <span className="font-bold">Pageview URL:</span>{' '}
+                                    <span className="font-bold">Pageview URL contains:</span>{' '}
                                     {variable.default.properties?.[0].value || 'any url'}
                                 </p>
                             ) : null}
@@ -207,6 +218,41 @@ function VariableSelector({
                                 Select from site
                             </LemonButton>
                         )}
+                        <LemonMenu
+                            items={[
+                                {
+                                    title: 'Use pageview',
+                                    items: [
+                                        {
+                                            label: (
+                                                <div className="flex">
+                                                    This pageview{' '}
+                                                    {currentFullUrl ? (
+                                                        <div className="text-muted max-w-44 overflow-clip overflow-ellipsis text-nowrap ml-2">
+                                                            {!currentPath ? browserUrl : '/' + currentPath}
+                                                        </div>
+                                                    ) : null}
+                                                </div>
+                                            ),
+                                            onClick: () => setVariableForPageview(variable.name, currentFullUrl),
+                                            disabledReason: !currentFullUrl
+                                                ? 'Please select a site to use a specific pageview'
+                                                : undefined,
+                                        },
+                                        {
+                                            label: 'Any pageview',
+                                            onClick: () => setVariableForPageview(variable.name, browserUrl || ''),
+                                        },
+                                        {
+                                            label: 'Any screenview (mobile apps)',
+                                            onClick: () => setVariableForScreenview(variable.name),
+                                        },
+                                    ],
+                                },
+                            ]}
+                        >
+                            <LemonButton type="secondary">Use pageview</LemonButton>
+                        </LemonMenu>
                         <LemonButton
                             type="secondary"
                             onClick={() => {

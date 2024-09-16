@@ -40,6 +40,7 @@ export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLog
         }),
         setVariableFromAction: (variableName: string, action: ActionType) => ({ variableName, action }),
         setVariableForPageview: (variableName: string, url: string) => ({ variableName, url }),
+        setVariableForScreenview: (variableName: string) => ({ variableName }),
         setActiveVariableIndex: (index: number) => ({ index }),
         incrementActiveVariableIndex: true,
         possiblyIncrementActiveVariableIndex: true,
@@ -187,6 +188,21 @@ export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLog
                         type: 'event',
                     },
                 ],
+            }
+            const filterGroup: FilterType = {
+                events: [step],
+            }
+            actions.setVariable(variableName, filterGroup)
+            actions.setIsCurrentlySelectingElement(false)
+        },
+        setVariableForScreenview: ({ variableName }) => {
+            const step: TemplateVariableStep = {
+                id: '$screenview',
+                math: BaseMathType.UniqueUsers,
+                type: EntityTypes.EVENTS,
+                order: 0,
+                name: '$screenview',
+                custom_name: variableName,
             }
             const filterGroup: FilterType = {
                 events: [step],

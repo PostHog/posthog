@@ -162,6 +162,9 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
         currentFullUrl: [
             (s) => [s.browserUrl, s.currentPath],
             (browserUrl, currentPath) => {
+                if (!browserUrl) {
+                    return null
+                }
                 return browserUrl + '/' + currentPath
             },
         ],
