@@ -51,6 +51,24 @@ class ProjectBasicSerializer(serializers.ModelSerializer):
         model = Project
         fields = (
             "id",
+            "organization_id",
+            "name",
+        )
+        read_only_fields = fields
+
+
+class ProjectBackwardCompatBasicSerializer(serializers.ModelSerializer):
+    """
+    Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of
+    passthrough fields. This allows the meaning of `Team` to change from "project" to "environment" without breaking
+    backward compatibility of the REST API.
+    Do not use this in greenfield endpoints!
+    """
+
+    class Meta:
+        model = Project
+        fields = (
+            "id",
             "uuid",  # Compat with TeamSerializer
             "organization",
             "api_token",  # Compat with TeamSerializer
@@ -159,6 +177,7 @@ class TeamBasicSerializer(serializers.ModelSerializer):
             "id",
             "uuid",
             "organization",
+            "project_id",
             "api_token",
             "name",
             "completed_snippet_onboarding",
@@ -180,6 +199,7 @@ class TeamPublicSerializer(serializers.ModelSerializer):
         model = Team
         fields = (
             "id",
+            "project_id",
             "uuid",
             "name",
             "timezone",

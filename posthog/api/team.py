@@ -124,6 +124,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "id",
             "uuid",
             "organization",
+            "project_id",
             "api_token",
             "app_urls",
             "name",
@@ -175,6 +176,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "id",
             "uuid",
             "organization",
+            "project_id",
             "api_token",
             "created_at",
             "updated_at",
@@ -277,6 +279,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         return super().validate(attrs)
 
     def create(self, validated_data: dict[str, Any], **kwargs) -> Team:
+        validated_data["project_id"] = self.context["project_id"]
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
         request = self.context["request"]
 

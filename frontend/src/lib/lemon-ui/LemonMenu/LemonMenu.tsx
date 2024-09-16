@@ -13,7 +13,7 @@ type KeyboardShortcut = Array<keyof KeyboardShortcutProps>
 export interface LemonMenuItemBase
     extends Pick<
         LemonButtonProps,
-        'icon' | 'sideIcon' | 'disabledReason' | 'tooltip' | 'active' | 'status' | 'data-attr'
+        'icon' | 'sideIcon' | 'sideAction' | 'disabledReason' | 'tooltip' | 'active' | 'status' | 'data-attr'
     > {
     label: string | JSX.Element
     /** True if the item is a custom element. */
@@ -133,7 +133,7 @@ export interface LemonMenuOverlayProps {
 
 export function LemonMenuOverlay({
     items,
-    tooltipPlacement,
+    tooltipPlacement = 'right',
     itemsRef,
     buttonSize = 'small',
 }: LemonMenuOverlayProps): JSX.Element {
