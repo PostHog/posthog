@@ -65,6 +65,8 @@ class ProjectBackwardCompatBasicSerializer(serializers.ModelSerializer):
     Do not use this in greenfield endpoints!
     """
 
+    instance: Optional[Project]
+
     class Meta:
         model = Project
         fields = (

@@ -1,9 +1,14 @@
-import { IconPlus } from '@posthog/icons'
+import { IconGear, IconPlus } from '@posthog/icons'
 import { LemonTag, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
-import { LemonMenuItemLeaf, LemonMenuOverlay, LemonMenuSection } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import {
+    LemonMenuItemLeafCallback,
+    LemonMenuItemLeafLink,
+    LemonMenuOverlay,
+    LemonMenuSection,
+} from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo'
 import { removeFlagIdIfPresent, removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { useMemo } from 'react'
@@ -15,10 +20,14 @@ import { AvailableFeature } from '~/types'
 
 import { globalModalsLogic } from '../GlobalModals'
 
-type MenuItemWithEnvName = LemonMenuItemLeaf & {
-    /** Extra menu item metadata, just for sorting the environments before we display them. */
-    envName: string
-}
+type MenuItemWithEnvName =
+    | (LemonMenuItemLeafLink & {
+          /** Extra menu item metadata, just for sorting the environments before we display them. */
+          envName: string
+      })
+    | (LemonMenuItemLeafCallback & {
+          envName?: never
+      })
 
 export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: () => void }): JSX.Element {
     const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
@@ -60,6 +69,13 @@ export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: 
                         ? 'Currently active environment'
                         : `Switch to the ${team.name} environment of ${projectName}`,
                 onClick: onClickInside,
+                sideAction: {
+                    icon: <IconGear />,
+                    tooltip: `Go to ${team.name} settings`,
+                    tooltipPlacement: 'right',
+                    onClick: onClickInside,
+                    to: urls.project(team.id, urls.settings()),
+                },
                 icon: <div className="size-6" />, // Icon-sized filler
             })
         }
@@ -71,7 +87,7 @@ export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: 
         const projectSectionsResult = []
         for (const [projectId, [projectName, envItems]] of sortedProjects) {
             // The environment that's active always comes first - otherwise sorted alphabetically by name
-            envItems.sort((a, b) => (b.active ? Infinity : a.envName.localeCompare(b.envName)))
+            envItems.sort((a, b) => (b.active ? Infinity : a.envName!.localeCompare(b.envName!)))
             envItems.unshift({
                 label: projectName,
                 icon: <UploadedLogo name={projectName} entityId={projectId} outlinedLettermark />,
