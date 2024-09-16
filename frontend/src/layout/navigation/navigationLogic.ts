@@ -4,6 +4,7 @@ import { windowValues } from 'kea-window-values'
 import api from 'lib/api'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { getAppContext } from 'lib/utils/getAppContext'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -20,6 +21,7 @@ export type ProjectNoticeVariant =
     | 'unverified_email'
     | 'is_impersonated'
     | 'internet_connection_issue'
+    | 'region_blocked'
 
 export const navigationLogic = kea<navigationLogicType>([
     path(['layout', 'navigation', 'navigationLogic']),
@@ -120,6 +122,8 @@ export const navigationLogic = kea<navigationLogicType>([
                     return ['internet_connection_issue', false]
                 } else if (user?.is_impersonated) {
                     return ['is_impersonated', false]
+                } else if (getAppContext()?.is_region_blocked) {
+                    return ['region_blocked', false]
                 } else if (currentTeam?.is_demo && !preflight?.demo) {
                     // If the project is a demo one, show a project-level warning
                     // Don't show this project-level warning in the PostHog demo environemnt though,

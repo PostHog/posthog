@@ -49,6 +49,7 @@ from posthog.exceptions import (
     UnspecifiedCompressionFallbackParsingError,
 )
 from posthog.git import get_git_branch, get_git_commit_short
+from posthog.geoip import get_geoip_properties
 from posthog.metrics import KLUDGES_COUNTER
 from posthog.redis import get_client
 
@@ -341,6 +342,9 @@ def render_template(
         "anonymous": not request.user or not request.user.is_authenticated,
         "year_in_hog_url": year_in_hog_url,
     }
+
+    geo_ip_country_code = get_geoip_properties(get_ip_address(request)).get("$geoip_country_code", None)
+    posthog_app_context["is_region_blocked"] = geo_ip_country_code in settings.BLOCKED_GEOIP_REGIONS or True
 
     posthog_bootstrap: dict[str, Any] = {}
     posthog_distinct_id: Optional[str] = None

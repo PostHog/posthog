@@ -1,5 +1,6 @@
 import { IconGear, IconPlus } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+import { supportLogic } from 'lib/components/Support/supportLogic'
 import { dayjs } from 'lib/dayjs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
@@ -44,6 +45,7 @@ export function ProjectNotice(): JSX.Element | null {
     const { closeProjectNotice } = useActions(navigationLogic)
     const { showInviteModal } = useActions(inviteLogic)
     const { requestVerificationLink } = useActions(verifyEmailLogic)
+    const { openSupportForm } = useActions(supportLogic)
 
     if (!projectNoticeVariantWithClosability) {
         return null
@@ -74,6 +76,7 @@ export function ProjectNotice(): JSX.Element | null {
                 </>
             ),
         },
+
         real_project_with_no_events: {
             message: (
                 <>
@@ -141,6 +144,16 @@ export function ProjectNotice(): JSX.Element | null {
                 'data-attr': 'reload-page',
                 onClick: () => window.location.reload(),
                 children: 'Reload page',
+            },
+        },
+        region_blocked: {
+            message:
+                'PostHog is not available in your region due to legal restrictions. Please contact support if you believe this is a mistake.',
+            type: 'error',
+            action: {
+                'data-attr': 'region-blocked-support',
+                onClick: () => openSupportForm({ kind: 'support', target_area: 'login' }),
+                children: 'Contact support',
             },
         },
     }
