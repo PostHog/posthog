@@ -775,7 +775,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
 
                     this.cyclotronWorker?.updateJob(id, 'available', updates)
                 }
-                await this.cyclotronWorker?.flushJob(id)
+                return this.cyclotronWorker?.releaseJob(id)
             })
         )
     }
@@ -783,7 +783,8 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
     private async handleJobBatch(jobs: CyclotronJob[]) {
         gaugeBatchUtilization.labels({ queue: this.queue }).set(jobs.length / this.hub.CDP_CYCLOTRON_BATCH_SIZE)
         const invocations: HogFunctionInvocation[] = []
-
+        // A list of all the promises related to job releasing that we need to await
+        const failReleases: Promise<void>[] = []
         for (const job of jobs) {
             // NOTE: This is all a bit messy and might be better to refactor into a helper
             if (!job.functionId) {
@@ -798,7 +799,10 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
                     id: job.functionId,
                 })
                 this.cyclotronWorker?.updateJob(job.id, 'failed')
-                await this.cyclotronWorker?.flushJob(job.id)
+                const promise = this.cyclotronWorker?.releaseJob(job.id)
+                if (promise) {
+                    failReleases.push(promise)
+                }
                 continue
             }
 
