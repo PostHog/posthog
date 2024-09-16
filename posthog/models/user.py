@@ -312,6 +312,7 @@ class User(AbstractUser, UUIDClassicModel):
             "project_id": str(self.team.uuid) if self.team else None,
             "project_setup_complete": project_setup_complete,
             "joined_at": self.date_joined,
+            "last_login": self.last_login,
             "has_password_set": self.has_usable_password(),
             "has_social_auth": self.social_auth.exists(),
             "social_providers": list(self.social_auth.values_list("provider", flat=True)),
