@@ -14,6 +14,7 @@ from posthog.schema import (
     HogQLQueryModifiers,
     MaterializationMode,
     PersonsOnEventsMode,
+    PropertyGroupsMode,
     TestBasicQueryResponse,
     TestCachedBasicQueryResponse,
 )
@@ -97,6 +98,7 @@ class TestQueryRunner(BaseTest):
                     "personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
                     "bounceRatePageViewMode": "count_pageviews",
                     "sessionTableVersion": "auto",
+                    "propertyGroupsMode": PropertyGroupsMode.OPTIMIZED,
                 },
                 "limit_context": "query",
                 "query": {"kind": "TestQuery", "some_attr": "bla"},
@@ -115,7 +117,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        self.assertEqual(cache_key, "cache_93427f8f06e6cc8643a394ae002de2c1")
+        self.assertEqual(cache_key, "cache_f817acc64fbd0e71a7bf2e3db522fe85")
 
     def test_cache_key_runner_subclass(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -129,7 +131,7 @@ class TestQueryRunner(BaseTest):
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        self.assertEqual(cache_key, "cache_bb6398a99867dfbdc45a2fc4fccb8f27")
+        self.assertEqual(cache_key, "cache_16ce7e72c5350f61dfa9ae461f3db9d6")
 
     def test_cache_key_different_timezone(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -140,7 +142,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        self.assertEqual(cache_key, "cache_e0c2bb1ad091102533399ebdddbfb24d")
+        self.assertEqual(cache_key, "cache_e41dc8347514c8f102764db150ddf800")
 
     @mock.patch("django.db.transaction.on_commit")
     def test_cache_response(self, mock_on_commit):
