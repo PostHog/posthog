@@ -5086,13 +5086,13 @@ class ExperimentTrendQuery(BaseModel):
         extra="forbid",
     )
     count_source: TrendsQuery
+    experiment_id: int
     exposure_source: TrendsQuery
     kind: Literal["ExperimentTrendQuery"] = "ExperimentTrendQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[ExperimentTrendQueryResponse] = None
-    variants: list[str]
 
 
 class FunnelsQuery(BaseModel):
@@ -5502,13 +5502,13 @@ class ExperimentFunnelQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    experiment_id: int
     kind: Literal["ExperimentFunnelQuery"] = "ExperimentFunnelQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[ExperimentFunnelQueryResponse] = None
     source: FunnelsQuery
-    variants: list[str]
 
 
 class FunnelPathsFilter(BaseModel):

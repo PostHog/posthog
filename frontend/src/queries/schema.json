@@ -4536,6 +4536,9 @@
         "ExperimentFunnelQuery": {
             "additionalProperties": false,
             "properties": {
+                "experiment_id": {
+                    "type": "integer"
+                },
                 "kind": {
                     "const": "ExperimentFunnelQuery",
                     "type": "string"
@@ -4549,15 +4552,9 @@
                 },
                 "source": {
                     "$ref": "#/definitions/FunnelsQuery"
-                },
-                "variants": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
                 }
             },
-            "required": ["kind", "source", "variants"],
+            "required": ["experiment_id", "kind", "source"],
             "type": "object"
         },
         "ExperimentFunnelQueryResponse": {
@@ -4583,6 +4580,9 @@
                 "count_source": {
                     "$ref": "#/definitions/TrendsQuery"
                 },
+                "experiment_id": {
+                    "type": "integer"
+                },
                 "exposure_source": {
                     "$ref": "#/definitions/TrendsQuery"
                 },
@@ -4596,15 +4596,9 @@
                 },
                 "response": {
                     "$ref": "#/definitions/ExperimentTrendQueryResponse"
-                },
-                "variants": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
                 }
             },
-            "required": ["count_source", "exposure_source", "kind", "variants"],
+            "required": ["count_source", "experiment_id", "exposure_source", "kind"],
             "type": "object"
         },
         "ExperimentTrendQueryResponse": {
