@@ -1,7 +1,7 @@
 from datetime import datetime
 from django.db import models
 
-from posthog.helpers.cryptography import EncryptedJSONField
+from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDModel, UpdatedMetaFields, sane_repr
 from posthog.warehouse.util import database_sync_to_async

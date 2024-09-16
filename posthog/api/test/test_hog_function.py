@@ -144,6 +144,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "bytecode": ["_H", HOGQL_BYTECODE_VERSION, 32, "url", 32, "inputs", 1, 2, 2, "fetch", 1, 35],
             "inputs_schema": [],
             "inputs": {},
+            "encrypted_inputs": {},
             "filters": {"bytecode": ["_H", HOGQL_BYTECODE_VERSION, 29]},
             "icon_url": None,
             "template": None,
@@ -253,7 +254,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "inputs_schema": [
                 {"key": "url", "type": "string", "label": "Webhook URL", "secret": True, "required": True},
             ],
-            "inputs": {
+            "encrypted_inputs": {
                 "url": {
                     "value": "I AM SECRET",
                 },
@@ -280,10 +281,11 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "name": "Fetch URL",
             "hog": "fetch(inputs.url);",
             "inputs_schema": [
-                {"key": "url", "type": "string", "label": "Webhook URL", "secret": True, "required": True},
+                {"key": "secret1", "type": "string", "label": "Secret 1", "secret": True, "required": True},
+                {"key": "secret2", "type": "string", "label": "Secret 2", "secret": True, "required": True},
             ],
             "inputs": {
-                "url": {
+                "secret1": {
                     "value": "I AM SECRET",
                 },
             },

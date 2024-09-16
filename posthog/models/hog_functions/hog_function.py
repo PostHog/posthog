@@ -7,7 +7,7 @@ from django.dispatch.dispatcher import receiver
 import structlog
 
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
-from posthog.helpers.cryptography import EncryptedJSONStringField
+from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.models.action.action import Action
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDModel

@@ -3,7 +3,7 @@
 from django.conf import settings
 from django.db import migrations, models
 import django.db.models.deletion
-from posthog.helpers.cryptography import EncryptedTextField
+from posthog.helpers.encrypted_fields import EncryptedTextField
 import posthog.models.utils
 
 

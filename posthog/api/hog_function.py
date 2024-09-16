@@ -173,7 +173,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                     encrypted_inputs[key] = encrypted_inputs[key] or val
 
             attrs["inputs_schema"] = attrs.get("inputs_schema", instance.inputs_schema if instance else [])
-
             validated_inputs, validate_encrypted_inputs = validate_inputs(
                 attrs["inputs_schema"], inputs, encrypted_inputs
             )
