@@ -13,6 +13,5 @@ chrono = { workspace = true }
 tokio = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }
-rand = { workspace = true }
 futures = { workspace = true }
 tracing = { workspace = true }
