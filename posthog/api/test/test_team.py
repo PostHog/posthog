@@ -538,7 +538,7 @@ def team_api_test_factory():
             response = self.client.patch("/api/environments/@current/", {"primary_dashboard": d.id})
             response_data = response.json()
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
             self.assertEqual(response_data["name"], self.team.name)
             self.assertEqual(response_data["primary_dashboard"], d.id)
 
@@ -550,11 +550,14 @@ def team_api_test_factory():
             d = Dashboard.objects.create(name="Test", team=team_2)
 
             response = self.client.patch("/api/environments/@current/", {"primary_dashboard": d.id})
-            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
             response = self.client.get("/api/environments/@current/")
             response_data = response.json()
-            self.assertEqual(response_data["primary_dashboard"], None)
+            self.assertEqual(
+                response_data,
+                self.validation_error_response("Dashboard does not belong to this team.", attr="primary_dashboard"),
+            )
 
         def test_is_generating_demo_data(self):
             cache_key = f"is_generating_demo_data_{self.team.pk}"
