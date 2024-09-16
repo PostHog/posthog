@@ -223,6 +223,11 @@ export const selectorOperatorMap: Record<string, string> = {
     is_not: "≠ doesn't equal",
 }
 
+export const cohortOperatorMap: Record<string, string> = {
+    in: 'user in',
+    not_in: 'user not in',
+}
+
 export const allOperatorsMapping: Record<string, string> = {
     ...dateTimeOperatorMap,
     ...stringOperatorMap,
@@ -231,6 +236,7 @@ export const allOperatorsMapping: Record<string, string> = {
     ...booleanOperatorMap,
     ...durationOperatorMap,
     ...selectorOperatorMap,
+    ...cohortOperatorMap,
     // slight overkill to spread all of these into the map
     // but gives freedom for them to diverge more over time
 }
@@ -242,6 +248,7 @@ const operatorMappingChoice: Record<keyof typeof PropertyType, Record<string, st
     Boolean: booleanOperatorMap,
     Duration: durationOperatorMap,
     Selector: selectorOperatorMap,
+    Cohort: cohortOperatorMap,
 }
 
 export function chooseOperatorMap(propertyType: PropertyType | undefined): Record<string, string> {
@@ -258,7 +265,14 @@ export function isOperatorMulti(operator: PropertyOperator): boolean {
 
 export function isOperatorFlag(operator: PropertyOperator): boolean {
     // these filter operators can only be just set, no additional parameter
-    return [PropertyOperator.IsSet, PropertyOperator.IsNotSet].includes(operator)
+    return [PropertyOperator.IsSet, PropertyOperator.IsNotSet, PropertyOperator.In, PropertyOperator.NotIn].includes(
+        operator
+    )
+}
+
+export function isOperatorCohort(operator: PropertyOperator): boolean {
+    // these filter operators use value different ( to represent the number of the cohort )
+    return [PropertyOperator.In, PropertyOperator.NotIn].includes(operator)
 }
 
 export function isOperatorRegex(operator: PropertyOperator): boolean {
