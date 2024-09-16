@@ -430,7 +430,7 @@ export function humanFriendlyCurrency(d: string | undefined | number): string {
         number = d
     }
 
-    return number.toLocaleString('en-US', { maximumFractionDigits: 2, minimumFractionDigits: 2 })
+    return `$${number.toLocaleString('en-US', { maximumFractionDigits: 2, minimumFractionDigits: 2 })}`
 }
 
 export function humanFriendlyLargeNumber(d: number): string {

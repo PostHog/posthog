@@ -258,7 +258,6 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                     >
                                                         <div className="flex flex-col items-center">
                                                             <div className="font-bold text-3xl leading-7">
-                                                                $
                                                                 {humanFriendlyCurrency(
                                                                     parseFloat(product.current_amount_usd || '0') *
                                                                         (1 -
@@ -285,7 +284,6 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                         >
                                                             <div className="flex flex-col items-center justify-end">
                                                                 <div className="font-bold text-muted text-lg leading-5">
-                                                                    $
                                                                     {humanFriendlyCurrency(
                                                                         parseFloat(
                                                                             product.projected_amount_usd || '0'
@@ -310,7 +308,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                             >
                                                 <div className="flex flex-col items-center">
                                                     <div className="font-bold text-3xl leading-7">
-                                                        ${humanFriendlyCurrency(product.current_amount_usd)}
+                                                        {humanFriendlyCurrency(product.current_amount_usd)}
                                                     </div>
                                                     <span className="text-xs text-muted">
                                                         per {billing?.billing_period?.interval || 'period'}

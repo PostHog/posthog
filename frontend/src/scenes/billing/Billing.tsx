@@ -157,7 +157,6 @@ export function Billing(): JSX.Element {
                                                 Current bill total
                                             </LemonLabel>
                                             <div className="font-bold text-6xl">
-                                                $
                                                 {humanFriendlyCurrency(billing.current_total_amount_usd_after_discount)}
                                             </div>
                                             {billing.discount_percent && (
@@ -182,7 +181,7 @@ export function Billing(): JSX.Element {
                                                             placement="bottom-start"
                                                         >
                                                             <strong>
-                                                                ${humanFriendlyCurrency(billing.discount_amount_usd)}
+                                                                {humanFriendlyCurrency(billing.discount_amount_usd)}
                                                             </strong>
                                                         </Tooltip>{' '}
                                                         remaining credits applied to your bill.
