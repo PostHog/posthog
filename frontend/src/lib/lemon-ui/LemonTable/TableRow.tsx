@@ -101,8 +101,16 @@ function TableRowRaw<T extends Record<string, any>>({
                                     columnIndex === 0 && 'LemonTable__boundary',
                                     isSticky && 'LemonTable__cell--sticky',
                                     column.align && `text-${column.align}`,
-                                    column.className
+                                    typeof column.className === 'function'
+                                        ? column.className(value as T[keyof T], record, recordIndex)
+                                        : column.className
                                 )}
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={
+                                    typeof column.style === 'function'
+                                        ? column.style(value as T[keyof T], record, recordIndex)
+                                        : column.style
+                                }
                                 {...extraCellProps}
                             >
                                 {isTableCellRepresentation(contents) ? contents.children : contents}
