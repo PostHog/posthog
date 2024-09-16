@@ -760,7 +760,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
 
     private async updateJobs(invocations: HogFunctionInvocationResult[]) {
         await Promise.all(
-            invocations.map(async (item) => {
+            invocations.map((item) => {
                 const id = item.invocation.id
                 if (item.error) {
                     status.debug('⚡️', 'Updating job to failed', id)
