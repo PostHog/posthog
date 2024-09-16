@@ -22,6 +22,7 @@ from posthog.batch_exports.service import (
     BatchExportModel,
     BatchExportSchema,
     SnowflakeBatchExportInputs,
+    aupdate_batch_export_run,
 )
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
@@ -31,6 +32,7 @@ from posthog.temporal.batch_exports.batch_exports import (
     default_fields,
     execute_batch_export_insert_activity,
     get_data_interval,
+    get_last_inserted_at_interval_start,
     iter_model_records,
     start_batch_export_run,
 )
@@ -139,6 +141,7 @@ class SnowflakeInsertInputs:
     is_backfill: bool = False
     batch_export_model: BatchExportModel | None = None
     batch_export_schema: BatchExportSchema | None = None
+    inserted_at_interval_start: str | None = None
 
 
 SnowflakeField = tuple[str, str]
@@ -589,6 +592,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
             include_events=inputs.include_events,
             destination_default_fields=snowflake_default_fields(),
             is_backfill=inputs.is_backfill,
+            inserted_at_interval_start=inputs.inserted_at_interval_start,
         )
         first_record_batch, records_iterator = await apeek_first_and_rewind(records_iterator)
 
@@ -671,11 +675,14 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
                     flush_callable=flush_to_snowflake,
                 )
 
+                last_inserted_at = None
                 async with writer.open_temporary_file(current_flush_counter):
                     async for record_batch in records_iterator:
                         record_batch = cast_record_batch_json_columns(record_batch, json_columns=known_variant_columns)
 
                         await writer.write_record_batch(record_batch)
+
+                        last_inserted_at = record_batch.column("_inserted_at").to_pylist()[-1]
 
                 await snow_client.copy_loaded_files_to_snowflake_table(
                     snow_stage_table if requires_merge else snow_table
@@ -691,6 +698,11 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
                         update_when_matched=table_fields,
                         merge_key=merge_key,
                     )
+
+                await aupdate_batch_export_run(
+                    run_id=inputs.run_id,
+                    inserted_at_interval_end=last_inserted_at,
+                )
 
                 return writer.records_total
 
@@ -715,6 +727,7 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
     async def run(self, inputs: SnowflakeBatchExportInputs):
         """Workflow implementation to export data to Snowflake table."""
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
+        last_inserted_at_interval_start = get_last_inserted_at_interval_start()
 
         start_batch_export_run_inputs = StartBatchExportRunInputs(
             team_id=inputs.team_id,
@@ -724,6 +737,7 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             is_backfill=inputs.is_backfill,
+            inserted_at_interval_start=last_inserted_at_interval_start.isoformat(),
         )
         run_id = await workflow.execute_activity(
             start_batch_export_run,
@@ -762,6 +776,7 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
             is_backfill=inputs.is_backfill,
             batch_export_model=inputs.batch_export_model,
             batch_export_schema=inputs.batch_export_schema,
+            inserted_at_interval_start=inputs.inserted_at_interval_start,
         )
 
         await execute_batch_export_insert_activity(

@@ -108,6 +108,7 @@ class BackfillScheduleInputs:
     schedule_id: str
     start_at: str
     end_at: str | None
+    inserted_at_interval_start: str | None
     frequency_seconds: float
     start_delay: float = 5.0
 
@@ -231,6 +232,9 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
         )
 
     full_backfill_range = backfill_range(start_at, end_at, frequency)
+    inserted_at_interval_start = (
+        dt.datetime.fromisoformat(inputs.inserted_at_interval_start) if inputs.inserted_at_interval_start else None
+    )
 
     for _, backfill_end_at in full_backfill_range:
         if await check_temporal_schedule_exists(client, description.id) is False:
@@ -254,6 +258,10 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
             temporalio.common.SearchAttributePair(
                 key=temporalio.common.SearchAttributeKey.for_datetime("TemporalScheduledStartTime"),
                 value=backfill_end_at,
+            ),
+            temporalio.common.SearchAttributePair(
+                key=temporalio.common.SearchAttributeKey.for_datetime("TemporalLastInsertedAtStart"),
+                value=inserted_at_interval_start,
             ),
         ]
 
@@ -408,6 +416,7 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
             schedule_id=inputs.batch_export_id,
             start_at=inputs.start_at,
             end_at=inputs.end_at,
+            inserted_at_interval_start=inputs.inserted_at_interval_start,
             frequency_seconds=frequency_seconds,
             start_delay=inputs.start_delay,
         )

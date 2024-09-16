@@ -137,6 +137,13 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Read
         """
         batch_export_run = self.get_object()
 
+        # TODO: consider making this explicit rather than implicit high water marking
+        # Was the last run successful?
+        if batch_export_run.status == BatchExportRun.Status.COMPLETED:
+            inserted_at_interval_start = batch_export_run.inserted_at_interval_start
+        else:
+            inserted_at_interval_start = None
+
         temporal = sync_connect()
         backfill_id = backfill_export(
             temporal,
@@ -144,6 +151,7 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Read
             self.team_id,
             batch_export_run.data_interval_start,
             batch_export_run.data_interval_end,
+            inserted_at_interval_start,
         )
 
         return response.Response({"backfill_id": backfill_id})
