@@ -18,7 +18,15 @@ from posthog.models.utils import UUIDT, uuid7
 from posthog.session_recordings.queries.test.session_replay_sql import (
     produce_replay_summary,
 )
-from posthog.schema import HogQLFilters, EventPropertyFilter, DateRange, QueryTiming, SessionPropertyFilter
+from posthog.schema import (
+    HogQLFilters,
+    EventPropertyFilter,
+    DateRange,
+    HogQLQueryModifiers,
+    PropertyGroupsMode,
+    QueryTiming,
+    SessionPropertyFilter,
+)
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.base import (
     APIBaseTest,
@@ -996,6 +1004,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 query,
                 team=self.team,
                 pretty=False,
+                modifiers=HogQLQueryModifiers(propertyGroupsMode=PropertyGroupsMode.DISABLED),
             )
             self.assertEqual(
                 f"SELECT "
@@ -1416,6 +1425,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 filters=filters,
                 pretty=False,
+                modifiers=HogQLQueryModifiers(propertyGroupsMode=PropertyGroupsMode.DISABLED),
             )
             self.assertEqual(
                 response.hogql,
