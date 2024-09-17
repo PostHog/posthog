@@ -28,7 +28,7 @@ export let redis: Redis.Redis
 
 beforeAll(() => {
     // Setup connections to kafka, clickhouse, and postgres
-    postgres = new PostgresRouter({ ...defaultConfig, POSTGRES_CONNECTION_POOL_SIZE: 1 }, null)
+    postgres = new PostgresRouter({ ...defaultConfig, POSTGRES_CONNECTION_POOL_SIZE: 1 })
     clickHouseClient = new ClickHouse({
         host: defaultConfig.CLICKHOUSE_HOST,
         port: 8123,
