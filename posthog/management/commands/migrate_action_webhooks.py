@@ -2,6 +2,7 @@ import re
 from typing import Optional
 from django.core.management.base import BaseCommand
 from django.core.paginator import Paginator
+from django.db.models import QuerySet
 
 from posthog.cdp.filters import compile_filters_bytecode
 from posthog.cdp.validation import compile_hog, validate_inputs
@@ -175,6 +176,10 @@ def migrate_action_webhooks(action_ids: list[int], team_ids: list[int], dry_run=
 
     if not dry_run:
         reload_all_hog_functions_on_workers()
+
+
+def get_all_inert_hogfunctions() -> QuerySet[HogFunction, HogFunction]:
+    return HogFunction.objects.filter(name__startswith="[CDP-TEST-HIDDEN]")
 
 
 class Command(BaseCommand):
