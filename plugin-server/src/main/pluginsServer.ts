@@ -273,8 +273,6 @@ export async function startPluginsServer(
         }
 
         if (capabilities.cdpCyclotronWorker) {
-            const hub = await setupHub()
-
             if (!hub.CYCLOTRON_DATABASE_URL) {
                 status.error('💥', 'Cyclotron database URL not set.')
             } else {
