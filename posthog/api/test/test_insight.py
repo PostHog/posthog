@@ -3089,7 +3089,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "funnel_window_days": 14,
                 },
             )
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
             response_json = response.json()
             self.assertEqual(len(response_json["result"]), 1)
             self.assertEqual(len(response_json["result"][0]), 2)
@@ -3144,7 +3144,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "funnel_window_days": 14,
                 },
             )
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
             response_json = response.json()
             self.assertEqual(len(response_json["result"]), 1)
             self.assertEqual(len(response_json["result"][0]), 2)

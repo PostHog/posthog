@@ -37,6 +37,7 @@ class HogFunctionStatusSerializer(serializers.Serializer):
 
 class HogFunctionMinimalSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
+    status = HogFunctionStatusSerializer(read_only=True, required=False, allow_null=True)
 
     class Meta:
         model = HogFunction
@@ -52,6 +53,7 @@ class HogFunctionMinimalSerializer(serializers.ModelSerializer):
             "filters",
             "icon_url",
             "template",
+            "status",
         ]
         read_only_fields = fields
 
@@ -72,7 +74,6 @@ class HogFunctionMaskingSerializer(serializers.Serializer):
 
 class HogFunctionSerializer(HogFunctionMinimalSerializer):
     template = HogFunctionTemplateSerializer(read_only=True)
-    status = HogFunctionStatusSerializer(read_only=True, required=False, allow_null=True)
     masking = HogFunctionMaskingSerializer(required=False, allow_null=True)
 
     class Meta:

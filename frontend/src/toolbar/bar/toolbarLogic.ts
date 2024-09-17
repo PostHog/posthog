@@ -31,7 +31,13 @@ export const toolbarLogic = kea<toolbarLogicType>([
     connect(() => ({
         actions: [
             actionsTabLogic,
-            ['showButtonActions', 'hideButtonActions', 'selectAction'],
+            [
+                'showButtonActions',
+                'hideButtonActions',
+                'selectAction',
+                'setAutomaticActionCreationEnabled',
+                'actionCreatedSuccess',
+            ],
             elementsLogic,
             ['enableInspect', 'disableInspect', 'createAction'],
             heatmapLogic,
@@ -66,6 +72,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
         setIsBlurred: (isBlurred: boolean) => ({ isBlurred }),
         setIsEmbeddedInApp: (isEmbedded: boolean) => ({ isEmbedded }),
         setFixedPosition: (position: ToolbarPositionType) => ({ position }),
+        setCurrentPathname: (pathname: string) => ({ pathname }),
+        maybeSendNavigationMessage: true,
     })),
     windowValues(() => ({
         windowHeight: (window: Window) => window.innerHeight,
@@ -156,6 +164,12 @@ export const toolbarLogic = kea<toolbarLogicType>([
             false,
             {
                 setIsEmbeddedInApp: (_, { isEmbedded }) => isEmbedded,
+            },
+        ],
+        currentPathname: [
+            '',
+            {
+                setCurrentPathname: (_, { pathname }) => pathname,
             },
         ],
     })),
@@ -274,7 +288,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
         setVisibleMenu: ({ visibleMenu }) => {
             if (visibleMenu === 'heatmap') {
                 actions.enableHeatmap()
-                values.hedgehogActor?.setAnimation('heatmaps')
+                values.hedgehogActor?.setOnFire(1)
             } else if (visibleMenu === 'actions') {
                 actions.showButtonActions()
                 values.hedgehogActor?.setAnimation('action')
@@ -393,6 +407,20 @@ export const toolbarLogic = kea<toolbarLogicType>([
             // if embedded we need to signal start and finish of heatmap loading to the parent
             window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_HEATMAP_FAILED }, '*')
         },
+        actionCreatedSuccess: (action) => {
+            // if embedded, we need to tell the parent window that a new action was created
+            window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_NEW_ACTION_CREATED, payload: action }, '*')
+        },
+        maybeSendNavigationMessage: () => {
+            const currentPath = window.location.pathname
+            if (currentPath !== values.currentPathname) {
+                actions.setCurrentPathname(currentPath)
+                window.parent.postMessage(
+                    { type: PostHogAppToolbarEvent.PH_TOOLBAR_NAVIGATED, payload: { path: currentPath } },
+                    '*'
+                )
+            }
+        },
     })),
     afterMount(({ actions, values, cache }) => {
         cache.clickListener = (e: MouseEvent): void => {
@@ -402,6 +430,16 @@ export const toolbarLogic = kea<toolbarLogicType>([
             }
         }
         window.addEventListener('mousedown', cache.clickListener)
+        window.addEventListener('popstate', () => {
+            actions.maybeSendNavigationMessage()
+        })
+
+        // Use a setInterval to periodically check for URL changes
+        // We do this because we don't want to write over the history.pushState function in case other scripts rely on it
+        // And mutation observers don't seem to work :shrug:
+        setInterval(() => {
+            actions.maybeSendNavigationMessage()
+        }, 500)
 
         // the toolbar can be run within the posthog parent app
         // if it is then it listens to parent messages
@@ -439,6 +477,17 @@ export const toolbarLogic = kea<toolbarLogicType>([
                     return
                 case PostHogAppToolbarEvent.PH_HEATMAPS_COMMON_FILTERS:
                     actions.setCommonFilters(e.data.payload.commonFilters)
+                    return
+                case PostHogAppToolbarEvent.PH_ELEMENT_SELECTOR:
+                    if (e.data.payload.enabled) {
+                        actions.enableInspect()
+                    } else {
+                        actions.disableInspect()
+                        actions.hideButtonActions()
+                    }
+                    return
+                case PostHogAppToolbarEvent.PH_NEW_ACTION_NAME:
+                    actions.setAutomaticActionCreationEnabled(true, e.data.payload.name)
                     return
                 default:
                     console.warn(`[PostHog Toolbar] Received unknown parent window message: ${type}`)

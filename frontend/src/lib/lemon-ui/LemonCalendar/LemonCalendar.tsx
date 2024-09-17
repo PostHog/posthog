@@ -61,7 +61,10 @@ export const LemonCalendar = forwardRef(function LemonCalendar(
     return (
         <div
             ref={ref}
-            className={clsx('LemonCalendar relative flex items-start gap-4', `LemonCalendar--${granularity}`)}
+            className={clsx(
+                'LemonCalendar relative flex items-start gap-4 tabular-nums',
+                `LemonCalendar--${granularity}`
+            )}
             data-attr="lemon-calendar"
         >
             {range(0, months).map((month) => {

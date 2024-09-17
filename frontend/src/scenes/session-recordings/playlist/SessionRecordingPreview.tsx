@@ -16,10 +16,10 @@ import { useState } from 'react'
 import { countryCodeToName } from 'scenes/insights/views/WorldMap'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { asDisplay } from 'scenes/persons/person-utils'
-import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { urls } from 'scenes/urls'
 
-import { DurationType, SessionRecordingType } from '~/types'
+import { RecordingsQuery } from '~/queries/schema'
+import { SessionRecordingType } from '~/types'
 
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
 import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
@@ -161,12 +161,12 @@ function ViewedIndicator(): JSX.Element {
     )
 }
 
-function durationToShow(recording: SessionRecordingType, durationType: DurationType | undefined): number | undefined {
-    return {
-        duration: recording.recording_duration,
-        active_seconds: recording.active_seconds,
-        inactive_seconds: recording.inactive_seconds,
-    }[durationType || 'duration']
+function durationToShow(recording: SessionRecordingType, order: RecordingsQuery['order']): number | undefined {
+    return order === 'active_seconds'
+        ? recording.active_seconds
+        : order === 'inactive_seconds'
+        ? recording.inactive_seconds
+        : recording.recording_duration
 }
 
 export function SessionRecordingPreview({
@@ -178,7 +178,6 @@ export function SessionRecordingPreview({
     sessionSummaryLoading,
 }: SessionRecordingPreviewProps): JSX.Element {
     const { orderBy } = useValues(sessionRecordingsPlaylistLogic)
-    const { durationTypeToShow } = useValues(playerSettingsLogic)
 
     const { recordingPropertiesById, recordingPropertiesLoading } = useValues(sessionRecordingsListPropertiesLogic)
     const recordingProperties = recordingPropertiesById[recording.id]
@@ -278,12 +277,7 @@ export function SessionRecordingPreview({
                         {orderBy === 'console_error_count' ? (
                             <ErrorCount iconClassNames={iconClassNames} errorCount={recording.console_error_count} />
                         ) : (
-                            <RecordingDuration
-                                recordingDuration={durationToShow(
-                                    recording,
-                                    orderBy === 'start_time' ? durationTypeToShow : orderBy
-                                )}
-                            />
+                            <RecordingDuration recordingDuration={durationToShow(recording, orderBy)} />
                         )}
                     </div>
 
