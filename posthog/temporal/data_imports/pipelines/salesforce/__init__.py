@@ -121,6 +121,20 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             },
             "table_format": "delta",
         },
+        "Order": {
+            "name": "Order",
+            "table_name": "order",
+            "primary_key": "Id",
+            "write_disposition": "replace",
+            "endpoint": {
+                "data_selector": "records",
+                "path": "/services/data/v61.0/query",
+                "params": {
+                    "q": "SELECT FIELDS(STANDARD) FROM ORDERS",
+                },
+            },
+            "table_format": "delta",
+        },
         "Account": {
             "name": "Account",
             "table_name": "account",
