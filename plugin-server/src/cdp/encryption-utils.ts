@@ -8,8 +8,6 @@ export class EncryptedFields {
     constructor(config: PluginsServerConfig) {
         const saltKeys = config.ENCRYPTION_SALT_KEYS.split(',').filter((key) => key)
 
-        console.log('Salt keys', saltKeys)
-
         if (!saltKeys.length) {
             throw new Error('Encryption keys are not set')
         }
