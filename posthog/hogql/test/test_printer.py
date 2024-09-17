@@ -468,6 +468,10 @@ class TestPrinter(BaseTest):
         self._test_property_group_comparison("properties.key = lower(NULL)", None)
 
     def test_property_groups_optimized_boolean_equality_comparisons(self) -> None:
+        PropertyDefinition.objects.create(
+            team=self.team, name="is_boolean", property_type="Boolean", type=PropertyDefinition.Type.EVENT
+        )
+
         self._test_property_group_comparison(
             "properties.is_boolean = true",
             "equals(events.properties_group_custom[%(hogql_val_0)s], 'true')",
@@ -484,8 +488,8 @@ class TestPrinter(BaseTest):
 
         # Don't try to optimize not equals comparisons: NULL handling here is tricky, and we wouldn't get any benefit
         # from using the indexes anyway.
-        self._test_property_group_comparison("properties.is_boolean != true", None, expected_skip_indexes_used={})
-        self._test_property_group_comparison("properties.is_boolean != false", None, expected_skip_indexes_used={})
+        self._test_property_group_comparison("properties.is_boolean != true", None, expected_skip_indexes_used=set())
+        self._test_property_group_comparison("properties.is_boolean != false", None, expected_skip_indexes_used=set())
 
     def test_property_groups_optimized_empty_string_equality_comparisons(self) -> None:
         # Keys that don't exist in a map return default values for the type -- in our case empty strings -- so we need
