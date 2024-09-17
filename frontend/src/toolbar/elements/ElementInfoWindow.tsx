@@ -65,59 +65,41 @@ export function ElementInfoWindow(): JSX.Element | null {
 
     return (
         <div
+            className="absolute z-[1] opacity-100 origin-top-left transition-opacity transition-shadow duration-200 bg-white"
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 pointerEvents: pointerEvents ? 'all' : 'none',
-                position: 'absolute',
                 top,
                 bottom,
                 left,
                 width,
                 minHeight,
                 maxHeight,
-                zIndex: 1,
-                opacity: 1,
-                transformOrigin: 'top left',
-                transition: 'opacity 0.2s, box-shadow 0.2s',
                 backgroundBlendMode: 'multiply',
-                background: 'white',
             }}
         >
             {onClose ? (
                 <div
                     onClick={onClose}
+                    className="absolute origin-top-left bg-black text-white rounded-full w-6 h-6 z-[7] flex items-center justify-around text-center cursor-pointer"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
                         pointerEvents: pointerEvents ? 'all' : 'none',
-                        position: 'absolute',
                         top: -8,
                         right: left + width > windowWidth - 20 ? -6 : -12,
-                        transformOrigin: 'top left',
-                        background: 'black',
-                        color: 'white',
                         boxShadow: `hsla(4, 30%, 27%, 0.6) 0px 3px 10px 2px`,
-                        borderRadius: '100%',
-                        width: 24,
-                        height: 24,
-                        zIndex: 7,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-around',
-                        textAlign: 'center',
-                        cursor: 'pointer',
                     }}
                 >
                     <IconX />
                 </div>
             ) : null}
             <div
+                className="overflow-auto rounded-lg"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
                     minHeight,
                     maxHeight,
-                    overflow: 'auto',
                     boxShadow: `hsla(4, 30%, 27%, 0.6) 0px 3px 10px 2px`,
-                    borderRadius: '8px',
                 }}
             >
                 <ElementInfo />

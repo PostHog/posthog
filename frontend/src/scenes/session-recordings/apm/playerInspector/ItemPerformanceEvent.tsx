@@ -191,11 +191,9 @@ export function ItemPerformanceEvent({
             >
                 <div className="flex-1 overflow-hidden">
                     <div
-                        className="absolute bg-primary rounded-sm opacity-75"
+                        className="absolute bg-primary rounded-sm opacity-75 h-1 bottom-0.5"
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{
-                            height: 4,
-                            bottom: 2,
                             left: `${(startTime / contextLengthMs) * 100}%`,
                             width: `${Math.max((duration / contextLengthMs) * 100, 0.5)}%`,
                         }}
