@@ -1,5 +1,7 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
+import { dayjs } from 'lib/dayjs'
+import { uuid } from 'lib/utils'
 import mergeObject from 'lodash.merge'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -11,6 +13,7 @@ import {
     ChartSettings,
     ChartSettingsDisplay,
     ChartSettingsFormatting,
+    ConditionalFormattingRule,
     DataVisualizationNode,
 } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
@@ -19,14 +22,16 @@ import { ChartDisplayType, InsightLogicProps, ItemMode } from '~/types'
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { getQueryFeatures, QueryFeature } from '../DataTable/queryFeatures'
 import type { dataVisualizationLogicType } from './dataVisualizationLogicType'
+import { ColumnScalar, FORMATTING_TEMPLATES } from './types'
 
 export enum SideBarTab {
     Series = 'series',
     Display = 'display',
+    ConditionalFormatting = 'conditional_formatting',
 }
 
 export interface ColumnType {
-    name: string
+    name: ColumnScalar
     isNumerical: boolean
 }
 
@@ -35,6 +40,12 @@ export interface Column {
     type: ColumnType
     label: string
     dataIndex: number
+}
+
+export interface TableDataCell<T extends string | number | boolean | Date | null> {
+    value: T
+    formattedValue: string | object | null
+    type: ColumnScalar
 }
 
 export interface AxisSeriesSettings {
@@ -66,7 +77,7 @@ export const EmptyYAxisSeries: AxisSeries<number> = {
     column: {
         name: 'None',
         type: {
-            name: 'None',
+            name: 'INTEGER',
             isNumerical: false,
         },
         label: 'None',
@@ -82,7 +93,10 @@ const DefaultAxisSettings = (): AxisSeriesSettings => ({
     },
 })
 
-export const formatDataWithSettings = (data: number | string | null | object, settings?: AxisSeriesSettings): any => {
+export const formatDataWithSettings = (
+    data: number | string | null | object,
+    settings?: AxisSeriesSettings
+): string | object | null => {
     if (data === null || Number.isNaN(data)) {
         return null
     }
@@ -118,7 +132,46 @@ export const formatDataWithSettings = (data: number | string | null | object, se
     return dataAsString
 }
 
-const toFriendlyClickhouseTypeName = (type: string): string => {
+export const convertTableValue = (
+    value: string | number | null,
+    type: ColumnScalar
+): string | number | boolean | null => {
+    if (value == null) {
+        return null
+    }
+
+    if (type === 'STRING') {
+        return value.toString()
+    }
+
+    if (type === 'INTEGER') {
+        if (typeof value === 'number') {
+            return value
+        }
+
+        return parseInt(value)
+    }
+
+    if (type === 'FLOAT' || type === 'DECIMAL') {
+        if (typeof value === 'number') {
+            return value
+        }
+
+        return parseFloat(value)
+    }
+
+    if (type === 'BOOLEAN') {
+        return Boolean(value)
+    }
+
+    if (type === 'DATE' || type === 'DATETIME') {
+        return dayjs(value).unix()
+    }
+
+    return value
+}
+
+const toFriendlyClickhouseTypeName = (type: string): ColumnScalar => {
     if (type.indexOf('Int') !== -1) {
         return 'INTEGER'
     }
@@ -141,7 +194,7 @@ const toFriendlyClickhouseTypeName = (type: string): string => {
         return 'STRING'
     }
 
-    return type
+    return type as ColumnScalar
 }
 
 const isNumericalType = (type: string): boolean => {
@@ -199,6 +252,12 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         updateChartSettings: (settings: ChartSettings) => ({ settings }),
         setSideBarTab: (tab: SideBarTab) => ({ tab }),
         toggleChartSettingsPanel: (open?: boolean) => ({ open }),
+        addConditionalFormattingRule: (rule?: ConditionalFormattingRule) => rule ?? { id: uuid() },
+        updateConditionalFormattingRule: (rule: ConditionalFormattingRule, deleteRule?: boolean) => ({
+            rule,
+            deleteRule,
+        }),
+        setConditionalFormattingRulesPanelActiveKeys: (keys: string[]) => ({ keys }),
     })),
     reducers(({ props }) => ({
         visualizationType: [
@@ -207,7 +266,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 setVisualizationType: (_, { visualizationType }) => visualizationType,
             },
         ],
-        selectedTabularSeries: [
+        tabularColumnSettings: [
             null as (SelectedYAxis | null)[] | null,
             {
                 clearAxis: () => null,
@@ -393,6 +452,52 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 },
             },
         ],
+        conditionalFormattingRules: [
+            [] as ConditionalFormattingRule[],
+            {
+                addConditionalFormattingRule: (state, rule) => {
+                    const rules = [...state]
+
+                    rules.push({
+                        templateId: FORMATTING_TEMPLATES[0].id,
+                        columnName: '',
+                        bytecode: [],
+                        input: '',
+                        color: '#FFADAD',
+                        ...rule,
+                    })
+
+                    return rules
+                },
+                updateConditionalFormattingRule: (state, { rule, deleteRule }) => {
+                    const rules = [...state]
+
+                    const index = rules.findIndex((n) => n.id === rule.id)
+                    if (index === -1) {
+                        return rules
+                    }
+
+                    if (deleteRule) {
+                        rules.splice(index, 1)
+                        return rules
+                    }
+
+                    rules[index] = { ...rule }
+                    return rules
+                },
+            },
+        ],
+        conditionalFormattingRulesPanelActiveKeys: [
+            [] as string[],
+            {
+                addConditionalFormattingRule: (state, { id }) => {
+                    return [...state, id]
+                },
+                setConditionalFormattingRulesPanelActiveKeys: (_, { keys }) => {
+                    return [...keys]
+                },
+            },
+        ],
     })),
     selectors({
         columns: [
@@ -513,7 +618,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                         column: {
                             name: 'None',
                             type: {
-                                name: 'None',
+                                name: 'STRING',
                                 isNumerical: false,
                             },
                             label: 'None',
@@ -538,17 +643,21 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         ],
         tabularData: [
             (state) => [state.tabularColumns, state.response],
-            (tabularColumns, response): any[][] => {
+            (tabularColumns, response): TableDataCell<any>[][] => {
                 if (!response || tabularColumns === null) {
                     return []
                 }
 
-                const data: any[] = response?.['results'] ?? response?.['result'] ?? []
+                const data: (string | number | null)[][] = response?.['results'] ?? response?.['result'] ?? []
 
-                return data.map((row: any[]) => {
-                    return tabularColumns.map((column) => {
+                return data.map((row): TableDataCell<any>[] => {
+                    return tabularColumns.map((column): TableDataCell<any> => {
                         if (!column) {
-                            return null
+                            return {
+                                value: null,
+                                formattedValue: null,
+                                type: 'STRING',
+                            }
                         }
 
                         const value = row[column.column.dataIndex]
@@ -556,71 +665,75 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                         if (column.column.type.isNumerical) {
                             try {
                                 if (value === null) {
-                                    return value
+                                    return {
+                                        value: null,
+                                        formattedValue: null,
+                                        type: column.column.type.name,
+                                    }
                                 }
 
                                 const multiplier = column.settings?.formatting?.style === 'percent' ? 100 : 1
 
                                 if (column.settings?.formatting?.decimalPlaces) {
-                                    return formatDataWithSettings(
-                                        parseFloat(
-                                            (parseFloat(value) * multiplier).toFixed(
-                                                column.settings.formatting.decimalPlaces
-                                            )
+                                    return {
+                                        value,
+                                        formattedValue: formatDataWithSettings(
+                                            parseFloat(
+                                                (parseFloat(value.toString()) * multiplier).toFixed(
+                                                    column.settings.formatting.decimalPlaces
+                                                )
+                                            ),
+                                            column.settings
                                         ),
-                                        column.settings
-                                    )
+                                        type: column.column.type.name,
+                                    }
                                 }
 
                                 const isInt = Number.isInteger(value)
-                                return formatDataWithSettings(
-                                    isInt ? parseInt(value, 10) * multiplier : parseFloat(value) * multiplier,
-                                    column.settings
-                                )
+                                return {
+                                    value,
+                                    formattedValue: formatDataWithSettings(
+                                        isInt
+                                            ? parseInt(value.toString(), 10) * multiplier
+                                            : parseFloat(value.toString()) * multiplier,
+                                        column.settings
+                                    ),
+                                    type: column.column.type.name,
+                                }
                             } catch {
-                                return 0
+                                return {
+                                    value: 0,
+                                    formattedValue: '0',
+                                    type: column.column.type.name,
+                                }
                             }
                         }
 
-                        return formatDataWithSettings(value, column.settings)
+                        return {
+                            value: convertTableValue(value, column.column.type.name),
+                            formattedValue: formatDataWithSettings(value, column.settings),
+                            type: column.column.type.name,
+                        }
                     })
                 })
             },
         ],
         tabularColumns: [
-            (state) => [state.selectedTabularSeries, state.response, state.columns],
-            (selectedTabularSeries, response, columns): AxisSeries<any>[] => {
+            (state) => [state.tabularColumnSettings, state.response, state.columns],
+            (tabularColumnSettings, response, columns): AxisSeries<any>[] => {
                 if (!response) {
                     return []
                 }
 
-                const selectedColumns = (selectedTabularSeries || [])
-                    .map((series): AxisSeries<any> | null => {
-                        if (!series) {
-                            return null
-                        }
+                return columns.map((col) => {
+                    const series = (tabularColumnSettings || []).find((n) => n?.name === col.name)
 
-                        const column = columns.find((n) => n.name === series.name)
-                        if (!column) {
-                            return null
-                        }
-
-                        return {
-                            column,
-                            data: [],
-                            settings: series.settings,
-                        }
-                    })
-                    .filter((series): series is AxisSeries<any> => Boolean(series))
-
-                if (selectedColumns.length === 0) {
-                    return columns.map((column) => ({
-                        column,
+                    return {
+                        column: col,
                         data: [],
-                        settings: { formatting: { prefix: '', suffix: '' } },
-                    }))
-                }
-                return selectedColumns
+                        settings: series?.settings ?? DefaultAxisSettings(),
+                    }
+                })
             },
         ],
         dataVisualizationProps: [() => [(_, props) => props], (props): DataVisualizationLogicProps => props],
@@ -680,6 +793,13 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 })
             }
         }
+
+        if (props.query.tableSettings?.conditionalFormatting?.length) {
+            props.query.tableSettings.conditionalFormatting.forEach((rule) => {
+                actions.addConditionalFormattingRule(rule)
+            })
+            actions.setConditionalFormattingRulesPanelActiveKeys([])
+        }
     }),
     subscriptions(({ props, actions, values }) => ({
         columns: (value: Column[], oldValue: Column[]) => {
@@ -688,8 +808,10 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 return
             }
 
-            const oldSelectedSeries: (SelectedYAxis | null)[] | null = JSON.parse(
-                JSON.stringify(values.selectedTabularSeries)
+            // When query columns update, clear all internal values and re-setup tabular columns and chart series
+
+            const oldTabularColumnSettings: (SelectedYAxis | null)[] | null = JSON.parse(
+                JSON.stringify(values.tabularColumnSettings)
             )
 
             if (oldValue && oldValue.length) {
@@ -698,11 +820,11 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 }
             }
 
-            // Set up table series
-            if (values.response && values.selectedTabularSeries === null) {
+            // Set up table columns
+            if (values.response && values.tabularColumnSettings === null) {
                 value.forEach((column) => {
-                    if (oldSelectedSeries) {
-                        const lastValue = oldSelectedSeries.find((n) => n?.name === column.name)
+                    if (oldTabularColumnSettings) {
+                        const lastValue = oldTabularColumnSettings.find((n) => n?.name === column.name)
                         return actions.addSeries(column.name, lastValue?.settings)
                     }
 
@@ -717,8 +839,8 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
                 if (yAxisTypes) {
                     yAxisTypes.forEach((y) => {
-                        if (oldSelectedSeries) {
-                            const lastValue = oldSelectedSeries.find((n) => n?.name === y.name)
+                        if (oldTabularColumnSettings) {
+                            const lastValue = oldTabularColumnSettings.find((n) => n?.name === y.name)
                             return actions.addYSeries(y.name, lastValue?.settings)
                         }
 
@@ -767,7 +889,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 },
             })
         },
-        selectedTabularSeries: (value: (SelectedYAxis | null)[] | null) => {
+        tabularColumnSettings: (value: (SelectedYAxis | null)[] | null) => {
             if (!values.isTableVisualization) {
                 return
             }
@@ -779,6 +901,17 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 tableSettings: {
                     ...(props.query.tableSettings ?? {}),
                     columns: columns.map((n) => ({ column: n.name, settings: n.settings })),
+                },
+            })
+        },
+        conditionalFormattingRules: (rules: ConditionalFormattingRule[]) => {
+            const saveableRules = rules.filter((n) => n.columnName && n.input && n.templateId && n.bytecode.length)
+
+            actions.setQuery({
+                ...props.query,
+                tableSettings: {
+                    ...(props.query.tableSettings ?? {}),
+                    conditionalFormatting: saveableRules,
                 },
             })
         },

@@ -403,7 +403,7 @@ class TestPrinter(BaseTest):
         if expected_context_values is not None:
             self.assertDictContainsSubset(expected_context_values, context.values)
 
-        if expected_skip_indexes_used:
+        if expected_skip_indexes_used is not None:
             # The table needs some data to be able get a `EXPLAIN` result that includes index information -- otherwise
             # the query is optimized to read from `NullSource` which doesn't do us much good here...
             for _ in range(10):
@@ -466,6 +466,30 @@ class TestPrinter(BaseTest):
 
         # ... unless we can distinguish ``Nullable(Nothing)`` from ``Nullable(*)`` -- this _could_ be safely optimized.
         self._test_property_group_comparison("properties.key = lower(NULL)", None)
+
+    def test_property_groups_optimized_boolean_equality_comparisons(self) -> None:
+        PropertyDefinition.objects.create(
+            team=self.team, name="is_boolean", property_type="Boolean", type=PropertyDefinition.Type.EVENT
+        )
+
+        self._test_property_group_comparison(
+            "properties.is_boolean = true",
+            "equals(events.properties_group_custom[%(hogql_val_0)s], 'true')",
+            {"hogql_val_0": "is_boolean"},
+            expected_skip_indexes_used={"properties_group_custom_keys_bf", "properties_group_custom_values_bf"},
+        )
+
+        self._test_property_group_comparison(
+            "properties.is_boolean = false",
+            "equals(events.properties_group_custom[%(hogql_val_0)s], 'false')",
+            {"hogql_val_0": "is_boolean"},
+            expected_skip_indexes_used={"properties_group_custom_keys_bf", "properties_group_custom_values_bf"},
+        )
+
+        # Don't try to optimize not equals comparisons: NULL handling here is tricky, and we wouldn't get any benefit
+        # from using the indexes anyway.
+        self._test_property_group_comparison("properties.is_boolean != true", None, expected_skip_indexes_used=set())
+        self._test_property_group_comparison("properties.is_boolean != false", None, expected_skip_indexes_used=set())
 
     def test_property_groups_optimized_empty_string_equality_comparisons(self) -> None:
         # Keys that don't exist in a map return default values for the type -- in our case empty strings -- so we need

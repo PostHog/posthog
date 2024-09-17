@@ -5,7 +5,7 @@ import pytest
 from django.contrib.gis.geoip2 import GeoIP2, GeoIP2Exception
 from django.test import TestCase
 
-from posthog.api.geoip import geoip, get_geoip_properties
+from posthog.geoip import geoip, get_geoip_properties
 
 australia_ip = "13.106.122.3"
 uk_ip = "31.28.64.3"

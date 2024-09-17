@@ -1,5 +1,6 @@
 import { LemonTable, LemonTableColumn } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+import { execHog } from 'lib/hog'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 
 import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema'
@@ -7,7 +8,7 @@ import { QueryContext } from '~/queries/types'
 
 import { LoadNext } from '../../DataNode/LoadNext'
 import { renderColumn } from '../../DataTable/renderColumn'
-import { dataVisualizationLogic } from '../dataVisualizationLogic'
+import { convertTableValue, dataVisualizationLogic, TableDataCell } from '../dataVisualizationLogic'
 
 interface TableProps {
     query: DataVisualizationNode
@@ -17,18 +18,56 @@ interface TableProps {
 }
 
 export const Table = (props: TableProps): JSX.Element => {
-    const { tabularData, tabularColumns, responseLoading, responseError, queryCancelled, response } =
-        useValues(dataVisualizationLogic)
+    const {
+        tabularData,
+        tabularColumns,
+        conditionalFormattingRules,
+        responseLoading,
+        responseError,
+        queryCancelled,
+        response,
+    } = useValues(dataVisualizationLogic)
 
-    const tableColumns: LemonTableColumn<any[], any>[] = tabularColumns.map(({ column, settings }, index) => ({
-        title: settings?.display?.label || column.name,
-        render: (_, data, recordIndex: number) => {
-            return renderColumn(column.name, data[index], data, recordIndex, {
-                kind: NodeKind.DataTableNode,
-                source: props.query.source,
-            })
-        },
-    }))
+    const tableColumns: LemonTableColumn<TableDataCell<any>[], any>[] = tabularColumns.map(
+        ({ column, settings }, index) => ({
+            title: settings?.display?.label || column.name,
+            render: (_, data, recordIndex: number) => {
+                return renderColumn(column.name, data[index].formattedValue, data, recordIndex, {
+                    kind: NodeKind.DataTableNode,
+                    source: props.query.source,
+                })
+            },
+            style: (_, data) => {
+                const cf = conditionalFormattingRules
+                    .filter((n) => n.columnName === column.name)
+                    .map((n) => {
+                        const res = execHog(n.bytecode, {
+                            globals: {
+                                value: data[index].value,
+                                input: convertTableValue(n.input, column.type.name),
+                            },
+                            functions: {},
+                            maxAsyncSteps: 0,
+                        })
+
+                        return {
+                            rule: n,
+                            result: res.result,
+                        }
+                    })
+
+                const conditionalFormattingMatches = cf.find((n) => Boolean(n.result))
+
+                if (conditionalFormattingMatches) {
+                    return {
+                        backgroundColor: conditionalFormattingMatches.rule.color,
+                    }
+                }
+
+                return undefined
+            },
+        })
+    )
 
     return (
         <div className="relative w-full flex flex-col gap-4 flex-1 h-full">

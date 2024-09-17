@@ -25,6 +25,14 @@ export interface IFrameBanner {
     message: string | JSX.Element
 }
 
+export const UserIntentVerb: {
+    [K in ToolbarUserIntent]: string
+} = {
+    heatmaps: 'view the heatmap',
+    'add-action': 'add actions',
+    'edit-action': 'edit the action',
+}
+
 export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
     path(['lib', 'components', 'iframedToolbarBrowser', 'iframedToolbarBrowserLogic']),
     props({} as IframedToolbarBrowserLogicProps),
