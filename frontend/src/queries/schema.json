@@ -530,6 +530,19 @@
                 }
             ]
         },
+        "AnyFilterLike": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/AnyPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/PropertyGroupFilter"
+                },
+                {
+                    "$ref": "#/definitions/PropertyGroupFilterValue"
+                }
+            ]
+        },
         "AnyPersonScopeFilter": {
             "anyOf": [
                 {
@@ -4394,7 +4407,7 @@
                 "fixedProperties": {
                     "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
                     "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
+                        "$ref": "#/definitions/AnyFilterLike"
                     },
                     "type": "array"
                 },

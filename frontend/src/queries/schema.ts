@@ -1,6 +1,7 @@
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import {
+    AnyFilterLike,
     AnyPersonScopeFilter,
     AnyPropertyFilter,
     BaseMathType,
@@ -519,7 +520,7 @@ export interface EventsQuery extends DataNode<EventsQueryResponse> {
     /** Properties configurable in the interface */
     properties?: AnyPropertyFilter[]
     /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
-    fixedProperties?: AnyPropertyFilter[]
+    fixedProperties?: AnyFilterLike[]
     /** Filter test accounts */
     filterTestAccounts?: boolean
     /** Limit to events matching this string */
