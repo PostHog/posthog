@@ -132,6 +132,7 @@ class BigQueryInsertInputs:
     use_json_type: bool = False
     run_id: str | None = None
     is_backfill: bool = False
+    inserted_at_interval_start: str | None = None
     batch_export_model: BatchExportModel | None = None
     # TODO: Remove after updating existing batch exports
     batch_export_schema: BatchExportSchema | None = None
@@ -372,6 +373,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
             include_events=inputs.include_events,
             destination_default_fields=bigquery_default_fields(),
             is_backfill=inputs.is_backfill,
+            inserted_at_interval_start=inputs.inserted_at_interval_start,
         )
 
         first_record_batch, records_iterator = await apeek_first_and_rewind(records_iterator)
@@ -559,7 +561,7 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             is_backfill=inputs.is_backfill,
-            last_inserted_at=inputs.last_inserted_at,
+            inserted_at_interval_start=inputs.inserted_at_interval_start,
         )
         run_id = await workflow.execute_activity(
             start_batch_export_run,
@@ -596,7 +598,7 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             use_json_type=inputs.use_json_type,
             run_id=run_id,
             is_backfill=inputs.is_backfill,
-            last_inserted_at=inputs.last_inserted_at,
+            inserted_at_interval_start=inputs.inserted_at_interval_start,
             batch_export_model=inputs.batch_export_model,
             # TODO: Remove after updating existing batch exports.
             batch_export_schema=inputs.batch_export_schema,

@@ -471,7 +471,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
             include_events=inputs.include_events,
             destination_default_fields=postgres_default_fields(),
             is_backfill=inputs.is_backfill,
-            last_inserted_at=inputs.last_inserted_at,
+            inserted_at_interval_start=inputs.inserted_at_interval_start,
         )
         first_record_batch, record_batch_iterator = await apeek_first_and_rewind(record_batch_iterator)
         if first_record_batch is None:

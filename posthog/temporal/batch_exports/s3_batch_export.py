@@ -414,6 +414,7 @@ class S3InsertInputs:
     file_format: str = "JSONLines"
     run_id: str | None = None
     is_backfill: bool = False
+    inserted_at_interval_start: str | None = None
     batch_export_model: BatchExportModel | None = None
     # TODO: Remove after updating existing batch exports
     batch_export_schema: BatchExportSchema | None = None
