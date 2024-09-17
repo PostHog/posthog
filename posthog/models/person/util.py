@@ -232,9 +232,9 @@ def get_persons_by_uuids(team: Team, uuids: list[str]) -> QuerySet:
 def delete_person(person: Person, sync: bool = False) -> None:
     # This is racy https://github.com/PostHog/posthog/issues/11590
     distinct_ids_to_version = _get_distinct_ids_with_version(person)
-    _delete_person(person.team.id, person.uuid, int(person.version or 0), person.created_at, sync)
+    _delete_person(person.team_id, person.uuid, int(person.version or 0), person.created_at, sync)
     for distinct_id, version in distinct_ids_to_version.items():
-        _delete_ch_distinct_id(person.team.id, person.uuid, distinct_id, version, sync)
+        _delete_ch_distinct_id(person.team_id, person.uuid, distinct_id, version, sync)
 
 
 def _delete_person(

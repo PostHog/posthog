@@ -17,7 +17,7 @@ import { router, urlToAction } from 'kea-router'
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
 import { DashboardPrivilegeLevel, OrganizationMembershipLevel } from 'lib/constants'
 import { Dayjs, dayjs, now } from 'lib/dayjs'
-import { captureTimeToSeeData, currentSessionId, TimeToSeeDataPayload } from 'lib/internalMetrics'
+import { currentSessionId, TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -65,6 +65,7 @@ export const DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES = 5
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
+const REFRESH_DASHBOARD_ITEM_ACTION = 'refresh_dashboard_item'
 export interface DashboardLogicProps {
     id: number
     dashboard?: DashboardType<QueryBasedInsightModel>
@@ -190,7 +191,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
         refreshAllDashboardItems: (payload: {
             tiles?: DashboardTile<QueryBasedInsightModel>[]
             action: string
-            initialLoad?: boolean
             dashboardQueryId?: string
         }) => payload,
         refreshAllDashboardItemsManual: true,
@@ -953,7 +953,19 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setRefreshError: sharedListeners.reportRefreshTiming,
         setRefreshStatuses: sharedListeners.reportRefreshTiming,
         setRefreshStatus: sharedListeners.reportRefreshTiming,
-        loadDashboardFailure: sharedListeners.reportLoadTiming,
+        loadDashboardFailure: () => {
+            const { action, dashboardQueryId, startTime } = values.dashboardLoadTimerData
+
+            eventUsageLogic.actions.reportTimeToSeeData({
+                team_id: values.currentTeamId,
+                type: 'dashboard_load',
+                context: 'dashboard',
+                status: 'failure',
+                action,
+                primary_interaction_id: dashboardQueryId,
+                time_to_see_data_ms: Math.floor(performance.now() - startTime),
+            })
+        },
         [insightsModel.actionTypes.duplicateInsightSuccess]: () => {
             // TODO this is a bit hacky, but we need to reload the dashboard to get the new insight
             // TODO when duplicated from a dashboard we should carry the context so only one logic needs to reload
@@ -1039,12 +1051,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 dashboardsModel.actions.updateDashboardInsight(refreshedInsight!)
                 // Start polling for results
                 tile.insight = refreshedInsight!
-                actions.refreshAllDashboardItems({ tiles: [tile], action: 'refresh' })
+                actions.refreshAllDashboardItems({ tiles: [tile], action: REFRESH_DASHBOARD_ITEM_ACTION })
             } catch (e: any) {
                 actions.setRefreshError(insight.short_id)
             }
         },
-        refreshAllDashboardItems: async ({ tiles, action, initialLoad, dashboardQueryId = uuid() }, breakpoint) => {
+        refreshAllDashboardItems: async ({ tiles, action, dashboardQueryId = uuid() }, breakpoint) => {
             const dashboardId: number = props.id
 
             const insightsToRefresh = (tiles || values.insightTiles || [])
@@ -1058,6 +1070,32 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             // Don't do anything if there's nothing to refresh
             if (insightsToRefresh.length === 0) {
+                // still report time to see updated data
+                // in case loadDashboard found all cached insights
+                const dashboard = values.dashboard
+                if (dashboard && action !== REFRESH_DASHBOARD_ITEM_ACTION) {
+                    const { action, dashboardQueryId, startTime, responseBytes } = values.dashboardLoadTimerData
+                    const lastRefresh = sortDates(dashboard.tiles.map((tile) => tile.insight?.last_refresh || null))
+
+                    eventUsageLogic.actions.reportTimeToSeeData({
+                        team_id: values.currentTeamId,
+                        type: 'dashboard_load',
+                        context: 'dashboard',
+                        action,
+                        status: 'success',
+                        primary_interaction_id: dashboardQueryId,
+                        time_to_see_data_ms: Math.floor(performance.now() - startTime),
+                        api_response_bytes: responseBytes,
+                        insights_fetched: dashboard.tiles.length,
+                        insights_fetched_cached: dashboard.tiles.reduce(
+                            (acc, curr) => acc + (curr.is_cached ? 1 : 0),
+                            0
+                        ),
+                        min_last_refresh: lastRefresh[0],
+                        max_last_refresh: lastRefresh[lastRefresh.length - 1],
+                    })
+                }
+
                 return
             }
 
@@ -1129,29 +1167,19 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 refreshesFinished += 1
                 if (!cancelled && refreshesFinished === insightsToRefresh.length) {
                     const payload: TimeToSeeDataPayload = {
+                        team_id: values.currentTeamId,
                         type: 'dashboard_load',
                         context: 'dashboard',
                         action,
+                        status: 'success',
                         primary_interaction_id: dashboardQueryId,
                         api_response_bytes: totalResponseBytes,
                         time_to_see_data_ms: Math.floor(performance.now() - refreshStartTime),
                         insights_fetched: insightsToRefresh.length,
                         insights_fetched_cached: 0,
                     }
-                    void captureTimeToSeeData(values.currentTeamId, {
-                        ...payload,
-                        is_primary_interaction: !initialLoad,
-                    })
-                    if (initialLoad) {
-                        const { startTime, responseBytes } = values.dashboardLoadTimerData
-                        void captureTimeToSeeData(values.currentTeamId, {
-                            ...payload,
-                            action: 'initial_load_full',
-                            time_to_see_data_ms: Math.floor(performance.now() - startTime),
-                            api_response_bytes: responseBytes + totalResponseBytes,
-                            is_primary_interaction: true,
-                        })
-                    }
+
+                    eventUsageLogic.actions.reportTimeToSeeData(payload)
                 }
             })
 
@@ -1218,37 +1246,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return // We hit a 404
             }
 
-            const dashboard = values.dashboard
-            const { action, dashboardQueryId, startTime, responseBytes } = values.dashboardLoadTimerData
-            const lastRefresh = sortDates(dashboard.tiles.map((tile) => tile.insight?.last_refresh || null))
-
-            const initialLoad = action === 'initial_load'
-            const allLoaded = false // TODO: Check this
-
-            actions.refreshAllDashboardItems({ action, initialLoad, dashboardQueryId })
-
-            const payload: TimeToSeeDataPayload = {
-                type: 'dashboard_load',
-                context: 'dashboard',
-                action,
-                primary_interaction_id: dashboardQueryId,
-                time_to_see_data_ms: Math.floor(performance.now() - startTime),
-                api_response_bytes: responseBytes,
-                insights_fetched: dashboard.tiles.length,
-                insights_fetched_cached: dashboard.tiles.reduce((acc, curr) => acc + (curr.is_cached ? 1 : 0), 0),
-                min_last_refresh: lastRefresh[0],
-                max_last_refresh: lastRefresh[lastRefresh.length - 1],
-                is_primary_interaction: !initialLoad,
-            }
-
-            void captureTimeToSeeData(values.currentTeamId, payload)
-            if (initialLoad && allLoaded) {
-                void captureTimeToSeeData(values.currentTeamId, {
-                    ...payload,
-                    action: 'initial_load_full',
-                    is_primary_interaction: true,
-                })
-            }
+            const { action, dashboardQueryId } = values.dashboardLoadTimerData
+            actions.refreshAllDashboardItems({ action, dashboardQueryId })
 
             if (values.shouldReportOnAPILoad) {
                 actions.setShouldReportOnAPILoad(false)
@@ -1288,7 +1287,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             // TRICKY: we cancel just once using the dashboard query id.
             // we can record the queryId that happened to capture the AbortError exception
             // and request the cancellation, but it is probably not particularly relevant
-            await captureTimeToSeeData(values.currentTeamId, {
+            eventUsageLogic.actions.reportTimeToSeeData({
+                team_id: values.currentTeamId,
                 type: 'insight_load',
                 context: 'dashboard',
                 primary_interaction_id: dashboardQueryId,
@@ -1307,7 +1307,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
     })),
 
-    urlToAction(({ actions }) => ({
+    urlToAction(({ values, actions }) => ({
         '/dashboard/:id/subscriptions(/:subscriptionId)': ({ subscriptionId }) => {
             const id = subscriptionId
                 ? subscriptionId == 'new'
@@ -1322,7 +1322,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
         '/dashboard/:id': () => {
             actions.setSubscriptionMode(false, undefined)
             actions.setTextTileId(null)
-            actions.setDashboardMode(null, DashboardEventSource.Browser)
+            if (values.dashboardMode === DashboardMode.Sharing) {
+                actions.setDashboardMode(null, null)
+            }
         },
         '/dashboard/:id/sharing': () => {
             actions.setSubscriptionMode(false, undefined)

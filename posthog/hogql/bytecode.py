@@ -16,7 +16,6 @@ from hogvm.python.operation import (
     HOGQL_BYTECODE_IDENTIFIER,
     HOGQL_BYTECODE_VERSION,
 )
-from posthog.schema import HogQLNotice
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -272,12 +271,10 @@ class BytecodeCompiler(Visitor):
         for element in reversed(node.chain):
             chain.extend([Operation.STRING, element])
         if self.context.globals and node.chain[0] in self.context.globals:
-            self.context.notices.append(
-                HogQLNotice(start=node.start, end=node.end, message="Global variable: " + str(node.chain[0]))
-            )
+            self.context.add_notice(start=node.start, end=node.end, message="Global variable: " + str(node.chain[0]))
         else:
-            self.context.warnings.append(
-                HogQLNotice(start=node.start, end=node.end, message="Unknown global variable: " + str(node.chain[0]))
+            self.context.add_warning(
+                start=node.start, end=node.end, message="Unknown global variable: " + str(node.chain[0])
             )
         return [*chain, Operation.GET_GLOBAL, len(node.chain)]
 
@@ -417,16 +414,14 @@ class BytecodeCompiler(Visitor):
                 response.extend([Operation.GET_UPVALUE, upvalue, Operation.CALL_LOCAL, len(args)])
             else:
                 if self.context.globals and node.name in self.context.globals:
-                    self.context.notices.append(
-                        HogQLNotice(start=node.start, end=node.end, message="Global variable: " + str(node.name))
+                    self.context.add_notice(
+                        start=node.start, end=node.end, message="Global variable: " + str(node.name)
                     )
                 elif node.name in self.supported_functions or node.name in STL:
                     pass
                 else:
-                    self.context.errors.append(
-                        HogQLNotice(
-                            start=node.start, end=node.end, message=f"Hog function `{node.name}` is not implemented"
-                        )
+                    self.context.add_error(
+                        start=node.start, end=node.end, message=f"Hog function `{node.name}` is not implemented"
                     )
 
                 response.extend([Operation.CALL_GLOBAL, node.name, len(args)])
@@ -485,6 +480,12 @@ class BytecodeCompiler(Visitor):
             return self._hx_ast("ExprStatement", {"expr": self.visit(node.expr)})
         if node.expr is None:
             return []
+        if isinstance(node.expr, ast.CompareOperation) and node.expr.op == ast.CompareOperationOp.Eq:
+            self.context.add_warning(
+                start=node.start,
+                end=node.end,
+                message="You must use ':=' for assignment instead of '='.",
+            )
         response = self.visit(node.expr)
         response.append(Operation.POP)
         return response

@@ -116,7 +116,7 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                             {id ? (
                                 <LemonButton
                                     type="secondary"
-                                    to={urls.replay(ReplayTabs.Recent, {
+                                    to={urls.replay(ReplayTabs.Home, {
                                         filter_group: {
                                             type: FilterLogicalOperator.And,
                                             values: [
@@ -216,7 +216,7 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
 
                         {hogFunctionsEnabled && (
                             <LemonBanner type="warning">
-                                The Webhook integration has been replaced with our new <b>Pipeline Destinations</b>
+                                The Webhook integration has been replaced with our new <b>Pipeline Destinations</b>{' '}
                                 allowing for much greater customization and visibility into their execution.
                             </LemonBanner>
                         )}

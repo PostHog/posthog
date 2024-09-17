@@ -136,9 +136,15 @@ class Insight(models.Model):
         self, dashboard: Optional[Dashboard] = None, dashboard_filters_override: Optional[dict] = None
     ):
         # query date range is set in a different function, see dashboard_query
-        if dashboard and not self.query:
+        if (dashboard is not None or dashboard_filters_override is not None) and not self.query:
             dashboard_filters = {
-                **(dashboard_filters_override if dashboard_filters_override is not None else dashboard.filters)
+                **(
+                    dashboard_filters_override
+                    if dashboard_filters_override is not None
+                    else dashboard.filters
+                    if dashboard
+                    else {}
+                )
             }
             dashboard_properties = dashboard_filters.pop("properties") if dashboard_filters.get("properties") else None
             insight_date_from = self.filters.get("date_from", None)
@@ -194,12 +200,18 @@ class Insight(models.Model):
     ) -> Optional[dict]:
         from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters_to_dict
 
-        if not dashboard or not self.query:
+        if not (dashboard or dashboard_filters_override) or not self.query:
             return self.query
 
         return apply_dashboard_filters_to_dict(
             self.query,
-            dashboard_filters_override if dashboard_filters_override is not None else dashboard.filters,
+            (
+                dashboard_filters_override
+                if dashboard_filters_override is not None
+                else dashboard.filters
+                if dashboard
+                else {}
+            ),
             self.team,
         )
 

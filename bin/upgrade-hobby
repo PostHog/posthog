@@ -11,6 +11,13 @@ else
     exit
 fi
 
+if [ "$REGISTRY_URL" == "" ]
+then
+export REGISTRY_URL="posthog/posthog"
+fi
+
+export POSTHOG_APP_TAG="${POSTHOG_APP_TAG:-latest}"
+
 echo "Checking for named postgres and clickhouse volumes to avoid data loss when upgrading from < 1.39"
 if docker volume ls | grep -Pzoq 'clickhouse-data\n(.|\n)*postgres-data\n'
 then

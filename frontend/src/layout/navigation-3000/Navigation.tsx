@@ -53,7 +53,8 @@ export function Navigation({
                     className={clsx(
                         'Navigation3000__scene',
                         // Hack - once we only have 3000 the "minimal" scenes should become "app-raw"
-                        sceneConfig?.layout === 'app-raw' && 'Navigation3000__scene--raw'
+                        sceneConfig?.layout === 'app-raw' && 'Navigation3000__scene--raw',
+                        sceneConfig?.layout === 'app-canvas' && 'Navigation3000__scene--canvas'
                     )}
                 >
                     {!sceneConfig?.hideBillingNotice && <BillingAlertsV2 />}

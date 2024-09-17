@@ -63,8 +63,6 @@ export interface LemonButtonPropsBase
     disabled?: boolean
     /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
     disabledReason?: string | null | false
-    /** Class for the wrapping div when the button is disabled */
-    disabledReasonWrapperClass?: string
     noPadding?: boolean
     size?: 'xsmall' | 'small' | 'medium' | 'large'
     'data-attr'?: string
@@ -118,7 +116,6 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 className,
                 disabled,
                 disabledReason,
-                disabledReasonWrapperClass,
                 loading,
                 type = 'tertiary',
                 status = 'default',
@@ -244,12 +241,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
             if (tooltipContent) {
                 workingButton = (
                     <Tooltip title={tooltipContent} placement={tooltipPlacement}>
-                        {/* If the button is a `button` element and disabled, wrap it in a div so that the tooltip works */}
-                        {disabled && ButtonComponent === 'button' ? (
-                            <div className={clsx(disabledReasonWrapperClass)}>{workingButton}</div>
-                        ) : (
-                            workingButton
-                        )}
+                        {workingButton}
                     </Tooltip>
                 )
             }

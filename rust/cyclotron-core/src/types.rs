@@ -1,8 +1,7 @@
-use std::str::FromStr;
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::{PgHasArrayType, PgTypeInfo};
+use std::str::FromStr;
 use uuid::Uuid;
 
 use crate::QueueError;
@@ -100,6 +99,8 @@ pub struct JobUpdate {
     pub metadata: Option<Option<Bytes>>,
     pub parameters: Option<Option<Bytes>>,
     pub blob: Option<Option<Bytes>>,
+    #[serde(skip)]
+    pub last_heartbeat: Option<DateTime<Utc>>,
 }
 
 impl JobUpdate {
@@ -114,6 +115,7 @@ impl JobUpdate {
             metadata: None,
             parameters: None,
             blob: None,
+            last_heartbeat: Some(Utc::now()), // Dequeueing a job always touches the heartbeat
         }
     }
 }
@@ -142,4 +144,15 @@ impl Default for BulkInsertResult {
     fn default() -> Self {
         Self::new()
     }
+}
+
+// Result of janitor's `delete_completed_and_failed_jobs`
+#[derive(sqlx::FromRow, Debug)]
+pub struct AggregatedDelete {
+    // `last_transition` column truncated to the hour.
+    pub hour: DateTime<Utc>,
+    pub team_id: i64,
+    pub function_id: Option<String>,
+    pub state: String,
+    pub count: i64,
 }

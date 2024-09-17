@@ -25,3 +25,5 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 common-metrics = { path = "../common/metrics" }
+common-kafka = { path = "../common/kafka" }
+common-alloc = { path = "../common/alloc" }

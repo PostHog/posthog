@@ -1,5 +1,5 @@
 import { Hub } from '../../../src/types'
-import { createHub } from '../../../src/utils/db/hub'
+import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { captureTeamEvent } from '../../../src/utils/posthog'
 import { GroupTypeManager } from '../../../src/worker/ingestion/group-type-manager'
 import { resetTestDatabase } from '../../helpers/sql'
@@ -11,11 +11,10 @@ jest.mock('../../../src/utils/posthog', () => ({
 
 describe('GroupTypeManager()', () => {
     let hub: Hub
-    let closeHub: () => Promise<void>
     let groupTypeManager: GroupTypeManager
 
     beforeEach(async () => {
-        ;[hub, closeHub] = await createHub()
+        hub = await createHub()
         await resetTestDatabase()
         groupTypeManager = new GroupTypeManager(hub.postgres, hub.teamManager)
 
@@ -23,7 +22,7 @@ describe('GroupTypeManager()', () => {
         jest.spyOn(groupTypeManager, 'insertGroupType')
     })
     afterEach(async () => {
-        await closeHub()
+        await closeHub(hub)
     })
 
     describe('fetchGroupTypes()', () => {

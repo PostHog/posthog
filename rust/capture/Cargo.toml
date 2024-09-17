@@ -17,6 +17,7 @@ envconfig = { workspace = true }
 flate2 = { workspace = true }
 governor = { workspace = true }
 health = { path = "../common/health" }
+common-alloc = { path = "../common/alloc" }
 metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
 opentelemetry = { workspace = true }

@@ -26,7 +26,9 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 url = { version = "2.2" }
 common-metrics = { path = "../common/metrics" }
-common-dns = { path =  "../common/dns" }
+common-dns = { path = "../common/dns" }
+common-kafka = { path = "../common/kafka" }
+common-alloc = { path = "../common/alloc" }
 
 [dev-dependencies]
 httpmock = { workspace = true }

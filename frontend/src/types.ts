@@ -22,7 +22,7 @@ import {
 } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { PopoverProps } from 'lib/lemon-ui/Popover/Popover'
-import type { PostHog } from 'posthog-js'
+import type { PostHog, SupportedWebVitalsMetrics } from 'posthog-js'
 import { Layout } from 'react-grid-layout'
 import { LogLevel } from 'rrweb'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
@@ -295,9 +295,12 @@ export interface MinimalHedgehogConfig {
     accessories: string[]
 }
 
+export type HedgehogSkin = 'default' | 'spiderhog'
+
 export interface HedgehogConfig extends MinimalHedgehogConfig {
     enabled: boolean
     color: HedgehogColorOptions | null
+    skin?: HedgehogSkin
     accessories: string[]
     walking_enabled: boolean
     interactions_enabled: boolean
@@ -466,6 +469,12 @@ export interface SessionRecordingAIConfig {
     important_user_properties: string[]
 }
 
+export interface ProjectType {
+    id: number
+    name: string
+    organization_id: string
+    created_at: string
+}
 export interface TeamType extends TeamBasicType {
     created_at: string
     updated_at: string
@@ -489,6 +498,7 @@ export interface TeamType extends TeamBasicType {
     session_replay_config: { record_canvas?: boolean; ai_config?: SessionRecordingAIConfig } | undefined | null
     autocapture_exceptions_opt_in: boolean
     autocapture_web_vitals_opt_in?: boolean
+    autocapture_web_vitals_allowed_metrics?: SupportedWebVitalsMetrics[]
     surveys_opt_in?: boolean
     heatmaps_opt_in?: boolean
     autocapture_exceptions_errors_to_ignore: string[]
@@ -564,6 +574,7 @@ export interface ActionStepType {
     url?: string | null
     /** @default StringMatching.Contains */
     url_matching?: ActionStepStringMatching | null
+    name?: string | null
 }
 
 export interface ElementType {
@@ -629,6 +640,8 @@ export enum PropertyOperator {
     NotBetween = 'not_between',
     Minimum = 'min',
     Maximum = 'max',
+    In = 'in',
+    NotIn = 'not_in',
 }
 
 export enum SavedInsightsTabs {
@@ -639,7 +652,7 @@ export enum SavedInsightsTabs {
 }
 
 export enum ReplayTabs {
-    Recent = 'recent',
+    Home = 'home',
     Playlists = 'playlists',
     Errors = 'errors',
 }
@@ -759,6 +772,8 @@ export interface CohortPropertyFilter extends BasePropertyFilter {
     key: 'id'
     /**  @asType integer */
     value: number
+    /** @default 'in' */
+    operator: PropertyOperator
 }
 
 export interface GroupPropertyFilter extends BasePropertyFilter {
@@ -931,6 +946,16 @@ export enum SessionRecordingUsageType {
     VIEWED = 'viewed',
     ANALYZED = 'analyzed',
     LOADED = 'loaded',
+}
+
+export enum SessionRecordingSidebarTab {
+    INSPECTOR = 'inspector',
+    DEBUGGER = 'debugger',
+}
+
+export enum SessionRecordingSidebarStacking {
+    Vertical = 'vertical',
+    Horizontal = 'horizontal',
 }
 
 export enum SessionRecordingPlayerTab {
@@ -1798,8 +1823,12 @@ export interface DashboardTemplateVariableType {
     name: string
     description: string
     type: 'event'
-    default: Record<string, JsonType>
+    default: TemplateVariableStep
     required: boolean
+    touched?: boolean
+    selector?: string
+    href?: string
+    url?: string
 }
 
 export type DashboardLayoutSize = 'sm' | 'xs'
@@ -2131,6 +2160,20 @@ export interface FilterType {
     aggregation_group_type_index?: integer // Groups aggregation
 }
 
+export interface TemplateVariableStep {
+    id?: string
+    math?: BaseMathType
+    name?: string | null
+    order?: number
+    type?: EntityTypes
+    event?: string
+    selector?: string | null
+    href?: string | null
+    url?: string | null
+    properties?: Record<string, any>[]
+    custom_name?: string
+}
+
 export interface PropertiesTimelineFilterType {
     date_from?: string | null // DateMixin
     date_to?: string | null // DateMixin
@@ -2261,10 +2304,10 @@ export interface RetentionFilterType extends FilterType {
     returning_entity?: RetentionEntity
     target_entity?: RetentionEntity
     period?: RetentionPeriod
+    cumulative?: boolean
 
     //frontend only
     show_mean?: boolean
-    cumulative?: boolean
 }
 export interface LifecycleFilterType extends FilterType {
     /** @deprecated */
@@ -2578,6 +2621,9 @@ export interface InsightLogicProps<T = InsightVizNode> {
 
     /** Used to group DataNodes into a collection for group operations like refreshAll **/
     dataNodeCollectionId?: string
+
+    /** Dashboard filters to override the ones in the query */
+    filtersOverride?: DashboardFilter | null
 }
 
 export interface SetInsightOptions {
@@ -3060,6 +3106,7 @@ export enum PropertyType {
     Boolean = 'Boolean',
     Duration = 'Duration',
     Selector = 'Selector',
+    Cohort = 'Cohort',
 }
 
 export enum PropertyDefinitionType {
@@ -3067,6 +3114,7 @@ export enum PropertyDefinitionType {
     Person = 'person',
     Group = 'group',
     Session = 'session',
+    LogEntry = 'log_entry',
 }
 
 export interface PropertyDefinition {
@@ -3267,6 +3315,7 @@ export type EventOrPropType = EventDefinition & PropertyDefinition
 
 export interface AppContext {
     current_user: UserType | null
+    current_project: ProjectType | null
     current_team: TeamType | TeamPublicType | null
     preflight: PreflightStatus
     default_event_name: string
@@ -3279,6 +3328,7 @@ export interface AppContext {
     year_in_hog_url?: string
     /** Support flow aid: a staff-only list of users who may be impersonated to access this resource. */
     suggested_users_with_access?: UserBasicType[]
+    is_region_blocked?: boolean
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
@@ -3558,7 +3608,7 @@ export enum EventDefinitionType {
     EventPostHog = 'event_posthog',
 }
 
-export type IntegrationKind = 'slack' | 'salesforce' | 'hubspot'
+export type IntegrationKind = 'slack' | 'salesforce' | 'hubspot' | 'google-pubsub' | 'google-cloud-storage'
 
 export interface IntegrationType {
     id: number
@@ -3860,6 +3910,7 @@ export const externalDataSources = [
     'Zendesk',
     'Snowflake',
     'Salesforce',
+    'Vitally',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -3923,7 +3974,7 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
 export interface ExternalDataJob {
     id: string
     created_at: string
-    status: 'Running' | 'Failed' | 'Completed' | 'Cancelled'
+    status: 'Running' | 'Failed' | 'Completed' | 'Billing limits'
     schema: SimpleExternalDataSourceSchema
     rows_synced: number
     latest_error: string

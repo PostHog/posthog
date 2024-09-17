@@ -107,7 +107,7 @@
   FROM (
   SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id, nullIf(nullIf(argMinMerge(raw_sessions.entry_url), %(hogql_val_0)s), %(hogql_val_1)s) AS `$entry_current_url`, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_2)s)) AS `$start_timestamp`, raw_sessions.session_id_v7 AS session_id_v7 
   FROM raw_sessions 
-  WHERE equals(raw_sessions.team_id, 420) 
+  WHERE and(equals(raw_sessions.team_id, 420), ifNull(lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), toDateTime64('2024-07-06 00:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), toDateTime64('2024-07-04 00:00:00.000000', 6, 'UTC')), 0)) 
   GROUP BY raw_sessions.session_id_v7, raw_sessions.session_id_v7) AS sessions 
   WHERE and(ifNull(less(sessions.`$start_timestamp`, toDateTime64('2024-07-06 00:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(sessions.`$start_timestamp`, toDateTime64('2024-07-04 00:00:00.000000', 6, 'UTC')), 0)) 
   LIMIT 100 
@@ -314,14 +314,14 @@
   -- ClickHouse
   
   SELECT events.event AS event, count() 
-  FROM events INNER JOIN (
-  SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
-  FROM person_distinct_id2 
-  WHERE equals(person_distinct_id2.team_id, 420) 
-  GROUP BY person_distinct_id2.distinct_id 
-  HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) 
-  SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) 
-  WHERE and(equals(events.team_id, 420), ifNull(in(events__pdi.person_id, (
+  FROM events LEFT OUTER JOIN (
+  SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
+  FROM person_distinct_id_overrides 
+  WHERE equals(person_distinct_id_overrides.team_id, 420) 
+  GROUP BY person_distinct_id_overrides.distinct_id 
+  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) 
+  SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) 
+  WHERE and(equals(events.team_id, 420), ifNull(in(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), (
   SELECT cohortpeople.person_id AS person_id 
   FROM cohortpeople 
   WHERE and(equals(cohortpeople.team_id, 420), equals(cohortpeople.cohort_id, XX)) 
@@ -380,14 +380,14 @@
   -- ClickHouse
   
   SELECT events.event AS event, count() 
-  FROM events INNER JOIN (
-  SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
-  FROM person_distinct_id2 
-  WHERE equals(person_distinct_id2.team_id, 420) 
-  GROUP BY person_distinct_id2.distinct_id 
-  HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) 
-  SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) 
-  WHERE and(equals(events.team_id, 420), ifNull(in(events__pdi.person_id, (
+  FROM events LEFT OUTER JOIN (
+  SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
+  FROM person_distinct_id_overrides 
+  WHERE equals(person_distinct_id_overrides.team_id, 420) 
+  GROUP BY person_distinct_id_overrides.distinct_id 
+  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) 
+  SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) 
+  WHERE and(equals(events.team_id, 420), ifNull(in(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), (
   SELECT person_static_cohort.person_id AS person_id 
   FROM person_static_cohort 
   WHERE and(equals(person_static_cohort.team_id, 420), equals(person_static_cohort.cohort_id, XX)))), 0)) 
@@ -828,14 +828,14 @@
   '''
   -- ClickHouse
   
-  SELECT events.event AS event, toTimeZone(events.timestamp, %(hogql_val_3)s) AS timestamp, events__pdi__person.id AS id, events__pdi__person.properties___sneaky_mail AS sneaky_mail 
-  FROM events INNER JOIN (
-  SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS events__pdi___person_id, argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
-  FROM person_distinct_id2 
-  WHERE equals(person_distinct_id2.team_id, 420) 
-  GROUP BY person_distinct_id2.distinct_id 
-  HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) 
-  SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) LEFT JOIN (
+  SELECT events.event AS event, toTimeZone(events.timestamp, %(hogql_val_3)s) AS timestamp, events__person.id AS id, events__person.properties___sneaky_mail AS sneaky_mail 
+  FROM events LEFT OUTER JOIN (
+  SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
+  FROM person_distinct_id_overrides 
+  WHERE equals(person_distinct_id_overrides.team_id, 420) 
+  GROUP BY person_distinct_id_overrides.distinct_id 
+  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) 
+  SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) LEFT JOIN (
   SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail 
   FROM person 
   WHERE and(equals(person.team_id, 420), ifNull(in(tuple(person.id, person.version), (
@@ -844,7 +844,7 @@
   WHERE equals(person.team_id, 420) 
   GROUP BY person.id 
   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_1)s), person.version), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1))), 0)))), 0)) 
-  SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id) 
+  SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id) 
   WHERE equals(events.team_id, 420) 
   LIMIT 10 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0

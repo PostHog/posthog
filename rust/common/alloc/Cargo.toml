@@ -1,0 +1,11 @@
+[package]
+name = "common-alloc"
+version = "0.1.0"
+edition = "2021"
+
+[lints]
+workspace = true
+
+[dependencies]
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+tikv-jemallocator = "0.6"

@@ -1,6 +1,12 @@
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
-import { allOperatorsMapping, isOperatorFlag } from 'lib/utils'
+import {
+    allOperatorsMapping,
+    capitalizeFirstLetter,
+    cohortOperatorMap,
+    isOperatorCohort,
+    isOperatorFlag,
+} from 'lib/utils'
 
 import { propertyDefinitionsModelType } from '~/models/propertyDefinitionsModelType'
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
@@ -120,7 +126,8 @@ export function formatPropertyLabel(
     const taxonomicFilterGroupType = PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[type]
 
     return type === 'cohort'
-        ? cohortsById[value]?.name || `ID ${value}`
+        ? `${capitalizeFirstLetter(cohortOperatorMap[operator || 'in'] || 'user in')} ` +
+              (cohortsById[value]?.name || `ID ${value}`)
         : (CORE_FILTER_DEFINITIONS_BY_GROUP[taxonomicFilterGroupType]?.[key]?.label || key) +
               (isOperatorFlag(operator)
                   ? ` ${allOperatorsMapping[operator]}`
@@ -256,6 +263,7 @@ export function isPropertyFilterWithOperator(
             isLogEntryPropertyFilter(filter) ||
             isFeaturePropertyFilter(filter) ||
             isGroupPropertyFilter(filter) ||
+            isCohortPropertyFilter(filter) ||
             isDataWarehousePropertyFilter(filter))
     )
 }
@@ -326,6 +334,8 @@ export function propertyFilterTypeToPropertyDefinitionType(
         ? PropertyDefinitionType.Session
         : filterType === PropertyFilterType.Recording
         ? PropertyDefinitionType.Session
+        : filterType === PropertyFilterType.LogEntry
+        ? PropertyDefinitionType.LogEntry
         : PropertyDefinitionType.Event
 }
 
@@ -376,13 +386,19 @@ export function createDefaultPropertyFilter(
     describeProperty: propertyDefinitionsModelType['values']['describeProperty']
 ): AnyPropertyFilter {
     if (propertyType === PropertyFilterType.Cohort) {
+        const operator =
+            (isPropertyFilterWithOperator(filter) && isOperatorCohort(filter?.operator) && filter?.operator) ||
+            PropertyOperator.In
         const cohortProperty: CohortPropertyFilter = {
             key: 'id',
             value: parseInt(String(propertyKey)),
             type: propertyType,
+            operator: operator,
         }
         return cohortProperty
-    } else if (propertyType === PropertyFilterType.HogQL) {
+    }
+
+    if (propertyType === PropertyFilterType.HogQL) {
         const hogQLProperty: HogQLPropertyFilter = {
             type: propertyType,
             key: String(propertyKey),
@@ -390,6 +406,7 @@ export function createDefaultPropertyFilter(
         }
         return hogQLProperty
     }
+
     const apiType = propertyFilterTypeToPropertyDefinitionType(propertyType) ?? PropertyDefinitionType.Event
 
     const propertyValueType = describeProperty(propertyKey, apiType, taxonomicGroup.groupTypeIndex)
@@ -403,7 +420,7 @@ export function createDefaultPropertyFilter(
     }
     const operator =
         property_name_to_default_operator_override[propertyKey] ||
-        (isPropertyFilterWithOperator(filter) ? filter.operator : null) ||
+        (isPropertyFilterWithOperator(filter) && !isOperatorCohort(filter.operator) ? filter.operator : null) ||
         property_value_type_to_default_operator_override[propertyValueType ?? ''] ||
         PropertyOperator.Exact
 

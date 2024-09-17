@@ -31,6 +31,9 @@ regex = "1.10.4"
 maxminddb = "0.17"
 sqlx = { workspace = true }
 uuid = { workspace = true }
+base64.workspace = true
+flate2.workspace = true
+common-alloc = { path = "../common/alloc" }
 
 [lints]
 workspace = true
@@ -38,4 +41,4 @@ workspace = true
 [dev-dependencies]
 assert-json-diff = { workspace = true }
 reqwest = { workspace = true }
-
+futures = "0.3.30" 
