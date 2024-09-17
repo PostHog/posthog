@@ -54,9 +54,9 @@
                  FROM
                    (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
                            if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
-                           if(and(equals(e.event, 'user signed up'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), 'val'), 0)), 1, 0) AS step_0,
+                           if(and(equals(e.event, 'user signed up'), equals(e.properties_group_custom['key'], 'val')), 1, 0) AS step_0,
                            if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
-                           if(and(equals(e.event, 'paid'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), 'val'), 0)), 1, 0) AS step_1,
+                           if(and(equals(e.event, 'paid'), equals(e.properties_group_custom['key'], 'val')), 1, 0) AS step_1,
                            if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                     FROM events AS e
                     LEFT OUTER JOIN
@@ -123,9 +123,9 @@
                  FROM
                    (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
                            if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
-                           if(and(equals(e.event, 'user signed up'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), 'val'), 0)), 1, 0) AS step_0,
+                           if(and(equals(e.event, 'user signed up'), equals(e.properties_group_custom['key'], 'val')), 1, 0) AS step_0,
                            if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
-                           if(and(equals(e.event, 'paid'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), 'val'), 0)), 1, 0) AS step_1,
+                           if(and(equals(e.event, 'paid'), equals(e.properties_group_custom['key'], 'val')), 1, 0) AS step_1,
                            if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                     FROM events AS e
                     LEFT OUTER JOIN
