@@ -102,6 +102,7 @@ class S3BatchExportInputs:
     is_backfill: bool = False
     batch_export_model: BatchExportModel | None = None
     batch_export_schema: BatchExportSchema | None = None
+    inserted_at_interval_start: str | None = None
 
 
 @dataclass
@@ -125,6 +126,7 @@ class SnowflakeBatchExportInputs:
     is_backfill: bool = False
     batch_export_model: BatchExportModel | None = None
     batch_export_schema: BatchExportSchema | None = None
+    inserted_at_interval_start: str | None = None
 
 
 @dataclass
@@ -148,6 +150,7 @@ class PostgresBatchExportInputs:
     is_backfill: bool = False
     batch_export_model: BatchExportModel | None = None
     batch_export_schema: BatchExportSchema | None = None
+    inserted_at_interval_start: str | None = None
 
 
 @dataclass
@@ -178,6 +181,7 @@ class BigQueryBatchExportInputs:
     is_backfill: bool = False
     batch_export_model: BatchExportModel | None = None
     batch_export_schema: BatchExportSchema | None = None
+    inserted_at_interval_start: str | None = None
 
 
 @dataclass
@@ -195,6 +199,7 @@ class HttpBatchExportInputs:
     is_backfill: bool = False
     batch_export_model: BatchExportModel | None = None
     batch_export_schema: BatchExportSchema | None = None
+    inserted_at_interval_start: str | None = None
 
 
 @dataclass
@@ -412,6 +417,7 @@ class BackfillBatchExportInputs:
     end_at: str | None
     buffer_limit: int = 1
     start_delay: float = 1.0
+    inserted_at_interval_start: str | None = None
 
 
 def backfill_export(
@@ -420,6 +426,7 @@ def backfill_export(
     team_id: int,
     start_at: dt.datetime,
     end_at: dt.datetime | None,
+    inserted_at_interval_start: dt.datetime | None = None,
 ) -> str:
     """Starts a backfill for given team and batch export covering given date range.
 
@@ -448,6 +455,7 @@ def backfill_export(
         team_id=team_id,
         start_at=start_at.isoformat(),
         end_at=end_at.isoformat() if end_at else None,
+        inserted_at_interval_start=inserted_at_interval_start.isoformat() if inserted_at_interval_start else None,
     )
     workflow_id = start_backfill_batch_export_workflow(temporal, inputs=inputs)
     return workflow_id
@@ -473,6 +481,8 @@ def create_batch_export_run(
     data_interval_end: str,
     status: str = BatchExportRun.Status.STARTING,
     records_total_count: int | None = None,
+    inserted_at_interval_start: str | None = None,
+    inserted_at_interval_end: str | None = None,
 ) -> BatchExportRun:
     """Create a BatchExportRun after a Temporal Workflow execution.
 
@@ -491,6 +501,12 @@ def create_batch_export_run(
         data_interval_start=dt.datetime.fromisoformat(data_interval_start),
         data_interval_end=dt.datetime.fromisoformat(data_interval_end),
         records_total_count=records_total_count,
+        inserted_at_interval_start=dt.datetime.fromisoformat(inserted_at_interval_start)
+        if inserted_at_interval_start
+        else None,
+        inserted_at_interval_end=dt.datetime.fromisoformat(inserted_at_interval_end)
+        if inserted_at_interval_end
+        else None,
     )
     run.save()
 
