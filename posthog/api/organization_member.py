@@ -1,4 +1,3 @@
-from datetime import datetime
 from typing import cast
 
 from django.db.models import Model, Prefetch, QuerySet, F
@@ -66,9 +65,6 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
 
     def get_has_social_auth(self, instance: OrganizationMembership) -> bool:
         return len(instance.user.social_auth.all()) > 0
-
-    def get_last_login(self, instance: OrganizationMembership) -> datetime | None:
-        return instance.user.last_login
 
     def update(self, updated_membership, validated_data, **kwargs):
         updated_membership = cast(OrganizationMembership, updated_membership)
