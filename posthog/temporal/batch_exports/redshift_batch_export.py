@@ -4,6 +4,7 @@ import dataclasses
 import datetime as dt
 import json
 import typing
+import uuid
 
 import psycopg
 import pyarrow as pa
@@ -17,6 +18,7 @@ from posthog.batch_exports.service import (
     BatchExportModel,
     BatchExportSchema,
     RedshiftBatchExportInputs,
+    aupdate_batch_export_run,
 )
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
@@ -402,6 +404,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
             include_events=inputs.include_events,
             destination_default_fields=redshift_default_fields(),
             is_backfill=inputs.is_backfill,
+            inserted_at_interval_start=inputs.inserted_at_interval_start,
         )
         first_record_batch, record_iterator = await apeek_first_and_rewind(record_iterator)
         if first_record_batch is None:
@@ -477,9 +480,15 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
 
                     return record
 
+                last_inserted_at_interval_end = None
+
                 async def record_generator() -> collections.abc.AsyncGenerator[dict[str, typing.Any], None]:
+                    nonlocal last_inserted_at_interval_end
+
                     async for record_batch in record_iterator:
                         for record in record_batch.to_pylist():
+                            if model is None or (isinstance(model, BatchExportModel) and model.name == "events"):
+                                last_inserted_at_interval_end = record["_inserted_at"]
                             yield map_to_record(record)
 
                 records_completed = await insert_records_to_redshift(
@@ -500,6 +509,11 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
                         schema=inputs.schema,
                         merge_key=merge_key,
                     )
+
+                await aupdate_batch_export_run(
+                    run_id=uuid.UUID(inputs.run_id),
+                    inserted_at_interval_end=last_inserted_at_interval_end,
+                )
 
                 return records_completed
 
@@ -533,6 +547,7 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             is_backfill=inputs.is_backfill,
+            inserted_at_interval_start=inputs.inserted_at_interval_start,
         )
         run_id = await workflow.execute_activity(
             start_batch_export_run,
@@ -572,6 +587,7 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
             is_backfill=inputs.is_backfill,
             batch_export_model=inputs.batch_export_model,
             batch_export_schema=inputs.batch_export_schema,
+            inserted_at_interval_start=inputs.inserted_at_interval_start,
         )
 
         await execute_batch_export_insert_activity(

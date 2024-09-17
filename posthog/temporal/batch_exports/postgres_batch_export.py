@@ -5,7 +5,7 @@ import dataclasses
 import datetime as dt
 import json
 import typing
-
+import uuid
 import psycopg
 import pyarrow as pa
 from django.conf import settings
@@ -19,6 +19,7 @@ from posthog.batch_exports.service import (
     BatchExportModel,
     BatchExportSchema,
     PostgresBatchExportInputs,
+    aupdate_batch_export_run,
 )
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
@@ -76,6 +77,7 @@ class PostgresInsertInputs:
     is_backfill: bool = False
     batch_export_model: BatchExportModel | None = None
     batch_export_schema: BatchExportSchema | None = None
+    inserted_at_interval_start: str | None = None
 
 
 class PostgreSQLClient:
@@ -469,6 +471,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
             include_events=inputs.include_events,
             destination_default_fields=postgres_default_fields(),
             is_backfill=inputs.is_backfill,
+            last_inserted_at=inputs.last_inserted_at,
         )
         first_record_batch, record_batch_iterator = await apeek_first_and_rewind(record_batch_iterator)
         if first_record_batch is None:
@@ -563,11 +566,15 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
                     escape_char=None,
                 )
 
+                last_inserted_at_interval_end = None
                 async with writer.open_temporary_file():
                     async for record_batch in record_batch_iterator:
                         record_batch = cast_record_batch_json_columns(record_batch, json_columns=())
 
                         await writer.write_record_batch(record_batch)
+
+                        if model is None or (isinstance(model, BatchExportModel) and model.name == "events"):
+                            last_inserted_at_interval_end = record_batch.column("_inserted_at")[-1].as_py()
 
                 if requires_merge:
                     merge_key: Fields = (
@@ -581,6 +588,11 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
                         update_when_matched=table_fields,
                         merge_key=merge_key,
                     )
+
+                await aupdate_batch_export_run(
+                    run_id=uuid.UUID(inputs.run_id),
+                    inserted_at_interval_end=last_inserted_at_interval_end,
+                )
 
                 return writer.records_total
 
@@ -614,6 +626,7 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             is_backfill=inputs.is_backfill,
+            inserted_at_interval_start=inputs.inserted_at_interval_start,
         )
         run_id = await workflow.execute_activity(
             start_batch_export_run,
@@ -651,6 +664,7 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
             run_id=run_id,
             batch_export_model=inputs.batch_export_model,
             batch_export_schema=inputs.batch_export_schema,
+            inserted_at_interval_start=inputs.inserted_at_interval_start,
         )
 
         await execute_batch_export_insert_activity(

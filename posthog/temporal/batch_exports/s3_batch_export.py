@@ -6,7 +6,7 @@ import io
 import json
 import posixpath
 import typing
-
+import uuid
 import aioboto3
 import botocore.exceptions
 import pyarrow as pa
@@ -20,6 +20,7 @@ from posthog.batch_exports.service import (
     BatchExportModel,
     BatchExportSchema,
     S3BatchExportInputs,
+    aupdate_batch_export_run,
 )
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
@@ -537,6 +538,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
             include_events=inputs.include_events,
             is_backfill=inputs.is_backfill,
             destination_default_fields=s3_default_fields(),
+            inserted_at_interval_start=inputs.inserted_at_interval_start,
         )
 
         first_record_batch, record_iterator = await apeek_first_and_rewind(record_iterator)
@@ -599,6 +601,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
                 schema=schema,
             )
 
+            last_inserted_at_interval_end = None
             async with writer.open_temporary_file():
                 rows_exported = get_rows_exported_metric()
                 bytes_exported = get_bytes_exported_metric()
@@ -608,8 +611,16 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
 
                     await writer.write_record_batch(record_batch)
 
+                    if model is None or (isinstance(model, BatchExportModel) and model.name == "events"):
+                        last_inserted_at_interval_end = record_batch.column("_inserted_at")[-1].as_py()
+
             records_completed = writer.records_total
             await s3_upload.complete()
+
+            await aupdate_batch_export_run(
+                run_id=uuid.UUID(inputs.run_id),
+                inserted_at_interval_end=last_inserted_at_interval_end,
+            )
 
         return records_completed
 
@@ -671,6 +682,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             is_backfill=inputs.is_backfill,
+            inserted_at_interval_start=inputs.inserted_at_interval_start,
         )
         run_id = await workflow.execute_activity(
             start_batch_export_run,
@@ -709,6 +721,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             file_format=inputs.file_format,
             run_id=run_id,
             is_backfill=inputs.is_backfill,
+            inserted_at_interval_start=inputs.inserted_at_interval_start,
             batch_export_model=inputs.batch_export_model,
             # TODO: Remove after updating existing batch exports.
             batch_export_schema=inputs.batch_export_schema,

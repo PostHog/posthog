@@ -682,7 +682,8 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
 
                         await writer.write_record_batch(record_batch)
 
-                        last_inserted_at_interval_end = record_batch.column("_inserted_at")[-1].as_py()
+                        if model is None or (isinstance(model, BatchExportModel) and model.name == "events"):
+                            last_inserted_at_interval_end = record_batch.column("_inserted_at")[-1].as_py()
 
                 await snow_client.copy_loaded_files_to_snowflake_table(
                     snow_stage_table if requires_merge else snow_table

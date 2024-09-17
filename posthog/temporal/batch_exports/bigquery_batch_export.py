@@ -4,6 +4,7 @@ import contextlib
 import dataclasses
 import datetime as dt
 import json
+import uuid
 
 import pyarrow as pa
 from django.conf import settings
@@ -18,6 +19,7 @@ from posthog.batch_exports.service import (
     BatchExportModel,
     BatchExportSchema,
     BigQueryBatchExportInputs,
+    aupdate_batch_export_run,
 )
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
@@ -476,11 +478,15 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                     flush_callable=flush_to_bigquery,
                 )
 
+                last_inserted_at_interval_end = None
                 async with writer.open_temporary_file():
                     async for record_batch in records_iterator:
                         record_batch = cast_record_batch_json_columns(record_batch, json_columns=json_columns)
 
                         await writer.write_record_batch(record_batch)
+
+                        if model is None or (isinstance(model, BatchExportModel) and model.name == "events"):
+                            last_inserted_at_interval_end = record_batch.column("_inserted_at")[-1].as_py()
 
                 if requires_merge:
                     merge_key = (
@@ -493,6 +499,11 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                         merge_key=merge_key,
                         update_fields=schema,
                     )
+
+                await aupdate_batch_export_run(
+                    run_id=uuid.UUID(inputs.run_id),
+                    inserted_at_interval_end=last_inserted_at_interval_end,
+                )
 
                 return writer.records_total
 
@@ -548,6 +559,7 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             is_backfill=inputs.is_backfill,
+            last_inserted_at=inputs.last_inserted_at,
         )
         run_id = await workflow.execute_activity(
             start_batch_export_run,
@@ -584,6 +596,7 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             use_json_type=inputs.use_json_type,
             run_id=run_id,
             is_backfill=inputs.is_backfill,
+            last_inserted_at=inputs.last_inserted_at,
             batch_export_model=inputs.batch_export_model,
             # TODO: Remove after updating existing batch exports.
             batch_export_schema=inputs.batch_export_schema,
