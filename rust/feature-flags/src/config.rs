@@ -66,10 +66,6 @@ impl Config {
     }
 }
 
-pub struct PgClient {
-    pool: sqlx::PgPool,
-}
-
 pub static DEFAULT_TEST_CONFIG: Lazy<Config> = Lazy::new(Config::default_test_config);
 
 #[cfg(test)]

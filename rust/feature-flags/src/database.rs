@@ -10,8 +10,6 @@ use sqlx::{
 use thiserror::Error;
 use tokio::time::timeout;
 
-use crate::config::Config;
-
 const DATABASE_TIMEOUT_MILLISECS: u64 = 1000;
 
 #[derive(Error, Debug)]
