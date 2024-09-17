@@ -118,7 +118,7 @@
                       "person"
                   ],
                   "hogql_value": "pdi",
-                  "id": null,
+                  "id": "pdi",
                   "name": "pdi",
                   "schema_valid": true,
                   "table": "person_distinct_ids",
@@ -256,7 +256,7 @@
                       "properties"
                   ],
                   "hogql_value": "group_0",
-                  "id": null,
+                  "id": "group_0",
                   "name": "group_0",
                   "schema_valid": true,
                   "table": "groups",
@@ -283,7 +283,7 @@
                       "properties"
                   ],
                   "hogql_value": "group_1",
-                  "id": null,
+                  "id": "group_1",
                   "name": "group_1",
                   "schema_valid": true,
                   "table": "groups",
@@ -310,7 +310,7 @@
                       "properties"
                   ],
                   "hogql_value": "group_2",
-                  "id": null,
+                  "id": "group_2",
                   "name": "group_2",
                   "schema_valid": true,
                   "table": "groups",
@@ -337,7 +337,7 @@
                       "properties"
                   ],
                   "hogql_value": "group_3",
-                  "id": null,
+                  "id": "group_3",
                   "name": "group_3",
                   "schema_valid": true,
                   "table": "groups",
@@ -364,7 +364,7 @@
                       "properties"
                   ],
                   "hogql_value": "group_4",
-                  "id": null,
+                  "id": "group_4",
                   "name": "group_4",
                   "schema_valid": true,
                   "table": "groups",
@@ -407,7 +407,7 @@
                       "$exit_pathname"
                   ],
                   "hogql_value": "session",
-                  "id": null,
+                  "id": "session",
                   "name": "session",
                   "schema_valid": true,
                   "table": "sessions",
@@ -590,7 +590,7 @@
                       "person_id"
                   ],
                   "hogql_value": "pdi",
-                  "id": null,
+                  "id": "pdi",
                   "name": "pdi",
                   "schema_valid": true,
                   "table": "person_distinct_ids",
@@ -656,7 +656,7 @@
                       "$virt_initial_channel_type"
                   ],
                   "hogql_value": "person",
-                  "id": null,
+                  "id": "person",
                   "name": "person",
                   "schema_valid": true,
                   "table": "persons",
@@ -850,7 +850,7 @@
                       "override"
                   ],
                   "hogql_value": "events",
-                  "id": null,
+                  "id": "events",
                   "name": "events",
                   "schema_valid": true,
                   "table": "events",
@@ -878,7 +878,7 @@
                       "person"
                   ],
                   "hogql_value": "pdi",
-                  "id": null,
+                  "id": "pdi",
                   "name": "pdi",
                   "schema_valid": true,
                   "table": "person_distinct_ids",
@@ -896,7 +896,7 @@
                       "level"
                   ],
                   "hogql_value": "console_logs",
-                  "id": null,
+                  "id": "console_logs",
                   "name": "console_logs",
                   "schema_valid": true,
                   "table": "console_logs_log_entries",
@@ -965,7 +965,7 @@
                       "$exit_pathname"
                   ],
                   "hogql_value": "session",
-                  "id": null,
+                  "id": "session",
                   "name": "session",
                   "schema_valid": true,
                   "table": "sessions",
@@ -1031,7 +1031,7 @@
                       "$virt_initial_channel_type"
                   ],
                   "hogql_value": "person",
-                  "id": null,
+                  "id": "person",
                   "name": "person",
                   "schema_valid": true,
                   "table": "persons",
@@ -1077,7 +1077,7 @@
                       "$virt_initial_channel_type"
                   ],
                   "hogql_value": "person",
-                  "id": null,
+                  "id": "person",
                   "name": "person",
                   "schema_valid": true,
                   "table": "persons",
@@ -1686,7 +1686,7 @@
                       "person"
                   ],
                   "hogql_value": "pdi",
-                  "id": null,
+                  "id": "pdi",
                   "name": "pdi",
                   "schema_valid": true,
                   "table": "person_distinct_ids",
@@ -1819,7 +1819,7 @@
                       "properties"
                   ],
                   "hogql_value": "group_0",
-                  "id": null,
+                  "id": "group_0",
                   "name": "group_0",
                   "schema_valid": true,
                   "table": "groups",
@@ -1846,7 +1846,7 @@
                       "properties"
                   ],
                   "hogql_value": "group_1",
-                  "id": null,
+                  "id": "group_1",
                   "name": "group_1",
                   "schema_valid": true,
                   "table": "groups",
@@ -1873,7 +1873,7 @@
                       "properties"
                   ],
                   "hogql_value": "group_2",
-                  "id": null,
+                  "id": "group_2",
                   "name": "group_2",
                   "schema_valid": true,
                   "table": "groups",
@@ -1900,7 +1900,7 @@
                       "properties"
                   ],
                   "hogql_value": "group_3",
-                  "id": null,
+                  "id": "group_3",
                   "name": "group_3",
                   "schema_valid": true,
                   "table": "groups",
@@ -1927,7 +1927,7 @@
                       "properties"
                   ],
                   "hogql_value": "group_4",
-                  "id": null,
+                  "id": "group_4",
                   "name": "group_4",
                   "schema_valid": true,
                   "table": "groups",
@@ -1970,7 +1970,7 @@
                       "$exit_pathname"
                   ],
                   "hogql_value": "session",
-                  "id": null,
+                  "id": "session",
                   "name": "session",
                   "schema_valid": true,
                   "table": "sessions",
@@ -2128,7 +2128,7 @@
                       "person_id"
                   ],
                   "hogql_value": "pdi",
-                  "id": null,
+                  "id": "pdi",
                   "name": "pdi",
                   "schema_valid": true,
                   "table": "person_distinct_ids",
@@ -2194,7 +2194,7 @@
                       "$virt_initial_channel_type"
                   ],
                   "hogql_value": "person",
-                  "id": null,
+                  "id": "person",
                   "name": "person",
                   "schema_valid": true,
                   "table": "persons",
@@ -2386,7 +2386,7 @@
                       "elements_chain_elements"
                   ],
                   "hogql_value": "events",
-                  "id": null,
+                  "id": "events",
                   "name": "events",
                   "schema_valid": true,
                   "table": "events",
@@ -2414,7 +2414,7 @@
                       "person"
                   ],
                   "hogql_value": "pdi",
-                  "id": null,
+                  "id": "pdi",
                   "name": "pdi",
                   "schema_valid": true,
                   "table": "person_distinct_ids",
@@ -2432,7 +2432,7 @@
                       "level"
                   ],
                   "hogql_value": "console_logs",
-                  "id": null,
+                  "id": "console_logs",
                   "name": "console_logs",
                   "schema_valid": true,
                   "table": "console_logs_log_entries",
@@ -2501,7 +2501,7 @@
                       "$exit_pathname"
                   ],
                   "hogql_value": "session",
-                  "id": null,
+                  "id": "session",
                   "name": "session",
                   "schema_valid": true,
                   "table": "sessions",
@@ -2567,7 +2567,7 @@
                       "$virt_initial_channel_type"
                   ],
                   "hogql_value": "person",
-                  "id": null,
+                  "id": "person",
                   "name": "person",
                   "schema_valid": true,
                   "table": "persons",
@@ -2613,7 +2613,7 @@
                       "$virt_initial_channel_type"
                   ],
                   "hogql_value": "person",
-                  "id": null,
+                  "id": "person",
                   "name": "person",
                   "schema_valid": true,
                   "table": "persons",
