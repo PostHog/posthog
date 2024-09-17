@@ -32,6 +32,19 @@ class TestMigrateActionWebhooks(BaseTest):
     def test_dry_run(self):
         migrate_action_webhooks(action_ids=[], team_ids=[], dry_run=True)
         assert not HogFunction.objects.exists()
+        self.action.refresh_from_db()
+        assert self.action.post_to_slack is True  # no change
+
+    def test_inert_run(self):
+        migrate_action_webhooks(action_ids=[], team_ids=[], inert=True)
+        assert HogFunction.objects.exists()
+        hog = HogFunction.objects.first()
+        assert hog is not None
+        assert "print" in hog.hog
+        assert "fetch" not in hog.hog
+        self.action.refresh_from_db()
+        assert self.action.post_to_slack is True  # no change
+        assert hog.name == f"[CDP-TEST-HIDDEN] Webhook for action {self.action.id} (Test Action)"
 
     def test_only_specified_team(self):
         migrate_action_webhooks(action_ids=[], team_ids=[9999])
