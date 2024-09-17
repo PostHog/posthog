@@ -717,7 +717,7 @@ export function LineGraph_({
                             return tick
                         })
 
-                        const ROW_HEIGHT = 20
+                        const ROW_HEIGHT = inSurveyView ? 30 : 20
                         const height = scale.ticks.length * ROW_HEIGHT
                         const parentNode: any = scale.chart?.canvas?.parentNode
                         parentNode.style.height = `${height}px`

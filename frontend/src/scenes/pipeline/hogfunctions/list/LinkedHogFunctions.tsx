@@ -34,7 +34,6 @@ export function LinkedHogFunctions({ filters, subTemplateId }: LinkedHogFunction
         />
     ) : (
         <HogFunctionList
-            defaultFilters={{ onlyActive: true }}
             forceFilters={{ filters }}
             extraControls={
                 <>

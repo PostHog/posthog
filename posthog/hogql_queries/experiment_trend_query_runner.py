@@ -2,6 +2,7 @@ from django.conf import settings
 from posthog.hogql import ast
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.models.experiment import Experiment
 from posthog.schema import (
     ExperimentTrendQuery,
     ExperimentTrendQueryResponse,
@@ -16,6 +17,9 @@ class ExperimentTrendQueryRunner(QueryRunner):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.experiment = Experiment.objects.get(id=self.query.experiment_id)
+        self.feature_flag = self.experiment.feature_flag
+
         self.query_runner = TrendsQueryRunner(
             query=self.query.count_source, team=self.team, timings=self.timings, limit_context=self.limit_context
         )
@@ -68,17 +72,17 @@ class ExperimentTrendQueryRunner(QueryRunner):
     def _process_results(
         self, count_results: list[dict[str, Any]], exposure_results: list[dict[str, Any]]
     ) -> dict[str, ExperimentVariantTrendResult]:
-        variants = self.query.variants
-        processed_results = {variant: ExperimentVariantTrendResult(count=0, exposure=0) for variant in variants}
+        variants = self.feature_flag.variants
+        processed_results = {variant["key"]: ExperimentVariantTrendResult(count=0, exposure=0) for variant in variants}
 
         for result in count_results:
             variant = result.get("breakdown_value")
-            if variant in variants:
+            if variant in processed_results:
                 processed_results[variant].count += result.get("count", 0)
 
         for result in exposure_results:
             variant = result.get("breakdown_value")
-            if variant in variants:
+            if variant in processed_results:
                 processed_results[variant].exposure += result.get("count", 0)
 
         return processed_results
