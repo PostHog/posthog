@@ -71,3 +71,5 @@ For the safety of your instance, you must generate and set a unique key.
 
 INTERNAL_IPS = ["127.0.0.1", "172.18.0.1"]  # Docker IP
 CORS_ORIGIN_ALLOW_ALL = True
+
+BLOCKED_GEOIP_REGIONS = get_list(os.getenv("BLOCKED_GEOIP_REGIONS", ""))
