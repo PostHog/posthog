@@ -198,7 +198,7 @@ export function getDefaultConfig(): PluginsServerConfig {
             ? 'postgres://posthog:posthog@localhost:5432/cyclotron'
             : '',
 
-        DJANGO_ENCRYPTION_SALT_KEYS: isDevEnv() || isTestEnv() ? 'ABCDEFGHIJKLMNOPQRSTUVWXYZ012345' : '',
+        ENCRYPTION_SALT_KEYS: isDevEnv() || isTestEnv() ? 'ABCDEFGHIJKLMNOPQRSTUVWXYZ012345' : '',
     }
 }
 

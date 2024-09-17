@@ -640,6 +640,8 @@ export enum PropertyOperator {
     NotBetween = 'not_between',
     Minimum = 'min',
     Maximum = 'max',
+    In = 'in',
+    NotIn = 'not_in',
 }
 
 export enum SavedInsightsTabs {
@@ -770,6 +772,8 @@ export interface CohortPropertyFilter extends BasePropertyFilter {
     key: 'id'
     /**  @asType integer */
     value: number
+    /** @default 'in' */
+    operator: PropertyOperator
 }
 
 export interface GroupPropertyFilter extends BasePropertyFilter {
@@ -942,6 +946,16 @@ export enum SessionRecordingUsageType {
     VIEWED = 'viewed',
     ANALYZED = 'analyzed',
     LOADED = 'loaded',
+}
+
+export enum SessionRecordingSidebarTab {
+    INSPECTOR = 'inspector',
+    DEBUGGER = 'debugger',
+}
+
+export enum SessionRecordingSidebarStacking {
+    Vertical = 'vertical',
+    Horizontal = 'horizontal',
 }
 
 export enum SessionRecordingPlayerTab {
@@ -2157,6 +2171,7 @@ export interface TemplateVariableStep {
     href?: string | null
     url?: string | null
     properties?: Record<string, any>[]
+    custom_name?: string
 }
 
 export interface PropertiesTimelineFilterType {
@@ -3091,6 +3106,7 @@ export enum PropertyType {
     Boolean = 'Boolean',
     Duration = 'Duration',
     Selector = 'Selector',
+    Cohort = 'Cohort',
 }
 
 export enum PropertyDefinitionType {
@@ -3312,6 +3328,7 @@ export interface AppContext {
     year_in_hog_url?: string
     /** Support flow aid: a staff-only list of users who may be impersonated to access this resource. */
     suggested_users_with_access?: UserBasicType[]
+    is_region_blocked?: boolean
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'

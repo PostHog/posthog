@@ -20,7 +20,7 @@ export interface Fuse extends FuseClass<HogFunctionType> {}
 
 export type HogFunctionListFilters = {
     search?: string
-    onlyActive?: boolean
+    showPaused?: boolean
     filters?: Record<string, any>
 }
 
@@ -137,10 +137,10 @@ export const hogFunctionListLogic = kea<hogFunctionListLogicType>([
         filteredHogFunctions: [
             (s) => [s.filters, s.sortedHogFunctions, s.hogFunctionsFuse],
             (filters, hogFunctions, hogFunctionsFuse): HogFunctionType[] => {
-                const { search, onlyActive } = filters
+                const { search, showPaused } = filters
 
                 return (search ? hogFunctionsFuse.search(search).map((x) => x.item) : hogFunctions).filter((x) => {
-                    if (onlyActive && !x.enabled) {
+                    if (!showPaused && !x.enabled) {
                         return false
                     }
                     return true

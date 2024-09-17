@@ -115,19 +115,18 @@ def validate_inputs_schema(value: list) -> list:
     return serializer.validated_data or []
 
 
-def validate_inputs(inputs_schema: list, inputs: dict, existing_secret_inputs: dict) -> tuple[dict, dict]:
+def validate_inputs(inputs_schema: list, inputs: dict, existing_secret_inputs: Optional[dict] = None) -> dict:
     """
     Tricky: We want to allow overriding the secret inputs, but not return them.
     If we have a given input then we use it, otherwise we pull it from the existing secrets
     """
     validated_inputs = {}
-    validated_secret_inputs = {}
 
     for schema in inputs_schema:
         value = inputs.get(schema["key"]) or {}
 
         # We only load the existing secret if the schema is secret and the given value has "secret" set
-        if schema.get("secret") and value and value.get("secret"):
+        if schema.get("secret") and existing_secret_inputs and value and value.get("secret"):
             value = existing_secret_inputs.get(schema["key"]) or {}
 
         serializer = InputsItemSerializer(data=value, context={"schema": schema})
@@ -135,12 +134,9 @@ def validate_inputs(inputs_schema: list, inputs: dict, existing_secret_inputs: d
         if not serializer.is_valid():
             raise serializers.ValidationError(serializer.errors)
 
-        if schema.get("secret"):
-            validated_secret_inputs[schema["key"]] = serializer.validated_data
-        else:
-            validated_inputs[schema["key"]] = serializer.validated_data
+        validated_inputs[schema["key"]] = serializer.validated_data
 
-    return validated_inputs, validated_secret_inputs
+    return validated_inputs
 
 
 def compile_hog(hog: str, supported_functions: Optional[set[str]] = None) -> list[Any]:

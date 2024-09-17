@@ -6,6 +6,7 @@ from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.errors import NotImplementedError, QueryError, SyntaxError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
+from posthog.queries.util import alias_poe_mode_for_legacy
 
 
 # This is called only from "non-hogql-based" insights to translate HogQL expressions into ClickHouse SQL
@@ -22,12 +23,16 @@ def translate_hogql(
     if query == "":
         raise QueryError("Empty query")
 
+    # TRICKY: As `translate_hogql` is only used in legacy queries (not the all-HogQL ones), we must guard against
+    # the PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED being used here, as that is not supported in legacy
+    actual_poe_mode = context.modifiers.personsOnEventsMode
     try:
+        context.modifiers.personsOnEventsMode = alias_poe_mode_for_legacy(actual_poe_mode)
         # Create a fake query that selects from "events" to have fields to select from.
         if context.database is None:
             if context.team_id is None:
                 raise ValueError("Cannot translate HogQL for a filter with no team specified")
-            context.database = create_hogql_database(context.team_id)
+            context.database = create_hogql_database(context.team_id, context.modifiers)
         node = parse_expr(query, placeholders=placeholders)
         select_query = ast.SelectQuery(select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])))
 
@@ -46,3 +51,5 @@ def translate_hogql(
         )
     except (NotImplementedError, SyntaxError):
         raise
+    finally:
+        context.modifiers.personsOnEventsMode = actual_poe_mode  # Restore the original value

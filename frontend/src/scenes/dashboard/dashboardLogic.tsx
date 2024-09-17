@@ -1307,7 +1307,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
     })),
 
-    urlToAction(({ actions }) => ({
+    urlToAction(({ values, actions }) => ({
         '/dashboard/:id/subscriptions(/:subscriptionId)': ({ subscriptionId }) => {
             const id = subscriptionId
                 ? subscriptionId == 'new'
@@ -1322,6 +1322,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
         '/dashboard/:id': () => {
             actions.setSubscriptionMode(false, undefined)
             actions.setTextTileId(null)
+            if (values.dashboardMode === DashboardMode.Sharing) {
+                actions.setDashboardMode(null, null)
+            }
         },
         '/dashboard/:id/sharing': () => {
             actions.setSubscriptionMode(false, undefined)

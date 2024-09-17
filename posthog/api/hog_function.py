@@ -37,6 +37,7 @@ class HogFunctionStatusSerializer(serializers.Serializer):
 
 class HogFunctionMinimalSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
+    status = HogFunctionStatusSerializer(read_only=True, required=False, allow_null=True)
 
     class Meta:
         model = HogFunction
@@ -52,6 +53,7 @@ class HogFunctionMinimalSerializer(serializers.ModelSerializer):
             "filters",
             "icon_url",
             "template",
+            "status",
         ]
         read_only_fields = fields
 
@@ -72,9 +74,7 @@ class HogFunctionMaskingSerializer(serializers.Serializer):
 
 class HogFunctionSerializer(HogFunctionMinimalSerializer):
     template = HogFunctionTemplateSerializer(read_only=True)
-    status = HogFunctionStatusSerializer(read_only=True, required=False, allow_null=True)
     masking = HogFunctionMaskingSerializer(required=False, allow_null=True)
-    encrypted_inputs = serializers.HiddenField(default={})
 
     class Meta:
         model = HogFunction
@@ -97,7 +97,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "template",
             "template_id",
             "status",
-            "encrypted_inputs",
         ]
         read_only_fields = [
             "id",
@@ -107,7 +106,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "bytecode",
             "template",
             "status",
-            "encrypted_inputs",
         ]
         extra_kwargs = {
             "hog": {"required": False},
@@ -166,17 +164,13 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
         if "inputs" in attrs:
             inputs = attrs["inputs"] or {}
-            existing_encrypted_inputs = {}
+            existing_encrypted_inputs = None
 
             if instance and instance.encrypted_inputs:
                 existing_encrypted_inputs = instance.encrypted_inputs
 
             attrs["inputs_schema"] = attrs.get("inputs_schema", instance.inputs_schema if instance else [])
-            validated_inputs, validate_encrypted_inputs = validate_inputs(
-                attrs["inputs_schema"], inputs, existing_encrypted_inputs
-            )
-            attrs["inputs"] = validated_inputs
-            attrs["encrypted_inputs"] = validate_encrypted_inputs
+            attrs["inputs"] = validate_inputs(attrs["inputs_schema"], inputs, existing_encrypted_inputs)
 
         if "hog" in attrs:
             attrs["bytecode"] = compile_hog(attrs["hog"])

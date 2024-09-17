@@ -288,7 +288,7 @@ export interface PluginsServerConfig extends CdpConfig {
     SESSION_RECORDING_KAFKA_CONSUMPTION_STATISTICS_EVENT_INTERVAL_MS: number
 
     CYCLOTRON_DATABASE_URL: string
-    DJANGO_ENCRYPTION_SALT_KEYS: string
+    ENCRYPTION_SALT_KEYS: string
 }
 
 export interface Hub extends PluginsServerConfig {
