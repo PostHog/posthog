@@ -382,9 +382,11 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             (s) => [s.configuration, s.currentTeam, s.groupTypes],
             (configuration, currentTeam, groupTypes): HogFunctionInvocationGlobals => {
                 const currentUrl = window.location.href.split('#')[0]
+                const eventId = uuid()
+                const personId = uuid()
                 const globals: HogFunctionInvocationGlobals = {
                     event: {
-                        uuid: uuid(),
+                        uuid: eventId,
                         distinct_id: uuid(),
                         name: '$pageview',
                         timestamp: dayjs().toISOString(),
@@ -395,9 +397,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         },
                     },
                     person: {
-                        uuid: uuid(),
+                        uuid: personId,
                         name: 'Example person',
-                        url: `${window.location.origin}/person/${uuid()}`,
+                        url: `${window.location.origin}/person/${personId}`,
                         properties: {
                             email: 'example@posthog.com',
                         },
@@ -413,15 +415,13 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         url: currentUrl,
                     },
                 }
-
                 groupTypes.forEach((groupType) => {
+                    const id = uuid()
                     globals.groups![groupType.group_type] = {
-                        id: uuid(),
+                        id: id,
                         type: groupType.group_type,
                         index: groupType.group_type_index,
-                        url: `${window.location.origin}/groups/${
-                            groupType.group_type_index
-                        }/groups/${encodeURIComponent(groupType.group_type_index)}`,
+                        url: `${window.location.origin}/groups/${groupType.group_type_index}/${encodeURIComponent(id)}`,
                         properties: {},
                     }
                 })
@@ -532,9 +532,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         ],
 
         lastEventQuery: [
-            (s) => [s.configuration, s.matchingFilters],
-            (configuration, matchingFilters): EventsQuery => {
-                return {
+            (s) => [s.configuration, s.matchingFilters, s.groupTypes],
+            (configuration, matchingFilters, groupTypes): EventsQuery => {
+                const query: EventsQuery = {
                     kind: NodeKind.EventsQuery,
                     filterTestAccounts: configuration.filters?.filter_test_accounts,
                     fixedProperties: [matchingFilters],
@@ -543,6 +543,13 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     limit: 1,
                     orderBy: ['timestamp DESC'],
                 }
+                groupTypes.forEach((groupType) => {
+                    const name = groupType.group_type
+                    query.select.push(
+                        `tuple(${name}.created_at, ${name}.index, ${name}.key, ${name}.properties, ${name}.updated_at)`
+                    )
+                })
+                return query
             },
             { resultEqualityCheck: equal },
         ],

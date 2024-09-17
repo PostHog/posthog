@@ -8,6 +8,7 @@ import { tryJsonParse } from 'lib/utils'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { groupsModel } from '~/models/groupsModel'
 import { performQuery } from '~/queries/query'
 import { EventType, type HogFunctionInvocationGlobals, LogEntry, PersonType } from '~/types'
 
@@ -59,6 +60,7 @@ export function convertToHogFunctionInvocationGlobals(
             url: `${projectUrl}/person/${encodeURIComponent(event.distinct_id)}`,
             properties: person.properties,
         },
+        groups: {},
     }
 }
 
@@ -70,6 +72,8 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
         values: [
             hogFunctionConfigurationLogic({ id: props.id }),
             ['configuration', 'configurationHasErrors', 'exampleInvocationGlobals', 'lastEventQuery'],
+            groupsModel,
+            ['groupTypes'],
         ],
         actions: [hogFunctionConfigurationLogic({ id: props.id }), ['touchConfigurationField']],
     })),
@@ -103,7 +107,21 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                         const response = await performQuery(values.lastEventQuery)
                         const event: EventType = response?.results?.[0]?.[0]
                         const person: PersonType = response?.results?.[0]?.[1]
-                        return convertToHogFunctionInvocationGlobals(event, person)
+                        const globals = convertToHogFunctionInvocationGlobals(event, person)
+                        globals.groups = {}
+                        values.groupTypes.forEach((groupType, index) => {
+                            const tuple = response?.results?.[0]?.[2 + index]
+                            if (tuple && Array.isArray(tuple) && tuple[2]) {
+                                globals.groups![groupType.group_type] = {
+                                    type: groupType.group_type,
+                                    index: tuple[1],
+                                    id: tuple[2], // TODO: rename to "key"?
+                                    url: `${window.location.origin}/groups/${tuple[1]}/${encodeURIComponent(tuple[2])}`,
+                                    properties: tuple[3],
+                                }
+                            }
+                        })
+                        return globals
                     } catch (e) {
                         return values.exampleInvocationGlobals
                     }
