@@ -83,6 +83,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "deleted": False,
                 "pinned": False,
                 "pinned_at": None,
+                "creation_context": None,
             },
         )
 
