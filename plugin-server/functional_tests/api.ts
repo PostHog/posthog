@@ -26,7 +26,7 @@ let clickHouseClient: ClickHouse
 export let postgres: PostgresRouter
 export let redis: Redis.Redis
 
-beforeAll(async () => {
+beforeAll(() => {
     // Setup connections to kafka, clickhouse, and postgres
     postgres = new PostgresRouter({ ...defaultConfig, POSTGRES_CONNECTION_POOL_SIZE: 1 }, null)
     clickHouseClient = new ClickHouse({
