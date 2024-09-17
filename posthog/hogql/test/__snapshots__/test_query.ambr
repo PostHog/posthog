@@ -33,7 +33,7 @@
   
   SELECT events.event AS event, events.distinct_id AS distinct_id 
   FROM events 
-  WHERE and(equals(events.team_id, 420), equals(events.distinct_id, %(hogql_val_0)s), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', ''), %(hogql_val_2)s), 0)) 
+  WHERE and(equals(events.team_id, 420), equals(events.distinct_id, %(hogql_val_1)s), equals(events.properties_group_custom[%(hogql_val_2)s], %(hogql_val_3)s)) 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0
   
@@ -41,7 +41,7 @@
   
   SELECT event, distinct_id 
   FROM events 
-  WHERE and(equals(distinct_id, 'RANDOM_TEST_ID::UUID'), equals(properties.index, '4')) 
+  WHERE and(equals(distinct_id, 'RANDOM_TEST_ID::UUID'), equals(events.properties_group_custom[%(hogql_val_0)s], '4')) 
   LIMIT 100
   '''
 # ---
@@ -50,7 +50,7 @@
   
   SELECT event, distinct_id 
   FROM events 
-  WHERE and(equals(distinct_id, 'RANDOM_TEST_ID::UUID'), equals(properties.index, '4')) 
+  WHERE and(equals(distinct_id, 'RANDOM_TEST_ID::UUID'), equals(events.properties_group_custom[%(hogql_val_0)s], '4')) 
   LIMIT 100
   '''
 # ---
@@ -60,7 +60,7 @@
   
   SELECT events.event AS event, events.distinct_id AS distinct_id 
   FROM events 
-  WHERE and(equals(events.team_id, 420), equals(events.distinct_id, %(hogql_val_0)s), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', ''), %(hogql_val_2)s), 0), less(toTimeZone(events.timestamp, %(hogql_val_3)s), toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_4)s), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')))) 
+  WHERE and(equals(events.team_id, 420), equals(events.distinct_id, %(hogql_val_1)s), and(equals(events.properties_group_custom[%(hogql_val_2)s], %(hogql_val_3)s), less(toTimeZone(events.timestamp, %(hogql_val_4)s), toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_5)s), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')))) 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0
   
@@ -68,7 +68,7 @@
   
   SELECT event, distinct_id 
   FROM events 
-  WHERE and(equals(distinct_id, 'RANDOM_TEST_ID::UUID'), and(equals(properties.index, '4'), less(timestamp, toDateTime('2020-01-02 00:00:00.000000')), greaterOrEquals(timestamp, toDateTime('2020-01-01 00:00:00.000000')))) 
+  WHERE and(equals(distinct_id, 'RANDOM_TEST_ID::UUID'), and(equals(events.properties_group_custom[%(hogql_val_0)s], '4'), less(timestamp, toDateTime('2020-01-02 00:00:00.000000')), greaterOrEquals(timestamp, toDateTime('2020-01-01 00:00:00.000000')))) 
   LIMIT 100
   '''
 # ---
@@ -77,7 +77,7 @@
   
   SELECT event, distinct_id 
   FROM events 
-  WHERE and(equals(distinct_id, 'RANDOM_TEST_ID::UUID'), and(equals(properties.index, '4'), less(timestamp, toDateTime('2020-01-02 00:00:00.000000')), greaterOrEquals(timestamp, toDateTime('2020-01-01 00:00:00.000000')))) 
+  WHERE and(equals(distinct_id, 'RANDOM_TEST_ID::UUID'), and(equals(events.properties_group_custom[%(hogql_val_0)s], '4'), less(timestamp, toDateTime('2020-01-02 00:00:00.000000')), greaterOrEquals(timestamp, toDateTime('2020-01-01 00:00:00.000000')))) 
   LIMIT 100
   '''
 # ---
@@ -439,7 +439,7 @@
   
   SELECT count(), events.event AS event 
   FROM events 
-  WHERE and(equals(events.team_id, 420), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), 0)) 
+  WHERE and(equals(events.team_id, 420), equals(events.properties_group_custom[%(hogql_val_1)s], %(hogql_val_2)s)) 
   GROUP BY events.event 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0
@@ -448,7 +448,7 @@
   
   SELECT count(), event 
   FROM events 
-  WHERE equals(properties.random_uuid, 'RANDOM_TEST_ID::UUID') 
+  WHERE equals(events.properties_group_custom[%(hogql_val_0)s], 'RANDOM_TEST_ID::UUID') 
   GROUP BY event 
   LIMIT 100
   '''
@@ -900,7 +900,7 @@
   FROM (
   SELECT count() AS count, events.event AS event 
   FROM events 
-  WHERE and(equals(events.team_id, 420), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), 0)) 
+  WHERE and(equals(events.team_id, 420), equals(events.properties_group_custom[%(hogql_val_1)s], %(hogql_val_2)s)) 
   GROUP BY events.event) 
   GROUP BY count, event 
   LIMIT 100 
@@ -912,7 +912,7 @@
   FROM (
   SELECT count() AS count, event 
   FROM events 
-  WHERE equals(properties.random_uuid, 'RANDOM_TEST_ID::UUID') 
+  WHERE equals(events.properties_group_custom[%(hogql_val_0)s], 'RANDOM_TEST_ID::UUID') 
   GROUP BY event) 
   GROUP BY count, event 
   LIMIT 100
@@ -926,7 +926,7 @@
   FROM (
   SELECT count(*) AS count, events.event AS event 
   FROM events 
-  WHERE and(equals(events.team_id, 420), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), 0)) 
+  WHERE and(equals(events.team_id, 420), equals(events.properties_group_custom[%(hogql_val_1)s], %(hogql_val_2)s)) 
   GROUP BY events.event) AS c 
   GROUP BY c.count, c.event 
   LIMIT 100 
@@ -938,7 +938,7 @@
   FROM (
   SELECT count(*) AS count, event 
   FROM events 
-  WHERE equals(properties.random_uuid, 'RANDOM_TEST_ID::UUID') 
+  WHERE equals(events.properties_group_custom[%(hogql_val_0)s], 'RANDOM_TEST_ID::UUID') 
   GROUP BY event) AS c 
   GROUP BY count, event 
   LIMIT 100
@@ -952,10 +952,10 @@
   FROM (
   SELECT col_a AS col_a, groupArray(tuple(col_b, col_c)) AS g 
   FROM (
-  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS col_a, events.event AS col_b, count() AS col_c 
+  SELECT has(events.properties_group_custom, %(hogql_val_0)s) ? events.properties_group_custom[%(hogql_val_0)s] : null AS col_a, events.event AS col_b, count() AS col_c 
   FROM events 
   WHERE equals(events.team_id, 420) 
-  GROUP BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', ''), events.event) 
+  GROUP BY has(events.properties_group_custom, %(hogql_val_1)s) ? events.properties_group_custom[%(hogql_val_1)s] : null, events.event) 
   GROUP BY col_a) 
   GROUP BY col_a ORDER BY col_a ASC 
   LIMIT 100 
@@ -985,10 +985,10 @@
   FROM (
   SELECT PIVOT_TABLE_COL_ABC.col_a AS col_a, groupArray(tuple(PIVOT_TABLE_COL_ABC.col_b, PIVOT_TABLE_COL_ABC.col_c)) AS g 
   FROM (
-  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS col_a, events.event AS col_b, count() AS col_c 
+  SELECT has(events.properties_group_custom, %(hogql_val_0)s) ? events.properties_group_custom[%(hogql_val_0)s] : null AS col_a, events.event AS col_b, count() AS col_c 
   FROM events 
   WHERE equals(events.team_id, 420) 
-  GROUP BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', ''), events.event) AS PIVOT_TABLE_COL_ABC 
+  GROUP BY has(events.properties_group_custom, %(hogql_val_1)s) ? events.properties_group_custom[%(hogql_val_1)s] : null, events.event) AS PIVOT_TABLE_COL_ABC 
   GROUP BY PIVOT_TABLE_COL_ABC.col_a) AS PIVOT_FUNCTION_1 
   GROUP BY PIVOT_FUNCTION_1.col_a) AS PIVOT_FUNCTION_2 ORDER BY PIVOT_FUNCTION_2.col_a ASC 
   LIMIT 100 
@@ -1022,10 +1022,10 @@
   FROM (
   SELECT PIVOT_TABLE_COL_ABC.col_a AS col_a, groupArray(tuple(PIVOT_TABLE_COL_ABC.col_b, PIVOT_TABLE_COL_ABC.col_c)) AS g 
   FROM (
-  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS col_a, events.event AS col_b, count() AS col_c 
+  SELECT has(events.properties_group_custom, %(hogql_val_0)s) ? events.properties_group_custom[%(hogql_val_0)s] : null AS col_a, events.event AS col_b, count() AS col_c 
   FROM events 
   WHERE equals(events.team_id, 420) 
-  GROUP BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', ''), events.event) AS PIVOT_TABLE_COL_ABC 
+  GROUP BY has(events.properties_group_custom, %(hogql_val_1)s) ? events.properties_group_custom[%(hogql_val_1)s] : null, events.event) AS PIVOT_TABLE_COL_ABC 
   GROUP BY PIVOT_TABLE_COL_ABC.col_a) AS PIVOT_FUNCTION_1 
   GROUP BY PIVOT_FUNCTION_1.col_a) AS PIVOT_FUNCTION_2) AS final ORDER BY final.col_a ASC 
   LIMIT 100 
