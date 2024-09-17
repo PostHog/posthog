@@ -112,12 +112,18 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                         values.groupTypes.forEach((groupType, index) => {
                             const tuple = response?.results?.[0]?.[2 + index]
                             if (tuple && Array.isArray(tuple) && tuple[2]) {
+                                let properties = {}
+                                try {
+                                    properties = JSON.parse(tuple[3])
+                                } catch (e) {
+                                    // Ignore
+                                }
                                 globals.groups![groupType.group_type] = {
                                     type: groupType.group_type,
                                     index: tuple[1],
                                     id: tuple[2], // TODO: rename to "key"?
                                     url: `${window.location.origin}/groups/${tuple[1]}/${encodeURIComponent(tuple[2])}`,
-                                    properties: tuple[3],
+                                    properties,
                                 }
                             }
                         })
