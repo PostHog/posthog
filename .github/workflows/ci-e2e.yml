@@ -191,6 +191,7 @@ jobs:
                   GITHUB_ACTION_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
                   CELERY_METRICS_PORT=8999
                   CLOUD_DEPLOYMENT=E2E
+                  ENCRYPTION_SALT_KEYS='9bf7f7c13cf2148a23d6b07557f95cb7'
                   EOT
 
             - name: Start PostHog
