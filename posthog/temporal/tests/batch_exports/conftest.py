@@ -151,6 +151,7 @@ async def create_clickhouse_tables_and_views(clickhouse_client, django_db_setup)
     from posthog.batch_exports.sql import (
         CREATE_EVENTS_BATCH_EXPORT_VIEW,
         CREATE_EVENTS_BATCH_EXPORT_VIEW_BACKFILL,
+        CREATE_EVENTS_BATCH_EXPORT_VIEW_BACKFILL_RERUN,
         CREATE_EVENTS_BATCH_EXPORT_VIEW_UNBOUNDED,
         CREATE_PERSONS_BATCH_EXPORT_VIEW,
     )
@@ -159,6 +160,7 @@ async def create_clickhouse_tables_and_views(clickhouse_client, django_db_setup)
     create_view_queries = (
         CREATE_EVENTS_BATCH_EXPORT_VIEW,
         CREATE_EVENTS_BATCH_EXPORT_VIEW_BACKFILL,
+        CREATE_EVENTS_BATCH_EXPORT_VIEW_BACKFILL_RERUN,
         CREATE_EVENTS_BATCH_EXPORT_VIEW_UNBOUNDED,
         CREATE_PERSONS_BATCH_EXPORT_VIEW,
     )

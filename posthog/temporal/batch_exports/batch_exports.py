@@ -119,6 +119,8 @@ FROM
         interval_start={interval_start},
         interval_end={interval_end},
         inserted_at_interval_start={inserted_at_interval_start},
+        include_events={include_events}::Array(String),
+        exclude_events={exclude_events}::Array(String)
     ) AS events
 FORMAT ArrowStream
 """
@@ -150,7 +152,6 @@ async def iter_model_records(
     team_id: int,
     is_backfill: bool,
     destination_default_fields: list[BatchExportField] | None = None,
-    inserted_at_interval_start: str | None = None,
     **parameters,
 ) -> AsyncRecordsGenerator:
     if destination_default_fields is None:
@@ -166,7 +167,6 @@ async def iter_model_records(
             is_backfill=is_backfill,
             fields=model.schema["fields"] if model.schema is not None else batch_export_default_fields,
             extra_query_parameters=model.schema["values"] if model.schema is not None else None,
-            inserted_at_interval_start=inserted_at_interval_start,
             **parameters,
         ):
             yield record
@@ -178,7 +178,6 @@ async def iter_model_records(
             is_backfill=is_backfill,
             fields=model["fields"] if model is not None else batch_export_default_fields,
             extra_query_parameters=model["values"] if model is not None else None,
-            inserted_at_interval_start=inserted_at_interval_start,
             **parameters,
         ):
             yield record
@@ -212,6 +211,7 @@ async def iter_records_from_model_view(
             interval_start=interval_start,
             interval_end=interval_end,
             fields=fields,
+            inserted_at_interval_start=inserted_at_interval_start,
             **parameters,
         ):
             yield record_batch
@@ -228,9 +228,9 @@ async def iter_records_from_model_view(
             parameters["include_events"] = []
 
         if inserted_at_interval_start:
-            parameters["inserted_at_interval_start"] = inserted_at_interval_start
-
-        if inserted_at_interval_start:
+            parameters["inserted_at_interval_start"] = dt.datetime.fromisoformat(inserted_at_interval_start).strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
             query_template = SELECT_FROM_EVENTS_VIEW_BACKFILL_RERUN
         elif str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
             query_template = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
@@ -271,9 +271,9 @@ def iter_records(
     exclude_events: collections.abc.Iterable[str] | None = None,
     include_events: collections.abc.Iterable[str] | None = None,
     fields: list[BatchExportField] | None = None,
-    inserted_at_interval_start: str | None = None,
     extra_query_parameters: dict[str, typing.Any] | None = None,
     is_backfill: bool = False,
+    inserted_at_interval_start: str | None = None,
 ) -> RecordsGenerator:
     """Iterate over Arrow batch records for a batch export.
 
@@ -293,11 +293,6 @@ def iter_records(
     """
     data_interval_start_ch = dt.datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
     data_interval_end_ch = dt.datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
-
-    if inserted_at_interval_start:
-        inserted_at_interval_start_ch = dt.datetime.fromisoformat(inserted_at_interval_start).strftime(
-            "%Y-%m-%d %H:%M:%S"
-        )
 
     if exclude_events:
         events_to_exclude_array = list(exclude_events)
@@ -323,12 +318,14 @@ def iter_records(
         "team_id": team_id,
         "interval_start": data_interval_start_ch,
         "interval_end": data_interval_end_ch,
-        "inserted_at_interval_start": inserted_at_interval_start_ch,
         "exclude_events": events_to_exclude_array,
         "include_events": events_to_include_array,
     }
 
     if inserted_at_interval_start:
+        base_query_parameters["inserted_at_interval_start"] = dt.datetime.fromisoformat(
+            inserted_at_interval_start
+        ).strftime("%Y-%m-%d %H:%M:%S")
         query = SELECT_FROM_EVENTS_VIEW_BACKFILL_RERUN
     elif str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
         query = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
@@ -431,7 +428,6 @@ class StartBatchExportRunInputs:
     include_events: list[str] | None = None
     is_backfill: bool = False
     inserted_at_interval_start: str | None = None
-    inserted_at_interval_end: str | None = None
 
 
 BatchExportRunId = str
@@ -460,7 +456,6 @@ async def start_batch_export_run(inputs: StartBatchExportRunInputs) -> BatchExpo
         data_interval_end=inputs.data_interval_end,
         status=BatchExportRun.Status.STARTING,
         inserted_at_interval_start=inputs.inserted_at_interval_start,
-        inserted_at_interval_end=inputs.inserted_at_interval_end,
     )
 
     return str(run.id)
