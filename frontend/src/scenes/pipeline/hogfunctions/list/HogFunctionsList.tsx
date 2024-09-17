@@ -17,7 +17,7 @@ export function HogFunctionList({
     extraControls,
     ...props
 }: HogFunctionListLogicProps & { extraControls?: JSX.Element }): JSX.Element {
-    const { loading, filteredHogFunctions, filters, hogFunctions, canEnableHogFunction } = useValues(
+    const { user, loading, filteredHogFunctions, filters, hogFunctions, canEnableHogFunction } = useValues(
         hogFunctionListLogic(props)
     )
     const { loadHogFunctions, setFilters, resetFilters, toggleEnabled, deleteHogFunction } = useActions(
@@ -38,13 +38,22 @@ export function HogFunctionList({
                     />
                 )}
                 <div className="flex-1" />
-                {typeof props.forceFilters?.onlyActive !== 'boolean' && (
+                {typeof props.forceFilters?.showPaused !== 'boolean' && (
                     <LemonCheckbox
-                        label="Only active"
+                        label="Show paused"
                         bordered
                         size="small"
-                        checked={filters.onlyActive}
-                        onChange={(e) => setFilters({ onlyActive: e ?? undefined })}
+                        checked={filters.showPaused}
+                        onChange={(e) => setFilters({ showPaused: e ?? undefined })}
+                    />
+                )}
+                {(user?.is_staff || user?.is_impersonated) && typeof props.forceFilters?.showHidden !== 'boolean' && (
+                    <LemonCheckbox
+                        label="Show hidden"
+                        bordered
+                        size="small"
+                        checked={filters.showHidden}
+                        onChange={(e) => setFilters({ showHidden: e ?? undefined })}
                     />
                 )}
                 {extraControls}

@@ -216,7 +216,7 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
 
                         {hogFunctionsEnabled && (
                             <LemonBanner type="warning">
-                                The Webhook integration has been replaced with our new <b>Pipeline Destinations</b>
+                                The Webhook integration has been replaced with our new <b>Pipeline Destinations</b>{' '}
                                 allowing for much greater customization and visibility into their execution.
                             </LemonBanner>
                         )}

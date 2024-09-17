@@ -38,6 +38,8 @@ class Experiment(models.Model):
     type = models.CharField(max_length=40, choices=ExperimentType.choices, null=True, blank=True, default="product")
     variants = models.JSONField(default=dict, null=True, blank=True)
 
+    metrics = models.JSONField(default=list, null=True, blank=True)
+
     def get_feature_flag_key(self):
         return self.feature_flag.key
 
