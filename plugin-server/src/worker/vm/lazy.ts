@@ -285,7 +285,7 @@ export class LazyPluginVM implements PluginInstance {
     }
 
     private async updatePluginCapabilitiesIfNeeded(vm: PluginConfigVMResponse): Promise<void> {
-        const capabilities = getVMPluginCapabilities(vm.methods, vm.tasks)
+        const capabilities = getVMPluginCapabilities(vm.methods)
 
         const prevCapabilities = this.pluginConfig.plugin!.capabilities
         if (!equal(prevCapabilities, capabilities)) {
@@ -307,7 +307,7 @@ export async function populatePluginCapabilities(hub: Hub, pluginId: number): Pr
         return
     }
 
-    const { methods, tasks } = createPluginConfigVM(
+    const { methods } = createPluginConfigVM(
         hub,
         {
             id: 0,
@@ -321,7 +321,7 @@ export async function populatePluginCapabilities(hub: Hub, pluginId: number): Pr
         },
         plugin.source__index_ts || ''
     )
-    const capabilities = getVMPluginCapabilities(methods, tasks)
+    const capabilities = getVMPluginCapabilities(methods)
 
     const prevCapabilities = plugin.capabilities
     if (!equal(prevCapabilities, capabilities)) {
