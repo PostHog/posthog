@@ -31,13 +31,13 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
     connect((props: HogFunctionTestLogicProps) => ({
         values: [
             hogFunctionConfigurationLogic({ id: props.id }),
-            ['configuration', 'configurationHasErrors', 'lastEventQuery', 'sampleGlobals', 'sampleGlobalsLoading'],
+            ['configuration', 'configurationHasErrors', 'sampleGlobals'],
             groupsModel,
             ['groupTypes'],
         ],
         actions: [
             hogFunctionConfigurationLogic({ id: props.id }),
-            ['touchConfigurationField', 'loadSampleGlobalsSuccess', 'loadSampleGlobals'],
+            ['touchConfigurationField', 'loadSampleGlobalsSuccess'],
         ],
     })),
     actions({
@@ -60,11 +60,6 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
         ],
     }),
     listeners(({ values, actions }) => ({
-        toggleExpanded: () => {
-            if (values.expanded && !values.sampleGlobals && !values.sampleGlobalsLoading) {
-                actions.loadSampleGlobals()
-            }
-        },
         loadSampleGlobalsSuccess: () => {
             actions.setTestInvocationValue('globals', JSON.stringify(values.sampleGlobals, null, 2))
         },
