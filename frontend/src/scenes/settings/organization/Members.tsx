@@ -269,9 +269,7 @@ export function Members(): JSX.Element | null {
                     </div>
                 )
             },
-            sorter: (a, b) =>
-                (a.last_login ? new Date(a.last_login) : new Date(0)).getTime() -
-                (b.last_login ? new Date(b.last_login) : new Date(0)).getTime(),
+            sorter: (a, b) => new Date(a.last_login ?? 0).getTime() - new Date(b.last_login ?? 0).getTime(),
         },
         {
             key: 'actions',
