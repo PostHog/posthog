@@ -27,7 +27,7 @@ class TestIntegrationModel(BaseTest):
         self, kind: str, config: Optional[dict] = None, sensitive_config: Optional[dict] = None
     ) -> Integration:
         _config = {"refreshed_at": int(time.time()), "expires_in": 3600}
-        _sensitive_config = {"refresh_token": "REFRESH"}
+        _sensitive_config = {"refresh_token": "REFRESH", "empty": None}
         _config.update(config or {})
         _sensitive_config.update(sensitive_config or {})
 

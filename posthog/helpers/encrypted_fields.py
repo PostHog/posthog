@@ -139,6 +139,8 @@ class EncryptedJSONField(EncryptedFieldMixin, models.JSONField):
             return {key: self._encrypt_values(data) for key, data in value.items()}
         elif isinstance(value, list):
             return [self._encrypt_values(data) for data in value]
+        elif value is None:
+            return value
         else:
             value = str(value)
         return self.encrypt(value)
@@ -150,6 +152,8 @@ class EncryptedJSONField(EncryptedFieldMixin, models.JSONField):
             return {key: self._decrypt_values(data) for key, data in value.items()}
         elif isinstance(value, list):
             return [self._decrypt_values(data) for data in value]
+        elif value is None:
+            return value
         else:
             value = str(value)
         return self.decrypt(value)
