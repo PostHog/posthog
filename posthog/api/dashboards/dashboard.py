@@ -323,16 +323,16 @@ class DashboardSerializer(DashboardBasicSerializer):
             else:
                 created_by = user
                 last_modified_by = None
-            text, _ = Text.objects.update_or_create(
-                id=text_json.get("id", None),
-                defaults={
-                    **tile_data["text"],
-                    "team_id": instance.team_id,
-                    "created_by": created_by,
-                    "last_modified_by": last_modified_by,
-                    "last_modified_at": now(),
-                },
-            )
+            text_defaults = {
+                **tile_data["text"],
+                "team_id": instance.team_id,
+                "created_by": created_by,
+                "last_modified_by": last_modified_by,
+                "last_modified_at": now(),
+            }
+            if "team" in text_defaults:
+                text_defaults.pop("team")  # We're already setting `team_id`
+            text, _ = Text.objects.update_or_create(id=text_json.get("id", None), defaults=text_defaults)
             DashboardTile.objects.update_or_create(
                 id=tile_data.get("id", None),
                 defaults={**tile_data, "text": text, "dashboard": instance},
