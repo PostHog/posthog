@@ -139,7 +139,9 @@ function SizeDescription({ sizeInfo }: { sizeInfo: PerformanceEventSizeInfo }): 
                     <span className="text-muted">(from local cache)</span>
                 </>
             ) : null}
-            {sizeInfo.formattedCompressionPercentage && sizeInfo.formattedEncodedBodySize ? (
+            {sizeInfo.formattedCompressionPercentage &&
+            sizeInfo.formattedCompressionPercentage !== '0.0%' &&
+            sizeInfo.formattedEncodedBodySize ? (
                 <>
                     , compressed to <b>{sizeInfo.formattedEncodedBodySize}</b> saving{' '}
                     <b>{sizeInfo.formattedCompressionPercentage}</b>
