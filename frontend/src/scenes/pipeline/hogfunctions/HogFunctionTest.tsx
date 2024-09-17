@@ -40,6 +40,7 @@ const HogFunctionTestEditor = ({
                     vertical: 'hidden',
                     verticalScrollbarSize: 0,
                 },
+                folding: true,
             }}
         />
     )
@@ -55,8 +56,12 @@ export function HogFunctionTestPlaceholder(): JSX.Element {
 }
 
 export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
-    const { isTestInvocationSubmitting, testResult, expanded } = useValues(hogFunctionTestLogic(props))
-    const { submitTestInvocation, setTestResult, toggleExpanded } = useActions(hogFunctionTestLogic(props))
+    const { isTestInvocationSubmitting, testResult, expanded, sampleGlobalsLoading } = useValues(
+        hogFunctionTestLogic(props)
+    )
+    const { submitTestInvocation, setTestResult, toggleExpanded, loadSampleGlobals } = useActions(
+        hogFunctionTestLogic(props)
+    )
 
     return (
         <Form logic={hogFunctionTestLogic} props={props} formKey="testInvocation" enableFormOnSubmit>
@@ -85,6 +90,13 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
                                 </LemonButton>
                             ) : (
                                 <>
+                                    <LemonButton
+                                        type="secondary"
+                                        onClick={loadSampleGlobals}
+                                        loading={sampleGlobalsLoading}
+                                    >
+                                        Reload context
+                                    </LemonButton>
                                     <LemonField name="mock_async_functions">
                                         {({ value, onChange }) => (
                                             <LemonSwitch

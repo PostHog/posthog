@@ -1,9 +1,11 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { actions, afterMount, connect, kea, key, path, props, reducers } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { forms } from 'kea-forms'
+import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { tryJsonParse } from 'lib/utils'
 
+import { performQuery } from '~/queries/query'
 import { LogEntry } from '~/types'
 
 import { hogFunctionConfigurationLogic, sanitizeConfiguration } from './hogFunctionConfigurationLogic'
@@ -30,7 +32,7 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
     connect((props: HogFunctionTestLogicProps) => ({
         values: [
             hogFunctionConfigurationLogic({ id: props.id }),
-            ['configuration', 'configurationHasErrors', 'exampleInvocationGlobals'],
+            ['configuration', 'configurationHasErrors', 'exampleInvocationGlobals', 'lastEventQuery'],
         ],
         actions: [hogFunctionConfigurationLogic({ id: props.id }), ['touchConfigurationField']],
     })),
@@ -53,6 +55,30 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
             },
         ],
     }),
+    loaders(({ values }) => ({
+        sampleGlobals: [
+            null as Record<string, any> | null,
+            {
+                loadSampleGlobals: async () => {
+                    const response = await performQuery(values.lastEventQuery)
+                    const event: Record<string, any> = response?.results?.[0]?.[0]
+                    const person: Record<string, any> = response?.results?.[0]?.[1]
+                    // TODO: convert to the correct format
+                    return { event, person }
+                },
+            },
+        ],
+    })),
+    listeners(({ values, actions }) => ({
+        toggleExpanded: () => {
+            if (values.expanded && !values.sampleGlobals && !values.sampleGlobalsLoading) {
+                actions.loadSampleGlobals()
+            }
+        },
+        loadSampleGlobalsSuccess: () => {
+            actions.setTestInvocationValue('globals', JSON.stringify(values.sampleGlobals, null, 2))
+        },
+    })),
     forms(({ props, actions, values }) => ({
         testInvocation: {
             defaults: {

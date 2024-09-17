@@ -16,7 +16,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { performQuery } from '~/queries/query'
-import { EventsNode, NodeKind, TrendsQuery } from '~/queries/schema'
+import { EventsNode, EventsQuery, NodeKind, TrendsQuery } from '~/queries/schema'
 import { hogql } from '~/queries/utils'
 import {
     AnyPropertyFilter,
@@ -446,9 +446,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 }
             },
         ],
-        sparklineQuery: [
+        matchingFilters: [
             (s) => [s.configuration],
-            (configuration): TrendsQuery => {
+            (configuration): PropertyGroupFilter => {
                 const seriesProperties: PropertyGroupFilterValue = {
                     type: FilterLogicalOperator.Or,
                     values: [],
@@ -499,7 +499,14 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     }
                     properties.values.push(globalProperties)
                 }
+                return properties
+            },
+            { resultEqualityCheck: equal },
+        ],
 
+        sparklineQuery: [
+            (s) => [s.configuration, s.matchingFilters],
+            (configuration, matchingFilters): TrendsQuery => {
                 return {
                     kind: NodeKind.TrendsQuery,
                     filterTestAccounts: configuration.filters?.filter_test_accounts,
@@ -511,7 +518,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                             math: BaseMathType.TotalCount,
                         } satisfies EventsNode,
                     ],
-                    properties,
+                    properties: matchingFilters,
                     interval: 'day',
                     dateRange: {
                         date_from: '-7d',
@@ -519,6 +526,22 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     trendsFilter: {
                         display: ChartDisplayType.ActionsBar,
                     },
+                }
+            },
+            { resultEqualityCheck: equal },
+        ],
+
+        lastEventQuery: [
+            (s) => [s.configuration, s.matchingFilters],
+            (configuration, matchingFilters): EventsQuery => {
+                return {
+                    kind: NodeKind.EventsQuery,
+                    filterTestAccounts: configuration.filters?.filter_test_accounts,
+                    fixedProperties: [matchingFilters],
+                    select: ['*', 'person'],
+                    after: '-7d',
+                    limit: 1,
+                    orderBy: ['timestamp DESC'],
                 }
             },
             { resultEqualityCheck: equal },
