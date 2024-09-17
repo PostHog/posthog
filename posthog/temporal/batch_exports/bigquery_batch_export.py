@@ -605,6 +605,8 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
                 # Raised when table_id isn't valid. Sadly, `ValueError` is rather generic, but we
                 # don't anticipate a `ValueError` thrown from our own export code.
                 "ValueError",
+                # Faulty data format from clickhouse to bigquery
+                "JSONDecodeError",
             ],
             finish_inputs=finish_inputs,
         )
