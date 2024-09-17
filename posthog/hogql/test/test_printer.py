@@ -467,6 +467,26 @@ class TestPrinter(BaseTest):
         # ... unless we can distinguish ``Nullable(Nothing)`` from ``Nullable(*)`` -- this _could_ be safely optimized.
         self._test_property_group_comparison("properties.key = lower(NULL)", None)
 
+    def test_property_groups_optimized_boolean_equality_comparisons(self) -> None:
+        self._test_property_group_comparison(
+            "properties.is_boolean = true",
+            "equals(events.properties_group_custom[%(hogql_val_0)s], 'true')",
+            {"hogql_val_0": "is_boolean"},
+            expected_skip_indexes_used={"properties_group_custom_keys_bf", "properties_group_custom_values_bf"},
+        )
+
+        self._test_property_group_comparison(
+            "properties.is_boolean = false",
+            "equals(events.properties_group_custom[%(hogql_val_0)s], 'false')",
+            {"hogql_val_0": "is_boolean"},
+            expected_skip_indexes_used={"properties_group_custom_keys_bf", "properties_group_custom_values_bf"},
+        )
+
+        # Don't try to optimize not equals comparisons: NULL handling here is tricky, and we wouldn't get any benefit
+        # from using the indexes anyway.
+        self._test_property_group_comparison("properties.is_boolean != true", None, expected_skip_indexes_used={})
+        self._test_property_group_comparison("properties.is_boolean != false", None, expected_skip_indexes_used={})
+
     def test_property_groups_optimized_empty_string_equality_comparisons(self) -> None:
         # Keys that don't exist in a map return default values for the type -- in our case empty strings -- so we need
         # to check whether or not the key exists in the map *and* compare the value in the map is the empty string or
