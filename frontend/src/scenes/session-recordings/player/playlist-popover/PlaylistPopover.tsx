@@ -13,9 +13,16 @@ import { urls } from 'scenes/urls'
 
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { playlistPopoverLogic } from './playlistPopoverLogic'
+import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
-export function PlaylistPopoverButton(props: LemonButtonProps): JSX.Element {
+export function PlaylistPopoverButton({
+    setPinnedInCurrentPlaylist,
+    ...buttonProps
+}: { setPinnedInCurrentPlaylist?: (pinned: boolean) => void } & LemonButtonProps): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
+    const {
+        logicProps: { logicKey: currentPlaylistId },
+    } = useValues(sessionRecordingsPlaylistLogic)
     const logic = playlistPopoverLogic(logicProps)
     const {
         playlistsLoading,
@@ -29,7 +36,6 @@ export function PlaylistPopoverButton(props: LemonButtonProps): JSX.Element {
     } = useValues(logic)
     const { setSearchQuery, setNewFormShowing, setShowPlaylistPopover, addToPlaylist, removeFromPlaylist } =
         useActions(logic)
-
     return (
         <IconWithCount showZero={false} count={pinnedCount}>
             <Popover
@@ -95,9 +101,16 @@ export function PlaylistPopoverButton(props: LemonButtonProps): JSX.Element {
                                                     <LemonCheckbox className="pointer-events-none" checked={selected} />
                                                 )
                                             }
-                                            onClick={() =>
+                                            onClick={() => {
+                                                if (
+                                                    setPinnedInCurrentPlaylist &&
+                                                    playlist.short_id === currentPlaylistId
+                                                ) {
+                                                    return setPinnedInCurrentPlaylist(!selected)
+                                                }
+
                                                 !selected ? addToPlaylist(playlist) : removeFromPlaylist(playlist)
-                                            }
+                                            }}
                                         >
                                             {playlist.name || playlist.derived_name}
                                         </LemonButton>
@@ -123,7 +136,7 @@ export function PlaylistPopoverButton(props: LemonButtonProps): JSX.Element {
                     active={showPlaylistPopover}
                     onClick={() => setShowPlaylistPopover(!showPlaylistPopover)}
                     sideIcon={null}
-                    {...props}
+                    {...buttonProps}
                 />
             </Popover>
         </IconWithCount>

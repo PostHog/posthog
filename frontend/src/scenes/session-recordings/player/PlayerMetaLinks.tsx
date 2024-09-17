@@ -67,7 +67,11 @@ function PinToPlaylistButton({
             icon={<IconPin />}
         />
     ) : (
-        <PlaylistPopoverButton icon={logicProps.pinned ? <IconPinFilled /> : <IconPin />} {...buttonProps}>
+        <PlaylistPopoverButton
+            setPinnedInCurrentPlaylist={logicProps.setPinned}
+            icon={logicProps.pinned ? <IconPinFilled /> : <IconPin />}
+            {...buttonProps}
+        >
             {buttonContent(description)}
         </PlaylistPopoverButton>
     )
