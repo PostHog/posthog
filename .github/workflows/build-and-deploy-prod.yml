@@ -1,4 +1,4 @@
-name: Notify Sentry and Slack
+name: Notify Sentry
 
 #
 # Comment the `on:` section below if you want to stop deploys

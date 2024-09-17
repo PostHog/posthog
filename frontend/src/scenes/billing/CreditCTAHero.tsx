@@ -11,11 +11,11 @@ import { PurchaseCreditsModal } from './PurchaseCreditsModal'
 export const CreditCTAHero = (): JSX.Element | null => {
     const { width, ref: heroRef } = useResizeObserver()
 
-    const { selfServeCreditOverview, isPurchaseCreditsModalOpen } = useValues(billingLogic)
+    const { creditOverview, isPurchaseCreditsModalOpen } = useValues(billingLogic)
     const { showPurchaseCreditsModal } = useActions(billingLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    if (!selfServeCreditOverview.eligible || selfServeCreditOverview.status === 'paid') {
+    if (!creditOverview.eligible || creditOverview.status === 'paid') {
         return null
     }
     if (!featureFlags[FEATURE_FLAGS.PURCHASE_CREDITS]) {
@@ -25,21 +25,20 @@ export const CreditCTAHero = (): JSX.Element | null => {
     return (
         <div className="flex relative justify-between items-center rounded-lg bg-mark mb-6" ref={heroRef}>
             <div className="p-4">
-                {selfServeCreditOverview.eligible && selfServeCreditOverview.status === 'pending' && (
+                {creditOverview.eligible && creditOverview.status === 'pending' && (
                     <>
                         <h1 className="mb-0">We're applying your credits</h1>
                         <p className="mt-2 mb-0 max-w-xl">
                             Your credits will be ready within 24 hours of payment.{' '}
-                            {selfServeCreditOverview.collection_method === 'send_invoice'
+                            {creditOverview.collection_method === 'send_invoice'
                                 ? "You'll receive an email with a link to pay the invoice. Please make sure to pay that as soon as possible so we can apply the credits to your account."
                                 : "We'll will charge your card on file and we'll email you if there are any issues!"}
                         </p>
-                        {selfServeCreditOverview.invoice_url && (
+                        {creditOverview.invoice_url && (
                             <LemonButton
                                 type="primary"
                                 onClick={() =>
-                                    selfServeCreditOverview.invoice_url &&
-                                    window.open(selfServeCreditOverview.invoice_url, '_blank')
+                                    creditOverview.invoice_url && window.open(creditOverview.invoice_url, '_blank')
                                 }
                                 className="mt-4"
                             >
@@ -48,7 +47,7 @@ export const CreditCTAHero = (): JSX.Element | null => {
                         )}
                     </>
                 )}
-                {selfServeCreditOverview.eligible && selfServeCreditOverview.status === 'none' && (
+                {creditOverview.eligible && creditOverview.status === 'none' && (
                     <>
                         <h1 className="mb-0">Get a discount of up to 30%</h1>
                         <p className="mt-2 mb-0 max-w-xl">

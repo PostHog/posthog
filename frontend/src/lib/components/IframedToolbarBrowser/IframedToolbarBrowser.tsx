@@ -6,16 +6,16 @@ import useResizeObserver from 'use-resize-observer'
 import { ToolbarUserIntent } from '~/types'
 
 import { appEditorUrl } from '../AuthorizedUrlList/authorizedUrlListLogic'
-import { iframedToolbarBrowserLogic } from './iframedToolbarBrowserLogic'
+import { iframedToolbarBrowserLogic, UserIntentVerb } from './iframedToolbarBrowserLogic'
 
-function IframeErrorOverlay(): JSX.Element | null {
+function IframeErrorOverlay({ userIntent }: { userIntent?: string }): JSX.Element | null {
     const logic = iframedToolbarBrowserLogic()
     const { iframeBanner } = useValues(logic)
     return iframeBanner ? (
         <div className="absolute flex flex-col w-full h-full bg-blend-overlay items-start py-4 px-8 pointer-events-none">
             <LemonBanner className="w-full" type={iframeBanner.level}>
                 {iframeBanner.message}. Your site might not allow being embedded in an iframe. You can click "Open in
-                toolbar" above to visit your site and view the heatmap there.
+                toolbar" above to visit your site and {UserIntentVerb[userIntent as ToolbarUserIntent]} there.
             </LemonBanner>
         </div>
     ) : null
@@ -50,7 +50,7 @@ export function IframedToolbarBrowser({
 
     return browserUrl ? (
         <div className="relative flex-1 w-full h-full">
-            <IframeErrorOverlay />
+            <IframeErrorOverlay userIntent={userIntent} />
             <LoadingOverlay />
             <iframe
                 ref={iframeRef}

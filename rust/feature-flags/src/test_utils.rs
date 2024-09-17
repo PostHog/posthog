@@ -207,6 +207,30 @@ pub async fn insert_new_team_in_pg(client: Arc<PgClient>) -> Result<Team, Error>
 
     assert_eq!(res.rows_affected(), 1);
 
+    // Insert group type mappings
+    let group_types = vec![
+        ("project", 0),
+        ("organization", 1),
+        ("instance", 2),
+        ("customer", 3),
+        ("team", 4),
+    ];
+
+    for (group_type, group_type_index) in group_types {
+        let res = sqlx::query(
+            r#"INSERT INTO posthog_grouptypemapping
+            (group_type, group_type_index, name_singular, name_plural, team_id)
+            VALUES
+            ($1, $2, NULL, NULL, $3)"#,
+        )
+        .bind(group_type)
+        .bind(group_type_index)
+        .bind(team.id)
+        .execute(&mut *conn)
+        .await?;
+
+        assert_eq!(res.rows_affected(), 1);
+    }
     Ok(team)
 }
 
