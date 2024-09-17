@@ -495,7 +495,7 @@ export function MultipleChoiceQuestionBarChart({
                     <div className="text-xl font-bold mb-2">{question.question}</div>
 
                     <div
-                        className="border rounded pt-6 pr-10"
+                        className="border rounded pt-8 pr-10"
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{ height: Math.min(chartHeight, 600) }}
                     >
