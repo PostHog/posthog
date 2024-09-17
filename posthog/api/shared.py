@@ -29,7 +29,6 @@ class UserBasicSerializer(serializers.ModelSerializer):
             "email",
             "is_email_verified",
             "hedgehog_config",
-            "last_login",
         ]
 
     def get_hedgehog_config(self, user: User) -> Optional[dict]:
