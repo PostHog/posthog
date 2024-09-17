@@ -29,6 +29,10 @@ def is_person_property(p: Property) -> bool:
     return p.type == "person" or (p.type == "hogql" and "person.properties" in p.key)
 
 
+def is_group_property(p: Property) -> bool:
+    return p.type == "group"
+
+
 class SessionRecordingQueryResult(NamedTuple):
     results: list
     has_more_recording: bool
@@ -250,7 +254,9 @@ class SessionRecordingListFromFilters:
 
     def _strip_person_and_event_properties(self, property_group: PropertyGroup) -> PropertyGroup | None:
         property_groups_to_keep = [
-            g for g in property_group.flat if not is_event_property(g) and not is_person_property(g)
+            g
+            for g in property_group.flat
+            if not is_event_property(g) and not is_person_property(g) and not is_group_property(g)
         ]
 
         return (
@@ -439,7 +445,7 @@ class ReplayFiltersEventsSubQuery:
 
     def get_query_for_session_id_matching(self) -> ast.SelectQuery | ast.SelectUnionQuery | None:
         use_poe = poe_is_active(self._team) and self.person_properties
-        if self._filter.entities or self.event_properties or use_poe:
+        if self._filter.entities or self.event_properties or self.group_properties or use_poe:
             return self._select_from_events(ast.Alias(alias="session_id", expr=ast.Field(chain=["$session_id"])))
         else:
             return None
@@ -513,6 +519,9 @@ class ReplayFiltersEventsSubQuery:
         if self.event_properties:
             exprs.append(property_to_expr(self.event_properties, team=self._team, scope="replay"))
 
+        if self.group_properties:
+            exprs.append(property_to_expr(self.group_properties, team=self._team))
+
         if self._team.person_on_events_mode and self.person_properties:
             exprs.append(property_to_expr(self.person_properties, team=self._team, scope="event"))
 
@@ -545,6 +554,10 @@ class ReplayFiltersEventsSubQuery:
     @cached_property
     def event_properties(self):
         return [g for g in self._filter.property_groups.flat if is_event_property(g)]
+
+    @cached_property
+    def group_properties(self):
+        return [g for g in self._filter.property_groups.flat if is_group_property(g)]
 
     @cached_property
     def person_properties(self) -> PropertyGroup | None:

@@ -34,6 +34,7 @@ from . import (
     feature_flag,
     hog_function,
     hog_function_template,
+    hog,
     ingestion_warnings,
     instance_settings,
     instance_status,
@@ -504,6 +505,13 @@ projects_router.register(
     hog_function_template.HogFunctionTemplateViewSet,
     "project_hog_function_templates",
     ["project_id"],
+)
+
+projects_router.register(
+    r"hog",
+    hog.HogViewSet,
+    "hog",
+    ["team_id"],
 )
 
 register_grandfathered_environment_nested_viewset(

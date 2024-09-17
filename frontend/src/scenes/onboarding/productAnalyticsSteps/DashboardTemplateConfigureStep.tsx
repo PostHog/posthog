@@ -1,7 +1,17 @@
-import { IconArrowRight } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonInput, LemonInputSelect, LemonSkeleton, Link, Spinner } from '@posthog/lemon-ui'
+import { IconArrowRight, IconCheckCircle } from '@posthog/icons'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCard,
+    LemonInput,
+    LemonInputSelect,
+    LemonSkeleton,
+    Link,
+    Spinner,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { StarHog } from 'lib/components/hedgehogs'
 import { IframedToolbarBrowser } from 'lib/components/IframedToolbarBrowser/IframedToolbarBrowser'
 import { iframedToolbarBrowserLogic } from 'lib/components/IframedToolbarBrowser/iframedToolbarBrowserLogic'
 import { useEffect, useRef, useState } from 'react'
@@ -28,8 +38,9 @@ const UrlInput = ({ iframeRef }: { iframeRef: React.RefObject<HTMLIFrameElement>
     const theDashboardTemplateVariablesLogic = dashboardTemplateVariablesLogic({
         variables: activeDashboardTemplate?.variables || [],
     })
-    const { setVariableForPageview } = useActions(theDashboardTemplateVariablesLogic)
+    const { setVariableForPageview, setActiveVariableCustomEventName } = useActions(theDashboardTemplateVariablesLogic)
     const { activeVariable } = useValues(theDashboardTemplateVariablesLogic)
+    const { hideCustomEventField } = useActions(onboardingTemplateConfigLogic)
 
     useEffect(() => {
         setInputValue(currentPath)
@@ -80,7 +91,11 @@ const UrlInput = ({ iframeRef }: { iframeRef: React.RefObject<HTMLIFrameElement>
                 size="small"
                 type="primary"
                 status="alt"
-                onClick={() => setVariableForPageview(activeVariable.name, currentFullUrl)}
+                onClick={() => {
+                    setVariableForPageview(activeVariable.name, currentFullUrl)
+                    setActiveVariableCustomEventName(null)
+                    hideCustomEventField()
+                }}
             >
                 Select pageview
             </LemonButton>
@@ -93,6 +108,7 @@ export const SiteChooser = (): JSX.Element => {
     const { snippetHosts, hasSnippetEventsLoading } = useValues(sdksLogic)
     const { addUrl } = useActions(authorizedUrlListLogic({ actionId: null, type: AuthorizedUrlListType.TOOLBAR_URLS }))
     const { setBrowserUrl } = useActions(iframedToolbarBrowserLogic({ iframeRef, clearBrowserUrlOnUnmount: true }))
+    const { iframeBanner } = useValues(iframedToolbarBrowserLogic({ iframeRef, clearBrowserUrlOnUnmount: true }))
     const { setStepKey } = useActions(onboardingLogic)
 
     return (
@@ -100,14 +116,26 @@ export const SiteChooser = (): JSX.Element => {
             <div className="absolute inset-0 bg-primary-alt-highlight z-10 rounded opacity-80 backdrop-filter backdrop-blur-md flex items-center justify-center" />
             <div className="absolute inset-0 z-20 rounded flex items-center justify-center">
                 <LemonCard className="max-w-lg" hoverEffect={false}>
+                    {iframeBanner?.level == 'error' && (
+                        <LemonBanner type="error" className="mb-4">
+                            <p className="font-bold">
+                                Your site failed to load in the iFrame. It's possible your site doesn't allow iFrames.
+                            </p>
+                            <p>
+                                We're working on a way to do this without iFrames. Until then, you can use another site,
+                                or set custom event names for your dashboard.
+                            </p>
+                        </LemonBanner>
+                    )}
                     <h2>Select where you want to track events from.</h2>
                     {hasSnippetEventsLoading ? (
                         <Spinner />
                     ) : snippetHosts.length > 0 ? (
                         <>
                             <p>
-                                Not seeing the site you want? Install posthog-js or the HTML snippet wherever you want
-                                to track events, then come back here.
+                                Not seeing the site you want?{' '}
+                                <Link onClick={() => setStepKey(OnboardingStepKey.INSTALL)}>Install posthog-js</Link> or
+                                the HTML snippet wherever you want to track events, then come back here.
                             </p>
                             <div className="space-y-2">
                                 {snippetHosts.map((host) => (
@@ -174,14 +202,16 @@ export const OnboardingDashboardTemplateConfigureStep = ({
     const { activeDashboardTemplate } = useValues(onboardingTemplateConfigLogic)
     const { createDashboardFromTemplate } = useActions(newDashboardLogic)
     const { isLoading } = useValues(newDashboardLogic)
-    const { browserUrl } = useValues(iframedToolbarBrowserLogic({ iframeRef, clearBrowserUrlOnUnmount: true }))
+    const { browserUrl, iframeBanner } = useValues(
+        iframedToolbarBrowserLogic({ iframeRef, clearBrowserUrlOnUnmount: true })
+    )
     const theDashboardTemplateVariablesLogic = dashboardTemplateVariablesLogic({
         variables: activeDashboardTemplate?.variables || [],
     })
     const { variables, allVariablesAreTouched, hasTouchedAnyVariable } = useValues(theDashboardTemplateVariablesLogic)
     const { goToNextStep } = useActions(onboardingLogic)
 
-    const [isSubmitting, setIsSubmitting] = useState(false)
+    const { dashboardCreatedDuringOnboarding } = useValues(onboardingTemplateConfigLogic)
 
     return (
         <OnboardingStep
@@ -191,13 +221,38 @@ export const OnboardingDashboardTemplateConfigureStep = ({
             fullWidth
             continueOverride={<></>}
         >
-            {isSubmitting || isLoading ? (
-                <p>Creating dashboard...</p>
-            ) : (
-                <>
+            <>
+                {dashboardCreatedDuringOnboarding ? (
+                    <div className="mb-8 max-w-screen-md mx-auto">
+                        <div className="bg-success-highlight rounded p-6 flex justify-between items-center">
+                            <div className="flex gap-x-4">
+                                <IconCheckCircle className="text-success text-3xl mb-6" />
+                                <div>
+                                    <h3 className="text-lg font-bold mb-1 text-left">Dashboard created!</h3>
+                                    <p className="mx-0 mb-0">We'll take you there when you're done onboarding.</p>
+                                </div>
+                            </div>
+                            <div className="h-20">
+                                <StarHog className="h-full w-full" />
+                            </div>
+                        </div>
+                        <div className="w-full flex justify-end">
+                            <LemonButton
+                                type="primary"
+                                status="alt"
+                                data-attr="show-plans"
+                                className="mt-4"
+                                onClick={() => goToNextStep()}
+                                icon={<IconArrowRight />}
+                            >
+                                Continue
+                            </LemonButton>
+                        </div>
+                    </div>
+                ) : (
                     <div className="grid grid-cols-6 space-x-6 min-h-[80vh]">
                         <div className="col-span-4 relative">
-                            {browserUrl ? (
+                            {browserUrl && iframeBanner?.level != 'error' ? (
                                 <div className="border border-1 border-border-bold rounded h-full w-full flex flex-col">
                                     <UrlInput iframeRef={iframeRef} />
                                     <div className="m-2 grow rounded">
@@ -225,7 +280,6 @@ export const OnboardingDashboardTemplateConfigureStep = ({
                                         status="alt"
                                         onClick={() => {
                                             if (activeDashboardTemplate) {
-                                                setIsSubmitting(true)
                                                 createDashboardFromTemplate(activeDashboardTemplate, variables, false)
                                             }
                                         }}
@@ -239,17 +293,30 @@ export const OnboardingDashboardTemplateConfigureStep = ({
                                     >
                                         Create dashboard
                                     </LemonButton>
+                                    {/* )} */}
                                 </div>
                                 <div className="max-w-56">
-                                    <LemonButton type="tertiary" onClick={() => goToNextStep()} fullWidth center>
+                                    <LemonButton
+                                        type="tertiary"
+                                        onClick={() => goToNextStep()}
+                                        fullWidth
+                                        center
+                                        disabledReason={
+                                            isLoading
+                                                ? 'Dashboard creating...'
+                                                : dashboardCreatedDuringOnboarding
+                                                ? 'Dashboard already created'
+                                                : undefined
+                                        }
+                                    >
                                         {hasTouchedAnyVariable ? 'Discard dashboard & skip' : 'Skip for now'}
                                     </LemonButton>
                                 </div>
                             </div>
                         </div>
                     </div>
-                </>
-            )}
+                )}
+            </>
         </OnboardingStep>
     )
 }
