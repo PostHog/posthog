@@ -129,7 +129,6 @@ const templateToConfiguration = (
     }
 }
 
-// that we can keep to as a contract
 export function convertToHogFunctionInvocationGlobals(
     event: EventType,
     person: PersonType
