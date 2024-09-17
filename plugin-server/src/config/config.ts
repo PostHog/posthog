@@ -197,6 +197,8 @@ export function getDefaultConfig(): PluginsServerConfig {
             : isDevEnv()
             ? 'postgres://posthog:posthog@localhost:5432/cyclotron'
             : '',
+
+        ENCRYPTION_SALT_KEYS: isDevEnv() || isTestEnv() ? 'ABCDEFGHIJKLMNOPQRSTUVWXYZ012345' : '',
     }
 }
 
