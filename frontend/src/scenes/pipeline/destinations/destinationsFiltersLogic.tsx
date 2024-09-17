@@ -15,7 +15,6 @@ export type DestinationsFilters = {
     kind?: PipelineBackend | null
     sub_template?: string
     showPaused?: boolean
-    showHidden?: boolean
 }
 
 export const destinationsFiltersLogic = kea<destinationsFiltersLogicType>([

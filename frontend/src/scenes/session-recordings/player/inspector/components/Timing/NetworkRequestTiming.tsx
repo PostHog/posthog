@@ -1,7 +1,7 @@
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { useState } from 'react'
-import { TimeLineView } from 'scenes/session-recordings/apm/waterfall/TimeLineView'
+import { TimeLineView, validateForTimelineView } from 'scenes/session-recordings/apm/waterfall/TimeLineView'
 import { SimpleKeyValueList } from 'scenes/session-recordings/player/inspector/components/SimpleKeyValueList'
 
 import { PerformanceEvent } from '~/types'
@@ -23,8 +23,7 @@ export const NetworkRequestTiming = ({
 }): JSX.Element | null => {
     const [timelineMode, setTimelineMode] = useState<boolean>(true)
 
-    // if timeline view renders null then we fall back to table view
-    const timelineView = timelineMode ? <TimeLineView performanceEvent={performanceEvent} /> : null
+    const { isValid: isValidForTimelineView } = validateForTimelineView(performanceEvent)
 
     return (
         <div className="flex flex-col space-y-2">
@@ -34,12 +33,19 @@ export const NetworkRequestTiming = ({
                     size="xsmall"
                     onClick={() => setTimelineMode(!timelineMode)}
                     data-attr={`switch-timing-to-${timelineMode ? 'table' : 'timeline'}-view`}
+                    disabledReason={
+                        isValidForTimelineView ? undefined : 'No performance data available for timeline view.'
+                    }
                 >
-                    {timelineMode ? 'Table view' : 'Timeline view'}
+                    {timelineMode && isValidForTimelineView ? 'Table view' : 'Timeline view'}
                 </LemonButton>
             </div>
             <LemonDivider dashed={true} />
-            {timelineMode && timelineView ? timelineView : <TableView performanceEvent={performanceEvent} />}
+            {timelineMode && isValidForTimelineView ? (
+                <TimeLineView performanceEvent={performanceEvent} />
+            ) : (
+                <TableView performanceEvent={performanceEvent} />
+            )}
         </div>
     )
 }
