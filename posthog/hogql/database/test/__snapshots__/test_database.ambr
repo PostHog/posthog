@@ -219,7 +219,7 @@
                       "pdi"
                   ],
                   "hogql_value": "person",
-                  "id": null,
+                  "id": "person",
                   "name": "person",
                   "schema_valid": true,
                   "table": "persons",
@@ -472,7 +472,7 @@
                       "person"
                   ],
                   "hogql_value": "override",
-                  "id": null,
+                  "id": "override",
                   "name": "override",
                   "schema_valid": true,
                   "table": "person_distinct_id_overrides",
