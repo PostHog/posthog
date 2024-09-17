@@ -782,6 +782,9 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
 
     private async handleJobBatch(jobs: CyclotronJob[]) {
         gaugeBatchUtilization.labels({ queue: this.queue }).set(jobs.length / this.hub.CDP_CYCLOTRON_BATCH_SIZE)
+        if (!this.cyclotronWorker) {
+            throw new Error('No cyclotron worker when trying to handle batch')
+        }
         const invocations: HogFunctionInvocation[] = []
         // A list of all the promises related to job releasing that we need to await
         const failReleases: Promise<void>[] = []
@@ -798,11 +801,8 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
                 status.error('Error finding hog function', {
                     id: job.functionId,
                 })
-                this.cyclotronWorker?.updateJob(job.id, 'failed')
-                const promise = this.cyclotronWorker?.releaseJob(job.id)
-                if (promise) {
-                    failReleases.push(promise)
-                }
+                this.cyclotronWorker.updateJob(job.id, 'failed')
+                failReleases.push(this.cyclotronWorker.releaseJob(job.id))
                 continue
             }
 
@@ -811,6 +811,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
         }
 
         await this.processBatch(invocations)
+        await Promise.all(failReleases)
         counterJobsProcessed.inc({ queue: this.queue }, jobs.length)
     }
 
