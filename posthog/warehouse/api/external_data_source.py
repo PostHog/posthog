@@ -25,6 +25,11 @@ from posthog.hogql.database.database import create_hogql_database
 from posthog.temporal.data_imports.pipelines.stripe import validate_credentials as validate_stripe_credentials
 from posthog.temporal.data_imports.pipelines.zendesk import validate_credentials as validate_zendesk_credentials
 from posthog.temporal.data_imports.pipelines.vitally import validate_credentials as validate_vitally_credentials
+from posthog.temporal.data_imports.pipelines.bigquery import (
+    validate_credentials as validate_bigquery_credentials,
+    get_schemas as get_bigquery_schemas,
+    filter_incremental_fields as filter_bigquery_incremental_fields,
+)
 from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING,
     PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING,
@@ -298,6 +303,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 raise
         elif source_type == ExternalDataSource.Type.SNOWFLAKE:
             new_source_model, snowflake_schemas = self._handle_snowflake_source(request, *args, **kwargs)
+        elif source_type == ExternalDataSource.Type.BIGQUERY:
+            new_source_model, bigquery_schemas = self._handle_bigquery_source(request, *args, **kwargs)
         else:
             raise NotImplementedError(f"Source type {source_type} not implemented")
 
@@ -311,6 +318,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             default_schemas = sql_schemas
         elif source_type == ExternalDataSource.Type.SNOWFLAKE:
             default_schemas = snowflake_schemas
+        elif source_type == ExternalDataSource.Type.BIGQUERY:
+            default_schemas = bigquery_schemas
         else:
             default_schemas = list(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[source_type])
 
@@ -569,7 +578,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ssh_tunnel,
         )
 
-        return new_source_model, schemas
+        return new_source_model, list(schemas.keys())
 
     def _handle_snowflake_source(
         self, request: Request, *args: Any, **kwargs: Any
@@ -607,7 +616,51 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         schemas = get_snowflake_schemas(account_id, database, warehouse, user, password, schema, role)
 
-        return new_source_model, schemas
+        return new_source_model, list(schemas.keys())
+
+    def _handle_bigquery_source(
+        self, request: Request, *args: Any, **kwargs: Any
+    ) -> tuple[ExternalDataSource, list[Any]]:
+        payload = request.data["payload"]
+        prefix = request.data.get("prefix", None)
+        source_type = request.data["source_type"]
+
+        dataset_id = payload.get("dataset_id")
+        key_file = payload.get("key_file", {})
+        project_id = key_file.get("project_id")
+        private_key = key_file.get("private_key")
+        private_key_id = key_file.get("private_key_id")
+        client_email = key_file.get("client_email")
+        token_uri = key_file.get("token_uri")
+
+        new_source_model = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            team=self.team,
+            status="Running",
+            source_type=source_type,
+            job_inputs={
+                "dataset_id": dataset_id,
+                "project_id": project_id,
+                "private_key": private_key,
+                "private_key_id": private_key_id,
+                "client_email": client_email,
+                "token_uri": token_uri,
+            },
+            prefix=prefix,
+        )
+
+        schemas = get_bigquery_schemas(
+            dataset_id=dataset_id,
+            project_id=project_id,
+            private_key=private_key,
+            private_key_id=private_key_id,
+            client_email=client_email,
+            token_uri=token_uri,
+        )
+
+        return new_source_model, list(schemas.keys())
 
     def prefix_required(self, source_type: str) -> bool:
         source_type_exists = (
@@ -724,6 +777,50 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": "Invalid credentials: Zendesk credentials are incorrect"},
                 )
+        elif source_type == ExternalDataSource.Type.BIGQUERY:
+            dataset_id = request.data.get("dataset_id", "")
+            key_file = request.data.get("key_file", {})
+            if not validate_bigquery_credentials(dataset_id=dataset_id, key_file=key_file):
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Invalid credentials: BigQuery credentials are incorrect"},
+                )
+
+            project_id = key_file.get("project_id")
+            private_key = key_file.get("private_key")
+            private_key_id = key_file.get("private_key_id")
+            client_email = key_file.get("client_email")
+            token_uri = key_file.get("token_uri")
+
+            schemas = get_bigquery_schemas(
+                dataset_id=dataset_id,
+                project_id=project_id,
+                private_key=private_key,
+                private_key_id=private_key_id,
+                client_email=client_email,
+                token_uri=token_uri,
+            )
+
+            filtered_results = [
+                (table_name, filter_bigquery_incremental_fields(columns)) for table_name, columns in schemas.items()
+            ]
+
+            result_mapped_to_options = [
+                {
+                    "table": table_name,
+                    "should_sync": False,
+                    "incremental_fields": [
+                        {"label": column_name, "type": column_type, "field": column_name, "field_type": column_type}
+                        for column_name, column_type in columns
+                    ],
+                    "incremental_available": True,
+                    "incremental_field": columns[0][0] if len(columns) > 0 and len(columns[0]) > 0 else None,
+                    "sync_type": None,
+                }
+                for table_name, columns in filtered_results
+            ]
+
+            return Response(status=status.HTTP_200_OK, data=result_mapped_to_options)
 
         # Get schemas and validate SQL credentials
         if source_type in [
