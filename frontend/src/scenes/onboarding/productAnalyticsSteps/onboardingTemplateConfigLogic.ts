@@ -65,7 +65,7 @@ export const onboardingTemplateConfigLogic = kea<onboardingTemplateConfigLogicTy
         reportTemplateSelected: ({ template }) => {
             posthog.capture('template selected during onboarding', {
                 template_id: template.id,
-                template_name: template.name,
+                template_name: template.template_name,
                 variables: template.variables?.map((v) => v.name),
             })
         },

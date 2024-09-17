@@ -36,7 +36,7 @@ export function DashboardTemplateChooser({
     return (
         <div>
             <div className="DashboardTemplateChooser">
-                {(availabilityContexts || []).includes(TemplateAvailabilityContext.GENERAL) || !availabilityContexts ? (
+                {!availabilityContexts || availabilityContexts.includes(TemplateAvailabilityContext.GENERAL) ? (
                     <TemplateItem
                         template={{
                             template_name: 'Blank dashboard',

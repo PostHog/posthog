@@ -234,7 +234,7 @@ function VariableSelector({
                                                     ) : null}
                                                 </div>
                                             ),
-                                            onClick: () => setVariableForPageview(variable.name, currentFullUrl),
+                                            onClick: () => setVariableForPageview(variable.name, currentFullUrl || ''),
                                             disabledReason: !currentFullUrl
                                                 ? 'Please select a site to use a specific pageview'
                                                 : undefined,
