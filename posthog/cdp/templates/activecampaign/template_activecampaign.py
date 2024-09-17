@@ -4,7 +4,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
     id="template-activecampaign",
-    name="Create ActiveCampaign contact",
+    name="Create contacts in ActiveCampaign",
     description="Creates a new contact in ActiveCampaign whenever an event is triggered.",
     icon_url="/static/services/activecampaign.png",
     hog="""
@@ -13,7 +13,7 @@ if (empty(inputs.email)) {
     return
 }
 
-let body := {
+let contact := {
     'email': inputs.email,
     'firstName': inputs.firstName,
     'lastName': inputs.lastName,
@@ -23,21 +23,23 @@ let body := {
 
 for (let key, value in inputs.attributes) {
     if (not empty(value)) {
-        attributes[key] := value
+        contact.fieldValues := arrayPushBack(contact.fieldValues, {'field': key, 'value': value})
     }
 }
 
-let res := fetch(f'https://{accountName}.api-us1.com/api/3/contact/sync', {
+let res := fetch(f'https://{inputs.accountName}.api-us1.com/api/3/contact/sync', {
     'method': 'POST',
     'headers': {
-        'content-type': 'application/json/
-        'Api-Token': {inputs.apiKey}
+        'content-type': 'application/json',
+        'Api-Token': inputs.apiKey
     },
-    'body': body
+    'body': {
+        'contact': contact
+    }
 })
 
 if (res.status >= 400) {
-    print(f'Error from {accountName}.api-us1.com api:', res.status, res.body)
+    print(f'Error from {inputs.accountName}.api-us1.com api:', res.status, res.body)
 } else {
     print('Contact has been created or updated successfully!')
 }
