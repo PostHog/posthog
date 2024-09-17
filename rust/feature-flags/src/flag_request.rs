@@ -39,14 +39,24 @@ impl FlagRequest {
     #[instrument(skip_all)]
     pub fn from_bytes(bytes: Bytes) -> Result<FlagRequest, FlagError> {
         tracing::debug!(len = bytes.len(), "decoding new request");
-        // TODO: Add base64 decoding
-        let payload = String::from_utf8(bytes.into()).map_err(|e| {
+
+        let payload = String::from_utf8(bytes.to_vec()).map_err(|e| {
             tracing::error!("failed to decode body: {}", e);
             FlagError::RequestDecodingError(String::from("invalid body encoding"))
         })?;
 
         tracing::debug!(json = payload, "decoded event data");
-        Ok(serde_json::from_str::<FlagRequest>(&payload)?)
+
+        // Attempt to parse as JSON, rejecting invalid JSON
+        match serde_json::from_str::<FlagRequest>(&payload) {
+            Ok(request) => Ok(request),
+            Err(e) => {
+                tracing::error!("failed to parse JSON: {}", e);
+                Err(FlagError::RequestDecodingError(String::from(
+                    "invalid JSON",
+                )))
+            }
+        }
     }
 
     /// Extracts the token from the request and verifies it against the cache.

@@ -15,6 +15,7 @@ from posthog.constants import (
     BreakdownAttributionType,
     FunnelOrderType,
 )
+from posthog.hogql.database.database import create_hogql_database
 from posthog.models import Entity, Filter, Team
 from posthog.models.action.util import format_action_filter
 from posthog.models.property import PropertyName
@@ -68,7 +69,12 @@ class ClickhouseFunnelBase(ABC):
         self._include_preceding_timestamp = include_preceding_timestamp
         self._include_properties = include_properties or []
 
-        self._filter.hogql_context.person_on_events_mode = team.person_on_events_mode
+        # HACK: Because we're in a legacy query, we need to override hogql_context with the legacy-alised PoE mode
+        self._filter.hogql_context.modifiers.personsOnEventsMode = alias_poe_mode_for_legacy(team.person_on_events_mode)
+        # Recreate the database with the legacy-alised PoE mode
+        self._filter.hogql_context.database = create_hogql_database(
+            team_id=self._team.pk, modifiers=self._filter.hogql_context.modifiers
+        )
 
         # handle default if window isn't provided
         if not self._filter.funnel_window_days and not self._filter.funnel_window_interval:
@@ -435,7 +441,7 @@ class ClickhouseFunnelBase(ABC):
             team=self._team,
             extra_fields=[*self._extra_event_fields, *extra_fields],
             extra_event_properties=self._extra_event_properties,
-            person_on_events_mode=self._team.person_on_events_mode,
+            person_on_events_mode=alias_poe_mode_for_legacy(self._team.person_on_events_mode),
         ).get_query(entities_to_use, entity_name, skip_entity_filter=skip_entity_filter)
 
         self.params.update(params)

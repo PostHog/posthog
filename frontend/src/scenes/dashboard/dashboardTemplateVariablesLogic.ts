@@ -46,6 +46,7 @@ export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLog
         resetVariable: (variableId: string) => ({ variableId }),
         goToNextUntouchedActiveVariableIndex: true,
         setIsCurrentlySelectingElement: (isSelecting: boolean) => ({ isSelecting }),
+        setActiveVariableCustomEventName: (customEventName?: string | null) => ({ customEventName }),
     }),
     reducers({
         variables: [
@@ -96,6 +97,12 @@ export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLog
             {
                 setActiveVariableIndex: (_, { index }) => index,
                 incrementActiveVariableIndex: (state) => state + 1,
+            },
+        ],
+        activeVariableCustomEventName: [
+            null as string | null | undefined,
+            {
+                setActiveVariableCustomEventName: (_, { customEventName }) => customEventName,
             },
         ],
         isCurrentlySelectingElement: [
@@ -151,6 +158,7 @@ export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLog
                 id: action.id.toString(),
                 math: BaseMathType.UniqueUsers,
                 name: action.name,
+                custom_name: originalVariableName,
                 order: 0,
                 type: EntityTypes.ACTIONS,
                 selector: action.steps?.[0]?.selector,
@@ -170,6 +178,7 @@ export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLog
                 type: EntityTypes.EVENTS,
                 order: 0,
                 name: '$pageview',
+                custom_name: variableName,
                 properties: [
                     {
                         key: '$current_url',
