@@ -534,7 +534,7 @@
               CROSS JOIN
                 (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
                         if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
-                        ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                        ifNull(nullIf(toString(has(e.properties_group_custom, 'key') ? e.properties_group_custom['key'] : null), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
                  FROM events AS e SAMPLE 1
                  LEFT OUTER JOIN
                    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -678,7 +678,7 @@
               CROSS JOIN
                 (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
                         if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
-                        ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                        ifNull(nullIf(toString(has(e.properties_group_custom, 'key') ? e.properties_group_custom['key'] : null), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
                  FROM events AS e SAMPLE 1
                  LEFT OUTER JOIN
                    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -743,7 +743,7 @@
         FROM
           (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(toString(has(e.properties_group_custom, 'key') ? e.properties_group_custom['key'] : null), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events AS e SAMPLE 1
            LEFT JOIN
              (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
@@ -800,7 +800,7 @@
         FROM
           (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(toString(has(e.properties_group_custom, 'key') ? e.properties_group_custom['key'] : null), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events AS e SAMPLE 1
            LEFT OUTER JOIN
              (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
