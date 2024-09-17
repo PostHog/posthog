@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0467_add_web_vitals_allowed_metrics"),
+        ("posthog", "0471_webexperiment_experiment_type_experiment_variants"),
     ]
 
     operations = [

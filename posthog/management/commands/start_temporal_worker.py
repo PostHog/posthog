@@ -8,21 +8,25 @@ with workflow.unsafe.imports_passed_through():
     from django.conf import settings
     from django.core.management.base import BaseCommand
 
+from posthog.constants import BATCH_EXPORTS_TASK_QUEUE, DATA_WAREHOUSE_TASK_QUEUE, GENERAL_PURPOSE_TASK_QUEUE
+from posthog.temporal.batch_exports import ACTIVITIES as BATCH_EXPORTS_ACTIVITIES
+from posthog.temporal.batch_exports import WORKFLOWS as BATCH_EXPORTS_WORKFLOWS
 from posthog.temporal.common.worker import start_worker
-
-from posthog.temporal.batch_exports import WORKFLOWS as BATCH_EXPORTS_WORKFLOWS, ACTIVITIES as BATCH_EXPORTS_ACTIVITIES
-from posthog.temporal.data_imports import WORKFLOWS as DATA_SYNC_WORKFLOWS, ACTIVITIES as DATA_SYNC_ACTIVITIES
-from posthog.temporal.proxy_service import WORKFLOWS as PROXY_SERVICE_WORKFLOWS, ACTIVITIES as PROXY_SERVICE_ACTIVITIES
-from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE, BATCH_EXPORTS_TASK_QUEUE, GENERAL_PURPOSE_TASK_QUEUE
+from posthog.temporal.data_imports import ACTIVITIES as DATA_SYNC_ACTIVITIES
+from posthog.temporal.data_imports import WORKFLOWS as DATA_SYNC_WORKFLOWS
+from posthog.temporal.data_modeling import ACTIVITIES as DATA_MODELING_ACTIVITIES
+from posthog.temporal.data_modeling import WORKFLOWS as DATA_MODELING_WORKFLOWS
+from posthog.temporal.proxy_service import ACTIVITIES as PROXY_SERVICE_ACTIVITIES
+from posthog.temporal.proxy_service import WORKFLOWS as PROXY_SERVICE_WORKFLOWS
 
 WORKFLOWS_DICT = {
     BATCH_EXPORTS_TASK_QUEUE: BATCH_EXPORTS_WORKFLOWS,
-    DATA_WAREHOUSE_TASK_QUEUE: DATA_SYNC_WORKFLOWS,
+    DATA_WAREHOUSE_TASK_QUEUE: DATA_SYNC_WORKFLOWS + DATA_MODELING_WORKFLOWS,
     GENERAL_PURPOSE_TASK_QUEUE: PROXY_SERVICE_WORKFLOWS,
 }
 ACTIVITIES_DICT = {
     BATCH_EXPORTS_TASK_QUEUE: BATCH_EXPORTS_ACTIVITIES,
-    DATA_WAREHOUSE_TASK_QUEUE: DATA_SYNC_ACTIVITIES,
+    DATA_WAREHOUSE_TASK_QUEUE: DATA_SYNC_ACTIVITIES + DATA_MODELING_ACTIVITIES,
     GENERAL_PURPOSE_TASK_QUEUE: PROXY_SERVICE_ACTIVITIES,
 }
 

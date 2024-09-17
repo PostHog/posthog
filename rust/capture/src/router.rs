@@ -12,6 +12,7 @@ use tower::limit::ConcurrencyLimitLayer;
 use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 
+use crate::test_endpoint;
 use crate::{limiters::redis::RedisLimiter, redis::Client, sinks, time::TimeSource, v0_endpoint};
 
 use crate::config::CaptureMode;
@@ -65,6 +66,21 @@ pub fn router<
         .allow_headers(AllowHeaders::mirror_request())
         .allow_credentials(true)
         .allow_origin(AllowOrigin::mirror_request());
+
+    let test_router = Router::new()
+        .route(
+            "/test/black_hole",
+            post(test_endpoint::test_black_hole)
+                .get(test_endpoint::test_black_hole)
+                .options(v0_endpoint::options),
+        )
+        .route(
+            "/test/black_hole/",
+            post(test_endpoint::test_black_hole)
+                .get(test_endpoint::test_black_hole)
+                .options(v0_endpoint::options),
+        )
+        .layer(DefaultBodyLimit::max(BATCH_BODY_SIZE));
 
     let batch_router = Router::new()
         .route(
@@ -129,7 +145,10 @@ pub fn router<
         .layer(DefaultBodyLimit::max(RECORDING_BODY_SIZE));
 
     let mut router = match capture_mode {
-        CaptureMode::Events => Router::new().merge(batch_router).merge(event_router),
+        CaptureMode::Events => Router::new()
+            .merge(batch_router)
+            .merge(event_router)
+            .merge(test_router),
         CaptureMode::Recordings => Router::new().merge(recordings_router),
     };
 

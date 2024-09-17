@@ -84,7 +84,7 @@ export function DashboardTemplateChooser({
                                         setActiveDashboardTemplate(template)
                                     }
                                 }
-                                onItemClick?.()
+                                onItemClick?.(template)
                             }}
                             index={index + 1}
                             data-attr="create-dashboard-from-template"

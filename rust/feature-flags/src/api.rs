@@ -96,6 +96,8 @@ pub enum FlagError {
     DatabaseUnavailable,
     #[error("Timed out while fetching data")]
     TimeoutError,
+    #[error("No group type mappings")]
+    NoGroupTypeMappings,
 }
 
 impl IntoResponse for FlagError {
@@ -165,6 +167,13 @@ impl IntoResponse for FlagError {
                 (
                     StatusCode::SERVICE_UNAVAILABLE,
                     "The request timed out. This could be due to high load or network issues. Please try again later.".to_string(),
+                )
+            }
+            FlagError::NoGroupTypeMappings => {
+                tracing::error!("No group type mappings: {:?}", self);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "No group type mappings found. This is likely a configuration issue. Please contact support.".to_string(),
                 )
             }
         }

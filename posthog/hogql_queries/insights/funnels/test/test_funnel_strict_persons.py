@@ -166,6 +166,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
             distinct_id="user_1",
             first_timestamp=timestamp,
             last_timestamp=timestamp,
+            ensure_analytics_event_in_session=False,  # Would mess up the strict funnel
         )
 
         # First event, but no recording
