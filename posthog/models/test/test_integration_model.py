@@ -27,7 +27,7 @@ class TestIntegrationModel(BaseTest):
         self, kind: str, config: Optional[dict] = None, sensitive_config: Optional[dict] = None
     ) -> Integration:
         _config = {"refreshed_at": int(time.time()), "expires_in": 3600}
-        _sensitive_config = {"refresh_token": "REFRESH", "empty": None}
+        _sensitive_config = {"refresh_token": "REFRESH", "id_token": None}
         _config.update(config or {})
         _sensitive_config.update(sensitive_config or {})
 
@@ -39,25 +39,30 @@ class TestIntegrationModel(BaseTest):
             with patch("os.urandom", return_value=b"\x00" * 16):
                 integration = self.create_integration("slack")
 
-                assert integration.sensitive_config == {"refresh_token": "REFRESH"}
+                assert integration.sensitive_config == {"refresh_token": "REFRESH", "id_token": None}
                 assert (
                     get_db_field_value("sensitive_config", integration.id)
-                    == '{"refresh_token": "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAAG8GspK_OhPyaqyzjpK0QgCoWWIz80JwwAktNcSNXNLljRgCct3L6YNMD6QznR0oeg=="}'
+                    == '{"id_token": null, "refresh_token": "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAAG8GspK_OhPyaqyzjpK0QgCoWWIz80JwwAktNcSNXNLljRgCct3L6YNMD6QznR0oeg=="}'
                 )
 
                 # update the value to non-encrypted and check it still loads
 
-                update_db_field_value("sensitive_config", integration.id, '{"refresh_token": "REFRESH2"}')
+                update_db_field_value(
+                    "sensitive_config", integration.id, '{"id_token": null, "refresh_token": "REFRESH2"}'
+                )
                 integration.refresh_from_db()
-                assert integration.sensitive_config == {"refresh_token": "REFRESH2"}
-                assert get_db_field_value("sensitive_config", integration.id) == '{"refresh_token": "REFRESH2"}'
+                assert integration.sensitive_config == {"id_token": None, "refresh_token": "REFRESH2"}
+                assert (
+                    get_db_field_value("sensitive_config", integration.id)
+                    == '{"id_token": null, "refresh_token": "REFRESH2"}'
+                )
 
                 integration.save()
                 # The field should now be encrypted
-                assert integration.sensitive_config == {"refresh_token": "REFRESH2"}
+                assert integration.sensitive_config == {"id_token": None, "refresh_token": "REFRESH2"}
                 assert (
                     get_db_field_value("sensitive_config", integration.id)
-                    == '{"refresh_token": "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAANWZEhLS1Pau6w5c9_w1upLhO5kF9jLsg0EifNa1zZ456V6Nt-4jBq_Wh1wPgh4a8A=="}'
+                    == '{"id_token": null, "refresh_token": "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAANWZEhLS1Pau6w5c9_w1upLhO5kF9jLsg0EifNa1zZ456V6Nt-4jBq_Wh1wPgh4a8A=="}'
                 )
 
     def test_slack_integration_config(self):
