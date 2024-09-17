@@ -3,6 +3,7 @@ import time
 from typing import Optional
 from unittest.mock import patch
 
+from django.db import connection
 from freezegun import freeze_time
 import pytest
 from posthog.models.instance_setting import set_instance_setting
@@ -10,7 +11,55 @@ from posthog.models.integration import Integration, OauthIntegration, SlackInteg
 from posthog.test.base import BaseTest
 
 
+def get_db_field_value(field, model_id):
+    cursor = connection.cursor()
+    cursor.execute(f"select {field} from posthog_integration where id='{model_id}';")
+    return cursor.fetchone()[0]
+
+
+def update_db_field_value(field, model_id, value):
+    cursor = connection.cursor()
+    cursor.execute(f"update posthog_integration set {field}='{value}' where id='{model_id}';")
+
+
 class TestIntegrationModel(BaseTest):
+    def create_integration(
+        self, kind: str, config: Optional[dict] = None, sensitive_config: Optional[dict] = None
+    ) -> Integration:
+        _config = {"refreshed_at": int(time.time()), "expires_in": 3600}
+        _sensitive_config = {"refresh_token": "REFRESH"}
+        _config.update(config or {})
+        _sensitive_config.update(sensitive_config or {})
+
+        return Integration.objects.create(team=self.team, kind=kind, config=_config, sensitive_config=_sensitive_config)
+
+    def test_sensitive_config_encrypted(self):
+        # Fernet encryption is deterministic, but has a temporal component and utilizes os.urandom() for the IV
+        with freeze_time("2024-01-01T00:01:00Z"):
+            with patch("os.urandom", return_value=b"\x00" * 16):
+                integration = self.create_integration("slack")
+
+                assert integration.sensitive_config == {"refresh_token": "REFRESH"}
+                assert (
+                    get_db_field_value("sensitive_config", integration.id)
+                    == '{"refresh_token": "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAAG8GspK_OhPyaqyzjpK0QgCoWWIz80JwwAktNcSNXNLljRgCct3L6YNMD6QznR0oeg=="}'
+                )
+
+                # update the value to non-encrypted and check it still loads
+
+                update_db_field_value("sensitive_config", integration.id, '{"refresh_token": "REFRESH2"}')
+                integration.refresh_from_db()
+                assert integration.sensitive_config == {"refresh_token": "REFRESH2"}
+                assert get_db_field_value("sensitive_config", integration.id) == '{"refresh_token": "REFRESH2"}'
+
+                integration.save()
+                # The field should now be encrypted
+                assert integration.sensitive_config == {"refresh_token": "REFRESH2"}
+                assert (
+                    get_db_field_value("sensitive_config", integration.id)
+                    == '{"refresh_token": "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAANWZEhLS1Pau6w5c9_w1upLhO5kF9jLsg0EifNa1zZ456V6Nt-4jBq_Wh1wPgh4a8A=="}'
+                )
+
     def test_slack_integration_config(self):
         set_instance_setting("SLACK_APP_CLIENT_ID", None)
         set_instance_setting("SLACK_APP_CLIENT_SECRET", None)

@@ -17,9 +17,9 @@ class EncryptedFieldMixin:
     # Useful if migrating to an encrypted field from a non encrypted field
     ignore_decrypt_errors = False
 
-    def __init__(self, *args, **kwargs):
-        self.ignore_decrypt_errors = kwargs.pop("ignore_decrypt_errors", False)
-        super().__init__(*args, **kwargs)
+    def __init__(self, ignore_decrypt_errors=False, **kwargs):
+        self.ignore_decrypt_errors = ignore_decrypt_errors
+        super().__init__(**kwargs)
 
     @cached_property
     def keys(self):
@@ -52,14 +52,14 @@ class EncryptedFieldMixin:
 
     def decrypt(self, value: str) -> str:
         try:
-            return self.f.encrypt(bytes(value, "utf-8")).decode("utf-8")
+            return self.f.decrypt(bytes(value, "utf-8")).decode("utf-8")
         except InvalidToken:
             if self.ignore_decrypt_errors:
                 return value
             raise
 
     def encrypt(self, value: str) -> str:
-        return self.f.decrypt(bytes(value, "utf-8")).decode("utf-8")
+        return self.f.encrypt(bytes(value, "utf-8")).decode("utf-8")
 
     def get_internal_type(self):
         """
