@@ -4,7 +4,7 @@ import { PluginServerCapabilities } from './../../types'
 const PROCESS_EVENT_CAPABILITIES = new Set(['ingestion', 'ingestionOverflow', 'ingestionHistorical'])
 
 export function getVMPluginCapabilities(methods: PluginMethods): PluginCapabilities {
-    const capabilities: Required<PluginCapabilities> = { scheduled_tasks: [], jobs: [], methods: [] }
+    const capabilities: Required<PluginCapabilities> = { methods: [] }
 
     if (methods) {
         for (const [key, value] of Object.entries(methods)) {

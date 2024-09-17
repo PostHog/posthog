@@ -405,8 +405,6 @@ export interface Plugin {
 }
 
 export interface PluginCapabilities {
-    jobs?: string[]
-    scheduled_tasks?: string[]
     methods?: string[]
 }
 
