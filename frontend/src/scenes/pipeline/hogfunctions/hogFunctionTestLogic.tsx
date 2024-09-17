@@ -2,6 +2,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { tryJsonParse } from 'lib/utils'
 
@@ -37,6 +38,7 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
         actions: [hogFunctionConfigurationLogic({ id: props.id }), ['touchConfigurationField']],
     })),
     actions({
+        loadSampleGlobals: true,
         setTestResult: (result: HogFunctionTestInvocationResult | null) => ({ result }),
         toggleExpanded: (expanded?: boolean) => ({ expanded }),
     }),
@@ -59,12 +61,17 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
         sampleGlobals: [
             null as Record<string, any> | null,
             {
-                loadSampleGlobals: async () => {
-                    const response = await performQuery(values.lastEventQuery)
-                    const event: Record<string, any> = response?.results?.[0]?.[0]
-                    const person: Record<string, any> = response?.results?.[0]?.[1]
-                    // TODO: convert to the correct format
-                    return { event, person }
+                loadSampleGlobals: async (_, breakpoint) => {
+                    try {
+                        await breakpoint(100)
+                        const response = await performQuery(values.lastEventQuery)
+                        const event: Record<string, any> = response?.results?.[0]?.[0]
+                        const person: Record<string, any> = response?.results?.[0]?.[1]
+                        // TODO: convert to the correct format
+                        return { event, person }
+                    } catch (e) {
+                        return values.exampleInvocationGlobals
+                    }
                 },
             },
         ],
@@ -78,6 +85,9 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
         loadSampleGlobalsSuccess: () => {
             actions.setTestInvocationValue('globals', JSON.stringify(values.sampleGlobals, null, 2))
         },
+    })),
+    subscriptions(({ actions }) => ({
+        lastEventQuery: () => actions.loadSampleGlobals(),
     })),
     forms(({ props, actions, values }) => ({
         testInvocation: {
@@ -118,7 +128,7 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
         },
     })),
 
-    afterMount(({ actions, values }) => {
-        actions.setTestInvocationValue('globals', JSON.stringify(values.exampleInvocationGlobals, null, 2))
+    afterMount(({ actions }) => {
+        actions.setTestInvocationValue('globals', '{/* Please wait, fetching a real event. */}')
     }),
 ])
