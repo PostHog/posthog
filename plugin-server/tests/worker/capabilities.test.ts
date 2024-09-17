@@ -77,8 +77,6 @@ describe('capabilities', () => {
                     {
                         ingestion: true,
                         processAsyncOnEventHandlers: true,
-                        processPluginJobs: true,
-                        pluginScheduledTasks: true,
                     },
                     {}
                 )
@@ -145,36 +143,6 @@ describe('capabilities', () => {
                         jobs: ['someJob'],
                     }
                 )
-                expect(shouldSetupPlugin).toEqual(false)
-            })
-        })
-
-        describe('scheduled tasks', () => {
-            it('returns true if plugin has any scheduled tasks and the server has pluginScheduledTasks capability', () => {
-                const shouldSetupPlugin = shouldSetupPluginInServer(
-                    { pluginScheduledTasks: true },
-                    { scheduled_tasks: ['runEveryMinute'] }
-                )
-                expect(shouldSetupPlugin).toEqual(true)
-            })
-
-            it('returns false if plugin has no scheduled tasks and the server has only pluginScheduledTasks capability', () => {
-                const shouldSetupPlugin = shouldSetupPluginInServer(
-                    { pluginScheduledTasks: true },
-                    { scheduled_tasks: [] }
-                )
-                expect(shouldSetupPlugin).toEqual(false)
-            })
-        })
-
-        describe('jobs', () => {
-            it('returns true if plugin has any jobs and the server has processPluginJobs capability', () => {
-                const shouldSetupPlugin = shouldSetupPluginInServer({ processPluginJobs: true }, { jobs: ['someJob'] })
-                expect(shouldSetupPlugin).toEqual(true)
-            })
-
-            it('returns false if plugin has no jobs and the server has only processPluginJobs capability', () => {
-                const shouldSetupPlugin = shouldSetupPluginInServer({ processPluginJobs: true }, { jobs: [] })
                 expect(shouldSetupPlugin).toEqual(false)
             })
         })

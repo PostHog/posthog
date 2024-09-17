@@ -1,6 +1,6 @@
 import { PluginEvent, Webhook } from '@posthog/plugin-scaffold'
 
-import { Hub, PluginConfig, PluginMethodsConcrete, PluginTaskType, PostIngestionEvent } from '../../types'
+import { Hub, PluginConfig, PluginMethodsConcrete, PostIngestionEvent } from '../../types'
 import { processError } from '../../utils/db/error'
 import {
     convertToOnEventPayload,
@@ -312,72 +312,6 @@ export async function runProcessEvent(hub: Hub, event: PluginEvent): Promise<Plu
     }
 
     return returnedEvent
-}
-
-export async function runPluginTask(
-    hub: Hub,
-    taskName: string,
-    taskType: PluginTaskType,
-    pluginConfigId: number,
-    payload?: Record<string, any>
-): Promise<any> {
-    const timer = new Date()
-    let response
-    const pluginConfig = hub.pluginConfigs.get(pluginConfigId)
-    const teamId = pluginConfig?.team_id
-    let shouldQueueAppMetric = false
-
-    try {
-        const task = await pluginConfig?.instance?.getTask(taskName, taskType)
-        if (!task) {
-            throw new Error(
-                `Task "${taskName}" not found for plugin "${pluginConfig?.plugin?.name}" with config id ${pluginConfigId}`
-            )
-        }
-
-        if (!pluginConfig?.enabled) {
-            status.info('🚮', 'Skipping job for disabled pluginconfig', {
-                taskName: taskName,
-                taskType: taskType,
-                pluginConfigId: pluginConfigId,
-            })
-            return
-        }
-
-        shouldQueueAppMetric = taskType === PluginTaskType.Schedule && !task.__ignoreForAppMetrics
-        response = await (payload ? task?.exec(payload) : task?.exec())
-
-        pluginActionMsSummary
-            .labels(String(pluginConfig?.plugin?.id), 'task', 'success')
-            .observe(new Date().getTime() - timer.getTime())
-        if (shouldQueueAppMetric && teamId) {
-            await hub.appMetrics.queueMetric({
-                teamId: teamId,
-                pluginConfigId: pluginConfigId,
-                category: 'scheduledTask',
-                successes: 1,
-            })
-        }
-    } catch (error) {
-        await processError(hub, pluginConfig || null, error)
-
-        pluginActionMsSummary
-            .labels(String(pluginConfig?.plugin?.id), 'task', 'error')
-            .observe(new Date().getTime() - timer.getTime())
-        if (shouldQueueAppMetric && teamId) {
-            await hub.appMetrics.queueError(
-                {
-                    teamId: teamId,
-                    pluginConfigId: pluginConfigId,
-                    category: 'scheduledTask',
-                    failures: 1,
-                },
-                { error }
-            )
-        }
-    }
-
-    return response
 }
 
 async function getPluginMethodsForTeam<M extends keyof PluginMethodsConcrete>(

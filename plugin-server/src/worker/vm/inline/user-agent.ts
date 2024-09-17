@@ -21,9 +21,6 @@ export class UserAgentPlugin implements PluginInstance {
     getTask = () => {
         return Promise.resolve(null)
     }
-    getScheduledTasks = () => {
-        return Promise.resolve({})
-    }
     setupPluginIfNeeded = () => {
         return Promise.resolve(true)
     }
