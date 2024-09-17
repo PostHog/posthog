@@ -106,14 +106,6 @@ class BatchExportRun(UUIDModel):
     records_total_count = models.IntegerField(
         null=True, help_text="The total count of records that should be exported in this BatchExportRun."
     )
-    inserted_at_interval_start = models.DateTimeField(
-        null=True,
-        help_text="The inserted_at of the first record that was inserted into the destination in this BatchExportRun.",
-    )
-    inserted_at_interval_end = models.DateTimeField(
-        null=True,
-        help_text="The inserted_at of the last record that was inserted into the destination in this BatchExportRun.",
-    )
 
 
 def fetch_batch_export_run_count(
