@@ -31,13 +31,13 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
     connect((props: HogFunctionTestLogicProps) => ({
         values: [
             hogFunctionConfigurationLogic({ id: props.id }),
-            ['configuration', 'configurationHasErrors', 'sampleGlobals'],
+            ['configuration', 'configurationHasErrors', 'sampleGlobals', 'sampleGlobalsLoading'],
             groupsModel,
             ['groupTypes'],
         ],
         actions: [
             hogFunctionConfigurationLogic({ id: props.id }),
-            ['touchConfigurationField', 'loadSampleGlobalsSuccess'],
+            ['touchConfigurationField', 'loadSampleGlobalsSuccess', 'loadSampleGlobals'],
         ],
     })),
     actions({
