@@ -1577,14 +1577,14 @@ export interface ExperimentFunnelQueryResponse {
 export interface ExperimentFunnelQuery extends DataNode<ExperimentFunnelQueryResponse> {
     kind: NodeKind.ExperimentFunnelQuery
     source: FunnelsQuery
-    variants: string[]
+    experiment_id: integer
 }
 
 export interface ExperimentTrendQuery extends DataNode<ExperimentTrendQueryResponse> {
     kind: NodeKind.ExperimentTrendQuery
     count_source: TrendsQuery
     exposure_source: TrendsQuery
-    variants: string[]
+    experiment_id: integer
 }
 
 /**
