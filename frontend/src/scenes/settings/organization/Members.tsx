@@ -259,7 +259,7 @@ export function Members(): JSX.Element | null {
             sorter: (a, b) => a.joined_at.localeCompare(b.joined_at),
         },
         {
-            title: 'Last Signed In',
+            title: 'Last Logged In',
             dataIndex: 'last_login',
             key: 'last_login',
             render: function RenderLastLogin(lastLogin) {
