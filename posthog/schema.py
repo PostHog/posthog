@@ -246,16 +246,6 @@ class ClickhouseQueryProgress(BaseModel):
     time_elapsed: int
 
 
-class CohortPropertyFilter(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    key: Literal["id"] = "id"
-    label: Optional[str] = None
-    type: Literal["cohort"] = "cohort"
-    value: int
-
-
 class CompareFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -977,6 +967,8 @@ class PropertyOperator(StrEnum):
     NOT_BETWEEN = "not_between"
     MIN = "min"
     MAX = "max"
+    IN_ = "in"
+    NOT_IN = "not_in"
 
 
 class QueryResponseAlternative5(BaseModel):
@@ -2279,6 +2271,17 @@ class ChartSettings(BaseModel):
     yAxisAtZero: Optional[bool] = Field(
         default=None, description="Deprecated: use `[left|right]YAxisSettings`. Whether the Y axis should start at zero"
     )
+
+
+class CohortPropertyFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: Literal["id"] = "id"
+    label: Optional[str] = None
+    operator: Optional[PropertyOperator] = PropertyOperator.IN_
+    type: Literal["cohort"] = "cohort"
+    value: int
 
 
 class Response(BaseModel):
