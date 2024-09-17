@@ -202,6 +202,7 @@ jobs:
             KAFKA_HOSTS: 'kafka:9092'
             DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
             RELOAD_PLUGIN_JITTER_MAX_MS: 0
+            ENCRYPTION_SALT_KEYS: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ012345'
 
         steps:
             - name: Code check out

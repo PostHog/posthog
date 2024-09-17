@@ -7,8 +7,8 @@ from posthog.warehouse.util import database_sync_to_async
 
 
 class DataWarehouseCredential(CreatedMetaFields, UUIDModel):
-    access_key: EncryptedTextField = EncryptedTextField(max_length=500)
-    access_secret: EncryptedTextField = EncryptedTextField(max_length=500)
+    access_key = EncryptedTextField(max_length=500)
+    access_secret = EncryptedTextField(max_length=500)
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
 
     __repr__ = sane_repr("access_key")

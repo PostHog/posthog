@@ -7,7 +7,7 @@ describe('Encrypted fields', () => {
     let encryptedFields: EncryptedFields
 
     const mockHub: Partial<Hub> = {
-        DJANGO_ENCRYPTION_SALT_KEYS: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ012345',
+        ENCRYPTION_SALT_KEYS: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ012345',
     }
 
     beforeEach(() => {

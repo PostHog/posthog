@@ -7,11 +7,6 @@ use tracing::instrument;
 // TODO: Add integration tests across repos to ensure this doesn't happen.
 pub const TEAM_FLAGS_CACHE_PREFIX: &str = "posthog:1:team_feature_flags_";
 
-// TODO: Hmm, revisit when dealing with groups, but seems like
-// ideal to just treat it as a u8 and do our own validation on top
-#[derive(Debug, Deserialize)]
-pub enum GroupTypeIndex {}
-
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OperatorType {
@@ -42,7 +37,7 @@ pub struct PropertyFilter {
     pub operator: Option<OperatorType>,
     #[serde(rename = "type")]
     pub prop_type: String,
-    pub group_type_index: Option<i8>,
+    pub group_type_index: Option<i32>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -68,7 +63,7 @@ pub struct MultivariateFlagOptions {
 pub struct FlagFilters {
     pub groups: Vec<FlagGroupType>,
     pub multivariate: Option<MultivariateFlagOptions>,
-    pub aggregation_group_type_index: Option<i8>,
+    pub aggregation_group_type_index: Option<i32>,
     pub payloads: Option<serde_json::Value>,
     pub super_groups: Option<Vec<FlagGroupType>>,
 }
@@ -101,7 +96,7 @@ pub struct FeatureFlagRow {
 }
 
 impl FeatureFlag {
-    pub fn get_group_type_index(&self) -> Option<i8> {
+    pub fn get_group_type_index(&self) -> Option<i32> {
         self.filters.aggregation_group_type_index
     }
 

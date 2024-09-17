@@ -6,7 +6,7 @@ export class EncryptedFields {
     private fernets: Fernet[] = []
 
     constructor(config: PluginsServerConfig) {
-        const saltKeys = config.DJANGO_ENCRYPTION_SALT_KEYS.split(',').filter((key) => key)
+        const saltKeys = config.ENCRYPTION_SALT_KEYS.split(',').filter((key) => key)
 
         if (!saltKeys.length) {
             throw new Error('Encryption keys are not set')

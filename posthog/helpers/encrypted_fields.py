@@ -9,19 +9,17 @@ from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from django.conf import settings
-from django.core import validators
 from django.db import models
-from django.db.backends.base.operations import BaseDatabaseOperations
 from django.utils.functional import cached_property
 
 
-class EncryptedFieldMixin(object):
+class EncryptedFieldMixin:
     # Useful if migrating to an encrypted field from a non encrypted field
     ignore_decrypt_errors = False
 
     def __init__(self, *args, **kwargs):
         self.ignore_decrypt_errors = kwargs.pop("ignore_decrypt_errors", False)
-        super(EncryptedFieldMixin, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
 
     @cached_property
     def keys(self):
@@ -70,7 +68,7 @@ class EncryptedFieldMixin(object):
         return "TextField"
 
     def get_prep_value(self, value):
-        value = super().get_prep_value(value)
+        value = super().get_prep_value(value)  # type: ignore
         if value:
             if not isinstance(value, str):
                 value = str(value)
@@ -94,7 +92,7 @@ class EncryptedFieldMixin(object):
             pass
         except UnicodeEncodeError:
             pass
-        return super(EncryptedFieldMixin, self).to_python(value)
+        return super().to_python(value)  # type: ignore
 
     def clean(self, value, model_instance):
         """
@@ -102,7 +100,7 @@ class EncryptedFieldMixin(object):
         during cleaning of a form
         """
         self._already_decrypted = True
-        ret = super().clean(value, model_instance)
+        ret = super().clean(value, model_instance)  # type: ignore
         del self._already_decrypted
         return ret
 
@@ -117,33 +115,6 @@ class EncryptedTextField(EncryptedFieldMixin, models.TextField):
 
 class EncryptedDateTimeField(EncryptedFieldMixin, models.DateTimeField):
     pass
-
-
-class EncryptedIntegerField(EncryptedFieldMixin, models.IntegerField):
-    @cached_property
-    def validators(self):
-        # These validators can't be added at field initialization time since
-        # they're based on values retrieved from `connection`.
-        validators_ = [*self.default_validators, *self._validators]
-        internal_type = models.IntegerField().get_internal_type()
-        min_value, max_value = BaseDatabaseOperations.integer_field_ranges[internal_type]
-        if min_value is not None and not any(
-            (
-                isinstance(validator, validators.MinValueValidator)
-                and (validator.limit_value() if callable(validator.limit_value) else validator.limit_value) >= min_value
-            )
-            for validator in validators_
-        ):
-            validators_.append(validators.MinValueValidator(min_value))
-        if max_value is not None and not any(
-            (
-                isinstance(validator, validators.MaxValueValidator)
-                and (validator.limit_value() if callable(validator.limit_value) else validator.limit_value) <= max_value
-            )
-            for validator in validators_
-        ):
-            validators_.append(validators.MaxValueValidator(max_value))
-        return validators_
 
 
 class EncryptedDateField(EncryptedFieldMixin, models.DateField):
