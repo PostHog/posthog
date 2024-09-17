@@ -1,6 +1,6 @@
 from typing import cast
 
-from django.db.models import Model, Prefetch, QuerySet
+from django.db.models import Model, Prefetch, QuerySet, F
 from django.shortcuts import get_object_or_404
 from django.views import View
 from django_otp.plugins.otp_totp.models import TOTPDevice
@@ -42,6 +42,7 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
     user = UserBasicSerializer(read_only=True)
     is_2fa_enabled = serializers.SerializerMethodField()
     has_social_auth = serializers.SerializerMethodField()
+    last_login = serializers.DateTimeField(read_only=True)
 
     class Meta:
         model = OrganizationMembership
@@ -53,6 +54,7 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
             "updated_at",
             "is_2fa_enabled",
             "has_social_auth",
+            "last_login",
         ]
         read_only_fields = ["id", "joined_at", "updated_at"]
 
@@ -63,6 +65,9 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
 
     def get_has_social_auth(self, instance: OrganizationMembership) -> bool:
         return len(instance.user.social_auth.all()) > 0
+
+    def get_last_login(self, instance: OrganizationMembership) -> bool:
+        return instance.user.last_login
 
     def update(self, updated_membership, validated_data, **kwargs):
         updated_membership = cast(OrganizationMembership, updated_membership)
@@ -107,6 +112,7 @@ class OrganizationMemberViewSet(
             ),
             Prefetch("user__social_auth", queryset=UserSocialAuth.objects.all()),
         )
+        .annotate(last_login=F("user__last_login"))
     )
     lookup_field = "user__uuid"
 
