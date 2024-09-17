@@ -163,6 +163,7 @@ export const MOCK_DEFAULT_ORGANIZATION_MEMBER: OrganizationMemberType = {
     updated_at: '2020-09-24T15:05:26.758837Z',
     is_2fa_enabled: false,
     has_social_auth: false,
+    last_login: '2020-09-24T15:05:26.758796Z',
 }
 
 export const MOCK_SECOND_BASIC_USER: UserBasicType = {
@@ -181,6 +182,7 @@ export const MOCK_SECOND_ORGANIZATION_MEMBER: OrganizationMemberType = {
     updated_at: '2021-03-11T19:11:11Z',
     is_2fa_enabled: false,
     has_social_auth: false,
+    last_login: '2020-09-24T15:05:26.758796Z',
 }
 
 export const MOCK_DEFAULT_ORGANIZATION_INVITE: OrganizationInviteType = {
