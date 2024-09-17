@@ -47,7 +47,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
         loaded,
         hogFunction,
         willReEnableOnSave,
-        exampleInvocationGlobalsWithInputs,
+        globalsWithInputs,
         showPaygate,
         hasAddon,
         sparkline,
@@ -377,7 +377,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                                             language="hog"
                                                             value={value ?? ''}
                                                             onChange={(v) => onChange(v ?? '')}
-                                                            globals={exampleInvocationGlobalsWithInputs}
+                                                            globals={globalsWithInputs}
                                                             options={{
                                                                 minimap: {
                                                                     enabled: false,

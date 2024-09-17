@@ -307,7 +307,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         ],
 
         sampleGlobals: [
-            null as Record<string, any> | null,
+            null as HogFunctionInvocationGlobals | null,
             {
                 loadSampleGlobals: async (_, breakpoint) => {
                     try {
@@ -447,7 +447,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     : null
             },
         ],
-
         willReEnableOnSave: [
             (s) => [s.configuration, s.hogFunction],
             (configuration, hogFunction) => {
@@ -505,9 +504,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 return globals
             },
         ],
-        exampleInvocationGlobalsWithInputs: [
-            (s) => [s.exampleInvocationGlobals, s.configuration],
+        globalsWithInputs: [
+            (s) => [s.sampleGlobals, s.exampleInvocationGlobals, s.configuration],
             (
+                sampleGlobals,
                 exampleInvocationGlobals,
                 configuration
             ): HogFunctionInvocationGlobals & { inputs?: Record<string, any> } => {
@@ -517,7 +517,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 }
 
                 return {
-                    ...exampleInvocationGlobals,
+                    ...(sampleGlobals ?? exampleInvocationGlobals),
                     inputs,
                 }
             },
