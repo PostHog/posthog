@@ -108,9 +108,9 @@ class BackfillScheduleInputs:
     schedule_id: str
     start_at: str
     end_at: str | None
-    inserted_at_interval_start: str | None = None
     frequency_seconds: float
     start_delay: float = 5.0
+    inserted_at_interval_start: str | None = None
 
 
 def get_utcnow():
@@ -232,9 +232,6 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
         )
 
     full_backfill_range = backfill_range(start_at, end_at, frequency)
-    inserted_at_interval_start = (
-        dt.datetime.fromisoformat(inputs.inserted_at_interval_start) if inputs.inserted_at_interval_start else None
-    )
 
     for _, backfill_end_at in full_backfill_range:
         if await check_temporal_schedule_exists(client, description.id) is False:
@@ -259,14 +256,11 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
                 key=temporalio.common.SearchAttributeKey.for_datetime("TemporalScheduledStartTime"),
                 value=backfill_end_at,
             ),
-            temporalio.common.SearchAttributePair(
-                key=temporalio.common.SearchAttributeKey.for_datetime("TemporalLastInsertedAtStart"),
-                value=inserted_at_interval_start,
-            ),
         ]
 
         args = await client.data_converter.decode(schedule_action.args)
         args[0]["is_backfill"] = True
+        args[0]["inserted_at_interval_start"] = inputs.inserted_at_interval_start
 
         await asyncio.sleep(inputs.start_delay)
 

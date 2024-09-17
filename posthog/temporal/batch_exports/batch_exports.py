@@ -410,27 +410,6 @@ def get_data_interval(interval: str, data_interval_end: str | None) -> tuple[dt.
     return (data_interval_start_dt, data_interval_end_dt)
 
 
-def get_last_inserted_at_interval_start():
-    last_inserted_at_start = workflow.info().search_attributes.get("TemporalLastInsertedAtStart")
-
-    if last_inserted_at_start is None:
-        msg = (
-            "Expected 'TemporalLastInsertedAtStart' of type 'str', found 'NoneType'."
-            "This should be set by the Temporal Schedule unless triggering workflow manually."
-            "In the latter case, ensure '{Type}BatchExportInputs.data_interval_end' is set."
-        )
-        raise TypeError(msg)
-
-    if isinstance(last_inserted_at_start[0], str):
-        return dt.datetime.fromisoformat(last_inserted_at_start[0])
-    elif isinstance(last_inserted_at_start[0], dt.datetime):
-        return last_inserted_at_start
-    else:
-        raise TypeError(
-            f"Expected 'TemporalLastInsertedAtStart' to be of type 'str' or 'datetime', found '{type(last_inserted_at_start[0])}'"
-        )
-
-
 @dataclasses.dataclass
 class StartBatchExportRunInputs:
     """Inputs to the 'start_batch_export_run' activity.

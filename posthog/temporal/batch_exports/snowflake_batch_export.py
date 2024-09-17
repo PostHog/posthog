@@ -33,7 +33,6 @@ from posthog.temporal.batch_exports.batch_exports import (
     default_fields,
     execute_batch_export_insert_activity,
     get_data_interval,
-    get_last_inserted_at_interval_start,
     iter_model_records,
     start_batch_export_run,
 )
@@ -728,7 +727,6 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
     async def run(self, inputs: SnowflakeBatchExportInputs):
         """Workflow implementation to export data to Snowflake table."""
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
-        last_inserted_at_interval_start = get_last_inserted_at_interval_start()
 
         start_batch_export_run_inputs = StartBatchExportRunInputs(
             team_id=inputs.team_id,
@@ -738,7 +736,7 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             is_backfill=inputs.is_backfill,
-            inserted_at_interval_start=last_inserted_at_interval_start.isoformat(),
+            inserted_at_interval_start=inputs.inserted_at_interval_start,
         )
         run_id = await workflow.execute_activity(
             start_batch_export_run,
