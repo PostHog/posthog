@@ -7,6 +7,7 @@ import functools
 import io
 import json
 import typing
+import uuid
 
 import pyarrow as pa
 import snowflake.connector
@@ -700,7 +701,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
                     )
 
                 await aupdate_batch_export_run(
-                    run_id=inputs.run_id,
+                    run_id=uuid.UUID(inputs.run_id),
                     inserted_at_interval_end=last_inserted_at,
                 )
 

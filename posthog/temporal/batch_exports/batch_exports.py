@@ -421,7 +421,14 @@ def get_last_inserted_at_interval_start():
         )
         raise TypeError(msg)
 
-    return dt.datetime.fromisoformat(last_inserted_at_start)
+    if isinstance(last_inserted_at_start[0], str):
+        return dt.datetime.fromisoformat(last_inserted_at_start[0])
+    elif isinstance(last_inserted_at_start[0], dt.datetime):
+        return last_inserted_at_start
+    else:
+        raise TypeError(
+            f"Expected 'TemporalLastInsertedAtStart' to be of type 'str' or 'datetime', found '{type(last_inserted_at_start[0])}'"
+        )
 
 
 @dataclasses.dataclass

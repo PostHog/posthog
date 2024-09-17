@@ -108,7 +108,7 @@ class BackfillScheduleInputs:
     schedule_id: str
     start_at: str
     end_at: str | None
-    inserted_at_interval_start: str | None
+    inserted_at_interval_start: str | None = None
     frequency_seconds: float
     start_delay: float = 5.0
 
