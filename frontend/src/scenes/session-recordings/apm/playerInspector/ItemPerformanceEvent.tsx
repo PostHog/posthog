@@ -307,17 +307,25 @@ export function ItemPerformanceEvent({
                                       ),
                                   }
                                 : false,
-                            item.entry_type !== 'navigation' && {
-                                key: 'payload',
-                                label: 'Payload',
-                                content: (
-                                    <BodyDisplay
-                                        content={item.request_body}
-                                        headers={item.request_headers}
-                                        emptyMessage={emptyPayloadMessage(payloadCaptureIsEnabled, item, 'Request')}
-                                    />
-                                ),
-                            },
+                            item.entry_type !== 'navigation' &&
+                            // if we're missing the initiator type, but we do have a body then we should show it
+                            (['fetch', 'xmlhttprequest'].includes(item.initiator_type || '') || !!item.request_body)
+                                ? {
+                                      key: 'payload',
+                                      label: 'Payload',
+                                      content: (
+                                          <BodyDisplay
+                                              content={item.request_body}
+                                              headers={item.request_headers}
+                                              emptyMessage={emptyPayloadMessage(
+                                                  payloadCaptureIsEnabled,
+                                                  item,
+                                                  'Request'
+                                              )}
+                                          />
+                                      ),
+                                  }
+                                : false,
                             item.entry_type !== 'navigation' && item.response_body
                                 ? {
                                       key: 'response_body',
