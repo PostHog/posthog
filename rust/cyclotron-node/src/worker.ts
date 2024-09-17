@@ -100,8 +100,9 @@ export class CyclotronWorker {
         await (this.consumerLoopPromise ?? Promise.resolve())
     }
 
-    async flushJob(jobId: string): Promise<void> {
-        return await cyclotron.flushJob(jobId)
+    async releaseJob(jobId: string): Promise<void> {
+        // We hand the promise back to the user, letting them decide when to await it.
+        return cyclotron.releaseJob(jobId)
     }
 
     updateJob(id: CyclotronJob['id'], state: CyclotronJobState, updates?: CyclotronJobUpdate): void {
