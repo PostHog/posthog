@@ -38,6 +38,15 @@ export function HogFunctionList({
                     />
                 )}
                 <div className="flex-1" />
+                {typeof props.forceFilters?.showPaused !== 'boolean' && (
+                    <LemonCheckbox
+                        label="Show paused"
+                        bordered
+                        size="small"
+                        checked={filters.showPaused}
+                        onChange={(e) => setFilters({ showPaused: e ?? undefined })}
+                    />
+                )}
                 {(user?.is_staff || user?.is_impersonated) && typeof props.forceFilters?.showHidden !== 'boolean' && (
                     <LemonCheckbox
                         label="Show hidden"
@@ -45,15 +54,6 @@ export function HogFunctionList({
                         size="small"
                         checked={filters.showHidden}
                         onChange={(e) => setFilters({ showHidden: e ?? undefined })}
-                    />
-                )}
-                {typeof props.forceFilters?.onlyActive !== 'boolean' && (
-                    <LemonCheckbox
-                        label="Only active"
-                        bordered
-                        size="small"
-                        checked={filters.onlyActive}
-                        onChange={(e) => setFilters({ onlyActive: e ?? undefined })}
                     />
                 )}
                 {extraControls}

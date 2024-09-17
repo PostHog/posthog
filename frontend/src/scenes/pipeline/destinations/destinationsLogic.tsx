@@ -1,12 +1,10 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import FuseClass from 'fuse.js'
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { objectsEqual } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -30,29 +28,14 @@ import {
     WebhookDestination,
 } from '../types'
 import { captureBatchExportEvent, capturePluginEvent, loadPluginsFromUrl } from '../utils'
+import { destinationsFiltersLogic } from './destinationsFiltersLogic'
 import type { pipelineDestinationsLogicType } from './destinationsLogicType'
 
 // Helping kea-typegen navigate the exported default class for Fuse
 export interface Fuse extends FuseClass<Destination> {}
 
-export type DestinationFilters = {
-    search?: string
-    onlyActive?: boolean
-    showHidden?: boolean
-    kind?: PipelineBackend
-    filters?: Record<string, any>
-}
-
-export type PipelineDestinationsLogicProps = {
-    defaultFilters?: DestinationFilters
-    forceFilters?: DestinationFilters
-    syncFiltersWithUrl?: boolean
-}
-
 export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
-    props({} as PipelineDestinationsLogicProps),
-    key((props) => (props.syncFiltersWithUrl ? 'scene' : 'default')),
-    path((id) => ['scenes', 'pipeline', 'destinationsLogic', id]),
+    path(['scenes', 'pipeline', 'destinationsLogic']),
     connect({
         values: [
             teamLogic,
@@ -63,6 +46,8 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             ['canEnableDestination'],
             featureFlagLogic,
             ['featureFlags'],
+            destinationsFiltersLogic,
+            ['filters'],
         ],
     }),
     actions({
@@ -75,24 +60,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
 
         updatePluginConfig: (pluginConfig: PluginConfigTypeNew) => ({ pluginConfig }),
         updateBatchExportConfig: (batchExportConfig: BatchExportConfiguration) => ({ batchExportConfig }),
-        setFilters: (filters: Partial<DestinationFilters>) => ({ filters }),
-        resetFilters: true,
     }),
-    reducers(({ props }) => ({
-        filters: [
-            { ...(props.defaultFilters || {}), ...(props.forceFilters || {}) } as DestinationFilters,
-            {
-                setFilters: (state, { filters }) => ({
-                    ...state,
-                    ...filters,
-                    ...(props.forceFilters || {}),
-                }),
-                resetFilters: () => ({
-                    ...(props.forceFilters || {}),
-                }),
-            },
-        ],
-    })),
     loaders(({ values, actions }) => ({
         plugins: [
             {} as Record<number, PluginType>,
@@ -198,11 +166,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             {
                 loadHogFunctions: async () => {
                     // TODO: Support pagination?
-                    return (
-                        await api.hogFunctions.list({
-                            filters: values.filters?.filters,
-                        })
-                    ).results
+                    return (await api.hogFunctions.list()).results
                 },
 
                 deleteNodeHogFunction: async ({ destination }) => {
@@ -292,17 +256,24 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
         filteredDestinations: [
             (s) => [s.filters, s.destinations, s.destinationsFuse],
             (filters, destinations, destinationsFuse): Destination[] => {
-                const { search, onlyActive, kind } = filters
+                const { search, showPaused, kind } = filters
 
                 return (search ? destinationsFuse.search(search).map((x) => x.item) : destinations).filter((dest) => {
                     if (kind && dest.backend !== kind) {
                         return false
                     }
-                    if (onlyActive && !dest.enabled) {
+                    if (!showPaused && !dest.enabled) {
                         return false
                     }
                     return true
                 })
+            },
+        ],
+
+        hiddenDestinations: [
+            (s) => [s.destinations, s.filteredDestinations],
+            (destinations, filteredDestinations): Destination[] => {
+                return destinations.filter((dest) => !filteredDestinations.includes(dest))
             },
         ],
     }),
@@ -331,45 +302,6 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                 case PipelineBackend.HogFunction:
                     actions.deleteNodeHogFunction(destination)
                     break
-            }
-        },
-    })),
-
-    actionToUrl(({ props, values }) => {
-        if (!props.syncFiltersWithUrl) {
-            return {}
-        }
-        const urlFromFilters = (): [
-            string,
-            Record<string, any>,
-            Record<string, any>,
-            {
-                replace: boolean
-            }
-        ] => [
-            router.values.location.pathname,
-
-            values.filters,
-            router.values.hashParams,
-            {
-                replace: true,
-            },
-        ]
-
-        return {
-            setFilters: () => urlFromFilters(),
-            resetFilters: () => urlFromFilters(),
-        }
-    }),
-
-    urlToAction(({ props, actions, values }) => ({
-        '*': (_, searchParams) => {
-            if (!props.syncFiltersWithUrl) {
-                return
-            }
-
-            if (!objectsEqual(values.filters, searchParams)) {
-                actions.setFilters(searchParams)
             }
         },
     })),

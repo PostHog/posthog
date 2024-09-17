@@ -15,6 +15,7 @@ import { PlayerInspectorControls, TabToIcon } from './inspector/PlayerInspectorC
 import { PlayerInspectorList } from './inspector/PlayerInspectorList'
 import { PlayerPersonMeta } from './PlayerPersonMeta'
 import { playerSettingsLogic } from './playerSettingsLogic'
+import { PlayerSidebarDebuggerTab } from './sidebar/PlayerSidebarDebuggerTab'
 import { playerSidebarLogic } from './sidebar/playerSidebarLogic'
 
 export function PlayerSidebar({
@@ -110,7 +111,7 @@ export function PlayerSidebar({
                             <PlayerInspectorList />
                         </>
                     ) : (
-                        <div>Debugger tab</div>
+                        <PlayerSidebarDebuggerTab />
                     )}
                 </>
             ) : (

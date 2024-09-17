@@ -10,7 +10,7 @@ from rest_framework import status
 from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
 
-from posthog.api.geoip import get_geoip_properties
+from posthog.geoip import get_geoip_properties
 from posthog.api.survey import SURVEY_TARGETING_FLAG_PREFIX
 from posthog.api.utils import get_project_id, get_token, hostname_in_allowed_url_list, parse_domain
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
