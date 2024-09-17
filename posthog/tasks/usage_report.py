@@ -699,8 +699,10 @@ def convert_team_usage_rows_to_dict(rows: list[Union[dict, tuple[int, int]]]) ->
     team_id_map = {}
     for row in rows:
         if isinstance(row, dict) and "team_id" in row:
+            # Some queries return a dict with team_id and total
             team_id_map[row["team_id"]] = row["total"]
         else:
+            # Others are just a tuple with team_id and total
             team_id_map[int(row[0])] = row[1]
     return team_id_map
 
