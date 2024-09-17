@@ -20,6 +20,14 @@ mappings: dict[str, str | list[str]] = {
     "[person.link]": "{person.url}",
 }
 
+inert_fetch_print = """
+print('Mocked webhook', inputs.url, {
+  'headers': inputs.headers,
+  'body': inputs.body,
+  'method': inputs.method
+})
+""".strip()
+
 
 def convert_link(text: str, url: str, is_slack: bool) -> str:
     if is_slack:
@@ -53,8 +61,8 @@ def convert_slack_message_format_to_hog(action: Action, is_slack: bool) -> tuple
                 text = text.replace(match, action_url)
                 markdown = markdown.replace(match, action_url)
             else:
-                markdown = markdown.replace(match, convert_link(action.name, action_url, is_slack))
-                text = text.replace(match, action.name)
+                markdown = markdown.replace(match, convert_link(action.name or "Action", action_url, is_slack))
+                text = text.replace(match, action.name or "Action")
         elif match.startswith("[groups."):
             parts = content.split(".")
             if len(parts) == 2:
@@ -81,7 +89,7 @@ def convert_slack_message_format_to_hog(action: Action, is_slack: bool) -> tuple
     return (markdown, text)
 
 
-def convert_to_hog_function(action: Action) -> Optional[HogFunction]:
+def convert_to_hog_function(action: Action, inert=False) -> Optional[HogFunction]:
     webhook_url = action.team.slack_incoming_webhook
 
     if not webhook_url:
@@ -99,8 +107,13 @@ def convert_to_hog_function(action: Action) -> Optional[HogFunction]:
             "text": message_markdown,
         }
 
+    hog_code = inert_fetch_print if inert else webhook_template.hog
+    hog_name = f"Webhook for action {action.id} ({action.name})"
+    if inert:
+        hog_name = f"[CDP-TEST-HIDDEN] {hog_name}"
+
     hog_function = HogFunction(
-        name=f"Webhook for action {action.id} ({action.name})",
+        name=hog_name,
         description="Automatically migrated from legacy action webhooks",
         team_id=action.team_id,
         inputs=validate_inputs(
@@ -109,8 +122,8 @@ def convert_to_hog_function(action: Action) -> Optional[HogFunction]:
         ),
         inputs_schema=webhook_template.inputs_schema,
         template_id=webhook_template.id,
-        hog=webhook_template.hog,
-        bytecode=compile_hog(webhook_template.hog),
+        hog=hog_code,
+        bytecode=compile_hog(hog_code),
         filters=compile_filters_bytecode(
             {"actions": [{"id": f"{action.id}", "type": "actions", "name": action.name, "order": 0}]}, action.team
         ),
@@ -120,7 +133,7 @@ def convert_to_hog_function(action: Action) -> Optional[HogFunction]:
     return hog_function
 
 
-def migrate_action_webhooks(action_ids: list[int], team_ids: list[int], dry_run: bool = False):
+def migrate_action_webhooks(action_ids: list[int], team_ids: list[int], dry_run=False, inert=False):
     if action_ids and team_ids:
         print("Please provide either action_ids or team_ids, not both")  # noqa: T201
         return
@@ -144,15 +157,17 @@ def migrate_action_webhooks(action_ids: list[int], team_ids: list[int], dry_run:
         actions_to_update: list[Action] = []
 
         for action in page.object_list:
-            hog_function = convert_to_hog_function(action)
+            hog_function = convert_to_hog_function(action, inert)
             if hog_function:
                 hog_functions.append(hog_function)
-                action.post_to_slack = False
-                actions_to_update.append(action)
+                if not inert:
+                    action.post_to_slack = False
+                    actions_to_update.append(action)
 
         if not dry_run:
             HogFunction.objects.bulk_create(hog_functions)
-            Action.objects.bulk_update(actions_to_update, ["post_to_slack"])
+            if actions_to_update:
+                Action.objects.bulk_update(actions_to_update, ["post_to_slack"])
         else:
             print("Would have created the following HogFunctions:")  # noqa: T201
             for hog_function in hog_functions:

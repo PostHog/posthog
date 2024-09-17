@@ -56,7 +56,7 @@ export function Destinations(): JSX.Element {
 }
 
 export function DestinationsTable({ ...props }: PipelineDestinationsLogicProps): JSX.Element {
-    const { canConfigurePlugins, canEnableDestination } = useValues(pipelineAccessLogic)
+    const { user, canConfigurePlugins, canEnableDestination } = useValues(pipelineAccessLogic)
     const { loading, filteredDestinations, filters, destinations } = useValues(pipelineDestinationsLogic(props))
     const { setFilters, resetFilters, toggleNode, deleteNode } = useActions(pipelineDestinationsLogic(props))
 
@@ -74,6 +74,15 @@ export function DestinationsTable({ ...props }: PipelineDestinationsLogicProps):
                     />
                 )}
                 <div className="flex-1" />
+                {(user?.is_staff || user?.is_impersonated) && typeof props.forceFilters?.showHidden !== 'boolean' && (
+                    <LemonCheckbox
+                        label="Show hidden"
+                        bordered
+                        size="small"
+                        checked={filters.showHidden}
+                        onChange={(e) => setFilters({ showHidden: e ?? undefined })}
+                    />
+                )}
                 {typeof props.forceFilters?.onlyActive !== 'boolean' && (
                     <LemonCheckbox
                         label="Only active"
