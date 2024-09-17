@@ -327,7 +327,7 @@ class DashboardSerializer(DashboardBasicSerializer):
                 id=text_json.get("id", None),
                 defaults={
                     **tile_data["text"],
-                    "team": instance.team,
+                    "team_id": instance.team_id,
                     "created_by": created_by,
                     "last_modified_by": last_modified_by,
                     "last_modified_at": now(),
@@ -445,10 +445,7 @@ class DashboardsViewSet(
             # a dashboard can be un-deleted by patching {"deleted": False}
             queryset = queryset.exclude(deleted=True)
 
-        queryset = queryset.prefetch_related("sharingconfiguration_set").select_related(
-            "team__organization",
-            "created_by",
-        )
+        queryset = queryset.prefetch_related("sharingconfiguration_set").select_related("created_by")
 
         if self.action != "list":
             tiles_prefetch_queryset = DashboardTile.dashboard_queryset(
@@ -458,7 +455,7 @@ class DashboardsViewSet(
                         "insight__dashboards",
                         queryset=Dashboard.objects.filter(
                             id__in=DashboardTile.objects.values_list("dashboard_id", flat=True)
-                        ).select_related("team__organization"),
+                        ),
                     ),
                     "insight__dashboard_tiles__dashboard",
                 )
