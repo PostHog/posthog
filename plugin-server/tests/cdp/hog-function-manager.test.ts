@@ -33,7 +33,10 @@ describe('HogFunctionManager', () => {
             await insertIntegration(hub.postgres, teamId1, {
                 kind: 'slack',
                 config: { team: 'foobar' },
-                sensitive_config: { access_token: 'token' },
+                sensitive_config: {
+                    access_token: hub.encryptedFields.encrypt('token'),
+                    not_encrypted: 'not-encrypted',
+                },
             })
         )
 
@@ -107,6 +110,7 @@ describe('HogFunctionManager', () => {
                         value: {
                             access_token: 'token',
                             team: 'foobar',
+                            not_encrypted: 'not-encrypted',
                         },
                     },
                     normal: {
@@ -173,6 +177,7 @@ describe('HogFunctionManager', () => {
                 value: {
                     access_token: 'token',
                     team: 'foobar',
+                    not_encrypted: 'not-encrypted',
                 },
             },
             normal: {
