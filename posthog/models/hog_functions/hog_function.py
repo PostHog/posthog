@@ -7,6 +7,7 @@ from django.dispatch.dispatcher import receiver
 import structlog
 
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
+from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.models.action.action import Action
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDModel
@@ -45,6 +46,8 @@ class HogFunction(UUIDModel):
     bytecode = models.JSONField(null=True, blank=True)
     inputs_schema = models.JSONField(null=True)
     inputs = models.JSONField(null=True)
+    encrypted_inputs: EncryptedJSONStringField = EncryptedJSONStringField(null=True, blank=True)
+
     filters = models.JSONField(null=True, blank=True)
     masking = models.JSONField(null=True, blank=True)
     template_id = models.CharField(max_length=400, null=True, blank=True)
@@ -98,10 +101,33 @@ class HogFunction(UUIDModel):
 
         return self.status
 
+    def move_secret_inputs(self):
+        # Moves any secret inputs to the encrypted_inputs var
+        raw_inputs = self.inputs or {}
+        raw_encrypted_inputs = self.encrypted_inputs or {}
+
+        final_inputs = {}
+        final_encrypted_inputs = {}
+
+        for schema in self.inputs_schema or []:
+            value = raw_inputs.get(schema["key"])
+            encrypted_value = raw_encrypted_inputs.get(schema["key"])
+
+            if not schema.get("secret"):
+                final_inputs[schema["key"]] = value
+            else:
+                # We either store the incoming value if given or the encrypted value
+                final_encrypted_inputs[schema["key"]] = encrypted_value or value
+
+        self.inputs = final_inputs
+        self.encrypted_inputs = final_encrypted_inputs
+
     def save(self, *args, **kwargs):
         from posthog.cdp.filters import compile_filters_bytecode
 
+        self.move_secret_inputs()
         self.filters = compile_filters_bytecode(self.filters, self.team)
+
         return super().save(*args, **kwargs)
 
     def __str__(self):
