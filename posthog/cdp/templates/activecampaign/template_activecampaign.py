@@ -15,11 +15,12 @@ if (empty(inputs.email)) {
 
 let contact := {
     'email': inputs.email,
-    'firstName': inputs.firstName,
-    'lastName': inputs.lastName,
-    'phone': inputs.phone,
     'fieldValues': [],
 }
+
+if (not empty(inputs.firstName)) contact.firstName := inputs.firstName
+if (not empty(inputs.lastName)) contact.lastName := inputs.lastName
+if (not empty(inputs.phone)) contact.phone := inputs.phone
 
 for (let key, value in inputs.attributes) {
     if (not empty(value)) {
@@ -77,7 +78,7 @@ if (res.status >= 400) {
             "type": "string",
             "label": "First name of the user",
             "description": "Where to find the first name for the contact to be created.",
-            "default": "{person.properties.firstname}",
+            "default": "{person.properties.firstName}",
             "secret": False,
             "required": True,
         },
