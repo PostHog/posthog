@@ -260,15 +260,18 @@ export function Members(): JSX.Element | null {
         },
         {
             title: 'Last Signed In',
+            dataIndex: 'last_login',
             key: 'last_login',
-            render: function RenderLastLogin(_, member) {
+            render: function RenderLastLogin(lastLogin) {
                 return (
                     <div className="whitespace-nowrap">
-                        {member.user.last_login ? <TZLabel time={member.user.last_login} /> : 'Never'}
+                        {lastLogin ? <TZLabel time={lastLogin as string} /> : 'Never'}
                     </div>
                 )
             },
-            sorter: (a, b) => a.joined_at.localeCompare(b.joined_at),
+            sorter: (a, b) =>
+                (a.last_login ? new Date(a.last_login) : new Date(0)).getTime() -
+                (b.last_login ? new Date(b.last_login) : new Date(0)).getTime(),
         },
         {
             key: 'actions',

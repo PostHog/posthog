@@ -231,7 +231,6 @@ interface UserBaseType {
     first_name: string
     last_name?: string
     email: string
-    last_login?: string
 }
 
 /* Type for User objects in nested serializers (e.g. created_by) */
@@ -376,6 +375,7 @@ export interface OrganizationDomainType {
 export interface BaseMemberType {
     id: string
     user: UserBasicType
+    last_login?: string
     joined_at: string
     updated_at: string
     is_2fa_enabled: boolean
