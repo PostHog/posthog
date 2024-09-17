@@ -66,7 +66,7 @@ describe('plugins', () => {
 
         expect(pluginConfig.plugin).toEqual({
             ...plugin60,
-            capabilities: { jobs: [], scheduled_tasks: [], methods: ['processEvent'] },
+            capabilities: { methods: ['processEvent'] },
         })
 
         expect(pluginConfig.attachments).toEqual({
@@ -100,7 +100,7 @@ describe('plugins', () => {
 
         const processEvent = await instance.getPluginMethod('processEvent')
         const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
-        await processEvent(event)
+        await processEvent?.(event)
 
         expect(event.properties!['processed']).toEqual(true)
 
@@ -212,7 +212,6 @@ describe('plugins', () => {
         const vm = pluginConfig.instance as LazyPluginVM
         vm.totalInitAttemptsCounter = 20 // prevent more retries
         await delay(4000) // processError is called at end of retries
-        expect(await pluginConfig.instance!.getScheduledTasks()).toEqual({})
 
         const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
         const returnedEvent = await runProcessEvent(hub, { ...event })
@@ -241,7 +240,6 @@ describe('plugins', () => {
         const vm = pluginConfig.instance as LazyPluginVM
         vm!.totalInitAttemptsCounter = 20 // prevent more retries
         await delay(4000) // processError is called at end of retries
-        expect(await pluginConfig.instance!.getScheduledTasks()).toEqual({})
 
         const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
         const returnedEvent = await runProcessEvent(hub, { ...event })
@@ -307,9 +305,6 @@ describe('plugins', () => {
         getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
 
         await setupPlugins(hub)
-        const { pluginConfigs } = hub
-
-        expect(await pluginConfigs.get(39)!.instance!.getScheduledTasks()).toEqual({})
 
         const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
         const returnedEvent = await runProcessEvent(hub, { ...event })
@@ -340,9 +335,6 @@ describe('plugins', () => {
         getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
 
         await setupPlugins(hub)
-        const { pluginConfigs } = hub
-
-        expect(await pluginConfigs.get(39)!.instance!.getScheduledTasks()).toEqual({})
 
         const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
         const returnedEvent = await runProcessEvent(hub, { ...event })
@@ -379,8 +371,6 @@ describe('plugins', () => {
             pluginConfigs.get(39)!,
             `Could not load "plugin.json" for plugin test-maxmind-plugin ID ${plugin60.id} (organization ID ${commonOrganizationId})`
         )
-
-        expect(await pluginConfigs.get(39)!.instance!.getScheduledTasks()).toEqual({})
     })
 
     test('local plugin with broken plugin.json does not do much', async () => {
@@ -404,7 +394,6 @@ describe('plugins', () => {
             pluginConfigs.get(39)!,
             expect.stringContaining('Could not load "plugin.json" for plugin ')
         )
-        expect(await pluginConfigs.get(39)!.instance!.getScheduledTasks()).toEqual({})
 
         unlink()
     })
@@ -427,7 +416,6 @@ describe('plugins', () => {
             pluginConfigs.get(39)!,
             `Could not load source code for plugin test-maxmind-plugin ID 60 (organization ID ${commonOrganizationId}). Tried: index.js`
         )
-        expect(await pluginConfigs.get(39)!.instance!.getScheduledTasks()).toEqual({})
     })
 
     test('plugin config order', async () => {
@@ -504,8 +492,6 @@ describe('plugins', () => {
         // async loading of capabilities
 
         expect(pluginConfig.plugin!.capabilities!.methods!.sort()).toEqual(['processEvent', 'setupPlugin'])
-        expect(pluginConfig.plugin!.capabilities!.jobs).toHaveLength(0)
-        expect(pluginConfig.plugin!.capabilities!.scheduled_tasks).toHaveLength(0)
     })
 
     test('plugin with source files loads all capabilities, no random caps', async () => {
@@ -534,8 +520,6 @@ describe('plugins', () => {
         // async loading of capabilities
 
         expect(pluginConfig.plugin!.capabilities!.methods!.sort()).toEqual(['onEvent', 'processEvent'])
-        expect(pluginConfig.plugin!.capabilities!.jobs).toEqual(['x'])
-        expect(pluginConfig.plugin!.capabilities!.scheduled_tasks).toEqual(['runEveryHour'])
     })
 
     test('plugin with source file loads capabilities', async () => {
@@ -558,8 +542,6 @@ describe('plugins', () => {
         // async loading of capabilities
 
         expect(pluginConfig.plugin!.capabilities!.methods!.sort()).toEqual(['onEvent', 'processEvent'])
-        expect(pluginConfig.plugin!.capabilities!.jobs).toEqual([])
-        expect(pluginConfig.plugin!.capabilities!.scheduled_tasks).toEqual([])
 
         unlink()
     })
@@ -586,8 +568,6 @@ describe('plugins', () => {
         // async loading of capabilities
 
         expect(pluginConfig.plugin!.capabilities!.methods!.sort()).toEqual(['onEvent', 'processEvent'])
-        expect(pluginConfig.plugin!.capabilities!.jobs).toEqual([])
-        expect(pluginConfig.plugin!.capabilities!.scheduled_tasks).toEqual([])
     })
 
     test('reloading plugins after config changes', async () => {
@@ -665,7 +645,7 @@ describe('plugins', () => {
         getPluginRows.mockReturnValueOnce([{ ...plugin60 }]).mockReturnValueOnce([
             {
                 ...plugin60,
-                capabilities: { jobs: [], scheduled_tasks: [], methods: ['processEvent'] },
+                capabilities: { methods: ['processEvent'] },
             },
         ]) // updated in DB via first `setPluginCapabilities` call.
         getPluginAttachmentRows.mockReturnValue([pluginAttachment1])
