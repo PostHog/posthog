@@ -656,6 +656,14 @@ class _Printer(Visitor):
                     # the ``values`` subcolumn of the map.
                     return f"not({property_source.has_expr})"
 
+                # Equality comparisons to boolean constants can skip NULL checks while maintaining our desired result
+                # (i.e. comparisons with NULL evaluate to false) since the value expression will return an empty string
+                # if the property doesn't exist in the map.
+                if constant_expr.value is True:
+                    return f"equals({property_source.value_expr}, 'true')"
+                elif constant_expr.value is False:
+                    return f"equals({property_source.value_expr}, 'false')"
+
                 printed_expr = f"equals({property_source.value_expr}, {self.visit(constant_expr)})"
                 if constant_expr.value == "":
                     # If we're comparing to an empty string literal, we need to disambiguate this from the default value
