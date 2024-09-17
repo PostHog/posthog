@@ -54,7 +54,10 @@ class Integration(models.Model):
     integration_id = models.TextField(null=True, blank=True)
     # Any config that COULD be passed to the frontend
     config = models.JSONField(default=dict)
-    sensitive_config = EncryptedJSONField(default=dict, ignore_decrypt_errors=True)  # type: ignore # allows us to load previously unencrypted data
+    sensitive_config = EncryptedJSONField(
+        default=dict,
+        ignore_decrypt_errors=True,  # allows us to load previously unencrypted data
+    )
 
     errors = models.TextField()
 
