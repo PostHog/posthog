@@ -7,7 +7,6 @@ import functools
 import io
 import json
 import typing
-import uuid
 
 import pyarrow as pa
 import snowflake.connector
@@ -23,7 +22,6 @@ from posthog.batch_exports.service import (
     BatchExportModel,
     BatchExportSchema,
     SnowflakeBatchExportInputs,
-    aupdate_batch_export_run,
 )
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
@@ -675,14 +673,11 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
                     flush_callable=flush_to_snowflake,
                 )
 
-                last_inserted_at = None
                 async with writer.open_temporary_file(current_flush_counter):
                     async for record_batch in records_iterator:
                         record_batch = cast_record_batch_json_columns(record_batch, json_columns=known_variant_columns)
 
                         await writer.write_record_batch(record_batch)
-
-                        last_inserted_at = record_batch.column("_inserted_at").to_pylist()[-1]
 
                 await snow_client.copy_loaded_files_to_snowflake_table(
                     snow_stage_table if requires_merge else snow_table
@@ -699,10 +694,10 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
                         merge_key=merge_key,
                     )
 
-                await aupdate_batch_export_run(
-                    run_id=uuid.UUID(inputs.run_id),
-                    inserted_at_interval_end=last_inserted_at,
-                )
+                # await aupdate_batch_export_run(
+                #     run_id=uuid.UUID(inputs.run_id),
+                #     inserted_at_interval_end=last_inserted_at,
+                # )
 
                 return writer.records_total
 

@@ -479,6 +479,81 @@ async def test_snowflake_export_workflow_exports_events(
 
 
 @pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
+async def test_snowflake_export_workflow_exports_events_with_inserted_at_interval_start_empty(
+    ateam, clickhouse_client, database, schema, snowflake_batch_export, interval, table_name
+):
+    """Test that the whole workflow not just the activity works.
+
+    It should update the batch export run status to completed, as well as updating the record
+    count.
+    """
+    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+    data_interval_start = data_interval_end - snowflake_batch_export.interval_time_delta
+    inserted_at_interval_start = data_interval_end
+
+    await generate_test_events_in_clickhouse(
+        client=clickhouse_client,
+        team_id=ateam.pk,
+        start_time=data_interval_start,
+        end_time=data_interval_end,
+        count=10,
+        count_outside_range=10,
+        count_other_team=10,
+        duplicate=True,
+        properties={"$browser": "Chrome", "$os": "Mac OS X"},
+        person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
+    )
+
+    workflow_id = str(uuid4())
+    inputs = SnowflakeBatchExportInputs(
+        team_id=ateam.pk,
+        batch_export_id=str(snowflake_batch_export.id),
+        data_interval_end=data_interval_end.isoformat(),
+        interval=interval,
+        inserted_at_interval_start=inserted_at_interval_start.isoformat(),
+        **snowflake_batch_export.destination.config,
+    )
+
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[SnowflakeBatchExportWorkflow],
+            activities=[
+                start_batch_export_run,
+                insert_into_snowflake_activity,
+                finish_batch_export_run,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with (
+                unittest.mock.patch(
+                    "posthog.temporal.batch_exports.snowflake_batch_export.snowflake.connector.connect",
+                ) as mock,
+                override_settings(BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES=1),
+            ):
+                fake_conn = FakeSnowflakeConnection()
+                mock.return_value = fake_conn
+
+                await activity_environment.client.execute_workflow(
+                    SnowflakeBatchExportWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    execution_timeout=dt.timedelta(seconds=10),
+                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+    # no records after the inserted_at_interval_start so none are exported
+    runs = await afetch_batch_export_runs(batch_export_id=snowflake_batch_export.id)
+    assert len(runs) == 1
+
+    run = runs[0]
+    assert run.status == "Completed"
+    assert run.records_completed == 0
+
+
+@pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
 async def test_snowflake_export_workflow_without_events(ateam, snowflake_batch_export, interval, truncate_events):
     workflow_id = str(uuid4())
     inputs = SnowflakeBatchExportInputs(

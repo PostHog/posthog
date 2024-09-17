@@ -172,11 +172,10 @@ CREATE OR REPLACE VIEW events_batch_export_backfill_rerun ON CLUSTER {settings.C
         nullIf(JSONExtractString(properties, '$set_once'), '') AS set_once
     FROM
         events
-    PREWHERE
-        events.timestamp >= {{interval_start:DateTime64}} - INTERVAL {{lookback_days:Int32}} DAY
-        AND events.timestamp < {{interval_end:DateTime64}} + INTERVAL 1 DAY
     WHERE
         team_id = {{team_id:Int64}}
+        AND events.timestamp >= {{interval_start:DateTime64}}
+        AND events.timestamp < {{interval_end:DateTime64}}
         AND events.inserted_at >= {{inserted_at_interval_start:DateTime64}}
         AND (length({{include_events:Array(String)}}) = 0 OR event IN {{include_events:Array(String)}})
         AND (length({{exclude_events:Array(String)}}) = 0 OR event NOT IN {{exclude_events:Array(String)}})
