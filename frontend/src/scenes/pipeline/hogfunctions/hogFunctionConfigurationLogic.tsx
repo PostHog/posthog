@@ -335,6 +335,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                                 }
                             }
                         })
+                        globals.source = {
+                            name: values.configuration?.name ?? 'Unnamed',
+                            url: window.location.href.split('#')[0],
+                        }
                         return globals
                     } catch (e) {
                         return values.exampleInvocationGlobals
