@@ -2178,6 +2178,7 @@ export interface TemplateVariableStep {
     url?: string | null
     properties?: Record<string, any>[]
     custom_name?: string
+    custom_event?: boolean
 }
 
 export interface PropertiesTimelineFilterType {

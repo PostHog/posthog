@@ -48,6 +48,7 @@ export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLog
         goToNextUntouchedActiveVariableIndex: true,
         setIsCurrentlySelectingElement: (isSelecting: boolean) => ({ isSelecting }),
         setActiveVariableCustomEventName: (customEventName?: string | null) => ({ customEventName }),
+        maybeResetActiveVariableCustomEventName: true,
     }),
     reducers({
         variables: [
@@ -214,6 +215,13 @@ export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLog
             if (type === PostHogAppToolbarEvent.PH_NEW_ACTION_CREATED) {
                 actions.setVariableFromAction(payload.action.name, payload.action as ActionType)
                 actions.disableElementSelector()
+            }
+        },
+        maybeResetActiveVariableCustomEventName: () => {
+            if (!values.activeVariable?.touched || !values.activeVariable?.default?.custom_event) {
+                actions.setActiveVariableCustomEventName(null)
+            } else if (values.activeVariable?.default?.custom_event) {
+                actions.setActiveVariableCustomEventName(values.activeVariable.default.id)
             }
         },
     })),

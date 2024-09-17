@@ -124,11 +124,12 @@ function VariableSelector({
                     <div className="flex gap-x-2 w-full">
                         <LemonInput
                             className="grow"
+                            value={activeVariableCustomEventName || ''}
                             onChange={(v) => {
                                 if (v) {
                                     setActiveVariableCustomEventName(v)
                                     setVariable(variable.name, {
-                                        events: [{ id: v, math: 'dau', type: 'events' }],
+                                        events: [{ id: v, math: 'dau', type: 'events', custom_event: true }],
                                     })
                                 } else {
                                     setActiveVariableCustomEventName(null)
@@ -138,7 +139,14 @@ function VariableSelector({
                             onBlur={() => {
                                 if (activeVariableCustomEventName) {
                                     setVariable(variable.name, {
-                                        events: [{ id: activeVariableCustomEventName, math: 'dau', type: 'events' }],
+                                        events: [
+                                            {
+                                                id: activeVariableCustomEventName,
+                                                math: 'dau',
+                                                type: 'events',
+                                                custom_event: true,
+                                            },
+                                        ],
                                     })
                                 } else {
                                     resetVariable(variable.id)
@@ -172,13 +180,14 @@ function VariableSelector({
                             <LemonButton
                                 type="primary"
                                 status="alt"
-                                onClick={() =>
-                                    !allVariablesAreTouched
+                                onClick={() => {
+                                    customEventFieldShown && hideCustomEventField()
+                                    allVariablesAreTouched
                                         ? goToNextUntouchedActiveVariableIndex()
                                         : variables.length !== activeVariableIndex + 1
                                         ? incrementActiveVariableIndex()
                                         : null
-                                }
+                                }}
                             >
                                 Continue
                             </LemonButton>

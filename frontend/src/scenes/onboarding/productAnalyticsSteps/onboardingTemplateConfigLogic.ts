@@ -1,6 +1,7 @@
 import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
+import { dashboardTemplateVariablesLogic } from 'scenes/dashboard/dashboardTemplateVariablesLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { urls } from 'scenes/urls'
 
@@ -15,10 +16,17 @@ import type { onboardingTemplateConfigLogicType } from './onboardingTemplateConf
 export const onboardingTemplateConfigLogic = kea<onboardingTemplateConfigLogicType>([
     path(['scenes', 'onboarding', 'productAnalyticsSteps', 'onboardingTemplateConfigLogic']),
     connect({
-        values: [newDashboardLogic, ['activeDashboardTemplate']],
+        values: [newDashboardLogic, ['activeDashboardTemplate'], dashboardTemplateVariablesLogic, ['activeVariable']],
         actions: [
             newDashboardLogic,
             ['submitNewDashboardSuccessWithResult', 'setIsLoading'],
+            dashboardTemplateVariablesLogic,
+            [
+                'setActiveVariableIndex',
+                'incrementActiveVariableIndex',
+                'setActiveVariableCustomEventName',
+                'maybeResetActiveVariableCustomEventName',
+            ],
             onboardingLogic,
             ['goToPreviousStep', 'setOnCompleteOnboardingRedirectUrl'],
         ],
@@ -46,7 +54,7 @@ export const onboardingTemplateConfigLogic = kea<onboardingTemplateConfigLogicTy
             },
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         submitNewDashboardSuccessWithResult: ({ result, variables }) => {
             if (result && variables?.length == 0) {
                 // dashbboard was created without variables, go to next step for success message
@@ -68,6 +76,20 @@ export const onboardingTemplateConfigLogic = kea<onboardingTemplateConfigLogicTy
                 template_name: template.template_name,
                 variables: template.variables?.map((v) => v.name),
             })
+        },
+        setActiveVariableIndex: () => {
+            actions.maybeResetActiveVariableCustomEventName()
+        },
+        incrementActiveVariableIndex: () => {
+            actions.maybeResetActiveVariableCustomEventName()
+        },
+        maybeResetActiveVariableCustomEventName: () => {
+            if (values.activeVariable.default?.custom_event) {
+                actions.showCustomEventField()
+                actions.setActiveVariableCustomEventName(values.activeVariable?.default?.id)
+            } else {
+                actions.hideCustomEventField()
+            }
         },
     })),
     urlToAction(({ actions, values }) => ({
