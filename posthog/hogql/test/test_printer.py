@@ -403,7 +403,7 @@ class TestPrinter(BaseTest):
         if expected_context_values is not None:
             self.assertDictContainsSubset(expected_context_values, context.values)
 
-        if expected_skip_indexes_used:
+        if expected_skip_indexes_used is not None:
             # The table needs some data to be able get a `EXPLAIN` result that includes index information -- otherwise
             # the query is optimized to read from `NullSource` which doesn't do us much good here...
             for _ in range(10):
