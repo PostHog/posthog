@@ -11,7 +11,7 @@ from rest_framework.permissions import BasePermission, IsAuthenticated
 from posthog.api.utils import action
 from rest_framework import exceptions, request, response, serializers, viewsets
 
-from posthog.api.geoip import get_geoip_properties
+from posthog.geoip import get_geoip_properties
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
 from posthog.constants import AvailableFeature
