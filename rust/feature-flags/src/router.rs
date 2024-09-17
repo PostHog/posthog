@@ -6,6 +6,7 @@ use axum::{
 };
 use common_metrics::setup_metrics_recorder;
 use health::HealthRegistry;
+use tower::limit::ConcurrencyLimitLayer;
 
 use crate::{
     database::Client as DatabaseClient, geoip::GeoIpClient, redis::Client as RedisClient,
@@ -26,6 +27,7 @@ pub fn router<R, D>(
     geoip: Arc<GeoIpClient>,
     liveness: HealthRegistry,
     metrics: bool,
+    concurrency: usize,
 ) -> Router
 where
     R: RedisClient + Send + Sync + 'static,
@@ -44,6 +46,7 @@ where
 
     let flags_router = Router::new()
         .route("/flags", post(v0_endpoint::flags).get(v0_endpoint::flags))
+        .layer(ConcurrencyLimitLayer::new(concurrency))
         .with_state(state);
 
     let router = Router::new().merge(status_router).merge(flags_router);

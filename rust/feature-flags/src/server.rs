@@ -56,6 +56,7 @@ where
         geoip_service,
         health,
         config.enable_metrics,
+        config.max_concurrency,
     );
 
     tracing::info!("listening on {:?}", listener.local_addr().unwrap());
