@@ -20,7 +20,7 @@ const HogFunctionTestEditor = ({
         <CodeEditorResizeable
             language="json"
             value={value}
-            height={300}
+            height={400}
             onChange={onChange}
             options={{
                 lineNumbers: 'off',

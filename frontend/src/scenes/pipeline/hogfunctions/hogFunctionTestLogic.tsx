@@ -5,9 +5,11 @@ import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { tryJsonParse } from 'lib/utils'
+import { asDisplay } from 'scenes/persons/person-utils'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { performQuery } from '~/queries/query'
-import { LogEntry } from '~/types'
+import { EventType, type HogFunctionInvocationGlobals, LogEntry, PersonType } from '~/types'
 
 import { hogFunctionConfigurationLogic, sanitizeConfiguration } from './hogFunctionConfigurationLogic'
 import type { hogFunctionTestLogicType } from './hogFunctionTestLogicType'
@@ -24,6 +26,40 @@ export type HogFunctionTestInvocationForm = {
 export type HogFunctionTestInvocationResult = {
     status: 'success' | 'error'
     logs: LogEntry[]
+}
+
+// that we can keep to as a contract
+export function convertToHogFunctionInvocationGlobals(
+    event: EventType,
+    person: PersonType
+): HogFunctionInvocationGlobals {
+    const team = teamLogic.findMounted()?.values?.currentTeam
+    const projectUrl = `${window.location.origin}/project/${team?.id}`
+    return {
+        project: {
+            id: team?.id ?? 0,
+            name: team?.name ?? 'Default project',
+            url: projectUrl,
+        },
+        event: {
+            uuid: event.uuid ?? '',
+            name: event.event, // TODO: rename back to "event"?
+            distinct_id: event.distinct_id,
+            // TODO: add back elements_chain?
+            timestamp: event.timestamp,
+            url: `${projectUrl}/events/${encodeURIComponent(event.uuid ?? '')}/${encodeURIComponent(event.timestamp)}`,
+            properties: {
+                ...event.properties,
+                ...(event.elements_chain ? { $elements_chain: event.elements_chain } : {}),
+            },
+        },
+        person: {
+            uuid: person.uuid ?? person.id ?? '', // TODO: rename back to "id"?
+            name: asDisplay(person),
+            url: `${projectUrl}/person/${encodeURIComponent(event.distinct_id)}`,
+            properties: person.properties,
+        },
+    }
 }
 
 export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
@@ -65,10 +101,9 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                     try {
                         await breakpoint(100)
                         const response = await performQuery(values.lastEventQuery)
-                        const event: Record<string, any> = response?.results?.[0]?.[0]
-                        const person: Record<string, any> = response?.results?.[0]?.[1]
-                        // TODO: convert to the correct format
-                        return { event, person }
+                        const event: EventType = response?.results?.[0]?.[0]
+                        const person: PersonType = response?.results?.[0]?.[1]
+                        return convertToHogFunctionInvocationGlobals(event, person)
                     } catch (e) {
                         return values.exampleInvocationGlobals
                     }
