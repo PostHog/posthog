@@ -1,16 +1,11 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { forms } from 'kea-forms'
-import { loaders } from 'kea-loaders'
-import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { tryJsonParse } from 'lib/utils'
-import { asDisplay } from 'scenes/persons/person-utils'
-import { teamLogic } from 'scenes/teamLogic'
 
 import { groupsModel } from '~/models/groupsModel'
-import { performQuery } from '~/queries/query'
-import { EventType, type HogFunctionInvocationGlobals, LogEntry, PersonType } from '~/types'
+import { LogEntry } from '~/types'
 
 import { hogFunctionConfigurationLogic, sanitizeConfiguration } from './hogFunctionConfigurationLogic'
 import type { hogFunctionTestLogicType } from './hogFunctionTestLogicType'
@@ -29,41 +24,6 @@ export type HogFunctionTestInvocationResult = {
     logs: LogEntry[]
 }
 
-// that we can keep to as a contract
-export function convertToHogFunctionInvocationGlobals(
-    event: EventType,
-    person: PersonType
-): HogFunctionInvocationGlobals {
-    const team = teamLogic.findMounted()?.values?.currentTeam
-    const projectUrl = `${window.location.origin}/project/${team?.id}`
-    return {
-        project: {
-            id: team?.id ?? 0,
-            name: team?.name ?? 'Default project',
-            url: projectUrl,
-        },
-        event: {
-            uuid: event.uuid ?? '',
-            name: event.event, // TODO: rename back to "event"?
-            distinct_id: event.distinct_id,
-            // TODO: add back elements_chain?
-            timestamp: event.timestamp,
-            url: `${projectUrl}/events/${encodeURIComponent(event.uuid ?? '')}/${encodeURIComponent(event.timestamp)}`,
-            properties: {
-                ...event.properties,
-                ...(event.elements_chain ? { $elements_chain: event.elements_chain } : {}),
-            },
-        },
-        person: {
-            uuid: person.uuid ?? person.id ?? '', // TODO: rename back to "id"?
-            name: asDisplay(person),
-            url: `${projectUrl}/person/${encodeURIComponent(event.distinct_id)}`,
-            properties: person.properties,
-        },
-        groups: {},
-    }
-}
-
 export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
     props({} as HogFunctionTestLogicProps),
     key((props) => props.id),
@@ -71,14 +31,23 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
     connect((props: HogFunctionTestLogicProps) => ({
         values: [
             hogFunctionConfigurationLogic({ id: props.id }),
-            ['configuration', 'configurationHasErrors', 'exampleInvocationGlobals', 'lastEventQuery'],
+            [
+                'configuration',
+                'configurationHasErrors',
+                'exampleInvocationGlobals',
+                'lastEventQuery',
+                'sampleGlobals',
+                'sampleGlobalsLoading',
+            ],
             groupsModel,
             ['groupTypes'],
         ],
-        actions: [hogFunctionConfigurationLogic({ id: props.id }), ['touchConfigurationField']],
+        actions: [
+            hogFunctionConfigurationLogic({ id: props.id }),
+            ['touchConfigurationField', 'loadSampleGlobalsSuccess', 'loadSampleGlobals'],
+        ],
     })),
     actions({
-        loadSampleGlobals: true,
         setTestResult: (result: HogFunctionTestInvocationResult | null) => ({ result }),
         toggleExpanded: (expanded?: boolean) => ({ expanded }),
     }),
@@ -97,44 +66,6 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
             },
         ],
     }),
-    loaders(({ values }) => ({
-        sampleGlobals: [
-            null as Record<string, any> | null,
-            {
-                loadSampleGlobals: async (_, breakpoint) => {
-                    try {
-                        await breakpoint(100)
-                        const response = await performQuery(values.lastEventQuery)
-                        const event: EventType = response?.results?.[0]?.[0]
-                        const person: PersonType = response?.results?.[0]?.[1]
-                        const globals = convertToHogFunctionInvocationGlobals(event, person)
-                        globals.groups = {}
-                        values.groupTypes.forEach((groupType, index) => {
-                            const tuple = response?.results?.[0]?.[2 + index]
-                            if (tuple && Array.isArray(tuple) && tuple[2]) {
-                                let properties = {}
-                                try {
-                                    properties = JSON.parse(tuple[3])
-                                } catch (e) {
-                                    // Ignore
-                                }
-                                globals.groups![groupType.group_type] = {
-                                    type: groupType.group_type,
-                                    index: tuple[1],
-                                    id: tuple[2], // TODO: rename to "key"?
-                                    url: `${window.location.origin}/groups/${tuple[1]}/${encodeURIComponent(tuple[2])}`,
-                                    properties,
-                                }
-                            }
-                        })
-                        return globals
-                    } catch (e) {
-                        return values.exampleInvocationGlobals
-                    }
-                },
-            },
-        ],
-    })),
     listeners(({ values, actions }) => ({
         toggleExpanded: () => {
             if (values.expanded && !values.sampleGlobals && !values.sampleGlobalsLoading) {
@@ -144,9 +75,6 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
         loadSampleGlobalsSuccess: () => {
             actions.setTestInvocationValue('globals', JSON.stringify(values.sampleGlobals, null, 2))
         },
-    })),
-    subscriptions(({ actions }) => ({
-        lastEventQuery: () => actions.loadSampleGlobals(),
     })),
     forms(({ props, actions, values }) => ({
         testInvocation: {

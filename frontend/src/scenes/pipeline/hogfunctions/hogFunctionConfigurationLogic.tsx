@@ -10,6 +10,7 @@ import { dayjs } from 'lib/dayjs'
 import { uuid } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import posthog from 'posthog-js'
+import { asDisplay } from 'scenes/persons/person-utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -23,6 +24,7 @@ import {
     AvailableFeature,
     BaseMathType,
     ChartDisplayType,
+    EventType,
     FilterLogicalOperator,
     HogFunctionConfigurationType,
     HogFunctionInputType,
@@ -31,6 +33,7 @@ import {
     HogFunctionSubTemplateType,
     HogFunctionTemplateType,
     HogFunctionType,
+    PersonType,
     PipelineNodeTab,
     PipelineStage,
     PipelineTab,
@@ -126,6 +129,41 @@ const templateToConfiguration = (
     }
 }
 
+// that we can keep to as a contract
+export function convertToHogFunctionInvocationGlobals(
+    event: EventType,
+    person: PersonType
+): HogFunctionInvocationGlobals {
+    const team = teamLogic.findMounted()?.values?.currentTeam
+    const projectUrl = `${window.location.origin}/project/${team?.id}`
+    return {
+        project: {
+            id: team?.id ?? 0,
+            name: team?.name ?? 'Default project',
+            url: projectUrl,
+        },
+        event: {
+            uuid: event.uuid ?? '',
+            name: event.event, // TODO: rename back to "event"?
+            distinct_id: event.distinct_id,
+            // TODO: add back elements_chain?
+            timestamp: event.timestamp,
+            url: `${projectUrl}/events/${encodeURIComponent(event.uuid ?? '')}/${encodeURIComponent(event.timestamp)}`,
+            properties: {
+                ...event.properties,
+                ...(event.elements_chain ? { $elements_chain: event.elements_chain } : {}),
+            },
+        },
+        person: {
+            uuid: person.uuid ?? person.id ?? '', // TODO: rename back to "id"?
+            name: asDisplay(person),
+            url: `${projectUrl}/person/${encodeURIComponent(event.distinct_id)}`,
+            properties: person.properties,
+        },
+        groups: {},
+    }
+}
+
 export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicType>([
     props({} as HogFunctionConfigurationLogicProps),
     key(({ id, templateId }: HogFunctionConfigurationLogicProps) => {
@@ -145,6 +183,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         deleteHogFunction: true,
         sparklineQueryChanged: (sparklineQuery: TrendsQuery) => ({ sparklineQuery } as { sparklineQuery: TrendsQuery }),
         setSubTemplateId: (subTemplateId: HogFunctionSubTemplateIdType | null) => ({ subTemplateId }),
+        loadSampleGlobals: true,
     }),
     reducers({
         showSource: [
@@ -263,6 +302,43 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     const count = result?.results?.[0]?.count
                     const labels = result?.results?.[0]?.labels
                     return { data, count, labels }
+                },
+            },
+        ],
+
+        sampleGlobals: [
+            null as Record<string, any> | null,
+            {
+                loadSampleGlobals: async (_, breakpoint) => {
+                    try {
+                        await breakpoint(values.sampleGlobals === null ? 10 : 1000)
+                        const response = await performQuery(values.lastEventQuery)
+                        const event: EventType = response?.results?.[0]?.[0]
+                        const person: PersonType = response?.results?.[0]?.[1]
+                        const globals = convertToHogFunctionInvocationGlobals(event, person)
+                        globals.groups = {}
+                        values.groupTypes.forEach((groupType, index) => {
+                            const tuple = response?.results?.[0]?.[2 + index]
+                            if (tuple && Array.isArray(tuple) && tuple[2]) {
+                                let properties = {}
+                                try {
+                                    properties = JSON.parse(tuple[3])
+                                } catch (e) {
+                                    // Ignore
+                                }
+                                globals.groups![groupType.group_type] = {
+                                    type: groupType.group_type,
+                                    index: tuple[1],
+                                    id: tuple[2], // TODO: rename to "key"?
+                                    url: `${window.location.origin}/groups/${tuple[1]}/${encodeURIComponent(tuple[2])}`,
+                                    properties,
+                                }
+                            }
+                        })
+                        return globals
+                    } catch (e) {
+                        return values.exampleInvocationGlobals
+                    }
                 },
             },
         ],
@@ -767,6 +843,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
 
         sparklineQuery: async (sparklineQuery) => {
             actions.sparklineQueryChanged(sparklineQuery)
+        },
+
+        lastEventQuery: () => {
+            actions.loadSampleGlobals()
         },
     })),
 ])
