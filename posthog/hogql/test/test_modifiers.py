@@ -32,7 +32,8 @@ class TestModifiers(BaseTest):
         assert modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
 
     def test_team_modifiers_override(self):
-        assert self.team.modifiers is None
+        self.team.modifiers = None
+        self.team.save()
         modifiers = create_default_modifiers_for_team(self.team)
         assert modifiers.personsOnEventsMode == self.team.default_modifiers["personsOnEventsMode"]
         assert (
@@ -60,7 +61,9 @@ class TestModifiers(BaseTest):
         True,
     )
     def test_modifiers_persons_on_events_default_is_based_on_team_property(self):
-        assert self.team.modifiers is None
+        self.team.modifiers = None
+        self.team.save()
+
         modifiers = create_default_modifiers_for_team(self.team)
         assert self.team.person_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
         assert modifiers.personsOnEventsMode == self.team.default_modifiers["personsOnEventsMode"]
