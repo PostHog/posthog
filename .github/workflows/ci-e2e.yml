@@ -192,7 +192,6 @@ jobs:
                   CELERY_METRICS_PORT=8999
                   CLOUD_DEPLOYMENT=E2E
                   ENCRYPTION_SALT_KEYS='9bf7f7c13cf2148a23d6b07557f95cb7'
-                  TEST=1
                   EOT
 
             - name: Start PostHog
