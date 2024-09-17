@@ -340,7 +340,6 @@ textarea::placeholder {
 // Global styles nested under body to ensure they're more specific than Tailwind's base
 body {
     font-size: 14px;
-    font-variant: tabular-nums;
     line-height: 1.5715;
     color: var(--text-3000);
     touch-action: manipulation; // Disable double-tap-to-zoom on mobile, making taps slightly snappier
