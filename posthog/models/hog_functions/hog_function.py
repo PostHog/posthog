@@ -101,7 +101,7 @@ class HogFunction(UUIDModel):
 
         return self.status
 
-    def sort_inputs(self):
+    def move_secret_inputs(self):
         # Moves any secret inputs to the encrypted_inputs var
         raw_inputs = self.inputs or {}
         raw_encrypted_inputs = self.encrypted_inputs or {}
@@ -125,7 +125,7 @@ class HogFunction(UUIDModel):
     def save(self, *args, **kwargs):
         from posthog.cdp.filters import compile_filters_bytecode
 
-        self.sort_inputs()
+        self.move_secret_inputs()
         self.filters = compile_filters_bytecode(self.filters, self.team)
 
         return super().save(*args, **kwargs)
