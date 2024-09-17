@@ -93,7 +93,7 @@ describe('plugins', () => {
                 60,
                 {
                     ...plugin60,
-                    capabilities: { jobs: [], scheduled_tasks: [], methods: ['processEvent'] },
+                    capabilities: { methods: ['processEvent'] },
                 },
             ],
         ])

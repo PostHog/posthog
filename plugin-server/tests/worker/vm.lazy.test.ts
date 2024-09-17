@@ -1,6 +1,6 @@
 import { RetryError } from '@posthog/plugin-scaffold'
 
-import { PluginLogEntrySource, PluginLogEntryType, PluginTaskType } from '../../src/types'
+import { PluginLogEntrySource, PluginLogEntryType } from '../../src/types'
 import { status } from '../../src/utils/status'
 import { LazyPluginVM } from '../../src/worker/vm/lazy'
 import { createPluginConfigVM } from '../../src/worker/vm/vm'
@@ -29,8 +29,6 @@ describe('LazyPluginVM', () => {
         db,
         capabilities: {
             ingestion: true,
-            pluginScheduledTasks: true,
-            processPluginJobs: true,
             processAsyncHandlers: true,
         },
     }
