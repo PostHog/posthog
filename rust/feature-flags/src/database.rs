@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use sqlx::{
     pool::PoolConnection,
     postgres::{PgPoolOptions, PgRow},
-    Postgres,
+    PgPool, Postgres,
 };
 use thiserror::Error;
 use tokio::time::timeout;
@@ -16,9 +16,6 @@ const DATABASE_TIMEOUT_MILLISECS: u64 = 1000;
 
 #[derive(Error, Debug)]
 pub enum CustomDatabaseError {
-    #[error("Not found in database")]
-    NotFound,
-
     #[error("Pg error: {0}")]
     Other(#[from] sqlx::Error),
 
@@ -40,36 +37,17 @@ pub trait Client {
     ) -> Result<Vec<PgRow>, CustomDatabaseError>;
 }
 
-pub struct PgClient {
-    pool: sqlx::PgPool,
-}
-
-impl PgClient {
-    pub async fn new_read_client(config: &Config) -> Result<PgClient, CustomDatabaseError> {
-        let pool = PgPoolOptions::new()
-            .max_connections(config.max_pg_connections)
-            .acquire_timeout(Duration::from_secs(1))
-            .test_before_acquire(true)
-            .connect(&config.read_database_url)
-            .await?;
-
-        Ok(PgClient { pool })
-    }
-
-    pub async fn new_write_client(config: &Config) -> Result<PgClient, CustomDatabaseError> {
-        let pool = PgPoolOptions::new()
-            .max_connections(config.max_pg_connections)
-            .acquire_timeout(Duration::from_secs(1))
-            .test_before_acquire(true)
-            .connect(&config.write_database_url)
-            .await?;
-
-        Ok(PgClient { pool })
-    }
+pub async fn get_pool(url: &str, max_connections: u32) -> Result<PgPool, sqlx::Error> {
+    PgPoolOptions::new()
+        .max_connections(max_connections)
+        .acquire_timeout(Duration::from_secs(1))
+        .test_before_acquire(true)
+        .connect(url)
+        .await
 }
 
 #[async_trait]
-impl Client for PgClient {
+impl Client for PgPool {
     async fn run_query(
         &self,
         query: String,
@@ -80,7 +58,7 @@ impl Client for PgClient {
         let built_query = parameters
             .iter()
             .fold(built_query, |acc, param| acc.bind(param));
-        let query_results = built_query.fetch_all(&self.pool);
+        let query_results = built_query.fetch_all(self);
 
         let timeout_ms = match timeout_ms {
             Some(ms) => ms,
@@ -93,6 +71,6 @@ impl Client for PgClient {
     }
 
     async fn get_connection(&self) -> Result<PoolConnection<Postgres>, CustomDatabaseError> {
-        Ok(self.pool.acquire().await?)
+        Ok(self.acquire().await?)
     }
 }

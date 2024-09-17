@@ -7,7 +7,7 @@ use health::{HealthHandle, HealthRegistry};
 use tokio::net::TcpListener;
 
 use crate::config::Config;
-use crate::database::PgClient;
+use crate::database::get_pool;
 use crate::geoip::GeoIpClient;
 use crate::redis::RedisClient;
 use crate::router;
@@ -24,13 +24,14 @@ where
         }
     };
 
-    let read_postgres_client = match PgClient::new_read_client(&config).await {
-        Ok(client) => Arc::new(client),
-        Err(e) => {
-            tracing::error!("Failed to create read Postgres client: {}", e);
-            return;
-        }
-    };
+    let read_postgres_client =
+        match get_pool(&config.read_database_url, config.max_pg_connections).await {
+            Ok(client) => Arc::new(client),
+            Err(e) => {
+                tracing::error!("Failed to create read Postgres client: {}", e);
+                return;
+            }
+        };
 
     let geoip_service = match GeoIpClient::new(&config) {
         Ok(service) => Arc::new(service),

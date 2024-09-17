@@ -16,10 +16,10 @@ pub struct Config {
     #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog")]
     pub read_database_url: String,
 
-    #[envconfig(default = "1024")]
-    pub max_concurrent_jobs: usize,
+    #[envconfig(default = "1000")]
+    pub max_concurrency: usize,
 
-    #[envconfig(default = "100")]
+    #[envconfig(default = "10")]
     pub max_pg_connections: u32,
 
     #[envconfig(default = "redis://localhost:6379/")]
@@ -43,8 +43,8 @@ impl Config {
             write_database_url: "postgres://posthog:posthog@localhost:5432/test_posthog"
                 .to_string(),
             read_database_url: "postgres://posthog:posthog@localhost:5432/test_posthog".to_string(),
-            max_concurrent_jobs: 1024,
-            max_pg_connections: 100,
+            max_concurrency: 1000,
+            max_pg_connections: 10,
             acquire_timeout_secs: 1,
             maxmind_db_path: "".to_string(),
             enable_metrics: true,
@@ -64,6 +64,10 @@ impl Config {
             PathBuf::from(&self.maxmind_db_path)
         }
     }
+}
+
+pub struct PgClient {
+    pool: sqlx::PgPool,
 }
 
 pub static DEFAULT_TEST_CONFIG: Lazy<Config> = Lazy::new(Config::default_test_config);
@@ -87,8 +91,8 @@ mod tests {
             config.read_database_url,
             "postgres://posthog:posthog@localhost:5432/posthog"
         );
-        assert_eq!(config.max_concurrent_jobs, 1024);
-        assert_eq!(config.max_pg_connections, 100);
+        assert_eq!(config.max_concurrency, 1000);
+        assert_eq!(config.max_pg_connections, 10);
         assert_eq!(config.redis_url, "redis://localhost:6379/");
     }
 
@@ -104,8 +108,8 @@ mod tests {
             config.read_database_url,
             "postgres://posthog:posthog@localhost:5432/test_posthog"
         );
-        assert_eq!(config.max_concurrent_jobs, 1024);
-        assert_eq!(config.max_pg_connections, 100);
+        assert_eq!(config.max_concurrency, 1000);
+        assert_eq!(config.max_pg_connections, 10);
         assert_eq!(config.redis_url, "redis://localhost:6379/");
     }
 
@@ -121,8 +125,8 @@ mod tests {
             config.read_database_url,
             "postgres://posthog:posthog@localhost:5432/test_posthog"
         );
-        assert_eq!(config.max_concurrent_jobs, 1024);
-        assert_eq!(config.max_pg_connections, 100);
+        assert_eq!(config.max_concurrency, 1000);
+        assert_eq!(config.max_pg_connections, 10);
         assert_eq!(config.redis_url, "redis://localhost:6379/");
     }
 }
