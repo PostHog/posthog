@@ -141,7 +141,8 @@ RUN apt-get update && \
 #
 # ---------------------------------------------------------
 #
-FROM unit:1.32.0-python3.11
+# NOTE: newer images change the base image from bullseye to bookworm which makes compiled openssl versions have all sorts of issues
+FROM unit:1.32.0-python3.11 
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 ENV PYTHONUNBUFFERED 1
