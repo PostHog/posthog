@@ -1435,6 +1435,12 @@ export function hexToRGBA(hex: string, alpha = 1): string {
     return `rgba(${[r, g, b, a].join(',')})`
 }
 
+export function RGBToHex(rgb: string): string {
+    const rgbValues = rgb.replace('rgb(', '').replace(')', '').split(',').map(Number)
+
+    return `#${rgbValues.map((val) => val.toString(16).padStart(2, '0')).join('')}`
+}
+
 export function RGBToRGBA(rgb: string, a: number): string {
     const [r, g, b] = rgb.slice(4, rgb.length - 1).split(',')
     return `rgba(${[r, g, b, a].join(',')})`

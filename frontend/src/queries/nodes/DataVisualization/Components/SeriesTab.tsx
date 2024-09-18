@@ -130,7 +130,7 @@ const YSeries = ({ series, index }: { series: AxisSeries<number>; index: number 
     return (
         <div className="flex gap-1 mb-1">
             <LemonSelect
-                className="grow"
+                className="grow flex-1"
                 value={series !== null ? series.column.name : 'None'}
                 options={options}
                 disabledReason={responseLoading ? 'Query loading...' : undefined}

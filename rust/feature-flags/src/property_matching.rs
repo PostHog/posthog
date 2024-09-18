@@ -259,69 +259,50 @@ mod test_match_properties {
             group_type_index: None,
         };
 
-        assert_eq!(
-            match_property(
-                &property_a,
-                &HashMap::from([("key".to_string(), json!("value"))]),
-                true
-            )
-            .expect("expected match to exist"),
+        assert!(match_property(
+            &property_a,
+            &HashMap::from([("key".to_string(), json!("value"))]),
             true
-        );
+        )
+        .expect("expected match to exist"));
 
-        assert_eq!(
-            match_property(
-                &property_a,
-                &HashMap::from([("key".to_string(), json!("value2"))]),
-                true
-            )
-            .expect("expected match to exist"),
-            false
-        );
-        assert_eq!(
-            match_property(
-                &property_a,
-                &HashMap::from([("key".to_string(), json!(""))]),
-                true
-            )
-            .expect("expected match to exist"),
-            false
-        );
-        assert_eq!(
-            match_property(
-                &property_a,
-                &HashMap::from([("key".to_string(), json!(null))]),
-                true
-            )
-            .expect("expected match to exist"),
-            false
-        );
+        assert!(!match_property(
+            &property_a,
+            &HashMap::from([("key".to_string(), json!("value2"))]),
+            true
+        )
+        .expect("expected match to exist"));
+        assert!(!match_property(
+            &property_a,
+            &HashMap::from([("key".to_string(), json!(""))]),
+            true
+        )
+        .expect("expected match to exist"));
+        assert!(!match_property(
+            &property_a,
+            &HashMap::from([("key".to_string(), json!(null))]),
+            true
+        )
+        .expect("expected match to exist"));
 
+        assert!(match_property(
+            &property_a,
+            &HashMap::from([("key2".to_string(), json!("value"))]),
+            true
+        )
+        .is_err());
         assert_eq!(
             match_property(
                 &property_a,
                 &HashMap::from([("key2".to_string(), json!("value"))]),
                 true
             )
-            .is_err(),
-            true
-        );
-        assert_eq!(
-            match_property(
-                &property_a,
-                &HashMap::from([("key2".to_string(), json!("value"))]),
-                true
-            )
-            .err()
-            .expect("expected match to exist"),
+            .expect_err("expected match to exist"),
             FlagMatchingError::MissingProperty(
                 "can't match properties without a value. Missing property: key".to_string()
             )
         );
-        assert_eq!(
-            match_property(&property_a, &HashMap::from([]), true).is_err(),
-            true
-        );
+        assert!(match_property(&property_a, &HashMap::from([]), true).is_err());
 
         let property_b = PropertyFilter {
             key: "key".to_string(),
@@ -331,25 +312,19 @@ mod test_match_properties {
             group_type_index: None,
         };
 
-        assert_eq!(
-            match_property(
-                &property_b,
-                &HashMap::from([("key".to_string(), json!("value"))]),
-                true
-            )
-            .expect("expected match to exist"),
+        assert!(match_property(
+            &property_b,
+            &HashMap::from([("key".to_string(), json!("value"))]),
             true
-        );
+        )
+        .expect("expected match to exist"));
 
-        assert_eq!(
-            match_property(
-                &property_b,
-                &HashMap::from([("key".to_string(), json!("value2"))]),
-                true
-            )
-            .expect("expected match to exist"),
-            false
-        );
+        assert!(!match_property(
+            &property_b,
+            &HashMap::from([("key".to_string(), json!("value2"))]),
+            true
+        )
+        .expect("expected match to exist"));
 
         let property_c = PropertyFilter {
             key: "key".to_string(),
@@ -359,53 +334,38 @@ mod test_match_properties {
             group_type_index: None,
         };
 
-        assert_eq!(
-            match_property(
-                &property_c,
-                &HashMap::from([("key".to_string(), json!("value1"))]),
-                true
-            )
-            .expect("expected match to exist"),
+        assert!(match_property(
+            &property_c,
+            &HashMap::from([("key".to_string(), json!("value1"))]),
             true
-        );
-        assert_eq!(
-            match_property(
-                &property_c,
-                &HashMap::from([("key".to_string(), json!("value2"))]),
-                true
-            )
-            .expect("expected match to exist"),
+        )
+        .expect("expected match to exist"));
+        assert!(match_property(
+            &property_c,
+            &HashMap::from([("key".to_string(), json!("value2"))]),
             true
-        );
-        assert_eq!(
-            match_property(
-                &property_c,
-                &HashMap::from([("key".to_string(), json!("value3"))]),
-                true
-            )
-            .expect("expected match to exist"),
+        )
+        .expect("expected match to exist"));
+        assert!(match_property(
+            &property_c,
+            &HashMap::from([("key".to_string(), json!("value3"))]),
             true
-        );
+        )
+        .expect("expected match to exist"));
 
-        assert_eq!(
-            match_property(
-                &property_c,
-                &HashMap::from([("key".to_string(), json!("value4"))]),
-                true
-            )
-            .expect("expected match to exist"),
-            false
-        );
-
-        assert_eq!(
-            match_property(
-                &property_c,
-                &HashMap::from([("key2".to_string(), json!("value"))]),
-                true
-            )
-            .is_err(),
+        assert!(!match_property(
+            &property_c,
+            &HashMap::from([("key".to_string(), json!("value4"))]),
             true
-        );
+        )
+        .expect("expected match to exist"));
+
+        assert!(match_property(
+            &property_c,
+            &HashMap::from([("key2".to_string(), json!("value"))]),
+            true
+        )
+        .is_err());
     }
 
     #[test]
@@ -418,46 +378,34 @@ mod test_match_properties {
             group_type_index: None,
         };
 
-        assert_eq!(
-            match_property(
-                &property_a,
-                &HashMap::from([("key".to_string(), json!("value2"))]),
-                true
-            )
-            .expect("expected match to exist"),
+        assert!(match_property(
+            &property_a,
+            &HashMap::from([("key".to_string(), json!("value2"))]),
             true
-        );
+        )
+        .expect("expected match to exist"));
 
-        assert_eq!(
-            match_property(
-                &property_a,
-                &HashMap::from([("key".to_string(), json!(""))]),
-                true
-            )
-            .expect("expected match to exist"),
+        assert!(match_property(
+            &property_a,
+            &HashMap::from([("key".to_string(), json!(""))]),
             true
-        );
+        )
+        .expect("expected match to exist"));
 
-        assert_eq!(
-            match_property(
-                &property_a,
-                &HashMap::from([("key".to_string(), json!(null))]),
-                true
-            )
-            .expect("expected match to exist"),
+        assert!(match_property(
+            &property_a,
+            &HashMap::from([("key".to_string(), json!(null))]),
             true
-        );
+        )
+        .expect("expected match to exist"));
 
         // partial mode returns error when key doesn't exist
-        assert_eq!(
-            match_property(
-                &property_a,
-                &HashMap::from([("key2".to_string(), json!("value1"))]),
-                true
-            )
-            .is_err(),
+        assert!(match_property(
+            &property_a,
+            &HashMap::from([("key2".to_string(), json!("value1"))]),
             true
-        );
+        )
+        .is_err());
 
         let property_c = PropertyFilter {
             key: "key".to_string(),
@@ -467,95 +415,68 @@ mod test_match_properties {
             group_type_index: None,
         };
 
-        assert_eq!(
-            match_property(
-                &property_c,
-                &HashMap::from([("key".to_string(), json!("value4"))]),
-                true
-            )
-            .expect("expected match to exist"),
+        assert!(match_property(
+            &property_c,
+            &HashMap::from([("key".to_string(), json!("value4"))]),
             true
-        );
+        )
+        .expect("expected match to exist"));
 
-        assert_eq!(
-            match_property(
-                &property_c,
-                &HashMap::from([("key".to_string(), json!("value5"))]),
-                true
-            )
-            .expect("expected match to exist"),
+        assert!(match_property(
+            &property_c,
+            &HashMap::from([("key".to_string(), json!("value5"))]),
             true
-        );
+        )
+        .expect("expected match to exist"));
 
-        assert_eq!(
-            match_property(
-                &property_c,
-                &HashMap::from([("key".to_string(), json!("value6"))]),
-                true
-            )
-            .expect("expected match to exist"),
+        assert!(match_property(
+            &property_c,
+            &HashMap::from([("key".to_string(), json!("value6"))]),
             true
-        );
+        )
+        .expect("expected match to exist"));
 
-        assert_eq!(
-            match_property(
-                &property_c,
-                &HashMap::from([("key".to_string(), json!(""))]),
-                true
-            )
-            .expect("expected match to exist"),
+        assert!(match_property(
+            &property_c,
+            &HashMap::from([("key".to_string(), json!(""))]),
             true
-        );
+        )
+        .expect("expected match to exist"));
 
-        assert_eq!(
-            match_property(
-                &property_c,
-                &HashMap::from([("key".to_string(), json!(null))]),
-                true
-            )
-            .expect("expected match to exist"),
+        assert!(match_property(
+            &property_c,
+            &HashMap::from([("key".to_string(), json!(null))]),
             true
-        );
+        )
+        .expect("expected match to exist"));
 
-        assert_eq!(
-            match_property(
-                &property_c,
-                &HashMap::from([("key".to_string(), json!("value2"))]),
-                true
-            )
-            .expect("expected match to exist"),
-            false
-        );
-
-        assert_eq!(
-            match_property(
-                &property_c,
-                &HashMap::from([("key".to_string(), json!("value3"))]),
-                true
-            )
-            .expect("expected match to exist"),
-            false
-        );
-
-        assert_eq!(
-            match_property(
-                &property_c,
-                &HashMap::from([("key".to_string(), json!("value1"))]),
-                true
-            )
-            .expect("expected match to exist"),
-            false
-        );
-
-        assert_eq!(
-            match_property(
-                &property_c,
-                &HashMap::from([("key2".to_string(), json!("value1"))]),
-                true
-            )
-            .is_err(),
+        assert!(!match_property(
+            &property_c,
+            &HashMap::from([("key".to_string(), json!("value2"))]),
             true
-        );
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &property_c,
+            &HashMap::from([("key".to_string(), json!("value3"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &property_c,
+            &HashMap::from([("key".to_string(), json!("value1"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(match_property(
+            &property_c,
+            &HashMap::from([("key2".to_string(), json!("value1"))]),
+            true
+        )
+        .is_err());
     }
 
     #[test]
@@ -568,60 +489,42 @@ mod test_match_properties {
             group_type_index: None,
         };
 
-        assert_eq!(
-            match_property(
-                &property_a,
-                &HashMap::from([("key".to_string(), json!("value"))]),
-                true
-            )
-            .expect("expected match to exist"),
+        assert!(match_property(
+            &property_a,
+            &HashMap::from([("key".to_string(), json!("value"))]),
             true
-        );
+        )
+        .expect("expected match to exist"));
 
-        assert_eq!(
-            match_property(
-                &property_a,
-                &HashMap::from([("key".to_string(), json!("value2"))]),
-                true
-            )
-            .expect("expected match to exist"),
+        assert!(match_property(
+            &property_a,
+            &HashMap::from([("key".to_string(), json!("value2"))]),
             true
-        );
+        )
+        .expect("expected match to exist"));
 
-        assert_eq!(
-            match_property(
-                &property_a,
-                &HashMap::from([("key".to_string(), json!(""))]),
-                true
-            )
-            .expect("expected match to exist"),
+        assert!(match_property(
+            &property_a,
+            &HashMap::from([("key".to_string(), json!(""))]),
             true
-        );
+        )
+        .expect("expected match to exist"));
 
-        assert_eq!(
-            match_property(
-                &property_a,
-                &HashMap::from([("key".to_string(), json!(null))]),
-                true
-            )
-            .expect("expected match to exist"),
+        assert!(match_property(
+            &property_a,
+            &HashMap::from([("key".to_string(), json!(null))]),
             true
-        );
+        )
+        .expect("expected match to exist"));
 
-        assert_eq!(
-            match_property(
-                &property_a,
-                &HashMap::from([("key2".to_string(), json!("value1"))]),
-                true
-            )
-            .is_err(),
+        assert!(match_property(
+            &property_a,
+            &HashMap::from([("key2".to_string(), json!("value1"))]),
             true
-        );
+        )
+        .is_err());
 
-        assert_eq!(
-            match_property(&property_a, &HashMap::from([]), true).is_err(),
-            true
-        );
+        assert!(match_property(&property_a, &HashMap::from([]), true).is_err());
     }
 
     #[test]
@@ -634,75 +537,54 @@ mod test_match_properties {
             group_type_index: None,
         };
 
-        assert_eq!(
-            match_property(
-                &property_a,
-                &HashMap::from([("key".to_string(), json!("value"))]),
-                true
-            )
-            .expect("expected match to exist"),
+        assert!(match_property(
+            &property_a,
+            &HashMap::from([("key".to_string(), json!("value"))]),
             true
-        );
+        )
+        .expect("expected match to exist"));
 
-        assert_eq!(
-            match_property(
-                &property_a,
-                &HashMap::from([("key".to_string(), json!("value2"))]),
-                true
-            )
-            .expect("expected match to exist"),
+        assert!(match_property(
+            &property_a,
+            &HashMap::from([("key".to_string(), json!("value2"))]),
             true
-        );
+        )
+        .expect("expected match to exist"));
 
-        assert_eq!(
-            match_property(
-                &property_a,
-                &HashMap::from([("key".to_string(), json!("value3"))]),
-                true
-            )
-            .expect("expected match to exist"),
+        assert!(match_property(
+            &property_a,
+            &HashMap::from([("key".to_string(), json!("value3"))]),
             true
-        );
+        )
+        .expect("expected match to exist"));
 
-        assert_eq!(
-            match_property(
-                &property_a,
-                &HashMap::from([("key".to_string(), json!("vaLue4"))]),
-                true
-            )
-            .expect("expected match to exist"),
+        assert!(match_property(
+            &property_a,
+            &HashMap::from([("key".to_string(), json!("vaLue4"))]),
             true
-        );
+        )
+        .expect("expected match to exist"));
 
-        assert_eq!(
-            match_property(
-                &property_a,
-                &HashMap::from([("key".to_string(), json!("343tfvalue5"))]),
-                true
-            )
-            .expect("expected match to exist"),
+        assert!(match_property(
+            &property_a,
+            &HashMap::from([("key".to_string(), json!("343tfvalue5"))]),
             true
-        );
+        )
+        .expect("expected match to exist"));
 
-        assert_eq!(
-            match_property(
-                &property_a,
-                &HashMap::from([("key".to_string(), json!("Alakazam"))]),
-                true
-            )
-            .expect("expected match to exist"),
-            false
-        );
+        assert!(!match_property(
+            &property_a,
+            &HashMap::from([("key".to_string(), json!("Alakazam"))]),
+            true
+        )
+        .expect("expected match to exist"));
 
-        assert_eq!(
-            match_property(
-                &property_a,
-                &HashMap::from([("key".to_string(), json!(123))]),
-                true
-            )
-            .expect("expected match to exist"),
-            false
-        );
+        assert!(!match_property(
+            &property_a,
+            &HashMap::from([("key".to_string(), json!(123))]),
+            true
+        )
+        .expect("expected match to exist"));
 
         let property_b = PropertyFilter {
             key: "key".to_string(),
@@ -712,45 +594,33 @@ mod test_match_properties {
             group_type_index: None,
         };
 
-        assert_eq!(
-            match_property(
-                &property_b,
-                &HashMap::from([("key".to_string(), json!("3"))]),
-                true
-            )
-            .expect("expected match to exist"),
+        assert!(match_property(
+            &property_b,
+            &HashMap::from([("key".to_string(), json!("3"))]),
             true
-        );
+        )
+        .expect("expected match to exist"));
 
-        assert_eq!(
-            match_property(
-                &property_b,
-                &HashMap::from([("key".to_string(), json!(323))]),
-                true
-            )
-            .expect("expected match to exist"),
+        assert!(match_property(
+            &property_b,
+            &HashMap::from([("key".to_string(), json!(323))]),
             true
-        );
+        )
+        .expect("expected match to exist"));
 
-        assert_eq!(
-            match_property(
-                &property_b,
-                &HashMap::from([("key".to_string(), json!("val3"))]),
-                true
-            )
-            .expect("expected match to exist"),
+        assert!(match_property(
+            &property_b,
+            &HashMap::from([("key".to_string(), json!("val3"))]),
             true
-        );
+        )
+        .expect("expected match to exist"));
 
-        assert_eq!(
-            match_property(
-                &property_b,
-                &HashMap::from([("key".to_string(), json!("three"))]),
-                true
-            )
-            .expect("expected match to exist"),
-            false
-        );
+        assert!(!match_property(
+            &property_b,
+            &HashMap::from([("key".to_string(), json!("three"))]),
+            true
+        )
+        .expect("expected match to exist"));
     }
 
     #[test]
@@ -763,52 +633,37 @@ mod test_match_properties {
             group_type_index: None,
         };
 
-        assert_eq!(
-            match_property(
-                &property_a,
-                &HashMap::from([("key".to_string(), json!("value.com"))]),
-                true
-            )
-            .expect("expected match to exist"),
+        assert!(match_property(
+            &property_a,
+            &HashMap::from([("key".to_string(), json!("value.com"))]),
             true
-        );
-        assert_eq!(
-            match_property(
-                &property_a,
-                &HashMap::from([("key".to_string(), json!("value2.com"))]),
-                true
-            )
-            .expect("expected match to exist"),
+        )
+        .expect("expected match to exist"));
+        assert!(match_property(
+            &property_a,
+            &HashMap::from([("key".to_string(), json!("value2.com"))]),
             true
-        );
+        )
+        .expect("expected match to exist"));
 
-        assert_eq!(
-            match_property(
-                &property_a,
-                &HashMap::from([("key".to_string(), json!(".com343tfvalue5"))]),
-                true
-            )
-            .expect("expected match to exist"),
-            false
-        );
-        assert_eq!(
-            match_property(
-                &property_a,
-                &HashMap::from([("key".to_string(), json!("Alakazam"))]),
-                true
-            )
-            .expect("expected match to exist"),
-            false
-        );
-        assert_eq!(
-            match_property(
-                &property_a,
-                &HashMap::from([("key".to_string(), json!(123))]),
-                true
-            )
-            .expect("expected match to exist"),
-            false
-        );
+        assert!(!match_property(
+            &property_a,
+            &HashMap::from([("key".to_string(), json!(".com343tfvalue5"))]),
+            true
+        )
+        .expect("expected match to exist"));
+        assert!(!match_property(
+            &property_a,
+            &HashMap::from([("key".to_string(), json!("Alakazam"))]),
+            true
+        )
+        .expect("expected match to exist"));
+        assert!(!match_property(
+            &property_a,
+            &HashMap::from([("key".to_string(), json!(123))]),
+            true
+        )
+        .expect("expected match to exist"));
 
         let property_b = PropertyFilter {
             key: "key".to_string(),
@@ -817,43 +672,31 @@ mod test_match_properties {
             prop_type: "person".to_string(),
             group_type_index: None,
         };
-        assert_eq!(
-            match_property(
-                &property_b,
-                &HashMap::from([("key".to_string(), json!("3"))]),
-                true
-            )
-            .expect("expected match to exist"),
+        assert!(match_property(
+            &property_b,
+            &HashMap::from([("key".to_string(), json!("3"))]),
             true
-        );
-        assert_eq!(
-            match_property(
-                &property_b,
-                &HashMap::from([("key".to_string(), json!(323))]),
-                true
-            )
-            .expect("expected match to exist"),
+        )
+        .expect("expected match to exist"));
+        assert!(match_property(
+            &property_b,
+            &HashMap::from([("key".to_string(), json!(323))]),
             true
-        );
-        assert_eq!(
-            match_property(
-                &property_b,
-                &HashMap::from([("key".to_string(), json!("val3"))]),
-                true
-            )
-            .expect("expected match to exist"),
+        )
+        .expect("expected match to exist"));
+        assert!(match_property(
+            &property_b,
+            &HashMap::from([("key".to_string(), json!("val3"))]),
             true
-        );
+        )
+        .expect("expected match to exist"));
 
-        assert_eq!(
-            match_property(
-                &property_b,
-                &HashMap::from([("key".to_string(), json!("three"))]),
-                true
-            )
-            .expect("expected match to exist"),
-            false
-        );
+        assert!(!match_property(
+            &property_b,
+            &HashMap::from([("key".to_string(), json!("three"))]),
+            true
+        )
+        .expect("expected match to exist"));
 
         // invalid regex
         let property_c = PropertyFilter {
@@ -864,24 +707,18 @@ mod test_match_properties {
             group_type_index: None,
         };
 
-        assert_eq!(
-            match_property(
-                &property_c,
-                &HashMap::from([("key".to_string(), json!("value"))]),
-                true
-            )
-            .expect("expected match to exist"),
-            false
-        );
-        assert_eq!(
-            match_property(
-                &property_c,
-                &HashMap::from([("key".to_string(), json!("value2"))]),
-                true
-            )
-            .expect("expected match to exist"),
-            false
-        );
+        assert!(!match_property(
+            &property_c,
+            &HashMap::from([("key".to_string(), json!("value"))]),
+            true
+        )
+        .expect("expected match to exist"));
+        assert!(!match_property(
+            &property_c,
+            &HashMap::from([("key".to_string(), json!("value2"))]),
+            true
+        )
+        .expect("expected match to exist"));
 
         // non string value
         let property_d = PropertyFilter {
@@ -891,34 +728,25 @@ mod test_match_properties {
             prop_type: "person".to_string(),
             group_type_index: None,
         };
-        assert_eq!(
-            match_property(
-                &property_d,
-                &HashMap::from([("key".to_string(), json!("4"))]),
-                true
-            )
-            .expect("expected match to exist"),
+        assert!(match_property(
+            &property_d,
+            &HashMap::from([("key".to_string(), json!("4"))]),
             true
-        );
-        assert_eq!(
-            match_property(
-                &property_d,
-                &HashMap::from([("key".to_string(), json!(4))]),
-                true
-            )
-            .expect("expected match to exist"),
+        )
+        .expect("expected match to exist"));
+        assert!(match_property(
+            &property_d,
+            &HashMap::from([("key".to_string(), json!(4))]),
             true
-        );
+        )
+        .expect("expected match to exist"));
 
-        assert_eq!(
-            match_property(
-                &property_d,
-                &HashMap::from([("key".to_string(), json!("value"))]),
-                true
-            )
-            .expect("expected match to exist"),
-            false
-        );
+        assert!(!match_property(
+            &property_d,
+            &HashMap::from([("key".to_string(), json!("value"))]),
+            true
+        )
+        .expect("expected match to exist"));
     }
 
     #[test]
@@ -931,54 +759,39 @@ mod test_match_properties {
             group_type_index: None,
         };
 
-        assert_eq!(
-            match_property(
-                &property_a,
-                &HashMap::from([("key".to_string(), json!(2))]),
-                true
-            )
-            .expect("expected match to exist"),
+        assert!(match_property(
+            &property_a,
+            &HashMap::from([("key".to_string(), json!(2))]),
             true
-        );
-        assert_eq!(
-            match_property(
-                &property_a,
-                &HashMap::from([("key".to_string(), json!(3))]),
-                true
-            )
-            .expect("expected match to exist"),
+        )
+        .expect("expected match to exist"));
+        assert!(match_property(
+            &property_a,
+            &HashMap::from([("key".to_string(), json!(3))]),
             true
-        );
+        )
+        .expect("expected match to exist"));
 
-        assert_eq!(
-            match_property(
-                &property_a,
-                &HashMap::from([("key".to_string(), json!(0))]),
-                true
-            )
-            .expect("expected match to exist"),
-            false
-        );
-        assert_eq!(
-            match_property(
-                &property_a,
-                &HashMap::from([("key".to_string(), json!(-1))]),
-                true
-            )
-            .expect("expected match to exist"),
-            false
-        );
+        assert!(!match_property(
+            &property_a,
+            &HashMap::from([("key".to_string(), json!(0))]),
+            true
+        )
+        .expect("expected match to exist"));
+        assert!(!match_property(
+            &property_a,
+            &HashMap::from([("key".to_string(), json!(-1))]),
+            true
+        )
+        .expect("expected match to exist"));
 
         // # we handle type mismatches so this should be true
-        assert_eq!(
-            match_property(
-                &property_a,
-                &HashMap::from([("key".to_string(), json!("23"))]),
-                true
-            )
-            .expect("expected match to exist"),
+        assert!(match_property(
+            &property_a,
+            &HashMap::from([("key".to_string(), json!("23"))]),
             true
-        );
+        )
+        .expect("expected match to exist"));
 
         let property_b = PropertyFilter {
             key: "key".to_string(),
@@ -988,61 +801,43 @@ mod test_match_properties {
             group_type_index: None,
         };
 
-        assert_eq!(
-            match_property(
-                &property_b,
-                &HashMap::from([("key".to_string(), json!(0))]),
-                true
-            )
-            .expect("expected match to exist"),
+        assert!(match_property(
+            &property_b,
+            &HashMap::from([("key".to_string(), json!(0))]),
             true
-        );
-        assert_eq!(
-            match_property(
-                &property_b,
-                &HashMap::from([("key".to_string(), json!(-1))]),
-                true
-            )
-            .expect("expected match to exist"),
+        )
+        .expect("expected match to exist"));
+        assert!(match_property(
+            &property_b,
+            &HashMap::from([("key".to_string(), json!(-1))]),
             true
-        );
-        assert_eq!(
-            match_property(
-                &property_b,
-                &HashMap::from([("key".to_string(), json!(-3))]),
-                true
-            )
-            .expect("expected match to exist"),
+        )
+        .expect("expected match to exist"));
+        assert!(match_property(
+            &property_b,
+            &HashMap::from([("key".to_string(), json!(-3))]),
             true
-        );
+        )
+        .expect("expected match to exist"));
 
-        assert_eq!(
-            match_property(
-                &property_b,
-                &HashMap::from([("key".to_string(), json!(1))]),
-                true
-            )
-            .expect("expected match to exist"),
-            false
-        );
-        assert_eq!(
-            match_property(
-                &property_b,
-                &HashMap::from([("key".to_string(), json!("1"))]),
-                true
-            )
-            .expect("expected match to exist"),
-            false
-        );
-        assert_eq!(
-            match_property(
-                &property_b,
-                &HashMap::from([("key".to_string(), json!("3"))]),
-                true
-            )
-            .expect("expected match to exist"),
-            false
-        );
+        assert!(!match_property(
+            &property_b,
+            &HashMap::from([("key".to_string(), json!(1))]),
+            true
+        )
+        .expect("expected match to exist"));
+        assert!(!match_property(
+            &property_b,
+            &HashMap::from([("key".to_string(), json!("1"))]),
+            true
+        )
+        .expect("expected match to exist"));
+        assert!(!match_property(
+            &property_b,
+            &HashMap::from([("key".to_string(), json!("3"))]),
+            true
+        )
+        .expect("expected match to exist"));
 
         let property_c = PropertyFilter {
             key: "key".to_string(),
@@ -1052,53 +847,38 @@ mod test_match_properties {
             group_type_index: None,
         };
 
-        assert_eq!(
-            match_property(
-                &property_c,
-                &HashMap::from([("key".to_string(), json!(1))]),
-                true
-            )
-            .expect("expected match to exist"),
+        assert!(match_property(
+            &property_c,
+            &HashMap::from([("key".to_string(), json!(1))]),
             true
-        );
-        assert_eq!(
-            match_property(
-                &property_c,
-                &HashMap::from([("key".to_string(), json!(2))]),
-                true
-            )
-            .expect("expected match to exist"),
+        )
+        .expect("expected match to exist"));
+        assert!(match_property(
+            &property_c,
+            &HashMap::from([("key".to_string(), json!(2))]),
             true
-        );
+        )
+        .expect("expected match to exist"));
 
-        assert_eq!(
-            match_property(
-                &property_c,
-                &HashMap::from([("key".to_string(), json!(0))]),
-                true
-            )
-            .expect("expected match to exist"),
-            false
-        );
-        assert_eq!(
-            match_property(
-                &property_c,
-                &HashMap::from([("key".to_string(), json!(-1))]),
-                true
-            )
-            .expect("expected match to exist"),
-            false
-        );
-        // # now we handle type mismatches so this should be true
-        assert_eq!(
-            match_property(
-                &property_c,
-                &HashMap::from([("key".to_string(), json!("3"))]),
-                true
-            )
-            .expect("expected match to exist"),
+        assert!(!match_property(
+            &property_c,
+            &HashMap::from([("key".to_string(), json!(0))]),
             true
-        );
+        )
+        .expect("expected match to exist"));
+        assert!(!match_property(
+            &property_c,
+            &HashMap::from([("key".to_string(), json!(-1))]),
+            true
+        )
+        .expect("expected match to exist"));
+        // # now we handle type mismatches so this should be true
+        assert!(match_property(
+            &property_c,
+            &HashMap::from([("key".to_string(), json!("3"))]),
+            true
+        )
+        .expect("expected match to exist"));
 
         let property_d = PropertyFilter {
             key: "key".to_string(),
@@ -1108,61 +888,43 @@ mod test_match_properties {
             group_type_index: None,
         };
 
-        assert_eq!(
-            match_property(
-                &property_d,
-                &HashMap::from([("key".to_string(), json!("41"))]),
-                true
-            )
-            .expect("expected match to exist"),
+        assert!(match_property(
+            &property_d,
+            &HashMap::from([("key".to_string(), json!("41"))]),
             true
-        );
-        assert_eq!(
-            match_property(
-                &property_d,
-                &HashMap::from([("key".to_string(), json!("42"))]),
-                true
-            )
-            .expect("expected match to exist"),
+        )
+        .expect("expected match to exist"));
+        assert!(match_property(
+            &property_d,
+            &HashMap::from([("key".to_string(), json!("42"))]),
             true
-        );
-        assert_eq!(
-            match_property(
-                &property_d,
-                &HashMap::from([("key".to_string(), json!(42))]),
-                true
-            )
-            .expect("expected match to exist"),
+        )
+        .expect("expected match to exist"));
+        assert!(match_property(
+            &property_d,
+            &HashMap::from([("key".to_string(), json!(42))]),
             true
-        );
+        )
+        .expect("expected match to exist"));
 
-        assert_eq!(
-            match_property(
-                &property_d,
-                &HashMap::from([("key".to_string(), json!("43"))]),
-                true
-            )
-            .expect("expected match to exist"),
-            false
-        );
-        assert_eq!(
-            match_property(
-                &property_d,
-                &HashMap::from([("key".to_string(), json!("44"))]),
-                true
-            )
-            .expect("expected match to exist"),
-            false
-        );
-        assert_eq!(
-            match_property(
-                &property_d,
-                &HashMap::from([("key".to_string(), json!(44))]),
-                true
-            )
-            .expect("expected match to exist"),
-            false
-        );
+        assert!(!match_property(
+            &property_d,
+            &HashMap::from([("key".to_string(), json!("43"))]),
+            true
+        )
+        .expect("expected match to exist"));
+        assert!(!match_property(
+            &property_d,
+            &HashMap::from([("key".to_string(), json!("44"))]),
+            true
+        )
+        .expect("expected match to exist"));
+        assert!(!match_property(
+            &property_d,
+            &HashMap::from([("key".to_string(), json!(44))]),
+            true
+        )
+        .expect("expected match to exist"));
 
         let property_e = PropertyFilter {
             key: "key".to_string(),
@@ -1172,15 +934,12 @@ mod test_match_properties {
             group_type_index: None,
         };
 
-        assert_eq!(
-            match_property(
-                &property_e,
-                &HashMap::from([("key".to_string(), json!("29"))]),
-                true
-            )
-            .expect("expected match to exist"),
+        assert!(match_property(
+            &property_e,
+            &HashMap::from([("key".to_string(), json!("29"))]),
             true
-        );
+        )
+        .expect("expected match to exist"));
 
         // # depending on the type of override, we adjust type comparison
         // This is wonky, do we want to continue this behavior? :/
@@ -1194,15 +953,12 @@ mod test_match_properties {
         //     .expect("expected match to exist"),
         //     true
         // );
-        assert_eq!(
-            match_property(
-                &property_e,
-                &HashMap::from([("key".to_string(), json!(100))]),
-                true
-            )
-            .expect("expected match to exist"),
-            false
-        );
+        assert!(!match_property(
+            &property_e,
+            &HashMap::from([("key".to_string(), json!(100))]),
+            true
+        )
+        .expect("expected match to exist"));
 
         // let property_f = PropertyFilter {
         //     key: "key".to_string(),
@@ -1256,24 +1012,18 @@ mod test_match_properties {
             group_type_index: None,
         };
 
-        assert_eq!(
-            match_property(
-                &property_a,
-                &HashMap::from([("key".to_string(), json!(null))]),
-                true
-            )
-            .expect("expected match to exist"),
-            false
-        );
-        assert_eq!(
-            match_property(
-                &property_a,
-                &HashMap::from([("key".to_string(), json!("non"))]),
-                true
-            )
-            .expect("expected match to exist"),
+        assert!(!match_property(
+            &property_a,
+            &HashMap::from([("key".to_string(), json!(null))]),
             true
-        );
+        )
+        .expect("expected match to exist"));
+        assert!(match_property(
+            &property_a,
+            &HashMap::from([("key".to_string(), json!("non"))]),
+            true
+        )
+        .expect("expected match to exist"));
 
         let property_b = PropertyFilter {
             key: "key".to_string(),
@@ -1283,15 +1033,12 @@ mod test_match_properties {
             group_type_index: None,
         };
 
-        assert_eq!(
-            match_property(
-                &property_b,
-                &HashMap::from([("key".to_string(), json!(null))]),
-                true
-            )
-            .expect("expected match to exist"),
+        assert!(match_property(
+            &property_b,
+            &HashMap::from([("key".to_string(), json!(null))]),
             true
-        );
+        )
+        .expect("expected match to exist"));
 
         let property_c = PropertyFilter {
             key: "key".to_string(),
@@ -1301,24 +1048,18 @@ mod test_match_properties {
             group_type_index: None,
         };
 
-        assert_eq!(
-            match_property(
-                &property_c,
-                &HashMap::from([("key".to_string(), json!(null))]),
-                true
-            )
-            .expect("expected match to exist"),
+        assert!(match_property(
+            &property_c,
+            &HashMap::from([("key".to_string(), json!(null))]),
             true
-        );
-        assert_eq!(
-            match_property(
-                &property_c,
-                &HashMap::from([("key".to_string(), json!("smh"))]),
-                true
-            )
-            .expect("expected match to exist"),
-            false
-        );
+        )
+        .expect("expected match to exist"));
+        assert!(!match_property(
+            &property_c,
+            &HashMap::from([("key".to_string(), json!("smh"))]),
+            true
+        )
+        .expect("expected match to exist"));
 
         let property_d = PropertyFilter {
             key: "key".to_string(),
@@ -1328,15 +1069,12 @@ mod test_match_properties {
             group_type_index: None,
         };
 
-        assert_eq!(
-            match_property(
-                &property_d,
-                &HashMap::from([("key".to_string(), json!(null))]),
-                true
-            )
-            .expect("expected match to exist"),
-            false
-        );
+        assert!(!match_property(
+            &property_d,
+            &HashMap::from([("key".to_string(), json!(null))]),
+            true
+        )
+        .expect("expected match to exist"));
 
         let property_d_upper_case = PropertyFilter {
             key: "key".to_string(),
@@ -1346,15 +1084,12 @@ mod test_match_properties {
             group_type_index: None,
         };
 
-        assert_eq!(
-            match_property(
-                &property_d_upper_case,
-                &HashMap::from([("key".to_string(), json!(null))]),
-                true
-            )
-            .expect("expected match to exist"),
-            false
-        );
+        assert!(!match_property(
+            &property_d_upper_case,
+            &HashMap::from([("key".to_string(), json!(null))]),
+            true
+        )
+        .expect("expected match to exist"));
 
         // TODO: Fails because not a number
         // let property_e = PropertyFilter {
@@ -1382,15 +1117,12 @@ mod test_match_properties {
             group_type_index: None,
         };
 
-        assert_eq!(
-            match_property(
-                &property_a,
-                &HashMap::from([("key2".to_string(), json!("value"))]),
-                false
-            )
-            .expect("Expected no errors with full props mode for non-existent keys"),
+        assert!(!match_property(
+            &property_a,
+            &HashMap::from([("key2".to_string(), json!("value"))]),
             false
-        );
+        )
+        .expect("Expected no errors with full props mode for non-existent keys"));
         assert_eq!(
             match_property(&property_a, &HashMap::from([]), false),
             Ok(false)
@@ -1404,15 +1136,12 @@ mod test_match_properties {
             group_type_index: None,
         };
 
-        assert_eq!(
-            match_property(
-                &property_exact,
-                &HashMap::from([("key2".to_string(), json!("value"))]),
-                false
-            )
-            .expect("Expected no errors with full props mode"),
+        assert!(!match_property(
+            &property_exact,
+            &HashMap::from([("key2".to_string(), json!("value"))]),
             false
-        );
+        )
+        .expect("Expected no errors with full props mode"));
 
         let property_is_set = PropertyFilter {
             key: "key".to_string(),
@@ -1422,15 +1151,12 @@ mod test_match_properties {
             group_type_index: None,
         };
 
-        assert_eq!(
-            match_property(
-                &property_is_set,
-                &HashMap::from([("key2".to_string(), json!("value"))]),
-                false
-            )
-            .expect("Expected no errors with full props mode"),
+        assert!(!match_property(
+            &property_is_set,
+            &HashMap::from([("key2".to_string(), json!("value"))]),
             false
-        );
+        )
+        .expect("Expected no errors with full props mode"));
 
         let property_is_not_set = PropertyFilter {
             key: "key".to_string(),
@@ -1440,45 +1166,33 @@ mod test_match_properties {
             group_type_index: None,
         };
 
-        assert_eq!(
-            match_property(
-                &property_is_not_set,
-                &HashMap::from([("key2".to_string(), json!("value"))]),
-                false
-            )
-            .expect("Expected no errors with full props mode"),
-            true
-        );
-        assert_eq!(
-            match_property(
-                &property_is_not_set,
-                &HashMap::from([("key".to_string(), json!("value"))]),
-                false
-            )
-            .expect("Expected no errors with full props mode"),
+        assert!(match_property(
+            &property_is_not_set,
+            &HashMap::from([("key2".to_string(), json!("value"))]),
             false
-        );
+        )
+        .expect("Expected no errors with full props mode"));
+        assert!(!match_property(
+            &property_is_not_set,
+            &HashMap::from([("key".to_string(), json!("value"))]),
+            false
+        )
+        .expect("Expected no errors with full props mode"));
 
         // is not set with partial props returns false when key exists
-        assert_eq!(
-            match_property(
-                &property_is_not_set,
-                &HashMap::from([("key".to_string(), json!("value"))]),
-                true
-            )
-            .expect("Expected no errors with full props mode"),
-            false
-        );
-        // is not set returns error when key doesn't exist
-        assert_eq!(
-            match_property(
-                &property_is_not_set,
-                &HashMap::from([("key2".to_string(), json!("value"))]),
-                true
-            )
-            .is_err(),
+        assert!(!match_property(
+            &property_is_not_set,
+            &HashMap::from([("key".to_string(), json!("value"))]),
             true
-        );
+        )
+        .expect("Expected no errors with full props mode"));
+        // is not set returns error when key doesn't exist
+        assert!(match_property(
+            &property_is_not_set,
+            &HashMap::from([("key2".to_string(), json!("value"))]),
+            true
+        )
+        .is_err());
 
         let property_icontains = PropertyFilter {
             key: "key".to_string(),
@@ -1488,15 +1202,12 @@ mod test_match_properties {
             group_type_index: None,
         };
 
-        assert_eq!(
-            match_property(
-                &property_icontains,
-                &HashMap::from([("key2".to_string(), json!("value"))]),
-                false
-            )
-            .expect("Expected no errors with full props mode"),
+        assert!(!match_property(
+            &property_icontains,
+            &HashMap::from([("key2".to_string(), json!("value"))]),
             false
-        );
+        )
+        .expect("Expected no errors with full props mode"));
 
         let property_not_icontains = PropertyFilter {
             key: "key".to_string(),
@@ -1506,15 +1217,12 @@ mod test_match_properties {
             group_type_index: None,
         };
 
-        assert_eq!(
-            match_property(
-                &property_not_icontains,
-                &HashMap::from([("key2".to_string(), json!("value"))]),
-                false
-            )
-            .expect("Expected no errors with full props mode"),
+        assert!(!match_property(
+            &property_not_icontains,
+            &HashMap::from([("key2".to_string(), json!("value"))]),
             false
-        );
+        )
+        .expect("Expected no errors with full props mode"));
 
         let property_regex = PropertyFilter {
             key: "key".to_string(),
@@ -1524,15 +1232,12 @@ mod test_match_properties {
             group_type_index: None,
         };
 
-        assert_eq!(
-            match_property(
-                &property_regex,
-                &HashMap::from([("key2".to_string(), json!("value.com"))]),
-                false
-            )
-            .expect("Expected no errors with full props mode"),
+        assert!(!match_property(
+            &property_regex,
+            &HashMap::from([("key2".to_string(), json!("value.com"))]),
             false
-        );
+        )
+        .expect("Expected no errors with full props mode"));
 
         let property_not_regex = PropertyFilter {
             key: "key".to_string(),
@@ -1542,15 +1247,12 @@ mod test_match_properties {
             group_type_index: None,
         };
 
-        assert_eq!(
-            match_property(
-                &property_not_regex,
-                &HashMap::from([("key2".to_string(), json!("value.com"))]),
-                false
-            )
-            .expect("Expected no errors with full props mode"),
+        assert!(!match_property(
+            &property_not_regex,
+            &HashMap::from([("key2".to_string(), json!("value.com"))]),
             false
-        );
+        )
+        .expect("Expected no errors with full props mode"));
 
         let property_gt = PropertyFilter {
             key: "key".to_string(),
@@ -1560,15 +1262,12 @@ mod test_match_properties {
             group_type_index: None,
         };
 
-        assert_eq!(
-            match_property(
-                &property_gt,
-                &HashMap::from([("key2".to_string(), json!(2))]),
-                false
-            )
-            .expect("Expected no errors with full props mode"),
+        assert!(!match_property(
+            &property_gt,
+            &HashMap::from([("key2".to_string(), json!(2))]),
             false
-        );
+        )
+        .expect("Expected no errors with full props mode"));
 
         let property_gte = PropertyFilter {
             key: "key".to_string(),
@@ -1578,15 +1277,12 @@ mod test_match_properties {
             group_type_index: None,
         };
 
-        assert_eq!(
-            match_property(
-                &property_gte,
-                &HashMap::from([("key2".to_string(), json!(2))]),
-                false
-            )
-            .expect("Expected no errors with full props mode"),
+        assert!(!match_property(
+            &property_gte,
+            &HashMap::from([("key2".to_string(), json!(2))]),
             false
-        );
+        )
+        .expect("Expected no errors with full props mode"));
 
         let property_lt = PropertyFilter {
             key: "key".to_string(),
@@ -1596,15 +1292,12 @@ mod test_match_properties {
             group_type_index: None,
         };
 
-        assert_eq!(
-            match_property(
-                &property_lt,
-                &HashMap::from([("key2".to_string(), json!(0))]),
-                false
-            )
-            .expect("Expected no errors with full props mode"),
+        assert!(!match_property(
+            &property_lt,
+            &HashMap::from([("key2".to_string(), json!(0))]),
             false
-        );
+        )
+        .expect("Expected no errors with full props mode"));
 
         let property_lte = PropertyFilter {
             key: "key".to_string(),
@@ -1614,15 +1307,12 @@ mod test_match_properties {
             group_type_index: None,
         };
 
-        assert_eq!(
-            match_property(
-                &property_lte,
-                &HashMap::from([("key2".to_string(), json!(0))]),
-                false
-            )
-            .expect("Expected no errors with full props mode"),
+        assert!(!match_property(
+            &property_lte,
+            &HashMap::from([("key2".to_string(), json!(0))]),
             false
-        );
+        )
+        .expect("Expected no errors with full props mode"));
 
         // TODO: Handle date operators
         let property_is_date_before = PropertyFilter {
@@ -1633,14 +1323,11 @@ mod test_match_properties {
             group_type_index: None,
         };
 
-        assert_eq!(
-            match_property(
-                &property_is_date_before,
-                &HashMap::from([("key2".to_string(), json!("2021-01-02"))]),
-                false
-            )
-            .expect("Expected no errors with full props mode"),
+        assert!(!match_property(
+            &property_is_date_before,
+            &HashMap::from([("key2".to_string(), json!("2021-01-02"))]),
             false
-        );
+        )
+        .expect("Expected no errors with full props mode"));
     }
 }
