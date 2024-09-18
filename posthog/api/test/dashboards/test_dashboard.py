@@ -1152,7 +1152,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
     def test_create_from_template_json(self, mock_capture) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
-            {"template": valid_template},
+            {"template": valid_template, "creation_context": "onboarding"},
         )
         self.assertEqual(response.status_code, 200, response.content)
 
@@ -1173,6 +1173,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             "dashboard created",
             {
                 "created_at": mock.ANY,
+                "creation_context": "onboarding",
                 "dashboard_id": dashboard["id"],
                 "duplicated": False,
                 "from_template": True,
