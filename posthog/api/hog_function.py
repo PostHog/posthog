@@ -187,7 +187,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             inputs = data.get("inputs", {})
 
             for schema in inputs_schema:
-                if schema.get("secret") and encrypted_inputs.get(schema["key"]):
+                if schema.get("secret") and isinstance(encrypted_inputs, dict) and encrypted_inputs.get(schema["key"]):
                     # Marker to indicate to the user that a secret is set
                     inputs[schema["key"]] = {"secret": True}
 
