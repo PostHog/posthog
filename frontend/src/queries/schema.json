@@ -129,6 +129,16 @@
                 }
             ]
         },
+        "ActionConversionGoal": {
+            "additionalProperties": false,
+            "properties": {
+                "actionId": {
+                    "type": "integer"
+                }
+            },
+            "required": ["actionId"],
+            "type": "object"
+        },
         "ActionsNode": {
             "additionalProperties": false,
             "properties": {
@@ -2674,6 +2684,16 @@
                 "p99_count_per_actor"
             ],
             "type": "string"
+        },
+        "CustomEventConversionGoal": {
+            "additionalProperties": false,
+            "properties": {
+                "customEventName": {
+                    "type": "string"
+                }
+            },
+            "required": ["customEventName"],
+            "type": "object"
         },
         "DashboardFilter": {
             "additionalProperties": false,
@@ -10784,14 +10804,14 @@
             "type": "object"
         },
         "WebAnalyticsConversionGoal": {
-            "additionalProperties": false,
-            "properties": {
-                "actionId": {
-                    "type": "integer"
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/ActionConversionGoal"
+                },
+                {
+                    "$ref": "#/definitions/CustomEventConversionGoal"
                 }
-            },
-            "required": ["actionId"],
-            "type": "object"
+            ]
         },
         "WebAnalyticsPropertyFilter": {
             "anyOf": [
