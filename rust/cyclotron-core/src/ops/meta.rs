@@ -1,7 +1,10 @@
 use sqlx::{postgres::PgQueryResult, PgPool};
 use uuid::Uuid;
 
-use crate::{error::QueueError, DEAD_LETTER_QUEUE};
+use crate::{
+    error::{JobError, QueueError},
+    DEAD_LETTER_QUEUE,
+};
 
 pub async fn count_total_waiting_jobs<'c, E>(executor: E) -> Result<u64, QueueError>
 where
@@ -17,9 +20,10 @@ where
     Ok(res as u64)
 }
 
-pub fn throw_if_no_rows(res: PgQueryResult, job: Uuid, lock: Uuid) -> Result<(), QueueError> {
+// Returns an InvalidLock error if the query run did not affect any rows.
+pub fn throw_if_no_rows(res: PgQueryResult, job: Uuid, lock: Uuid) -> Result<(), JobError> {
     if res.rows_affected() == 0 {
-        Err(QueueError::InvalidLock(lock, job))
+        Err(JobError::InvalidLock(lock, job))
     } else {
         Ok(())
     }
@@ -53,7 +57,7 @@ where
     .await?;
 
     let Some(original_queue_name) = original_queue_name else {
-        return Err(QueueError::UnknownJobId(job));
+        return Err(JobError::UnknownJobId(job).into());
     };
 
     // Now we add an entry to the dead metadata queue
