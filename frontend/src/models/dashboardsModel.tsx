@@ -92,7 +92,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
                         return { count: 0, next: null, previous: null, results: [] }
                     }
                     const dashboards: PaginatedResponse<DashboardType> = await api.get(
-                        url || `api/projects/${teamLogic.values.currentTeamId}/dashboards/?limit=100`
+                        url || `api/projects/${teamLogic.values.currentTeamId}/dashboards/?limit=2000`
                     )
 
                     return {

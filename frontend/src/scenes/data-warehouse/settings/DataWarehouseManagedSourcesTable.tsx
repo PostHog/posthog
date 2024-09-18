@@ -205,7 +205,13 @@ export function RenderDataWarehouseSourceIcon({
                 }
             >
                 <Link to={getDataWarehouseSourceUrl(type)}>
-                    <img src={icon} alt={type} height={sizePx} width={sizePx} className="rounded object-contain" />
+                    <img
+                        src={icon}
+                        alt={type}
+                        height={sizePx}
+                        width={sizePx}
+                        className="rounded object-contain max-w-none"
+                    />
                 </Link>
             </Tooltip>
         </div>
