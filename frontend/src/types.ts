@@ -1798,6 +1798,11 @@ export interface DashboardType<T = InsightModel> extends DashboardBasicType {
     filters: DashboardFilter
 }
 
+export enum TemplateAvailabilityContext {
+    GENERAL = 'general',
+    ONBOARDING = 'onboarding',
+}
+
 export interface DashboardTemplateType<T = InsightModel> {
     id: string
     team_id?: number
@@ -1810,6 +1815,7 @@ export interface DashboardTemplateType<T = InsightModel> {
     tags?: string[]
     image_url?: string
     scope?: DashboardTemplateScope
+    availability_contexts?: TemplateAvailabilityContext[]
 }
 
 export interface MonacoMarker {
@@ -2175,6 +2181,7 @@ export interface TemplateVariableStep {
     url?: string | null
     properties?: Record<string, any>[]
     custom_name?: string
+    custom_event?: boolean
 }
 
 export interface PropertiesTimelineFilterType {

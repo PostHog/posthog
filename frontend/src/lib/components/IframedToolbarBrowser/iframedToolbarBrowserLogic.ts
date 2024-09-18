@@ -162,6 +162,9 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
         currentFullUrl: [
             (s) => [s.browserUrl, s.currentPath],
             (browserUrl, currentPath) => {
+                if (!browserUrl) {
+                    return null
+                }
                 return browserUrl + '/' + currentPath
             },
         ],
@@ -324,6 +327,12 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
 
             clearTimeout(cache.errorTimeout)
             clearTimeout(cache.warnTimeout)
+        },
+        setIframeBanner: ({ banner }) => {
+            posthog.capture('in-app iFrame banner set', {
+                level: banner?.level,
+                message: banner?.message,
+            })
         },
     })),
 
