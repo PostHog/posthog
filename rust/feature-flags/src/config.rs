@@ -31,7 +31,7 @@ pub struct Config {
     #[envconfig(from = "MAXMIND_DB_PATH", default = "")]
     pub maxmind_db_path: String,
 
-    #[envconfig(default = "true")]
+    #[envconfig(default = "false")]
     pub enable_metrics: bool,
 }
 
