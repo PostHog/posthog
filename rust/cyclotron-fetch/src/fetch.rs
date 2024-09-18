@@ -1,7 +1,7 @@
 use std::{cmp::min, collections::HashMap, fmt::Display, sync::Arc};
 
 use chrono::{DateTime, Duration, Utc};
-use cyclotron_core::{Bytes, Job, JobError, JobState, QueueError, Worker};
+use cyclotron_core::{Bytes, Job, JobState, QueueError, Worker};
 use futures::StreamExt;
 use http::StatusCode;
 use reqwest::Response;
@@ -29,8 +29,6 @@ pub enum FetchError {
     JobFetchTimeout,
     #[error(transparent)]
     QueueError(#[from] QueueError),
-    #[error(transparent)]
-    JobError(#[from] JobError),
     // TRICKY - in most cases, serde errors are a FetchError (something coming from the queue was
     // invalid), but this is used in cases where /we/ fail to serialise something /to/ the queue
     #[error(transparent)]
@@ -606,7 +604,7 @@ where
         // We downgrade the priority of jobs that fail, so first attempts at jobs get better QoS
         context.worker.set_priority(job_id, old_priority + 1)?;
 
-        context.worker.release_job(job_id, None).await?;
+        context.worker.flush_job(job_id).await?;
     } else {
         // Complete the job, with a Failed result
         let result: FetchResult = FetchResult::Failure {
@@ -651,9 +649,7 @@ pub async fn complete_job(
     worker.set_parameters(job_id, Some(result))?;
     worker.set_blob(job_id, body)?;
     worker.set_metadata(job_id, None)?; // We're finished with the job, so clear our internal state
-
-    // Since these tasks are lightweight, we just block waiting on the flush here.
-    worker.release_job(job_id, None).await?;
+    worker.flush_job(job_id).await?;
 
     Ok(())
 }

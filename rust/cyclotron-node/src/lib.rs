@@ -1,8 +1,6 @@
 use chrono::{DateTime, Utc};
 
-use cyclotron_core::{
-    Job, JobInit, JobState, ManagerConfig, PoolConfig, QueueManager, Worker, WorkerConfig,
-};
+use cyclotron_core::{Job, JobInit, JobState, ManagerConfig, PoolConfig, QueueManager, Worker};
 use neon::{
     handle::Handle,
     object::Object,
@@ -63,21 +61,14 @@ fn hello(mut cx: FunctionContext) -> JsResult<JsString> {
 
 fn init_worker_impl(mut cx: FunctionContext, throw_on_reinit: bool) -> JsResult<JsPromise> {
     let arg1 = cx.argument::<JsString>(0)?;
-
     let config: PoolConfig = from_json_string(&mut cx, arg1)?;
-
-    let worker_config: WorkerConfig = if let Ok(arg2) = cx.argument::<JsString>(1) {
-        from_json_string(&mut cx, arg2)?
-    } else {
-        Default::default()
-    };
 
     let (deferred, promise) = cx.promise();
     let channel = cx.channel();
     let runtime = runtime(&mut cx)?;
 
     let fut = async move {
-        let worker = Worker::new(config, worker_config).await;
+        let worker = Worker::new(config).await;
         deferred.settle_with(&channel, move |mut cx| {
             if WORKER.get().is_some() && !throw_on_reinit {
                 return Ok(cx.null()); // Short circuit to make using maybe_init a no-op
@@ -284,7 +275,7 @@ fn dequeue_with_vm_state(mut cx: FunctionContext) -> JsResult<JsPromise> {
     Ok(promise)
 }
 
-fn release_job(mut cx: FunctionContext) -> JsResult<JsPromise> {
+fn flush_job(mut cx: FunctionContext) -> JsResult<JsPromise> {
     let arg1 = cx.argument::<JsString>(0)?.value(&mut cx);
     let job_id: Uuid = arg1
         .parse()
@@ -304,38 +295,9 @@ fn release_job(mut cx: FunctionContext) -> JsResult<JsPromise> {
                 return;
             }
         };
-        // We await the handle here because this translates waiting on the join handle all the way to
-        // a Js Promise.await.
-        let res = worker.release_job(job_id, None).await;
+        let res = worker.flush_job(job_id).await;
         deferred.settle_with(&channel, move |mut cx| {
-            res.or_else(|e| cx.throw_error(format!("{}", e)))?;
-            Ok(cx.null())
-        });
-    };
-
-    runtime.spawn(fut);
-
-    Ok(promise)
-}
-
-fn force_flush(mut cx: FunctionContext) -> JsResult<JsPromise> {
-    let (deferred, promise) = cx.promise();
-    let channel = cx.channel();
-    let runtime = runtime(&mut cx)?;
-
-    let fut = async move {
-        let worker = match WORKER.get() {
-            Some(worker) => worker,
-            None => {
-                deferred.settle_with(&channel, |mut cx| {
-                    throw_null_err(&mut cx, "worker not initialized")
-                });
-                return;
-            }
-        };
-        let res = worker.force_flush().await;
-        deferred.settle_with(&channel, |mut cx| {
-            res.or_else(|e| cx.throw_error(format!("{}", e)))?;
+            res.or_else(|e: cyclotron_core::QueueError| cx.throw_error(format!("{}", e)))?;
             Ok(cx.null())
         });
     };
@@ -655,8 +617,7 @@ fn main(mut cx: ModuleContext) -> NeonResult<()> {
     cx.export_function("createJob", create_job)?;
     cx.export_function("dequeueJobs", dequeue_jobs)?;
     cx.export_function("dequeueJobsWithVmState", dequeue_with_vm_state)?;
-    cx.export_function("releaseJob", release_job)?;
-    cx.export_function("forceFlush", force_flush)?;
+    cx.export_function("flushJob", flush_job)?;
     cx.export_function("setState", set_state)?;
     cx.export_function("setQueue", set_queue)?;
     cx.export_function("setPriority", set_priority)?;

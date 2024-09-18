@@ -1,5 +1,5 @@
 use chrono::Duration;
-use cyclotron_core::{PoolConfig, WorkerConfig};
+use cyclotron_core::PoolConfig;
 use envconfig::Envconfig;
 use uuid::Uuid;
 
@@ -66,22 +66,6 @@ pub struct Config {
 
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,
-
-    // Worker tuning params
-    #[envconfig(default = "5")]
-    pub heartbeat_window_seconds: u64,
-
-    #[envconfig(default = "500")]
-    pub linger_time_ms: u64,
-
-    #[envconfig(default = "100")]
-    pub max_updates_buffered: usize,
-
-    #[envconfig(default = "10000000")]
-    pub max_bytes_buffered: usize,
-
-    #[envconfig(default = "10")]
-    pub flush_loop_interval_ms: u64,
 }
 
 #[allow(dead_code)]
@@ -107,7 +91,7 @@ pub struct AppConfig {
 }
 
 impl Config {
-    pub fn to_components(self) -> (AppConfig, PoolConfig, KafkaConfig, WorkerConfig) {
+    pub fn to_components(self) -> (AppConfig, PoolConfig, KafkaConfig) {
         let app_config = AppConfig {
             host: self.host,
             port: self.port,
@@ -133,14 +117,6 @@ impl Config {
             idle_timeout_seconds: Some(self.pg_idle_timeout_seconds),
         };
 
-        let worker_config = WorkerConfig {
-            heartbeat_window_seconds: Some(self.heartbeat_window_seconds),
-            linger_time_ms: Some(self.linger_time_ms),
-            max_updates_buffered: Some(self.max_updates_buffered),
-            max_bytes_buffered: Some(self.max_bytes_buffered),
-            flush_loop_interval_ms: Some(self.flush_loop_interval_ms),
-        };
-
-        (app_config, pool_config, self.kafka, worker_config)
+        (app_config, pool_config, self.kafka)
     }
 }
