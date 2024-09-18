@@ -142,10 +142,13 @@ RUN apt-get update && \
 # ---------------------------------------------------------
 #
 # NOTE: newer images change the base image from bullseye to bookworm which makes compiled openssl versions have all sorts of issues
-FROM unit:1.32.0-python3.11 
+FROM python:3.11-bullseye
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 ENV PYTHONUNBUFFERED 1
+
+COPY docker/posthog/install-nginx-unit.sh /install-nginx-unit.sh
+RUN ./install-nginx-unit.sh && rm /install-nginx-unit.sh
 
 # Install OS runtime dependencies.
 # Note: please add in this stage runtime dependences only!
@@ -226,6 +229,10 @@ EXPOSE 8000
 
 # Expose the port from which we serve OpenMetrics data.
 EXPOSE 8001
+
+COPY docker/posthog/docker-entrypoint.sh /usr/local/bin/
+STOPSIGNAL SIGTERM
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 COPY unit.json.tpl /docker-entrypoint.d/unit.json.tpl
 USER root
 CMD ["./bin/docker"]
