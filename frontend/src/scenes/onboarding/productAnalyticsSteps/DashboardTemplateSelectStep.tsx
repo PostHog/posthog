@@ -81,29 +81,36 @@ export const OnboardingDashboardTemplateSelectStep = ({
                 isOpen={isTemplateRequestModalOpen}
                 onClose={hideTemplateRequestModal}
             >
-                <Form
-                    logic={onboardingTemplateConfigLogic}
-                    formKey="templateRequestForm"
-                    className="my-4 gap-y-4"
-                    enableFormOnSubmit
-                >
-                    <LemonField name="templateRequest" className="mb-4">
-                        <LemonInput
-                            className="ph-ignore-input"
-                            autoFocus
-                            data-attr="templateRequestForm"
-                            type="text"
-                            disabled={isTemplateRequestFormSubmitting}
-                        />
-                    </LemonField>
-                    <LemonButton
-                        type="primary"
-                        htmlType="submit"
-                        disabledReason={isTemplateRequestFormSubmitting ? 'Submitting...' : undefined}
+                <div className="max-w-md">
+                    <p>
+                        PostHog can collect and visualize data from anywhere. We're still adding more templates to this
+                        onboarding flow for different use-cases and business types.
+                    </p>
+                    <p>Let us know what kind of template you'd like to see and we'll work on adding one.</p>
+                    <Form
+                        logic={onboardingTemplateConfigLogic}
+                        formKey="templateRequestForm"
+                        className="my-4 gap-y-4"
+                        enableFormOnSubmit
                     >
-                        Continue
-                    </LemonButton>
-                </Form>
+                        <LemonField name="templateRequest" className="mb-4">
+                            <LemonInput
+                                className="ph-ignore-input"
+                                autoFocus
+                                data-attr="templateRequestForm"
+                                type="text"
+                                disabled={isTemplateRequestFormSubmitting}
+                            />
+                        </LemonField>
+                        <LemonButton
+                            type="primary"
+                            htmlType="submit"
+                            disabledReason={isTemplateRequestFormSubmitting ? 'Submitting...' : undefined}
+                        >
+                            Continue
+                        </LemonButton>
+                    </Form>
+                </div>
             </LemonModal>
         </OnboardingStep>
     )
