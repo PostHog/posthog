@@ -80,7 +80,7 @@ def convert_slack_message_format_to_hog(action: Action, is_slack: bool) -> tuple
             text = text.replace(match, f"{{{content}}}")
 
     print(  # noqa: T201
-        "Converted message format:",
+        f"[Action {action.id}] Converted message format:",
         {
             "original": message_format,
             "markdown": markdown,
@@ -155,12 +155,15 @@ def migrate_action_webhooks(action_ids: list[int], team_ids: list[int], dry_run=
         for action in page.object_list:
             if len(action.steps) == 0:
                 continue
-            hog_function = convert_to_hog_function(action, inert)
-            if hog_function:
-                hog_functions.append(hog_function)
-                if not inert:
-                    action.post_to_slack = False
-                    actions_to_update.append(action)
+            try:
+                hog_function = convert_to_hog_function(action, inert)
+                if hog_function:
+                    hog_functions.append(hog_function)
+                    if not inert:
+                        action.post_to_slack = False
+                        actions_to_update.append(action)
+            except Exception as e:
+                print(f"Failed to migrate action {action.id}: {e}")  # noqa: T201
         if not dry_run:
             HogFunction.objects.bulk_create(hog_functions)
             if actions_to_update:
