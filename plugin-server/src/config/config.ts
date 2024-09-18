@@ -197,6 +197,8 @@ export function getDefaultConfig(): PluginsServerConfig {
             : isDevEnv()
             ? 'postgres://posthog:posthog@localhost:5432/cyclotron'
             : '',
+
+        CYCLOTRON_SHARD_DEPTH_LIMIT: 1000000,
     }
 }
 
