@@ -1,6 +1,7 @@
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import {
+    AnyFilterLike,
     AnyPersonScopeFilter,
     AnyPropertyFilter,
     BaseMathType,
@@ -519,7 +520,7 @@ export interface EventsQuery extends DataNode<EventsQueryResponse> {
     /** Properties configurable in the interface */
     properties?: AnyPropertyFilter[]
     /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
-    fixedProperties?: AnyPropertyFilter[]
+    fixedProperties?: AnyFilterLike[]
     /** Filter test accounts */
     filterTestAccounts?: boolean
     /** Limit to events matching this string */
@@ -1354,9 +1355,13 @@ export interface SessionsTimelineQuery extends DataNode<SessionsTimelineQueryRes
 }
 export type WebAnalyticsPropertyFilter = EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter
 export type WebAnalyticsPropertyFilters = WebAnalyticsPropertyFilter[]
-export type WebAnalyticsConversionGoal = {
+export type ActionConversionGoal = {
     actionId: integer
 }
+export type CustomEventConversionGoal = {
+    customEventName: string
+}
+export type WebAnalyticsConversionGoal = ActionConversionGoal | CustomEventConversionGoal
 interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<R> {
     dateRange?: DateRange
     properties: WebAnalyticsPropertyFilters

@@ -3,7 +3,7 @@ from inline_snapshot import snapshot
 from hogvm.python.operation import HOGQL_BYTECODE_VERSION
 from posthog.cdp.templates.webhook.template_webhook import template as template_webhook
 from posthog.management.commands.migrate_action_webhooks import migrate_action_webhooks
-from posthog.models.action.action import Action
+from posthog.models import Action
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.test.base import BaseTest
 
@@ -27,6 +27,11 @@ class TestMigrateActionWebhooks(BaseTest):
             team_id=self.team.id,
             slack_message_format="[event] triggered by [person]",
             post_to_slack=True,
+            steps_json=[
+                {
+                    "event": None,  # All events
+                }
+            ],
         )
 
     def test_dry_run(self):
