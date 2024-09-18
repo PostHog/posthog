@@ -71,7 +71,9 @@ const BasicTemplate: StoryFn<ToolbarStoryProps> = (props) => {
                 },
                 isAuthenticated: props.unauthenticated ?? true,
                 supportedCompression: ['gzip', 'gzip-js', 'lz64'],
-                featureFlags: {},
+                featureFlags: {
+                    'web-experiments': true,
+                },
                 sessionRecording: {
                     endpoint: '/s/',
                 },
@@ -79,6 +81,7 @@ const BasicTemplate: StoryFn<ToolbarStoryProps> = (props) => {
             '/api/element/stats/': listHeatmapStatsAPIResponse,
             '/api/projects/@current/feature_flags/my_flags': listMyFlagsAPIResponse,
             '/api/projects/@current/actions/': listActionsAPIResponse,
+            '/api/projects/@current/web_experiments/': listActionsAPIResponse,
             '/api/users/@me/hedgehog_config/': {},
         },
     })
@@ -134,6 +137,10 @@ export const FeatureFlags = (): JSX.Element => {
 
 export const EventsDebuggerEmpty = (): JSX.Element => {
     return <BasicTemplate menu="debugger" />
+}
+
+export const Experiments = (): JSX.Element => {
+    return <BasicTemplate menu="experiments" />
 }
 
 // Dark theme
