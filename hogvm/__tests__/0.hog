@@ -1,1 +1,13 @@
-print(sql(1 + 2))
+//print(sql(1 + 2))
+
+//let a := sql(3)
+//print(a)
+//print(sql({a} + 2))
+
+//let a := 3
+//print(sql({a} + 2))
+
+let a := sql(event)
+let query := sql((select *, {a} from events))
+print(query)
+print(query.select)
