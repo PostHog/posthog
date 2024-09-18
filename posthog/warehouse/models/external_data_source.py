@@ -1,14 +1,14 @@
 from datetime import datetime
-from django.db import models
-
-from posthog.helpers.encrypted_fields import EncryptedJSONField
-from posthog.models.team import Team
-from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDModel, UpdatedMetaFields, sane_repr
-from posthog.warehouse.util import database_sync_to_async
 from uuid import UUID
 
+import encrypted_fields
 import structlog
 import temporalio
+from django.db import models
+
+from posthog.models.team import Team
+from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDModel, sane_repr
+from posthog.warehouse.util import database_sync_to_async
 
 logger = structlog.get_logger(__name__)
 
@@ -52,7 +52,9 @@ class ExternalDataSource(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
     # `status` is deprecated in favour of external_data_schema.status
     status = models.CharField(max_length=400)
     source_type = models.CharField(max_length=128, choices=Type.choices)
-    job_inputs: EncryptedJSONField = EncryptedJSONField(null=True, blank=True)
+    job_inputs: encrypted_fields.fields.EncryptedJSONField = encrypted_fields.fields.EncryptedJSONField(
+        null=True, blank=True
+    )
     are_tables_created = models.BooleanField(default=False)
     prefix = models.CharField(max_length=100, null=True, blank=True)
 
@@ -64,8 +66,8 @@ class ExternalDataSource(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
         self.save()
 
     def reload_schemas(self):
-        from posthog.warehouse.models.external_data_schema import ExternalDataSchema
         from posthog.warehouse.data_load.service import sync_external_data_job_workflow, trigger_external_data_workflow
+        from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 
         for schema in (
             ExternalDataSchema.objects.exclude(deleted=True)

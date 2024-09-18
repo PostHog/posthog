@@ -6,7 +6,7 @@ import posthog.helpers.encrypted_fields
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0471_webexperiment_experiment_type_experiment_variants"),
+        ("posthog", "0473_dashboardtemplate_availability_contexts"),
     ]
 
     operations = [

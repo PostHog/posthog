@@ -20,7 +20,7 @@ export function DestinationsFilters({
     hideShowPaused,
     hideKind,
 }: DestinationsFiltersProps): JSX.Element | null {
-    const { filters } = useValues(destinationsFiltersLogic)
+    const { user, filters } = useValues(destinationsFiltersLogic)
     const { setFilters, openFeedbackDialog } = useActions(destinationsFiltersLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const hogFunctionsEnabled = !!useFeatureFlag('HOG_FUNCTIONS')
@@ -63,6 +63,16 @@ export function DestinationsFilters({
                         onChange={(e) => setFilters({ showPaused: e ?? undefined })}
                     />
                 )}
+                {(user?.is_staff || user?.is_impersonated) && (
+                    <LemonCheckbox
+                        label="Show hidden"
+                        bordered
+                        size="small"
+                        checked={filters.showHidden}
+                        onChange={(e) => setFilters({ showHidden: e ?? undefined })}
+                    />
+                )}
+
                 {!hideKind && (
                     <LemonSelect
                         type="secondary"

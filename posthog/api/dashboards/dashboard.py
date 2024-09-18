@@ -6,7 +6,6 @@ from django.db.models import Prefetch, QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 from rest_framework import exceptions, serializers, viewsets
-from posthog.api.utils import action
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -18,10 +17,11 @@ from posthog.api.dashboards.dashboard_template_json_schema_parser import (
 )
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight import InsightSerializer, InsightViewSet
-from posthog.api.monitoring import monitor, Feature
+from posthog.api.monitoring import Feature, monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
+from posthog.api.utils import action
 from posthog.event_usage import report_user_action
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template
@@ -323,16 +323,16 @@ class DashboardSerializer(DashboardBasicSerializer):
             else:
                 created_by = user
                 last_modified_by = None
-            text, _ = Text.objects.update_or_create(
-                id=text_json.get("id", None),
-                defaults={
-                    **tile_data["text"],
-                    "team": instance.team,
-                    "created_by": created_by,
-                    "last_modified_by": last_modified_by,
-                    "last_modified_at": now(),
-                },
-            )
+            text_defaults = {
+                **tile_data["text"],
+                "team_id": instance.team_id,
+                "created_by": created_by,
+                "last_modified_by": last_modified_by,
+                "last_modified_at": now(),
+            }
+            if "team" in text_defaults:
+                text_defaults.pop("team")  # We're already setting `team_id`
+            text, _ = Text.objects.update_or_create(id=text_json.get("id", None), defaults=text_defaults)
             DashboardTile.objects.update_or_create(
                 id=tile_data.get("id", None),
                 defaults={**tile_data, "text": text, "dashboard": instance},
@@ -445,10 +445,7 @@ class DashboardsViewSet(
             # a dashboard can be un-deleted by patching {"deleted": False}
             queryset = queryset.exclude(deleted=True)
 
-        queryset = queryset.prefetch_related("sharingconfiguration_set").select_related(
-            "team__organization",
-            "created_by",
-        )
+        queryset = queryset.prefetch_related("sharingconfiguration_set").select_related("created_by")
 
         if self.action != "list":
             tiles_prefetch_queryset = DashboardTile.dashboard_queryset(
@@ -458,7 +455,7 @@ class DashboardsViewSet(
                         "insight__dashboards",
                         queryset=Dashboard.objects.filter(
                             id__in=DashboardTile.objects.values_list("dashboard_id", flat=True)
-                        ).select_related("team__organization"),
+                        ),
                     ),
                     "insight__dashboard_tiles__dashboard",
                 )
@@ -520,6 +517,7 @@ class DashboardsViewSet(
 
         try:
             dashboard_template = DashboardTemplate(**request.data["template"])
+            creation_context = request.data.get("creation_context")
             create_from_template(dashboard, dashboard_template)
 
             report_user_action(
@@ -531,6 +529,7 @@ class DashboardsViewSet(
                     "template_key": dashboard_template.template_name,
                     "duplicated": False,
                     "dashboard_id": dashboard.pk,
+                    "creation_context": creation_context,
                 },
             )
         except Exception:

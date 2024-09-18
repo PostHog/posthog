@@ -3,7 +3,7 @@
 from django.conf import settings
 from django.db import migrations, models
 import django.db.models.deletion
-from posthog.helpers.encrypted_fields import EncryptedTextField
+import encrypted_fields.fields
 import posthog.models.utils
 
 
@@ -28,11 +28,11 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "access_key",
-                    EncryptedTextField(max_length=500),
+                    encrypted_fields.fields.EncryptedTextField(max_length=500),
                 ),
                 (
                     "access_secret",
-                    EncryptedTextField(max_length=500),
+                    encrypted_fields.fields.EncryptedTextField(max_length=500),
                 ),
                 (
                     "created_by",
