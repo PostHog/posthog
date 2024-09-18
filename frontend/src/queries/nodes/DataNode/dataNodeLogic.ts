@@ -406,6 +406,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             null as string | null,
             {
                 loadData: () => null,
+                loadNewData: () => null,
                 loadDataFailure: (_, { error, errorObject }) => {
                     if (errorObject && 'error' in errorObject) {
                         return errorObject.error ?? 'Error loading data'
@@ -415,7 +416,17 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
                     return error ?? 'Error loading data'
                 },
+                loadNewDataFailure: (_, { error, errorObject }) => {
+                    if (errorObject && 'error' in errorObject) {
+                        return errorObject.error ?? 'Error loading data'
+                    }
+                    if (errorObject && 'detail' in errorObject) {
+                        return errorObject.detail ?? 'Error loading data'
+                    }
+                    return error ?? 'Error loading data'
+                },
                 loadDataSuccess: (_, { response }) => response?.error ?? null,
+                loadNewDataSuccess: (_, { response }) => response?.error ?? null,
             },
         ],
         elapsedTime: [
