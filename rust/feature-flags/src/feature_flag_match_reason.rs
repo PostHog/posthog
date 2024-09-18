@@ -1,5 +1,5 @@
 use std::cmp::Ordering;
-use strum_macros::EnumString;
+use strum::EnumString;
 
 #[derive(Debug, Clone, PartialEq, Eq, EnumString)]
 pub enum FeatureFlagMatchReason {
