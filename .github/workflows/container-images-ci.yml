@@ -49,7 +49,7 @@ jobs:
     test_docker_startup:
         name: Test posthog services startup safely
         runs-on: ubuntu-latest
-        timeout-minutes: 5
+        timeout-minutes: 20
         needs: [posthog_build]
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
