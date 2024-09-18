@@ -8,7 +8,7 @@ from posthog.cdp.templates.activecampaign.template_activecampaign import (
 def create_inputs(**kwargs):
     inputs = {
         "accountName": "posthog",
-        "apiKey": "2f30ab262aa2bc92cc235ca437fc635dac37040d134d2d0c1be1ae0ec6a5b88476ed17b2",
+        "apiKey": "API_KEY",
         "email": "max@posthog.com",
         "firstName": "max",
         "attributes": {"1": "PostHog", "2": "posthog.com"},
