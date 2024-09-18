@@ -169,7 +169,7 @@ where
 pub async fn flush_job<'c, E>(
     executor: E,
     job_id: Uuid,
-    updates: &JobUpdate,
+    updates: JobUpdate,
 ) -> Result<(), QueueError>
 where
     E: sqlx::Executor<'c, Database = sqlx::Postgres>,
@@ -180,48 +180,47 @@ where
     let mut query = QueryBuilder::new("UPDATE cyclotron_jobs SET ");
     let mut needs_comma = false;
 
-    if let Some(state) = &updates.state {
+    if let Some(state) = updates.state {
         set_helper(&mut query, "state", state, needs_comma);
         needs_comma = true;
     }
 
-    if let Some(queue_name) = &updates.queue_name {
+    if let Some(queue_name) = updates.queue_name {
         set_helper(&mut query, "queue_name", queue_name, needs_comma);
         needs_comma = true;
     }
 
-    if let Some(priority) = &updates.priority {
+    if let Some(priority) = updates.priority {
         set_helper(&mut query, "priority", priority, needs_comma);
         needs_comma = true;
     }
 
-    if let Some(scheduled) = &updates.scheduled {
+    if let Some(scheduled) = updates.scheduled {
         set_helper(&mut query, "scheduled", scheduled, needs_comma);
         needs_comma = true;
     }
 
-    if let Some(vm_state) = &updates.vm_state {
+    if let Some(vm_state) = updates.vm_state {
         set_helper(&mut query, "vm_state", vm_state, needs_comma);
         needs_comma = true;
     }
 
-    if let Some(metadata) = &updates.metadata {
+    if let Some(metadata) = updates.metadata {
         set_helper(&mut query, "metadata", metadata, needs_comma);
         needs_comma = true;
     }
 
-    if let Some(parameters) = &updates.parameters {
+    if let Some(parameters) = updates.parameters {
         set_helper(&mut query, "parameters", parameters, needs_comma);
         needs_comma = true;
     }
 
-    if let Some(blob) = &updates.blob {
+    if let Some(blob) = updates.blob {
         set_helper(&mut query, "blob", blob, needs_comma);
         needs_comma = true;
     }
 
     if job_returned {
-        // If we're returning this job, clear the lock id and the heartbeat
         set_helper(&mut query, "lock_id", Option::<Uuid>::None, needs_comma);
         set_helper(
             &mut query,
@@ -230,7 +229,6 @@ where
             true,
         );
     } else {
-        // Otherwise, flushing a job update indicates forward progress, so we update the heartbeat
         set_helper(&mut query, "last_heartbeat", Utc::now(), needs_comma);
     }
 
@@ -238,6 +236,8 @@ where
     query.push_bind(job_id);
     query.push(" AND lock_id = ");
     query.push_bind(lock_id);
+
+    //println!("Query: {:?}", query.into_sql());
 
     assert_does_update(executor, job_id, lock_id, query.build()).await?;
     Ok(())
@@ -276,7 +276,7 @@ where
     assert_does_update(executor, job_id, lock_id, q).await
 }
 
-// Simple wrapper, that just executes a query and returns an InvalidLock error if no rows were affected.
+// Simple wrapper, that just executes a query and throws an error if no rows were affected
 async fn assert_does_update<'c, E>(
     executor: E,
     job_id: Uuid,
@@ -287,7 +287,5 @@ where
     E: sqlx::Executor<'c, Database = sqlx::Postgres>,
 {
     let res = query.execute(executor).await?;
-
-    // JobError -> QueueError
-    Ok(throw_if_no_rows(res, job_id, lock_id)?)
+    throw_if_no_rows(res, job_id, lock_id)
 }

@@ -1,21 +1,11 @@
-use std::{
-    collections::HashMap,
-    future::Future,
-    sync::{Arc, Weak},
-    task::Poll,
-};
+use std::collections::HashMap;
 
 use chrono::{DateTime, Duration, Utc};
-use futures::FutureExt;
 use sqlx::PgPool;
 use std::sync::Mutex;
-use tokio::sync::oneshot;
-use tracing::error;
 use uuid::Uuid;
 
 use crate::{
-    config::WorkerConfig,
-    error::JobError,
     ops::{
         meta::{dead_letter, run_migrations},
         worker::{dequeue_jobs, dequeue_with_vm_state, flush_job, get_vm_state, set_heartbeat},
@@ -35,49 +25,36 @@ use crate::{
 // now (client libraries should wrap this to provide better interfaces).
 pub struct Worker {
     pool: PgPool,
-    // All the jobs the worker is currently working on, and hasn't released for returning
-    // to the queue.
+    // All dequeued job IDs that haven't been flushed yet. The idea is this lets us
+    // manage, on the rust side of any API boundary, the "pending" update of any given
+    // job, such that a user can progressively build up a full update, and then flush it,
+    // rather than having to track the update state on their side and submit it all at once.
+    // This also lets us "hide" all the locking logic, which we're not totally settled on yet.
+
     // TRICKY - this is a sync mutex, because that simplifies using the manager in an FFI
     // context (since most functions below can be sync). We have to be careful never to
     // hold a lock across an await point, though.
-    running: Mutex<HashMap<Uuid, JobUpdate>>,
+    pending: Mutex<HashMap<Uuid, JobUpdate>>,
 
-    // When a user calls release, we queue up the update to be flushed, but only flush on
-    // some conditions.
-    flush_batch: Arc<Mutex<FlushBatch>>,
-
-    pub heartbeat_window: Duration, // The worker will only pass one heartbeat to the DB per job every heartbeat_window
-    pub linger: Duration,           // Updates will be held at most this long
-    pub max_buffered: usize,        // Updates will be flushed after this many are buffered
-    pub max_bytes: usize, // Updates will be flushed after the vm_state and blob sizes combined exceed this
+    pub heartbeat_window: Duration, // The worker will only pass one heartbeat to the DB every heartbeat_window
 }
 
 impl Worker {
-    pub async fn new(pool: PoolConfig, worker: WorkerConfig) -> Result<Self, QueueError> {
-        let pool = pool.connect().await?;
-        Ok(Self::from_pool(pool, worker))
+    pub async fn new(config: PoolConfig) -> Result<Self, QueueError> {
+        let pool = config.connect().await?;
+        Ok(Self {
+            pool,
+            pending: Default::default(),
+            heartbeat_window: Duration::seconds(5),
+        })
     }
 
-    pub fn from_pool(pool: PgPool, worker_config: WorkerConfig) -> Self {
-        let worker = Self {
+    pub fn from_pool(pool: PgPool) -> Self {
+        Self {
             pool,
-            running: Default::default(),
-            heartbeat_window: worker_config.heartbeat_window(),
-            flush_batch: Default::default(),
-            linger: worker_config.linger_time(),
-            max_buffered: worker_config.max_updates_buffered(),
-            max_bytes: worker_config.max_bytes_buffered(),
-        };
-
-        tokio::spawn(flush_loop(
-            worker.pool.clone(),
-            Arc::downgrade(&worker.flush_batch),
-            worker.max_buffered,
-            worker.max_bytes,
-            worker_config.flush_loop_interval(),
-        ));
-
-        worker
+            pending: Default::default(),
+            heartbeat_window: Duration::seconds(5),
+        }
     }
 
     /// Run the latest cyclotron migrations. Panics if the migrations can't be run - failure to run migrations is purposefully fatal.
@@ -91,14 +68,14 @@ impl Worker {
     pub async fn dequeue_jobs(&self, queue: &str, limit: usize) -> Result<Vec<Job>, QueueError> {
         let jobs = dequeue_jobs(&self.pool, queue, limit).await?;
 
-        let mut running = self.running.lock().unwrap();
+        let mut pending = self.pending.lock().unwrap();
         for job in &jobs {
             // We need to hang onto the locks for a job until we flush it, so we can send updates.
             let update = JobUpdate::new(
                 job.lock_id
                     .expect("Yell at oliver that the dequeuing code is broken. He's very sorry that your process just panicked"),
             );
-            running.insert(job.id, update);
+            pending.insert(job.id, update);
         }
 
         Ok(jobs)
@@ -112,14 +89,14 @@ impl Worker {
     ) -> Result<Vec<Job>, QueueError> {
         let jobs = dequeue_with_vm_state(&self.pool, queue, limit).await?;
 
-        let mut running = self.running.lock().unwrap();
+        let mut pending = self.pending.lock().unwrap();
         for job in &jobs {
             // We need to hang onto the locks for a job until we flush it, so we can send updates.
             let update = JobUpdate::new(
                 job.lock_id
                     .expect("Yell at oliver that the dequeuing (with vm) code is broken. He's very sorry that your process just panicked"),
             );
-            running.insert(job.id, update);
+            pending.insert(job.id, update);
         }
 
         Ok(jobs)
@@ -129,74 +106,47 @@ impl Worker {
     /// need the VM state as well.
     pub async fn get_vm_state(&self, job_id: Uuid) -> Result<Option<Bytes>, QueueError> {
         let lock_id = {
-            let pending = self.running.lock().unwrap();
+            let pending = self.pending.lock().unwrap();
             pending
                 .get(&job_id)
-                .ok_or(JobError::UnknownJobId(job_id))?
+                .ok_or(QueueError::UnknownJobId(job_id))?
                 .lock_id
         };
 
         get_vm_state(&self.pool, job_id, lock_id).await
     }
 
-    /// Release a job back to the queue. Callers are returned a flush handle, which they
-    /// may use to await the flushing of the updated job state, which happens asynchronously
-    /// to allow for batching of updates. Callers may drop the flush handle without impacting
-    /// the flushing of the update. This function returns an error if the caller tries to release
-    /// a job that this `Worker` doesn't know about, or if the worker tries to release a job
-    /// without having provided a next state for it.
-    ///
-    /// The flush handle returned here will resolve to an error if the asynchronous flush operation
-    /// fails in non-retryable fashion. Retryable errors during flush are not surfaced to the handle,
-    /// and the flush will be retried until it succeeds, a non-retryable error is encountered (e.g.
-    /// this workers lock on the job has been lost), or until the deadline is exceeded, if one is
-    /// provided. All updates will have at least one flush attempt.
-    pub fn release_job(&self, job_id: Uuid, deadline: Option<Duration>) -> FlushHandle {
+    /// NOTE - This function can only be called once, even though the underlying
+    /// basic operation can be performed as many times as the caller likes (so long as
+    /// the job state is never set to something other than running, as that clears the
+    /// job lock). We're more strict here (flushes can only happen once, you must
+    /// flush some non-running state) to try and enforce a good interaction
+    /// pattern with the queue. I might return to this and loosen this constraint in the
+    /// future, if there's a motivating case for needing to flush partial job updates.
+    pub async fn flush_job(&self, job_id: Uuid) -> Result<(), QueueError> {
+        // TODO - this drops the job from the known jobs before the flush succeeds,
+        // which means that if the flush fails, we'll lose the job and can never
+        // update it's state (leaving it to the reaper). This is a bug, but I'm not
+        // sure I want to make flushes retryable just yet, so I'm leaving it for now.
+        // NIT: this wrapping is to ensure pending is dropped prior to the await
         let update = {
-            let mut running = self.running.lock().unwrap();
-            let Some(update) = running.remove(&job_id) else {
-                return FlushHandle::immediate(Err(JobError::UnknownJobId(job_id)));
-            };
+            let mut pending = self.pending.lock().unwrap();
+            let update = pending
+                .remove(&job_id)
+                .ok_or(QueueError::UnknownJobId(job_id))?;
+            // It's a programming error to flush a job without setting a new state
             match update.state {
                 Some(JobState::Running) | None => {
-                    // Keep track of any /other/ updates that might have been stored, so this
-                    // error is recoverable simply by providing an appropriate new state.
-                    running.insert(job_id, update);
-                    return FlushHandle::immediate(Err(JobError::FlushWithoutNextState(job_id)));
+                    // Keep track of any /other/ updates that might have been stored, even in this case,
+                    // so a user can queue up the appropriate state transition and flush properly
+                    pending.insert(job_id, update);
+                    return Err(QueueError::FlushWithoutNextState(job_id));
                 }
                 _ => update,
             }
         };
-
-        // If we were given a deadline, this update should be flushed at least as soon as then,
-        // otherwise we can wait the full linger time before flushing it.
-        let now = Utc::now();
-        let flush_by = now + deadline.unwrap_or(self.linger);
-        let deadline = deadline.map(|d| now + d);
-
-        let (pending, handle) = PendingUpdate::new(job_id, update, deadline);
-
-        let mut batch = self.flush_batch.lock().unwrap();
-        batch.add(pending, flush_by);
-        handle
-    }
-
-    /// Force flush all pending updates, regardless of linger time or buffer size.
-    /// Transient errors encountered during the flush will cause the operation to
-    /// be aborted, and the error to be returned to the caller. If no transient errors
-    /// are encountered, all permanent errors will be dispatched to the relevant flush
-    /// handle, and this function will return success.
-    pub async fn force_flush(&self) -> Result<(), QueueError> {
-        let mut to_flush = { self.flush_batch.lock().unwrap().take() };
-        let res = if !to_flush.pending.is_empty() {
-            to_flush.flush(&self.pool).await
-        } else {
-            Ok(())
-        };
-        // If the flush successed, to_flush is empty, otherwise, we need to retry any
-        // updates still in it.
-        self.flush_batch.lock().unwrap().merge(to_flush);
-        res
+        let mut connection = self.pool.acquire().await?;
+        flush_job(&mut *connection, job_id, update).await
     }
 
     /// Jobs are reaped after some seconds (the number is deployment specific, and may become
@@ -207,10 +157,10 @@ impl Worker {
     /// if e.g. the job was reaped out from under you).
     pub async fn heartbeat(&self, job_id: Uuid) -> Result<(), QueueError> {
         let lock_id = {
-            let mut pending = self.running.lock().unwrap();
+            let mut pending = self.pending.lock().unwrap();
             let update = pending
                 .get_mut(&job_id)
-                .ok_or(JobError::UnknownJobId(job_id))?;
+                .ok_or(QueueError::UnknownJobId(job_id))?;
 
             let should_heartbeat = update
                 .last_heartbeat
@@ -228,31 +178,31 @@ impl Worker {
     }
 
     /// This is how you "return" a job to the queue, by setting the state to "available"
-    pub fn set_state(&self, job_id: Uuid, state: JobState) -> Result<(), JobError> {
-        let mut pending = self.running.lock().unwrap();
+    pub fn set_state(&self, job_id: Uuid, state: JobState) -> Result<(), QueueError> {
+        let mut pending = self.pending.lock().unwrap();
         pending
             .get_mut(&job_id)
-            .ok_or(JobError::UnknownJobId(job_id))?
+            .ok_or(QueueError::UnknownJobId(job_id))?
             .state = Some(state);
         Ok(())
     }
 
-    pub fn set_queue(&self, job_id: Uuid, queue: &str) -> Result<(), JobError> {
-        let mut pending = self.running.lock().unwrap();
+    pub fn set_queue(&self, job_id: Uuid, queue: &str) -> Result<(), QueueError> {
+        let mut pending = self.pending.lock().unwrap();
         pending
             .get_mut(&job_id)
-            .ok_or(JobError::UnknownJobId(job_id))?
+            .ok_or(QueueError::UnknownJobId(job_id))?
             .queue_name = Some(queue.to_string());
         Ok(())
     }
 
     /// Jobs are dequeued lowest-priority-first, so this is how you change the "base" priority of a job
     /// (control tables may apply further deltas if e.g. a given function is in a degraded state)
-    pub fn set_priority(&self, job_id: Uuid, priority: i16) -> Result<(), JobError> {
-        let mut pending = self.running.lock().unwrap();
+    pub fn set_priority(&self, job_id: Uuid, priority: i16) -> Result<(), QueueError> {
+        let mut pending = self.pending.lock().unwrap();
         pending
             .get_mut(&job_id)
-            .ok_or(JobError::UnknownJobId(job_id))?
+            .ok_or(QueueError::UnknownJobId(job_id))?
             .priority = Some(priority);
         Ok(())
     }
@@ -260,11 +210,15 @@ impl Worker {
     /// This is how you do e.g. retries after some time, by setting the scheduled time
     /// to some time in the future. Sleeping, retry backoff, scheduling - it's all the same operation,
     /// this one.
-    pub fn set_scheduled_at(&self, job_id: Uuid, scheduled: DateTime<Utc>) -> Result<(), JobError> {
-        let mut pending = self.running.lock().unwrap();
+    pub fn set_scheduled_at(
+        &self,
+        job_id: Uuid,
+        scheduled: DateTime<Utc>,
+    ) -> Result<(), QueueError> {
+        let mut pending = self.pending.lock().unwrap();
         pending
             .get_mut(&job_id)
-            .ok_or(JobError::UnknownJobId(job_id))?
+            .ok_or(QueueError::UnknownJobId(job_id))?
             .scheduled = Some(scheduled);
         Ok(())
     }
@@ -274,31 +228,35 @@ impl Worker {
         &self,
         job_id: Uuid,
         vm_state: Option<Bytes>, // This (and the following) are Options, because the user can null them (by calling with None)
-    ) -> Result<(), JobError> {
-        let mut pending = self.running.lock().unwrap();
+    ) -> Result<(), QueueError> {
+        let mut pending = self.pending.lock().unwrap();
         pending
             .get_mut(&job_id)
-            .ok_or(JobError::UnknownJobId(job_id))?
+            .ok_or(QueueError::UnknownJobId(job_id))?
             .vm_state = Some(vm_state);
         Ok(())
     }
 
     /// Passing None here will clear the metadata
-    pub fn set_metadata(&self, job_id: Uuid, metadata: Option<Bytes>) -> Result<(), JobError> {
-        let mut pending = self.running.lock().unwrap();
+    pub fn set_metadata(&self, job_id: Uuid, metadata: Option<Bytes>) -> Result<(), QueueError> {
+        let mut pending = self.pending.lock().unwrap();
         pending
             .get_mut(&job_id)
-            .ok_or(JobError::UnknownJobId(job_id))?
+            .ok_or(QueueError::UnknownJobId(job_id))?
             .metadata = Some(metadata);
         Ok(())
     }
 
     /// Passing None here will clear the parameters
-    pub fn set_parameters(&self, job_id: Uuid, parameters: Option<Bytes>) -> Result<(), JobError> {
-        let mut pending = self.running.lock().unwrap();
+    pub fn set_parameters(
+        &self,
+        job_id: Uuid,
+        parameters: Option<Bytes>,
+    ) -> Result<(), QueueError> {
+        let mut pending = self.pending.lock().unwrap();
         pending
             .get_mut(&job_id)
-            .ok_or(JobError::UnknownJobId(job_id))?
+            .ok_or(QueueError::UnknownJobId(job_id))?
             .parameters = Some(parameters);
         Ok(())
     }
@@ -309,9 +267,9 @@ impl Worker {
         // lock after the if check, makes the compiler think the lock is held across
         // the await point.
         {
-            let pending = self.running.lock().unwrap();
+            let pending = self.pending.lock().unwrap();
             if !pending.contains_key(&job_id) {
-                return Err(JobError::UnknownJobId(job_id).into());
+                return Err(QueueError::UnknownJobId(job_id));
             }
         }
 
@@ -319,218 +277,12 @@ impl Worker {
     }
 
     /// Passing None here will clear the blob
-    pub fn set_blob(&self, job_id: Uuid, blob: Option<Bytes>) -> Result<(), JobError> {
-        let mut pending = self.running.lock().unwrap();
+    pub fn set_blob(&self, job_id: Uuid, blob: Option<Bytes>) -> Result<(), QueueError> {
+        let mut pending = self.pending.lock().unwrap();
         pending
             .get_mut(&job_id)
-            .ok_or(JobError::UnknownJobId(job_id))?
+            .ok_or(QueueError::UnknownJobId(job_id))?
             .blob = Some(blob);
         Ok(())
-    }
-}
-
-// Started by each worker on creation, just loops seeing if the passed batch can be flushed, and
-// if it can, flushing it.
-async fn flush_loop(
-    pool: PgPool,
-    batch: Weak<Mutex<FlushBatch>>,
-    max_buffered: usize,
-    max_bytes: usize,
-    interval: Duration,
-) {
-    loop {
-        let Some(batch) = batch.upgrade() else {
-            // The batch has been dropped, we should exit.
-            break;
-        };
-        // Contemplating sync mutexes on the tree of woe.
-        let mut to_flush = { batch.lock().unwrap().take() };
-        if to_flush.should_flush(max_buffered, max_bytes) {
-            if let Err(e) = to_flush.flush(&pool).await {
-                error!("Error flushing batch: {:?}", e);
-            }
-        }
-        // We can always merge the taken batch back into the pending batch - on successful
-        // flush, the taken batch will be empty, and on failure, we need to re-queue those updates.
-        // TRICKY - we take care not to bind the lock here. Compilation WILL fail if it's bound,
-        // because it makes this future !Send, and the tokio::spawn above will fail, but in case
-        // we change the looping strategy, I'm calling it out explicitly too.
-        batch.lock().unwrap().merge(to_flush);
-        tokio::time::sleep(interval.to_std().unwrap()).await;
-    }
-}
-
-struct FlushBatch {
-    // The minimum of the "flush_by" times of all the updates in the batch
-    pub next_mandatory_flush: DateTime<Utc>,
-    // The list of pending updates. Note that the update batch makes no effort
-    // to deduplicate or compact updates.
-    pub pending: Vec<PendingUpdate>,
-    // A running total of all blob bytes held in the batch
-    pub blobs_size: usize,
-    // A running total of all vm_state bytes held in the batch
-    pub vm_states_size: usize,
-}
-
-impl FlushBatch {
-    pub fn new() -> Self {
-        Self {
-            next_mandatory_flush: Utc::now(),
-            pending: Default::default(),
-            blobs_size: 0,
-            vm_states_size: 0,
-        }
-    }
-
-    pub fn add(&mut self, pending: PendingUpdate, flush_by: DateTime<Utc>) {
-        // If this is the start of a new batch, reset the first_insert time
-        if self.pending.is_empty() {
-            self.next_mandatory_flush = flush_by;
-        } else {
-            self.next_mandatory_flush = self.next_mandatory_flush.min(flush_by);
-        }
-
-        // Update the sizes of the bytes we track
-        if let Some(Some(blob)) = pending.update.blob.as_ref() {
-            self.blobs_size += blob.len();
-        }
-        if let Some(Some(vm_state)) = pending.update.vm_state.as_ref() {
-            self.vm_states_size += vm_state.len();
-        }
-        self.pending.push(pending);
-    }
-
-    async fn flush(&mut self, pool: &PgPool) -> Result<(), QueueError> {
-        let now = Utc::now();
-        // First, filter any updates whose deadline is exceeded that we have
-        // already tried to flush once, sending a deadline exceeded error to the
-        // handle.
-        let mut i = 0;
-        while i < self.pending.len() {
-            if self.pending[i].deadline.map_or(false, |d| d < now) && self.pending[i].tries > 0 {
-                self.pending.swap_remove(i).fail_deadline_exceeded();
-            } else {
-                i += 1;
-            }
-        }
-
-        let mut txn = pool.begin().await?;
-        let mut results = Vec::new();
-        for to_flush in self.pending.iter_mut() {
-            to_flush.tries += 1;
-            let result = flush_job(&mut *txn, to_flush.job_id, &to_flush.update).await;
-            match result {
-                Ok(()) => {
-                    results.push(Ok(()));
-                }
-                Err(QueueError::JobError(e)) => {
-                    results.push(Err(e));
-                }
-                Err(e) => {
-                    return Err(e);
-                }
-            }
-        }
-        txn.commit().await?;
-
-        // We only dispatch results and clear the pending set if we actually commit the transaction, otherwise
-        // the updates in this batch should be retried.
-        for (update, result) in self.pending.drain(..).zip(results) {
-            update.resolve(result);
-        }
-        Ok(())
-    }
-
-    fn should_flush(&self, max_buffered: usize, max_bytes: usize) -> bool {
-        let would_flush = Utc::now() >= self.next_mandatory_flush
-            || self.pending.len() >= max_buffered
-            || self.blobs_size + self.vm_states_size >= max_bytes;
-
-        would_flush && !self.pending.is_empty() // we only should flush if we have something to flush
-    }
-
-    // Take the current batch, replacing it in memory with an empty one. Used along with "merge"
-    // to let us flush without holding the batch lock for the duration of the flush
-    fn take(&mut self) -> Self {
-        std::mem::take(self)
-    }
-
-    // Combine two batches, setting the next mandatory flush to the earliest of the two
-    fn merge(&mut self, other: Self) {
-        self.pending.extend(other.pending);
-        self.blobs_size += other.blobs_size;
-        self.vm_states_size += other.vm_states_size;
-        self.next_mandatory_flush = self.next_mandatory_flush.min(other.next_mandatory_flush);
-    }
-}
-
-impl Default for FlushBatch {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-struct PendingUpdate {
-    job_id: Uuid,
-    update: JobUpdate,
-    deadline: Option<DateTime<Utc>>,
-    tries: u8,
-    tx: oneshot::Sender<Result<(), JobError>>,
-}
-
-impl PendingUpdate {
-    pub fn new(
-        job_id: Uuid,
-        update: JobUpdate,
-        deadline: Option<DateTime<Utc>>,
-    ) -> (Self, FlushHandle) {
-        let (tx, rx) = oneshot::channel();
-        let update = Self {
-            job_id,
-            update,
-            deadline,
-            tries: 0,
-            tx,
-        };
-        (update, FlushHandle { inner: rx })
-    }
-
-    pub fn fail_deadline_exceeded(self) {
-        let job_id = self.job_id;
-        self.resolve(Err(JobError::DeadlineExceeded(job_id)));
-    }
-
-    pub fn resolve(self, result: Result<(), JobError>) {
-        // We do not care if someone is waiting for this result or not
-        let _ = self.tx.send(result);
-    }
-}
-
-pub struct FlushHandle {
-    inner: oneshot::Receiver<Result<(), JobError>>,
-}
-
-impl FlushHandle {
-    pub fn immediate(result: Result<(), JobError>) -> Self {
-        let (tx, rx) = oneshot::channel();
-        let _ = tx.send(result);
-        Self { inner: rx }
-    }
-}
-
-// If the inner oneshot resolves to an error, we know that the update was dropped before being flushed,
-// so we just return a JobError::UpdateDropped. Otherwise, we return the result of the inner oneshot.
-impl Future for FlushHandle {
-    type Output = Result<(), JobError>;
-
-    fn poll(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Self::Output> {
-        match self.inner.poll_unpin(cx) {
-            Poll::Ready(Ok(result)) => Poll::Ready(result),
-            Poll::Ready(Err(_)) => Poll::Ready(Err(JobError::UpdateDropped)),
-            Poll::Pending => Poll::Pending,
-        }
     }
 }
