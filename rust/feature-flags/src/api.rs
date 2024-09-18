@@ -201,7 +201,6 @@ impl From<CustomRedisError> for FlagError {
 impl From<CustomDatabaseError> for FlagError {
     fn from(e: CustomDatabaseError) -> Self {
         match e {
-            CustomDatabaseError::NotFound => FlagError::TokenValidationError,
             CustomDatabaseError::Other(_) => {
                 tracing::error!("failed to get connection: {}", e);
                 FlagError::DatabaseUnavailable
