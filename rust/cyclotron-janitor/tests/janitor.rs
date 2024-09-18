@@ -13,7 +13,7 @@ use common_kafka::{test::create_mock_kafka, APP_METRICS2_TOPIC};
 
 #[sqlx::test(migrations = "../cyclotron-core/migrations")]
 async fn janitor_test(db: PgPool) {
-    let worker = Worker::from_pool(db.clone(), Default::default());
+    let worker = Worker::from_pool(db.clone());
     let manager = QueueManager::from_pool(db.clone());
 
     // Purposefully MUCH smaller than would be used in production, so
@@ -26,7 +26,6 @@ async fn janitor_test(db: PgPool) {
     // to be smaller here, to test heartbeat behaviour
     let mut worker = worker;
     worker.heartbeat_window = stall_timeout / 2;
-    worker.max_buffered = 0; // No buffering for testing, flush immediately
     let worker = worker;
 
     let (mock_cluster, mock_producer) = create_mock_kafka().await;
@@ -82,7 +81,7 @@ async fn janitor_test(db: PgPool) {
         .unwrap();
 
     worker.set_state(job.id, JobState::Completed).unwrap();
-    worker.release_job(job.id, None).await.unwrap();
+    worker.flush_job(job.id).await.unwrap();
 
     let result = janitor.run_once().await.unwrap();
     assert_eq!(result.completed, 1);
@@ -127,7 +126,7 @@ async fn janitor_test(db: PgPool) {
         .unwrap();
 
     worker.set_state(job.id, JobState::Failed).unwrap();
-    worker.release_job(job.id, None).await.unwrap();
+    worker.flush_job(job.id).await.unwrap();
 
     let result = janitor.run_once().await.unwrap();
     assert_eq!(result.completed, 0);
@@ -192,7 +191,7 @@ async fn janitor_test(db: PgPool) {
 
     // Now, the worker can't flush the job
     worker.set_state(job.id, JobState::Completed).unwrap();
-    let result = worker.release_job(job.id, None).await;
+    let result = worker.flush_job(job.id).await;
     assert!(result.is_err());
 
     // But if we re-dequeue the job, we can flush it
@@ -203,7 +202,7 @@ async fn janitor_test(db: PgPool) {
         .pop()
         .unwrap();
     worker.set_state(job.id, JobState::Completed).unwrap();
-    worker.release_job(job.id, None).await.unwrap();
+    worker.flush_job(job.id).await.unwrap();
 
     janitor.run_once().await.unwrap(); // Clean up the completed job to reset for the next test
 
@@ -235,7 +234,7 @@ async fn janitor_test(db: PgPool) {
 
     // The worker can still flush the job
     worker.set_state(job.id, JobState::Completed).unwrap();
-    worker.release_job(job.id, None).await.unwrap();
+    worker.flush_job(job.id).await.unwrap();
 
     // and now cleanup will work
     let result = janitor.run_once().await.unwrap();
@@ -267,7 +266,7 @@ async fn janitor_test(db: PgPool) {
         worker.set_state(job.id, JobState::Completed).unwrap();
         let result = worker.heartbeat(job.id).await;
         assert!(result.is_err());
-        let result = worker.release_job(job.id, None).await;
+        let result = worker.flush_job(job.id).await;
         assert!(result.is_err());
 
         // re-dequeue the job
@@ -290,20 +289,19 @@ async fn janitor_test(db: PgPool) {
 
     // The worker can't flush the job
     worker.set_state(job.id, JobState::Completed).unwrap();
-    let result = worker.release_job(job.id, None).await;
+    let result = worker.flush_job(job.id).await;
     assert!(result.is_err());
 
     // Sixth test - the janitor can operate on multiple jobs at once
     manager.create_job(job_init.clone()).await.unwrap();
     manager.create_job(job_init.clone()).await.unwrap();
-
     let jobs = worker.dequeue_jobs(&queue_name, 2).await.unwrap();
 
     worker.set_state(jobs[0].id, JobState::Completed).unwrap();
     worker.set_state(jobs[1].id, JobState::Failed).unwrap();
 
-    worker.release_job(jobs[0].id, None).await.unwrap();
-    worker.release_job(jobs[1].id, None).await.unwrap();
+    worker.flush_job(jobs[0].id).await.unwrap();
+    worker.flush_job(jobs[1].id).await.unwrap();
 
     let result = janitor.run_once().await.unwrap();
     assert_eq!(result.completed, 1);

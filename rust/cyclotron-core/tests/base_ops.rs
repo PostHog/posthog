@@ -12,8 +12,7 @@ mod common;
 #[sqlx::test(migrations = "./migrations")]
 async fn test_queue(db: PgPool) {
     let manager = QueueManager::from_pool(db.clone());
-    let mut worker = Worker::from_pool(db, Default::default());
-    worker.max_buffered = 0; // No buffering for testing, flush immediately
+    let worker = Worker::from_pool(db);
 
     let job_1 = create_new_job();
     let mut job_2 = create_new_job();
@@ -50,12 +49,14 @@ async fn test_queue(db: PgPool) {
         .expect("failed to set state");
 
     // Flush the two jobs, having made no other changes, then assert we can re-dequeue them
-    let handle_1 = worker.release_job(jobs[0].id, None);
-    let handle_2 = worker.release_job(jobs[1].id, None);
-
-    worker.force_flush().await.unwrap();
-    handle_1.await.unwrap();
-    handle_2.await.unwrap();
+    worker
+        .flush_job(jobs[0].id)
+        .await
+        .expect("failed to flush job");
+    worker
+        .flush_job(jobs[1].id)
+        .await
+        .expect("failed to flush job");
 
     let jobs = worker
         .dequeue_jobs(&queue_name, 2)
@@ -74,15 +75,17 @@ async fn test_queue(db: PgPool) {
         .set_state(jobs[1].id, JobState::Available)
         .expect("failed to set state");
 
-    let handle_1 = worker.release_job(jobs[0].id, None);
-    let handle_2 = worker.release_job(jobs[1].id, None);
-
-    worker.force_flush().await.unwrap();
-    handle_1.await.unwrap();
-    handle_2.await.unwrap();
+    worker
+        .flush_job(jobs[0].id)
+        .await
+        .expect("failed to flush job");
+    worker
+        .flush_job(jobs[1].id)
+        .await
+        .expect("failed to flush job");
 
     // Spin up two tasks to race on dequeuing, and assert at most 2 jobs are dequeued
-    let worker: Arc<Worker> = Arc::new(worker);
+    let worker = Arc::new(worker);
     let moved = worker.clone();
     let queue_name_moved = queue_name.clone();
     let fut_1 = async move {
@@ -115,16 +118,20 @@ async fn test_queue(db: PgPool) {
         .expect("failed to dequeue job");
     assert_eq!(empty.len(), 0);
 
-    // If we try to flush a job without setting what it's next state will be,
-    // we should get an error. We don't bother forcing a flush here, because
-    // the worker should return a handle that immediately resolves.
-    assert!(worker.release_job(jobs[0].id, None).await.is_err());
+    // If we try to flush a job without setting what it's next state will be (or if we set that next state to be "running"),
+    // we should get an error
+    worker
+        .flush_job(jobs[0].id)
+        .await
+        .expect_err("expected error due to no-next-state");
 
-    // Trying to flush a job with the state "running" should also fail
     worker
         .set_state(jobs[1].id, JobState::Running)
         .expect("failed to set state");
-    assert!(worker.release_job(jobs[1].id, None).await.is_err());
+    worker
+        .flush_job(jobs[1].id)
+        .await
+        .expect_err("expected error due to running state");
 
     // But if we properly set the state to completed or failed, now we can flush
     worker
@@ -134,12 +141,14 @@ async fn test_queue(db: PgPool) {
         .set_state(jobs[1].id, JobState::Failed)
         .expect("failed to set state");
 
-    let handle_1 = worker.release_job(jobs[0].id, None);
-    let handle_2 = worker.release_job(jobs[1].id, None);
-
-    worker.force_flush().await.expect("failed to flush job");
-    handle_1.await.unwrap();
-    handle_2.await.unwrap();
+    worker
+        .flush_job(jobs[0].id)
+        .await
+        .expect("failed to flush job");
+    worker
+        .flush_job(jobs[1].id)
+        .await
+        .expect("failed to flush job");
 
     // And now, any subsequent dequeues will return no jobs (because these jobs are finished)
     let empty = worker
@@ -201,10 +210,8 @@ async fn test_queue(db: PgPool) {
         .expect("failed to set metadata");
 
     // Flush the job
-    let handle = worker.release_job(job.id, None);
+    worker.flush_job(job.id).await.expect("failed to flush job");
 
-    worker.force_flush().await.unwrap();
-    handle.await.unwrap();
     // Then dequeue it again (this time being sure to grab the vm state too)
     let job = worker
         .dequeue_with_vm_state("test_2", 1)
@@ -224,7 +231,7 @@ async fn test_queue(db: PgPool) {
 
 #[sqlx::test(migrations = "./migrations")]
 pub async fn test_bulk_insert(db: PgPool) {
-    let worker = Worker::from_pool(db.clone(), Default::default());
+    let worker = Worker::from_pool(db.clone());
     let manager = QueueManager::from_pool(db.clone());
 
     let job_template = create_new_job();
