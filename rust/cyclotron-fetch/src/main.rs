@@ -56,7 +56,7 @@ async fn main() {
 
     let liveness = HealthRegistry::new("liveness");
 
-    let (app_config, pool_config, kafka_config) = config.to_components();
+    let (app_config, pool_config, kafka_config, worker_config) = config.to_components();
     let bind = format!("{}:{}", app_config.host, app_config.port);
 
     info!(
@@ -81,6 +81,7 @@ async fn main() {
         app_config,
         pool_config,
         kafka_config,
+        worker_config,
         worker_liveness,
         kafka_liveness,
     )
