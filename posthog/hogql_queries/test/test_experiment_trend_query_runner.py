@@ -1,5 +1,7 @@
 from django.test import override_settings
 from posthog.hogql_queries.experiment_trend_query_runner import ExperimentTrendQueryRunner
+from posthog.models.experiment import Experiment
+from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.schema import (
     BreakdownFilter,
     EventsNode,
@@ -15,7 +17,58 @@ from typing import cast
 @override_settings(IN_UNIT_TESTING=True)
 class TestExperimentTrendQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_query_runner(self):
-        feature_flag_property = f"$feature/test-experiment"
+        feature_flag = FeatureFlag.objects.create(
+            name="Test experiment flag",
+            key="test-experiment",
+            team=self.team,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": None}],
+                "multivariate": {
+                    "variants": [
+                        {
+                            "key": "control",
+                            "name": "Control",
+                            "rollout_percentage": 50,
+                        },
+                        {
+                            "key": "test",
+                            "name": "Test",
+                            "rollout_percentage": 50,
+                        },
+                    ]
+                },
+            },
+            created_by=self.user,
+        )
+        experiment = Experiment.objects.create(
+            name="test-experiment",
+            team=self.team,
+            feature_flag=feature_flag,
+        )
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+        count_query = TrendsQuery(
+            kind="TrendsQuery",
+            series=[EventsNode(event="$pageview")],
+            dateRange={"date_from": "2020-01-01", "date_to": "2020-01-14"},
+            breakdownFilter=BreakdownFilter(breakdown=feature_flag_property),
+        )
+        exposure_query = TrendsQuery(
+            kind="TrendsQuery",
+            series=[EventsNode(event="$feature_flag_called")],
+            dateRange={"date_from": "2020-01-01", "date_to": "2020-01-14"},
+            breakdownFilter=BreakdownFilter(breakdown=feature_flag_property),
+        )
+
+        experiment_query = ExperimentTrendQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentTrendQuery",
+            count_source=count_query,
+            exposure_source=exposure_query,
+        )
+
+        experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
+        experiment.save()
 
         with freeze_time("2020-01-10 12:00:00"):
             # Populate experiment events
@@ -40,28 +93,10 @@ class TestExperimentTrendQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         flush_persons_and_events()
 
-        count_query = TrendsQuery(
-            kind="TrendsQuery",
-            series=[EventsNode(event="$pageview")],
-            dateRange={"date_from": "2020-01-01", "date_to": "2020-01-14"},
-            breakdownFilter=BreakdownFilter(breakdown=feature_flag_property),
+        query_runner = ExperimentTrendQueryRunner(
+            query=ExperimentTrendQuery(**experiment.metrics[0]["query"]), team=self.team
         )
-        exposure_query = TrendsQuery(
-            kind="TrendsQuery",
-            series=[EventsNode(event="$feature_flag_called")],
-            dateRange={"date_from": "2020-01-01", "date_to": "2020-01-14"},
-            breakdownFilter=BreakdownFilter(breakdown=feature_flag_property),
-        )
-
-        experiment_query = ExperimentTrendQuery(
-            kind="ExperimentTrendQuery",
-            count_source=count_query,
-            exposure_source=exposure_query,
-            variants=["control", "test"],
-        )
-
-        runner = ExperimentTrendQueryRunner(query=experiment_query, team=self.team)
-        result = runner.calculate()
+        result = query_runner.calculate()
 
         self.assertEqual(result.insight, "TRENDS")
         self.assertEqual(len(result.results), 2)

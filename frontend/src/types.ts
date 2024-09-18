@@ -640,6 +640,8 @@ export enum PropertyOperator {
     NotBetween = 'not_between',
     Minimum = 'min',
     Maximum = 'max',
+    In = 'in',
+    NotIn = 'not_in',
 }
 
 export enum SavedInsightsTabs {
@@ -770,6 +772,8 @@ export interface CohortPropertyFilter extends BasePropertyFilter {
     key: 'id'
     /**  @asType integer */
     value: number
+    /** @default 'in' */
+    operator: PropertyOperator
 }
 
 export interface GroupPropertyFilter extends BasePropertyFilter {
@@ -1791,6 +1795,11 @@ export interface DashboardType<T = InsightModel> extends DashboardBasicType {
     filters: DashboardFilter
 }
 
+export enum TemplateAvailabilityContext {
+    GENERAL = 'general',
+    ONBOARDING = 'onboarding',
+}
+
 export interface DashboardTemplateType<T = InsightModel> {
     id: string
     team_id?: number
@@ -1803,6 +1812,7 @@ export interface DashboardTemplateType<T = InsightModel> {
     tags?: string[]
     image_url?: string
     scope?: DashboardTemplateScope
+    availability_contexts?: TemplateAvailabilityContext[]
 }
 
 export interface MonacoMarker {
@@ -2168,6 +2178,7 @@ export interface TemplateVariableStep {
     url?: string | null
     properties?: Record<string, any>[]
     custom_name?: string
+    custom_event?: boolean
 }
 
 export interface PropertiesTimelineFilterType {
@@ -3102,6 +3113,7 @@ export enum PropertyType {
     Boolean = 'Boolean',
     Duration = 'Duration',
     Selector = 'Selector',
+    Cohort = 'Cohort',
 }
 
 export enum PropertyDefinitionType {
@@ -3323,6 +3335,7 @@ export interface AppContext {
     year_in_hog_url?: string
     /** Support flow aid: a staff-only list of users who may be impersonated to access this resource. */
     suggested_users_with_access?: UserBasicType[]
+    is_region_blocked?: boolean
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'

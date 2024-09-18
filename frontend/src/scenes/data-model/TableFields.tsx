@@ -81,7 +81,7 @@ export function TableFields({ fixedFields, joinedFields, rowsRefs, tableName }: 
                                 <div
                                     ref={(el) => {
                                         rowsRefs.current[idx] = el
-                                        rowsRefs.current[idx]?.setAttribute('id', nodeId)
+                                        rowsRefs.current[idx]?.setAttribute('id', `${nodeId}_joined`)
                                     }}
                                     className="flex flex-col"
                                 >

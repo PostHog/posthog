@@ -650,8 +650,6 @@ posthog/management/commands/sync_persons_to_clickhouse.py:0: error: Argument "gr
 posthog/management/commands/migrate_team.py:0: error: Incompatible types in assignment (expression has type "None", variable has type "BatchExport")  [assignment]
 posthog/management/commands/migrate_team.py:0: error: "BatchExportDestination" has no attribute "exclude_events"  [attr-defined]
 posthog/management/commands/migrate_team.py:0: error: "BatchExportDestination" has no attribute "include_events"  [attr-defined]
-posthog/management/commands/migrate_action_webhooks.py:0: error: Argument 1 to "convert_link" has incompatible type "str | None"; expected "str"  [arg-type]
-posthog/management/commands/migrate_action_webhooks.py:0: error: Argument 2 to "replace" of "str" has incompatible type "str | None"; expected "str"  [arg-type]
 posthog/management/commands/fix_future_person_created_at.py:0: error: Argument "version" to "create_person" has incompatible type "int | None"; expected "int"  [arg-type]
 posthog/hogql/test/test_query.py:0: error: Value of type "list[QueryTiming] | None" is not indexable  [index]
 posthog/hogql/test/test_query.py:0: error: Value of type "list[QueryTiming] | None" is not indexable  [index]

@@ -48,34 +48,46 @@ const calculateNodePositions = (nodesWithDepth: NodeWithDepth[]): NodePosition[]
     // Order nodes by depth
     nodesWithDepth.sort((a, b) => a.depth - b.depth)
 
-    // Create a map to store the next available row for each depth
-    const depthRowMap: { [key: number]: number } = {}
+    const nodePositions: NodePosition[] = []
+    const visited: string[] = []
 
-    // Update node positions based on depth
-    const nodePositions = nodesWithDepth.map((node) => {
-        const col = node.depth
+    const dfs = (nodeId: string, row: number = 0): number => {
+        if (visited.includes(nodeId)) {
+            return row
+        }
+        visited.push(nodeId)
 
-        // If this is the first node at this depth, initialize the row
-        if (depthRowMap[col] === undefined) {
-            depthRowMap[col] = 0
+        const node = nodesWithDepth.find((n) => n.nodeId === nodeId)
+        if (!node) {
+            return row
         }
 
-        // Reset row to match root if new column
-        if (col > 0 && depthRowMap[col] === 0) {
-            depthRowMap[col] = depthRowMap[0] - 1 || 0
-        }
-
-        const row = depthRowMap[col]
-
-        // Update the next available row for this depth
-        depthRowMap[col] = row + 1
-
-        return {
+        const nodePosition = {
             ...node,
             position: {
-                x: padding + col * HORIZONTAL_SPACING,
+                x: padding + node.depth * HORIZONTAL_SPACING,
                 y: padding + row * VERTICAL_SPACING,
             },
+        }
+
+        nodePositions.push(nodePosition)
+
+        let maxRow = row
+        node.leaf
+            .filter((leafId) => !leafId.includes('_joined'))
+            .forEach((leafId, index) => {
+                dfs(leafId, row + index)
+                maxRow = Math.max(maxRow, row + index)
+            })
+
+        return maxRow
+    }
+
+    let maxRow = 0
+
+    nodesWithDepth.forEach((node) => {
+        if (node.depth === 0) {
+            maxRow = dfs(node.nodeId, maxRow) + 1
         }
     })
 
