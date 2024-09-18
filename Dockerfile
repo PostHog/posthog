@@ -230,7 +230,7 @@ EXPOSE 8000
 # Expose the port from which we serve OpenMetrics data.
 EXPOSE 8001
 
-COPY docker/posthog/docker-entrypoint.sh /usr/local/bin/
+COPY ./docker/posthog/docker-entrypoint.sh /usr/local/bin/
 STOPSIGNAL SIGTERM
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 COPY unit.json.tpl /docker-entrypoint.d/unit.json.tpl
