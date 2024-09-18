@@ -47,7 +47,7 @@ impl Config {
             max_pg_connections: 10,
             acquire_timeout_secs: 1,
             maxmind_db_path: "".to_string(),
-            enable_metrics: true,
+            enable_metrics: false,
         }
     }
 
