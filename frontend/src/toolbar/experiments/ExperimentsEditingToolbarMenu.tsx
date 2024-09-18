@@ -131,7 +131,7 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                             {experimentForm.variants![variant].transforms.map((transform, tIndex) => (
                                                 <div key={tIndex}>
                                                     <span>
-                                                        {tIndex + 1} ) {transform.selector}
+                                                        {tIndex + 1} ) {transform.selector ?? 'no element selected'}
                                                     </span>
                                                     <div className="flex p-1 flex-col-3">
                                                         <LemonButton

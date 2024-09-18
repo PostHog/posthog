@@ -21,10 +21,21 @@ import { Experiment } from '~/types'
 
 import type { experimentsTabLogicType } from './experimentsTabLogicType'
 
-function newExperiment(): ExperimentDraftType {
+function newExperiment(): ExperimentForm {
     return {
         name: 'new experiment',
-    } as unknown as ExperimentDraftType
+        variants: {
+            control: {
+                transforms: [
+                    {
+                        text: '',
+                        html: '',
+                    } as unknown as WebExperimentTransform,
+                ],
+                rollout_percentage: 100,
+            },
+        },
+    } as unknown as ExperimentForm
 }
 
 export const experimentsTabLogic = kea<experimentsTabLogicType>([
