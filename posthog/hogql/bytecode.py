@@ -475,8 +475,20 @@ class BytecodeCompiler(Visitor):
         return response
 
     def visit_select_query(self, node: ast.SelectQuery):
-        if self.mode == "ast":
-            return self._hx_ast(node)
+        # Select queries trigger AST-mode always
+        last_mode = self.mode
+        self.mode = "ast"
+        response = self._hx_ast(node)
+        self.mode = last_mode
+        return response
+
+    def visit_select_union_query(self, node: ast.SelectUnionQuery):
+        # Select queries trigger AST-mode always
+        last_mode = self.mode
+        self.mode = "ast"
+        response = self._hx_ast(node)
+        self.mode = last_mode
+        return response
 
     def visit_expr_call(self, node: ast.ExprCall):
         if self.mode == "ast":
