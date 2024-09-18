@@ -8,6 +8,8 @@
 //print(sql({a} + 2))
 
 let a := sql(event)
-let query := sql((select *, {a} from events))
+let b := sql(uuid)
+let c := 3
+let query := sql((select *, {c > 0 ? a : b} from events))
 print(query)
 print(query.select)
