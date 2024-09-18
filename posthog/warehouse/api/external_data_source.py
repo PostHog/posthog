@@ -792,7 +792,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             client_email = key_file.get("client_email")
             token_uri = key_file.get("token_uri")
 
-            schemas = get_bigquery_schemas(
+            bq_schemas = get_bigquery_schemas(
                 dataset_id=dataset_id,
                 project_id=project_id,
                 private_key=private_key,
@@ -802,7 +802,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
             filtered_results = [
-                (table_name, filter_bigquery_incremental_fields(columns)) for table_name, columns in schemas.items()
+                (table_name, filter_bigquery_incremental_fields(columns)) for table_name, columns in bq_schemas.items()
             ]
 
             result_mapped_to_options = [
