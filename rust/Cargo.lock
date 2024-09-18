@@ -871,11 +871,11 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "futures",
- "rand",
  "serde",
  "sqlx",
  "thiserror",
  "tokio",
+ "tracing",
  "uuid",
 ]
 
