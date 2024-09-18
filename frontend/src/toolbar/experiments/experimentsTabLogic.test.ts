@@ -39,15 +39,15 @@ describe('experimentsTabLogic', () => {
                 ],
             },
             post: {
-                '/api/projects/@current/web_experiments/': (req) => ({
+                '/api/projects/@current/web_experiments/': () => ({
                     id: 3,
-                    name: req.body.name,
+                    name: 'New Web Experiment',
                 }),
             },
             patch: {
-                '/api/projects/@current/web_experiments/1': (req) => ({
+                '/api/projects/@current/web_experiments/1': () => ({
                     id: 3,
-                    name: req.body.name,
+                    name: 'Updated web experiment',
                 }),
             },
         })
