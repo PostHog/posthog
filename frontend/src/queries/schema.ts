@@ -1932,6 +1932,8 @@ export interface AlertType extends AlertTypeBase {
     state: string
     last_notified_at: string
     checks: AlertCheck[]
+    series_index: number
+    calculation_interval: 'hour' | 'day' | 'week' | 'month'
 }
 
 export interface HogCompileResponse {

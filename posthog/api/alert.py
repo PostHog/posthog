@@ -98,6 +98,8 @@ class AlertSerializer(serializers.ModelSerializer):
             "enabled",
             "last_notified_at",
             "checks",
+            "series_index",
+            "calculation_interval",
         ]
         read_only_fields = [
             "id",

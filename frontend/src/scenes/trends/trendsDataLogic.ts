@@ -1,4 +1,5 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { Intervals } from 'lib/components/IntervalFilter/intervals'
 import { dayjs } from 'lib/dayjs'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -48,6 +49,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'display',
                 'compareFilter',
                 'interval',
+                'enabledIntervals',
                 'breakdownFilter',
                 'showValuesOnSeries',
                 'showLabelOnSeries',
@@ -91,6 +93,14 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
     }),
 
     selectors(({ values }) => ({
+        /** Alerts can't be calculated more often than every hour currently */
+        calculationIntervalsForAlerts: [
+            (s) => [s.enabledIntervals],
+            (enabledIntervals: Intervals) => {
+                return Object.keys(enabledIntervals).filter((interval) => !['minute'].includes(interval))
+            },
+        ],
+
         results: [
             (s) => [s.insightData],
             (insightData: TrendAPIResponse | null): TrendResult[] => {

@@ -5,7 +5,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { AlertType } from '~/queries/schema'
 import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
-import { ChartDisplayType, InsightLogicProps, InsightShortId } from '~/types'
+import { InsightLogicProps, InsightShortId } from '~/types'
 
 import type { alertsLogicType } from './alertsLogicType'
 
@@ -16,13 +16,7 @@ export interface AlertsLogicProps {
 }
 
 export const areAlertsSupportedForInsight = (query?: Record<string, any> | null): boolean => {
-    return (
-        !!query &&
-        isInsightVizNode(query) &&
-        isTrendsQuery(query.source) &&
-        query.source.trendsFilter !== null &&
-        query.source.trendsFilter?.display === ChartDisplayType.BoldNumber
-    )
+    return !!query && isInsightVizNode(query) && isTrendsQuery(query.source) && query.source.trendsFilter !== null
 }
 
 export const alertsLogic = kea<alertsLogicType>([

@@ -340,6 +340,10 @@
         "AlertType": {
             "additionalProperties": false,
             "properties": {
+                "calculation_interval": {
+                    "enum": ["hour", "day", "week", "month"],
+                    "type": "string"
+                },
                 "checks": {
                     "items": {
                         "$ref": "#/definitions/AlertCheck"
@@ -370,6 +374,9 @@
                 "name": {
                     "type": "string"
                 },
+                "series_index": {
+                    "type": "number"
+                },
                 "state": {
                     "type": "string"
                 },
@@ -391,6 +398,7 @@
                 }
             },
             "required": [
+                "calculation_interval",
                 "checks",
                 "condition",
                 "created_at",
@@ -400,6 +408,7 @@
                 "insight",
                 "last_notified_at",
                 "name",
+                "series_index",
                 "state",
                 "subscribed_users",
                 "threshold"

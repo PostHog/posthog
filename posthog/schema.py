@@ -46,6 +46,13 @@ class AlertCondition(BaseModel):
     )
 
 
+class CalculationInterval(StrEnum):
+    HOUR = "hour"
+    DAY = "day"
+    WEEK = "week"
+    MONTH = "month"
+
+
 class AlertTypeBase(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3825,6 +3832,7 @@ class AlertType(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    calculation_interval: CalculationInterval
     checks: list[AlertCheck]
     condition: AlertCondition
     created_at: str
@@ -3834,6 +3842,7 @@ class AlertType(BaseModel):
     insight: float
     last_notified_at: str
     name: str
+    series_index: float
     state: str
     subscribed_users: list[UserBasicType]
     threshold: Threshold

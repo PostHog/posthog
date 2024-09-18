@@ -1,4 +1,4 @@
-import { LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { AlertStateIndicator } from 'lib/components/Alerts/views/ManageAlerts'
@@ -9,6 +9,8 @@ import { IconChevronLeft } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { alphabet } from 'lib/utils'
+import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
 import { AlertType } from '~/queries/schema'
 
@@ -64,6 +66,9 @@ export function EditAlert(props: EditAlertProps): JSX.Element {
     const { alert, isAlertSubmitting, alertChanged } = useValues(logic)
     const { deleteAlert } = useActions(alertslogic)
     const { setAlertValue } = useActions(logic)
+
+    const { results, calculationIntervalsForAlerts } = useValues(trendsDataLogic(props.insightLogicProps))
+
     const id = props.id
 
     const _onDelete = (): void => {
@@ -114,11 +119,27 @@ export function EditAlert(props: EditAlertProps): JSX.Element {
                                 />
                             </LemonField>
 
-                            <MemberSelectMultiple
-                                value={alert.subscribed_users?.map((u) => u.id) ?? []}
-                                idKey="id"
-                                onChange={(value) => setAlertValue('subscribed_users', value)}
-                            />
+                            <LemonField name="series_index" label="Series">
+                                <LemonSelect
+                                    fullWidth
+                                    data-attr="alert-series-index"
+                                    options={results.map(({ label }, index) => ({
+                                        label: `${alphabet[index]} - ${label}`,
+                                        value: index,
+                                    }))}
+                                />
+                            </LemonField>
+
+                            <LemonField name="calculation_interval" label="Calculation Interval">
+                                <LemonSelect
+                                    fullWidth
+                                    data-attr="alert-calculation-interval"
+                                    options={calculationIntervalsForAlerts.map((interval) => ({
+                                        label: interval,
+                                        value: interval,
+                                    }))}
+                                />
+                            </LemonField>
 
                             <Group name={['threshold', 'configuration', 'absoluteThreshold']}>
                                 <span className="flex gap-10">
@@ -138,6 +159,12 @@ export function EditAlert(props: EditAlertProps): JSX.Element {
                                     </LemonField>
                                 </span>
                             </Group>
+
+                            <MemberSelectMultiple
+                                value={alert.subscribed_users?.map((u) => u.id) ?? []}
+                                idKey="id"
+                                onChange={(value) => setAlertValue('subscribed_users', value)}
+                            />
                         </div>
                         <AlertState alert={alert} />
                     </>
