@@ -93,44 +93,29 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
         return property_to_expr(properties, team=self.team, scope="event")
 
     @cached_property
-    def conversion_goal_action(self) -> Optional[Action]:
+    def conversion_goal_expr(self) -> ast.Expr:
         if isinstance(self.query.conversionGoal, ActionConversionGoal):
-            return Action.objects.get(pk=self.query.conversionGoal.actionId)
+            action = Action.objects.get(pk=self.query.conversionGoal.actionId)
+            return action_to_expr(action)
+        elif isinstance(self.query.conversionGoal, CustomEventConversionGoal):
+            return ast.CompareOperation(
+                left=ast.Field(chain=["events", "event"]),
+                op=ast.CompareOperationOp.Eq,
+                right=ast.Constant(value=self.query.conversionGoal.customEventName),
+            )
         else:
-            return None
-
-    @cached_property
-    def conversion_goal_custom_event(self) -> Optional[str]:
-        if isinstance(self.query.conversionGoal, CustomEventConversionGoal):
-            return self.query.conversionGoal.customEventName
-        else:
-            return None
+            return ast.Constant(value=None)
 
     @cached_property
     def conversion_person_id_expr(self) -> ast.Expr:
-        if self.conversion_goal_action:
-            action_expr = action_to_expr(self.conversion_goal_action)
-            return ast.Call(
-                name="any",
-                args=[
-                    ast.Call(
-                        name="if",
-                        args=[action_expr, ast.Field(chain=["events", "person_id"]), ast.Constant(value=None)],
-                    )
-                ],
-            )
-        elif self.conversion_goal_custom_event:
+        if self.conversion_goal_expr:
             return ast.Call(
                 name="any",
                 args=[
                     ast.Call(
                         name="if",
                         args=[
-                            ast.CompareOperation(
-                                left=ast.Field(chain=["event"]),
-                                op=ast.CompareOperationOp.Eq,
-                                right=ast.Constant(value=self.conversion_goal_custom_event),
-                            ),
+                            self.conversion_goal_expr,
                             ast.Field(chain=["events", "person_id"]),
                             ast.Constant(value=None),
                         ],
@@ -142,7 +127,7 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
 
     @cached_property
     def pageview_count_expression(self) -> ast.Expr:
-        if self.conversion_goal_action:
+        if self.conversion_goal_expr:
             return ast.Call(
                 name="countIf",
                 args=[
@@ -158,20 +143,8 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
 
     @cached_property
     def conversion_count_expr(self) -> ast.Expr:
-        if self.conversion_goal_action:
-            action_expr = action_to_expr(self.conversion_goal_action)
-            return ast.Call(name="countIf", args=[action_expr])
-        elif self.conversion_goal_custom_event:
-            return ast.Call(
-                name="countIf",
-                args=[
-                    ast.CompareOperation(
-                        left=ast.Field(chain=["event"]),
-                        op=ast.CompareOperationOp.Eq,
-                        right=ast.Constant(value=self.conversion_goal_custom_event),
-                    )
-                ],
-            )
+        if self.conversion_goal_expr:
+            return ast.Call(name="countIf", args=[self.conversion_goal_expr])
         else:
             return ast.Constant(value=None)
 
@@ -181,20 +154,8 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
             op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["event"]), right=ast.Constant(value="$pageview")
         )
 
-        if self.conversion_goal_action:
-            return ast.Call(name="or", args=[pageview_expr, action_to_expr(self.conversion_goal_action)])
-        elif self.conversion_goal_custom_event:
-            return ast.Call(
-                name="or",
-                args=[
-                    pageview_expr,
-                    ast.CompareOperation(
-                        left=ast.Field(chain=["event"]),
-                        op=ast.CompareOperationOp.Eq,
-                        right=ast.Constant(value=self.conversion_goal_custom_event),
-                    ),
-                ],
-            )
+        if self.conversion_goal_expr:
+            return ast.Call(name="or", args=[pageview_expr, self.conversion_goal_expr])
         else:
             return pageview_expr
 
