@@ -14,9 +14,6 @@ pub use types::JobUpdate;
 
 // Errors
 mod error;
-// Errors about some job operation - locks being lost, invalid states, flush deadlines exceeded etc
-pub use error::JobError;
-// Errors about the queue itself - full shards, timeouts, postgres/network errors
 pub use error::QueueError;
 
 // Manager
@@ -25,8 +22,6 @@ pub use manager::QueueManager;
 
 // Worker
 mod worker;
-// A handle to a released job update, that can be awaited to block waiting for the flush to complete
-pub use worker::FlushHandle;
 pub use worker::Worker;
 
 // Janitor
@@ -37,7 +32,6 @@ pub use janitor::Janitor;
 mod config;
 pub use config::ManagerConfig;
 pub use config::PoolConfig;
-pub use config::WorkerConfig;
 
 // The shard id is a fixed value that is set by the janitor when it starts up.
 // Workers may use this value when reporting metrics. The `Worker` struct provides
