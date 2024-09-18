@@ -1,6 +1,5 @@
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const cyclotron = require('../index.node')
-import { convertToInternalPoolConfig, deserializeObject, serializeObject } from './helpers'
+// const cyclotron = require('../index.node')
+import { deserializeObject } from './helpers'
 import { CyclotronJob, CyclotronJobState, CyclotronJobUpdate, CyclotronPoolConfig } from './types'
 
 const parseJob = (job: CyclotronJob): CyclotronJob => {
@@ -48,7 +47,7 @@ export class CyclotronWorker {
             throw new Error('Already consuming')
         }
 
-        await cyclotron.maybeInitWorker(JSON.stringify(convertToInternalPoolConfig(this.config.pool)))
+        // await cyclotron.maybeInitWorker(JSON.stringify(convertToInternalPoolConfig(this.config.pool)))
 
         this.isConsuming = true
         this.consumerLoopPromise = this.startConsumerLoop(processBatch).finally(() => {
@@ -67,11 +66,13 @@ export class CyclotronWorker {
             while (this.isConsuming) {
                 this.lastHeartbeat = new Date()
 
-                const jobs = (
-                    this.config.includeVmState
-                        ? await cyclotron.dequeueJobsWithVmState(this.config.queueName, batchMaxSize)
-                        : await cyclotron.dequeueJobs(this.config.queueName, batchMaxSize)
-                ).map(parseJob)
+                // const jobs = (
+                //     this.config.includeVmState
+                //         ? await cyclotron.dequeueJobsWithVmState(this.config.queueName, batchMaxSize)
+                //         : await cyclotron.dequeueJobs(this.config.queueName, batchMaxSize)
+                // ).map(parseJob)
+
+                const jobs: CyclotronJob[] = []
 
                 if (!jobs.length) {
                     // Wait a bit before polling again
@@ -93,28 +94,30 @@ export class CyclotronWorker {
     }
 
     async flushJob(jobId: string): Promise<void> {
-        return await cyclotron.flushJob(jobId)
+        return Promise.resolve()
+        // return await cyclotron.flushJob(jobId)
     }
 
     updateJob(id: CyclotronJob['id'], state: CyclotronJobState, updates?: CyclotronJobUpdate): void {
-        cyclotron.setState(id, state)
-        if (updates?.queueName) {
-            cyclotron.setQueue(id, updates.queueName)
-        }
-        if (updates?.priority) {
-            cyclotron.setPriority(id, updates.priority)
-        }
-        if (updates?.parameters) {
-            cyclotron.setParameters(id, serializeObject('parameters', updates.parameters))
-        }
-        if (updates?.metadata) {
-            cyclotron.setMetadata(id, serializeObject('metadata', updates.metadata))
-        }
-        if (updates?.vmState) {
-            cyclotron.setVmState(id, serializeObject('vmState', updates.vmState))
-        }
-        if (updates?.blob) {
-            cyclotron.setBlob(id, updates.blob)
-        }
+        return
+        // cyclotron.setState(id, state)
+        // if (updates?.queueName) {
+        //     cyclotron.setQueue(id, updates.queueName)
+        // }
+        // if (updates?.priority) {
+        //     cyclotron.setPriority(id, updates.priority)
+        // }
+        // if (updates?.parameters) {
+        //     cyclotron.setParameters(id, serializeObject('parameters', updates.parameters))
+        // }
+        // if (updates?.metadata) {
+        //     cyclotron.setMetadata(id, serializeObject('metadata', updates.metadata))
+        // }
+        // if (updates?.vmState) {
+        //     cyclotron.setVmState(id, serializeObject('vmState', updates.vmState))
+        // }
+        // if (updates?.blob) {
+        //     cyclotron.setBlob(id, updates.blob)
+        // }
     }
 }

@@ -1,7 +1,6 @@
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const cyclotron = require('../index.node')
+// const cyclotron = require('../index.node')
 
-import { convertToInternalPoolConfig, serializeObject } from './helpers'
+import { serializeObject } from './helpers'
 import { CyclotronJobInit, CyclotronPoolConfig } from './types'
 
 export class CyclotronManager {
@@ -10,11 +9,12 @@ export class CyclotronManager {
     }
 
     async connect(): Promise<void> {
-        return await cyclotron.maybeInitManager(
-            JSON.stringify({
-                shards: this.config.shards.map((shard) => convertToInternalPoolConfig(shard)),
-            })
-        )
+        return Promise.resolve()
+        // return await cyclotron.maybeInitManager(
+        //     JSON.stringify({
+        //         shards: this.config.shards.map((shard) => convertToInternalPoolConfig(shard)),
+        //     })
+        // )
     }
 
     async createJob(job: CyclotronJobInit): Promise<void> {
@@ -34,6 +34,7 @@ export class CyclotronManager {
         }
 
         const json = JSON.stringify(jobInitInternal)
-        return await cyclotron.createJob(json, job.blob ? job.blob.buffer : undefined)
+        return Promise.resolve()
+        // return await cyclotron.createJob(json, job.blob ? job.blob.buffer : undefined)
     }
 }
