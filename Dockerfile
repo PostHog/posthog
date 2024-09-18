@@ -143,8 +143,8 @@ WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 ENV PYTHONUNBUFFERED 1
 
-COPY docker/posthog/install-nginx-unit.sh /install-nginx-unit.sh
-RUN ./install-nginx-unit.sh && rm /install-nginx-unit.sh
+COPY ./docker/posthog/install-nginx-unit.sh ./install-nginx-unit.sh
+RUN ./install-nginx-unit.sh && rm ./install-nginx-unit.sh
 
 # Install OS runtime dependencies.
 # Note: please add in this stage runtime dependences only!
