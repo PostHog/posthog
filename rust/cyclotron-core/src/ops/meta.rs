@@ -6,18 +6,26 @@ use crate::{
     DEAD_LETTER_QUEUE,
 };
 
-pub async fn count_total_waiting_jobs<'c, E>(executor: E) -> Result<u64, QueueError>
+pub async fn count_total_waiting_jobs<'c, E>(executor: E) -> Result<Vec<(u64, String)>, QueueError>
 where
     E: sqlx::Executor<'c, Database = sqlx::Postgres>,
 {
-    let res = sqlx::query!(
-        "SELECT COUNT(*) FROM cyclotron_jobs WHERE state = 'available' AND scheduled <= NOW()",
+    struct Count {
+        count: Option<i64>,
+        queue_name: String,
+    }
+
+    let res = sqlx::query_as!(
+        Count,
+        "SELECT COUNT(*), queue_name FROM cyclotron_jobs WHERE state = 'available' AND scheduled <= NOW() GROUP BY queue_name",
     )
-    .fetch_one(executor)
+    .fetch_all(executor)
     .await?;
 
-    let res = res.count.unwrap_or(0);
-    Ok(res as u64)
+    Ok(res
+        .into_iter()
+        .map(|r| (r.count.unwrap_or(0) as u64, r.queue_name))
+        .collect())
 }
 
 // Returns an InvalidLock error if the query run did not affect any rows.
