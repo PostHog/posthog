@@ -252,6 +252,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                 props.alwaysRefresh
                             )) ?? null
                         actions.setElapsedTime(performance.now() - now)
+                        if (values.response === null) {
+                            return newResponse
+                        }
                         if (newResponse?.results) {
                             actions.highlightRows(newResponse?.results)
                         }
