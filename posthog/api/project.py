@@ -8,7 +8,7 @@ from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 
-from posthog.api.geoip import get_geoip_properties
+from posthog.geoip import get_geoip_properties
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import ProjectBasicSerializer
 from posthog.api.team import PremiumMultiProjectPermissions, TeamSerializer, validate_team_attrs
@@ -43,6 +43,8 @@ from posthog.utils import get_ip_address, get_week_start_for_country_code
 
 
 class ProjectSerializer(ProjectBasicSerializer, UserPermissionsSerializerMixin):
+    instance: Optional[Project]
+
     effective_membership_level = serializers.SerializerMethodField()  # Compat with TeamSerializer
     has_group_types = serializers.SerializerMethodField()  # Compat with TeamSerializer
     live_events_token = serializers.SerializerMethodField()  # Compat with TeamSerializer

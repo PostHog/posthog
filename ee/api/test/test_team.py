@@ -3,10 +3,12 @@ from rest_framework.status import (
     HTTP_204_NO_CONTENT,
     HTTP_403_FORBIDDEN,
     HTTP_404_NOT_FOUND,
+    HTTP_400_BAD_REQUEST,
 )
 
 from ee.api.test.base import APILicensedTest
 from ee.models.explicit_team_membership import ExplicitTeamMembership
+from posthog.models.dashboard import Dashboard
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.project import Project
 from posthog.models.team import Team
@@ -40,6 +42,26 @@ def team_enterprise_api_test_factory():  # type: ignore
             )
             self.assertEqual(self.organization.teams.count(), 2)
 
+        def test_create_team_with_access_control(self):
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+            self.assertEqual(Team.objects.count(), 1)
+            self.assertEqual(Project.objects.count(), 1)
+            response = self.client.post("/api/environments/", {"name": "Test", "access_control": True})
+            self.assertEqual(response.status_code, 201)
+            self.assertEqual(Team.objects.count(), 2)
+            self.assertEqual(Project.objects.count(), 2)
+            response_data = response.json()
+            self.assertDictContainsSubset(
+                {
+                    "name": "Test",
+                    "access_control": True,
+                    "effective_membership_level": OrganizationMembership.Level.ADMIN,
+                },
+                response_data,
+            )
+            self.assertEqual(self.organization.teams.count(), 2)
+
         def test_non_admin_cannot_create_team(self):
             self.organization_membership.level = OrganizationMembership.Level.MEMBER
             self.organization_membership.save()
@@ -50,6 +72,19 @@ def team_enterprise_api_test_factory():  # type: ignore
             self.assertEqual(
                 response.json(),
                 self.permission_denied_response("Your organization access level is insufficient."),
+            )
+
+        def test_cannot_create_team_with_primary_dashboard_id(self):
+            dashboard_x = Dashboard.objects.create(team=self.team, name="Test")
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+            response = self.client.post("/api/environments/", {"name": "Test", "primary_dashboard": dashboard_x.id})
+            self.assertEqual(response.status_code, HTTP_400_BAD_REQUEST, response.json())
+            self.assertEqual(
+                response.json(),
+                self.validation_error_response(
+                    "Primary dashboard cannot be set on project creation.", attr="primary_dashboard"
+                ),
             )
 
         def test_create_demo_team(self, *args):

@@ -45,7 +45,7 @@ export function Overview(): JSX.Element {
                     Send your data to destinations in real time or with batch exports. Only active Destinations are
                     shown here. <Link to={urls.pipeline(PipelineTab.Destinations)}>See all.</Link>
                 </p>
-                <DestinationsTable defaultFilters={{ onlyActive: true }} />
+                <DestinationsTable />
             </div>
         </div>
     )

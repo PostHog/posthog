@@ -34,6 +34,9 @@ uuid = { workspace = true }
 base64.workspace = true
 flate2.workspace = true
 common-alloc = { path = "../common/alloc" }
+health = { path = "../common/health" }
+common-metrics = { path = "../common/metrics" }
+tower = { workspace = true }
 
 [lints]
 workspace = true

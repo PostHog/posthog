@@ -285,6 +285,8 @@ def render_template(
     *,
     team_for_public_context: Optional["Team"] = None,
 ) -> HttpResponse:
+    from posthog.geoip import get_geoip_properties
+
     """Render Django template.
 
     If team_for_public_context is provided, this means this is a public page such as a shared dashboard.
@@ -341,6 +343,9 @@ def render_template(
         "anonymous": not request.user or not request.user.is_authenticated,
         "year_in_hog_url": year_in_hog_url,
     }
+
+    geo_ip_country_code = get_geoip_properties(get_ip_address(request)).get("$geoip_country_code", None)
+    posthog_app_context["is_region_blocked"] = geo_ip_country_code in settings.BLOCKED_GEOIP_REGIONS
 
     posthog_bootstrap: dict[str, Any] = {}
     posthog_distinct_id: Optional[str] = None
