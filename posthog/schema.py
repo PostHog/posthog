@@ -5743,7 +5743,7 @@ class ActorsQuery(BaseModel):
     properties: Optional[
         Union[
             list[Union[PersonPropertyFilter, CohortPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter]],
-            PropertyGroupFilter,
+            PropertyGroupFilterValue,
         ]
     ] = Field(
         default=None,

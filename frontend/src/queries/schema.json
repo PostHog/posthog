@@ -218,7 +218,7 @@
                             "type": "array"
                         },
                         {
-                            "$ref": "#/definitions/PropertyGroupFilter"
+                            "$ref": "#/definitions/PropertyGroupFilterValue"
                         }
                     ],
                     "description": "Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py."

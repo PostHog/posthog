@@ -29,6 +29,7 @@ import {
     PathsFilterType,
     PersonPropertyFilter,
     PropertyGroupFilter,
+    PropertyGroupFilterValue,
     PropertyMathType,
     RetentionFilterType,
     SessionPropertyFilter,
@@ -1321,7 +1322,7 @@ export interface ActorsQuery extends DataNode<ActorsQueryResponse> {
     select?: HogQLExpression[]
     search?: string
     /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
-    properties?: AnyPersonScopeFilter[] | PropertyGroupFilter
+    properties?: AnyPersonScopeFilter[] | PropertyGroupFilterValue
     /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
     fixedProperties?: AnyPersonScopeFilter[]
     orderBy?: string[]
