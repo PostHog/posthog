@@ -1,7 +1,13 @@
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const cyclotron = require('../index.node')
 import { convertToInternalPoolConfig, deserializeObject, serializeObject } from './helpers'
-import { CyclotronJob, CyclotronJobState, CyclotronJobUpdate, CyclotronPoolConfig, CyclotronWorkerTuningConfig } from './types'
+import {
+    CyclotronJob,
+    CyclotronJobState,
+    CyclotronJobUpdate,
+    CyclotronPoolConfig,
+    CyclotronWorkerTuningConfig,
+} from './types'
 
 const parseJob = (job: CyclotronJob): CyclotronJob => {
     return {
@@ -33,7 +39,7 @@ export class CyclotronWorker {
     private consumerLoopPromise: Promise<void> | null = null
 
     constructor(private config: CyclotronWorkerConfig, private tuning?: CyclotronWorkerTuningConfig) {
-        let defaultTuning: CyclotronWorkerTuningConfig = {
+        const defaultTuning: CyclotronWorkerTuningConfig = {
             heartbeatWindowSeconds: 5,
             lingerTimeMs: 500,
             maxUpdatesBuffered: 100,
@@ -56,7 +62,10 @@ export class CyclotronWorker {
             throw new Error('Already consuming')
         }
 
-        await cyclotron.maybeInitWorker(JSON.stringify(convertToInternalPoolConfig(this.config.pool)), JSON.stringify(this.tuning))
+        await cyclotron.maybeInitWorker(
+            JSON.stringify(convertToInternalPoolConfig(this.config.pool)),
+            JSON.stringify(this.tuning)
+        )
 
         this.isConsuming = true
         this.consumerLoopPromise = this.startConsumerLoop(processBatch).finally(() => {
