@@ -126,6 +126,14 @@ jobs:
                   cat /tmp/logs/server.txt
                   cat /tmp/logs/worker.txt
 
+            - name: Show logs on failure
+              # use artefact here, as I think the output will be too large for display in an action
+              uses: actions/upload-artifact@v3
+              with:
+                  name: logs
+                  path: /tmp/logs
+              if: ${{ failure() }}
+
     deploy_preview:
         name: Deploy preview environment
         uses: ./.github/workflows/pr-deploy.yml
