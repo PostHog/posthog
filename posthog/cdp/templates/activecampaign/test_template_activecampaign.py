@@ -36,7 +36,7 @@ class TestTemplateActiveCampaign(BaseHogFunctionTemplateTest):
                     "method": "POST",
                     "headers": {
                         "content-type": "application/json",
-                        "Api-Token": "2f30ab262aa2bc92cc235ca437fc635dac37040d134d2d0c1be1ae0ec6a5b88476ed17b2",
+                        "Api-Token": "API_KEY",
                     },
                     "body": {
                         "contact": {
