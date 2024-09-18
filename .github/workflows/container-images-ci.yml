@@ -62,21 +62,18 @@ jobs:
 
             - name: Wait for ClickHouse
               # these are required checks so, we can't skip entire sections
-              if: needs.changes.outputs.shouldTriggerCypress == 'true'
               run: ./bin/check_kafka_clickhouse_up
 
             - name: Install Depot CLI
-              if: needs.changes.outputs.shouldTriggerCypress == 'true'
               uses: depot/setup-action@v1
 
             - name: Get Docker image cached in Depot
-              if: needs.changes.outputs.shouldTriggerCypress == 'true'
               uses: depot/pull-action@v1
               with:
-                  build-id: ${{ needs.container.outputs.build-id }}
-                  tags: ${{ needs.container.outputs.tag }}
+                  build-id: ${{ needs.posthog_build.outputs.build-id }}
+                  tags: ${{ needs.posthog_build.outputs.tag }}
 
-            - name: Write .env # This step intentionally has no if, so that GH always considers the action as having run
+            - name: Write .env
               run: |
                   cat <<EOT >> .env
                   SECRET_KEY=6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da
@@ -105,8 +102,8 @@ jobs:
               run: |
                   mkdir -p /tmp/logs
 
-                  echo "Starting PostHog using the container image ${{ needs.container.outputs.tag }}"
-                  DOCKER_RUN="docker run --rm --network host --add-host kafka:127.0.0.1 --env-file .env ${{ needs.container.outputs.tag }}"
+                  echo "Starting PostHog using the container image ${{ needs.posthog_build.outputs.tag }}"
+                  DOCKER_RUN="docker run --rm --network host --add-host kafka:127.0.0.1 --env-file .env ${{ needs.posthog_build.outputs.tag }}"
 
                   $DOCKER_RUN ./bin/migrate
                   $DOCKER_RUN python manage.py setup_dev
