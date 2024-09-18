@@ -662,6 +662,7 @@ export interface ConditionalFormattingRule {
     bytecode: any[]
     input: string
     color: string
+    colorMode?: 'light' | 'dark'
 }
 
 export interface TableSettings {
