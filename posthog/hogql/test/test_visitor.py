@@ -1,8 +1,10 @@
+from typing import Optional, cast
+
 from posthog.hogql import ast
 from posthog.hogql.ast import UUIDType, HogQLXTag, HogQLXAttribute
 from posthog.hogql.errors import InternalHogQLError
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.visitor import CloningVisitor, Visitor, TraversingVisitor
+from posthog.hogql.visitor import CloningVisitor, Visitor, TraversingVisitor, T_AST
 from posthog.test.base import BaseTest
 
 
@@ -58,7 +60,7 @@ class TestVisitor(BaseTest):
                         args=[
                             ast.Alias(
                                 alias="d",
-                                expr=ast.Placeholder(chain=["e"]),
+                                expr=ast.Placeholder(expr=ast.Field(chain=["e"])),
                             ),
                             ast.OrderExpr(
                                 expr=ast.Field(chain=["c"]),
@@ -142,6 +144,9 @@ class TestVisitor(BaseTest):
 
     def test_hogql_visitor_naming_exceptions(self):
         class NamingCheck(Visitor):
+            def visit(self, node: Optional[T_AST]) -> str:  # type: ignore
+                return cast(str, super().visit(node))
+
             def visit_uuid_type(self, node: ast.Constant):
                 return "visit_uuid_type"
 

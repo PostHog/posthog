@@ -7,7 +7,6 @@ from collections.abc import Callable
 from hogvm.python.execute import execute_bytecode, BytecodeResult
 from hogvm.python.stl import STL
 from posthog.hogql import ast
-from posthog.hogql.base import AST
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_program
@@ -200,6 +199,11 @@ class BytecodeCompiler(Visitor):
         response.append(fields)
         return response
 
+    def visit(self, node: ast.AST | None) -> list[Any]:  # type: ignore
+        if node is None:
+            return []
+        return cast(list[Any], super().visit(node))
+
     def visit_and(self, node: ast.And):
         if self.mode == "ast":
             return self._hx_ast(node)
@@ -365,6 +369,8 @@ class BytecodeCompiler(Visitor):
             raise QueryError(f"Constant type `{type(node.value)}` is not supported")
 
     def visit_call(self, node: ast.Call):
+        response: list[Any] = []
+
         if self.mode == "ast":
             return self._hx_ast(node)
             # return self._hx_ast(
@@ -436,8 +442,9 @@ class BytecodeCompiler(Visitor):
         args = node.params if node.params is not None else node.args
 
         response = []
-        for expr in args:
-            response.extend(self.visit(expr))
+        if args:
+            for expr2 in args:
+                response.extend(self.visit(expr2))
 
         found_local_with_name = False
         for local in reversed(self.locals):
@@ -468,8 +475,8 @@ class BytecodeCompiler(Visitor):
         # If the node has two sets of params, process the second set now
         if node.params is not None:
             next_response = []
-            for expr in node.args:
-                next_response.extend(self.visit(expr))
+            for expr3 in node.args:
+                next_response.extend(self.visit(expr3))
             response = [*next_response, *response, Operation.CALL_LOCAL, len(node.args)]
 
         return response
@@ -904,7 +911,7 @@ class BytecodeCompiler(Visitor):
                 if local.name == name:
                     # Set a local variable
                     if len(node.left.chain) == 1:
-                        return [*self.visit(cast(AST, node.right)), Operation.SET_LOCAL, index]
+                        return [*self.visit(node.right), Operation.SET_LOCAL, index]
 
                     # else set a property on a local object
                     ops = [Operation.GET_LOCAL, index]
@@ -924,7 +931,7 @@ class BytecodeCompiler(Visitor):
             if upvalue_index != -1:
                 # Set an upvalue
                 if len(node.left.chain) == 1:
-                    return [*self.visit(cast(AST, node.right)), Operation.SET_UPVALUE, upvalue_index]
+                    return [*self.visit(node.right), Operation.SET_UPVALUE, upvalue_index]
 
                 # else set a property on an upvalue object
                 ops = [Operation.GET_UPVALUE, upvalue_index]
@@ -1045,7 +1052,7 @@ class BytecodeCompiler(Visitor):
     def visit_placeholder(self, node: ast.Placeholder):
         if self.mode == "ast":
             self.mode = "hog"
-            response = self.visit(ast.Field(chain=node.chain))
+            response = self.visit(node.expr)
             self.mode = "ast"
             return response
         raise QueryError("Placeholders are not supported in Hog code")

@@ -1,27 +1,41 @@
 from copy import deepcopy
-from typing import Optional, TypeVar, Generic, Any
+from typing import Optional, TypeVar, Generic, Any, overload
 
 from posthog.hogql import ast
 from posthog.hogql.base import AST, Expr
 from posthog.hogql.errors import BaseHogQLError
 
 
-def clone_expr(expr: Expr, clear_types=False, clear_locations=False) -> Expr:
+T = TypeVar("T")
+T_AST = TypeVar("T_AST", bound="AST")
+T_Expr = TypeVar("T_Expr", bound="Expr")
+
+
+@overload
+def clone_expr(expr: None, clear_types=False, clear_locations=False) -> None: ...
+@overload
+def clone_expr(expr: T_AST, clear_types=False, clear_locations=False) -> T_AST: ...
+def clone_expr(expr: Optional[T_AST], clear_types=False, clear_locations=False) -> Optional[T_AST]:
     """Clone an expression node."""
+    if expr is None:
+        return None
     return CloningVisitor(clear_types=clear_types, clear_locations=clear_locations).visit(expr)
 
 
-def clear_locations(expr: Expr) -> Expr:
+@overload
+def clear_locations(expr: None) -> None: ...
+@overload
+def clear_locations(expr: T_AST) -> T_AST: ...
+def clear_locations(expr: Optional[T_AST]) -> Optional[T_AST]:
+    if expr is None:
+        return None
     return CloningVisitor(clear_locations=True).visit(expr)
 
 
-T = TypeVar("T")
-
-
 class Visitor(Generic[T]):
-    def visit(self, node: AST | None) -> T:
+    def visit(self, node: Any) -> Any:
         if node is None:
-            return node  # type: ignore
+            return node
 
         try:
             return node.accept(self)
@@ -34,6 +48,10 @@ class Visitor(Generic[T]):
 
 class TraversingVisitor(Visitor[None]):
     """Visitor that traverses the AST tree without returning anything"""
+
+    def visit(self, node: Optional[T_AST]):
+        if node:
+            super().visit(node)
 
     def visit_cte(self, node: ast.CTE):
         pass
@@ -351,6 +369,15 @@ class CloningVisitor(Visitor[Any]):
         self.clear_types = clear_types
         self.clear_locations = clear_locations
 
+    @overload
+    def visit(self, node: T_AST) -> T_AST: ...
+    @overload
+    def visit(self, node: None) -> None: ...
+    def visit(self, node: Optional[T_AST]) -> Optional[T_AST]:
+        if node is None:
+            return None
+        return super().visit(node)
+
     def visit_cte(self, node: ast.CTE):
         return ast.CTE(
             start=None if self.clear_locations else node.start,
@@ -498,7 +525,7 @@ class CloningVisitor(Visitor[Any]):
             start=None if self.clear_locations else node.start,
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
-            chain=node.chain,
+            expr=node.expr,
         )
 
     def visit_call(self, node: ast.Call):
@@ -705,7 +732,7 @@ class CloningVisitor(Visitor[Any]):
         return ast.ThrowStatement(
             start=None if self.clear_locations else node.start,
             end=None if self.clear_locations else node.end,
-            expr=self.visit(node.expr) if node.expr else None,
+            expr=self.visit(node.expr) if node.expr else None,  # type: ignore
         )
 
     def visit_try_catch_statement(self, node: ast.TryCatchStatement):
