@@ -28,19 +28,12 @@ const UrlInput = ({ iframeRef }: { iframeRef: React.RefObject<HTMLIFrameElement>
     const { setBrowserUrl, setInitialPath } = useActions(
         iframedToolbarBrowserLogic({ iframeRef, clearBrowserUrlOnUnmount: true })
     )
-    const { browserUrl, currentPath, currentFullUrl } = useValues(
+    const { browserUrl, currentPath } = useValues(
         iframedToolbarBrowserLogic({ iframeRef, clearBrowserUrlOnUnmount: true })
     )
     const { snippetHosts } = useValues(sdksLogic)
     const { addUrl } = useActions(authorizedUrlListLogic({ actionId: null, type: AuthorizedUrlListType.TOOLBAR_URLS }))
     const [inputValue, setInputValue] = useState(currentPath)
-    const { activeDashboardTemplate } = useValues(newDashboardLogic)
-    const theDashboardTemplateVariablesLogic = dashboardTemplateVariablesLogic({
-        variables: activeDashboardTemplate?.variables || [],
-    })
-    const { setVariableForPageview, setActiveVariableCustomEventName } = useActions(theDashboardTemplateVariablesLogic)
-    const { activeVariable } = useValues(theDashboardTemplateVariablesLogic)
-    const { hideCustomEventField } = useActions(onboardingTemplateConfigLogic)
 
     useEffect(() => {
         setInputValue(currentPath)
@@ -87,18 +80,6 @@ const UrlInput = ({ iframeRef }: { iframeRef: React.RefObject<HTMLIFrameElement>
                     setInitialPath(inputValue || '')
                 }}
             />
-            <LemonButton
-                size="small"
-                type="primary"
-                status="alt"
-                onClick={() => {
-                    setVariableForPageview(activeVariable.name, currentFullUrl)
-                    setActiveVariableCustomEventName(null)
-                    hideCustomEventField()
-                }}
-            >
-                Select pageview
-            </LemonButton>
         </div>
     )
 }
@@ -272,6 +253,7 @@ export const OnboardingDashboardTemplateConfigureStep = ({
                                 </Link>{' '}
                                 (no need to send it now) .
                             </p>
+                            <p className="italic">PS! These don't have to be perfect, you can fine-tune them later.</p>
                             <DashboardTemplateVariables hasSelectedSite={!!browserUrl} iframeRef={iframeRef} />
                             <div className="flex flex-wrap mt-6 w-full gap-x-2 gap-y-2 justify-center">
                                 <div className="grow min-w-64">
