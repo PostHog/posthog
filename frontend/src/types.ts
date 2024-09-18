@@ -1513,7 +1513,7 @@ export interface PerformanceEvent {
     request_body?: Body
     response_body?: Body
     method?: string
-    // normally, can rely on performance event values like duration
+    // normally, can rely on performance event values like duration,
     // but they may be absent in which case the SDK may have sent start and end time
     end_time?: number
 

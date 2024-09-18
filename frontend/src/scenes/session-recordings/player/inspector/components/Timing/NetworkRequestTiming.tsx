@@ -1,7 +1,7 @@
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { useState } from 'react'
-import { TimeLineView, validateForTimelineView } from 'scenes/session-recordings/apm/waterfall/TimeLineView'
+import { convertForTimelineView, TimeLineView } from 'scenes/session-recordings/apm/waterfall/TimeLineView'
 import { SimpleKeyValueList } from 'scenes/session-recordings/player/inspector/components/SimpleKeyValueList'
 
 import { PerformanceEvent } from '~/types'
@@ -23,7 +23,7 @@ export const NetworkRequestTiming = ({
 }): JSX.Element | null => {
     const [timelineMode, setTimelineMode] = useState<boolean>(true)
 
-    const { isValid: isValidForTimelineView } = validateForTimelineView(performanceEvent)
+    const { isValid: isValidForTimelineView } = convertForTimelineView(performanceEvent)
 
     return (
         <div className="flex flex-col space-y-2">

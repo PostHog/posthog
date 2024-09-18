@@ -10,7 +10,7 @@ import {
 
 import { PerformanceEvent } from '~/types'
 
-export const validateForTimelineView = (
+export const convertForTimelineView = (
     performanceEvent: PerformanceEvent
 ): {
     rangeStart: number | undefined
@@ -44,7 +44,7 @@ export const validateForTimelineView = (
  * we can show the parts that make up a performance entry
  */
 export const TimeLineView = ({ performanceEvent }: { performanceEvent: PerformanceEvent }): JSX.Element | null => {
-    const { rangeStart, rangeEnd, performanceMeasures, isValid } = validateForTimelineView(performanceEvent)
+    const { rangeStart, rangeEnd, performanceMeasures, isValid } = convertForTimelineView(performanceEvent)
 
     if (!performanceMeasures || !isValid || rangeStart === undefined || rangeEnd === undefined) {
         return null

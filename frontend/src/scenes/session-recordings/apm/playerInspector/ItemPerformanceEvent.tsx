@@ -140,7 +140,7 @@ function SizeDescription({ sizeInfo }: { sizeInfo: PerformanceEventSizeInfo }): 
                 </>
             ) : null}
             {sizeInfo.formattedCompressionPercentage &&
-            sizeInfo.formattedCompressionPercentage !== '0.0%' &&
+            (sizeInfo.compressionPercentage || 0) > 0 &&
             sizeInfo.formattedEncodedBodySize ? (
                 <>
                     , compressed to <b>{sizeInfo.formattedEncodedBodySize}</b> saving{' '}
