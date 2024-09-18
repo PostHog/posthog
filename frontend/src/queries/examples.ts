@@ -152,6 +152,7 @@ const series: (EventsNode | ActionsNode)[] = [
             {
                 type: PropertyFilterType.Cohort,
                 key: 'id',
+                operator: PropertyOperator.In,
                 value: 2,
             },
         ],

@@ -83,6 +83,8 @@ export const billingLogic = kea<billingLogicType>([
         setShowLicenseDirectInput: (show: boolean) => ({ show }),
         reportBillingAlertShown: (alertConfig: BillingAlertConfig) => ({ alertConfig }),
         reportBillingAlertActionClicked: (alertConfig: BillingAlertConfig) => ({ alertConfig }),
+        reportCreditsFormSubmitted: (creditInput: number) => ({ creditInput }),
+        reportCreditsModalShown: true,
         reportBillingShown: true,
         registerInstrumentationProps: true,
         setRedirectPath: true,
@@ -466,6 +468,7 @@ export const billingLogic = kea<billingLogicType>([
 
                 actions.showPurchaseCreditsModal(false)
                 actions.loadCreditOverview()
+                actions.reportCreditsFormSubmitted(+creditInput)
 
                 LemonDialog.open({
                     title: 'Your credit purchase has been submitted',
@@ -519,6 +522,14 @@ export const billingLogic = kea<billingLogicType>([
         reportBillingAlertActionClicked: ({ alertConfig }) => {
             posthog.capture('billing alert action clicked', {
                 ...alertConfig,
+            })
+        },
+        reportCreditsModalShown: () => {
+            posthog.capture('credits modal shown')
+        },
+        reportCreditsFormSubmitted: ({ creditInput }) => {
+            posthog.capture('credits modal credit form submitted', {
+                creditInput,
             })
         },
         loadBillingSuccess: () => {
@@ -663,6 +674,11 @@ export const billingLogic = kea<billingLogicType>([
                     payload['billing_period_end'] = values.billing.billing_period.current_period_end
                 }
                 posthog.register(payload)
+            }
+        },
+        showPurchaseCreditsModal: ({ isOpen }) => {
+            if (isOpen) {
+                actions.reportCreditsModalShown()
             }
         },
     })),

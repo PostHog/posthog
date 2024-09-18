@@ -1,4 +1,6 @@
 from posthog.hogql_queries.experiment_funnel_query_runner import ExperimentFunnelQueryRunner
+from posthog.models.experiment import Experiment
+from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.schema import (
     BreakdownFilter,
     EventsNode,
@@ -12,11 +14,51 @@ from typing import cast
 
 
 class TestExperimentFunnelQueryRunner(ClickhouseTestMixin, APIBaseTest):
-    def setUp(self):
-        super().setUp()
-
     def test_query_runner(self):
-        feature_flag_property = f"$feature/test-experiment"
+        feature_flag = FeatureFlag.objects.create(
+            name="Test experiment flag",
+            key="test-experiment",
+            team=self.team,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": None}],
+                "multivariate": {
+                    "variants": [
+                        {
+                            "key": "control",
+                            "name": "Control",
+                            "rollout_percentage": 50,
+                        },
+                        {
+                            "key": "test",
+                            "name": "Test",
+                            "rollout_percentage": 50,
+                        },
+                    ]
+                },
+            },
+            created_by=self.user,
+        )
+        experiment = Experiment.objects.create(
+            name="test-experiment",
+            team=self.team,
+            feature_flag=feature_flag,
+        )
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        funnels_query = FunnelsQuery(
+            series=[EventsNode(event="$pageview"), EventsNode(event="purchase")],
+            dateRange={"date_from": "2020-01-01", "date_to": "2020-01-14"},
+            breakdownFilter=BreakdownFilter(breakdown=feature_flag_property),
+        )
+        experiment_query = ExperimentFunnelQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentFunnelQuery",
+            source=funnels_query,
+        )
+
+        experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
+        experiment.save()
 
         with freeze_time("2020-01-10 12:00:00"):
             for variant, purchase_count in [("control", 6), ("test", 8)]:
@@ -40,17 +82,10 @@ class TestExperimentFunnelQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         flush_persons_and_events()
 
-        funnels_query = FunnelsQuery(
-            series=[EventsNode(event="$pageview"), EventsNode(event="purchase")],
-            dateRange={"date_from": "2020-01-01", "date_to": "2020-01-14"},
-            breakdownFilter=BreakdownFilter(breakdown=feature_flag_property),
+        query_runner = ExperimentFunnelQueryRunner(
+            query=ExperimentFunnelQuery(**experiment.metrics[0]["query"]), team=self.team
         )
-        experiment_query = ExperimentFunnelQuery(
-            kind="ExperimentFunnelQuery", source=funnels_query, variants=["control", "test"]
-        )
-
-        runner = ExperimentFunnelQueryRunner(query=experiment_query, team=self.team)
-        result = runner.calculate()
+        result = query_runner.calculate()
 
         self.assertEqual(result.insight, "FUNNELS")
         self.assertEqual(len(result.results), 2)
