@@ -12,6 +12,9 @@ class HogQLCohortQuery(CohortQuery):
             # everything is pushed down, no behavioral stuff to do
             # thus, use personQuery directly
 
+            # This works
+            # ActorsQuery(properties=c.properties.to_dict())
+
             # This just queries based on person properties and stuff
             # Need to figure out how to turn these cohort properties into a set of person properties
             actors_query = ActorsQuery(properties=[self._filter._data["properties"]])
