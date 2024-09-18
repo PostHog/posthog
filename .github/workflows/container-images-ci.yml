@@ -17,7 +17,9 @@ jobs:
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
             contents: read # allow at least reading the repo contents, add other permissions if necessary
-
+        outputs:
+            tag: ${{ steps.build.outputs.tag }}
+            build-id: ${{ steps.build.outputs.build-id }}
         steps:
             # If this run wasn't initiated by PostHog Bot (meaning: snapshot update),
             # cancel previous runs of snapshot update-inducing workflows
@@ -39,6 +41,7 @@ jobs:
 
             - name: Build and cache Docker image in Depot
               uses: ./.github/actions/build-n-cache-image
+              id: build
               with:
                   actions-id-token-request-url: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
 
