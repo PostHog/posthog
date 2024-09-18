@@ -1,6 +1,7 @@
 use crate::{
     api::{FlagError, FlagValue, FlagsResponse},
     database::Client as DatabaseClient,
+    feature_flag_match_reason::FeatureFlagMatchReason,
     flag_definitions::{FeatureFlag, FeatureFlagList, FlagGroupType, PropertyFilter},
     property_matching::match_property,
 };
@@ -21,7 +22,7 @@ type GroupTypeIndex = i32;
 pub struct FeatureFlagMatch {
     pub matches: bool,
     pub variant: Option<String>,
-    pub reason: Option<String>,
+    pub reason: FeatureFlagMatchReason,
     pub condition_index: Option<usize>,
     pub payload: Option<Value>,
 }
@@ -205,10 +206,12 @@ impl FeatureFlagMatcher {
 
         // Step 1: Evaluate flags that can be resolved with overrides
         for flag in &feature_flags.flags {
+            // Skip inactive or deleted flags
             if !flag.active || flag.deleted {
                 continue;
             }
 
+            // Get any flag matches with overrides, assuming that these overrides can be computed locally
             match self
                 .match_flag_with_overrides(
                     flag,
@@ -235,6 +238,9 @@ impl FeatureFlagMatcher {
             }
         }
 
+        // At this point, we have a list of flags that we couldn't locally evaluate (with overrides, or without), so
+        // we need to hit the DB to fetch the properties for these flags to continue our evaluation.
+
         // Step 2: Fetch and cache properties for remaining flags
         if !flags_needing_db_properties.is_empty() {
             let group_type_indexes: HashSet<GroupTypeIndex> = flags_needing_db_properties
@@ -255,7 +261,8 @@ impl FeatureFlagMatcher {
             )
             .await
             {
-                Ok(_) => {}
+                Ok(_) => {} // `fetch_and_locally_cache_all_properties` returns void on success,
+                // so at this point we know we've cached the properties, and can continue.
                 Err(e) => {
                     error_while_computing_flags = true;
                     error!("Error fetching properties: {:?}", e);
@@ -286,6 +293,12 @@ impl FeatureFlagMatcher {
         }
     }
 
+    /// Matches a feature flag with property overrides.
+    ///
+    /// This function attempts to match a feature flag using either group or person property overrides,
+    /// depending on whether the flag is group-based or person-based. It first collects all property
+    /// filters from the flag's conditions, then retrieves the appropriate overrides, and finally
+    /// attempts to match the flag using these overrides.
     async fn match_flag_with_overrides(
         &mut self,
         flag: &FeatureFlag,
@@ -316,6 +329,11 @@ impl FeatureFlagMatcher {
         }
     }
 
+    /// Retrieves group overrides for a specific group type index.
+    ///
+    /// This function attempts to find and return property overrides for a given group type.
+    /// It first maps the group type index to a group type, then checks if there are any
+    /// overrides for that group type in the provided group property overrides.
     async fn get_group_overrides(
         &mut self,
         group_type_index: GroupTypeIndex,
@@ -341,6 +359,11 @@ impl FeatureFlagMatcher {
         Ok(None)
     }
 
+    /// Retrieves person overrides for feature flag evaluation.
+    ///
+    /// This function attempts to find and return property overrides for a person.
+    /// It uses the provided person property overrides and filters them based on
+    /// the property filters defined in the feature flag.
     fn get_person_overrides(
         &self,
         person_property_overrides: &Option<HashMap<String, Value>>,
@@ -362,6 +385,19 @@ impl FeatureFlagMatcher {
         }
     }
 
+    /// Determines if a feature flag matches for the current context.
+    ///
+    /// This method evaluates the conditions of a feature flag to determine if it should be enabled,
+    /// and if so, which variant (if any) should be applied. It follows these steps:
+    ///
+    /// 1. Check if there's a valid hashed identifier for the flag.
+    /// 2. Evaluate any super conditions that might override normal conditions.
+    /// 3. Sort and evaluate each condition, prioritizing those with variant overrides.
+    /// 4. For each matching condition, determine the appropriate variant and payload.
+    /// 5. Return the result of the evaluation, including match status, variant, reason, and payload.
+    ///
+    /// The method also keeps track of the highest priority match reason and index,
+    /// which are used even if no conditions ultimately match.
     pub async fn get_match(
         &mut self,
         flag: &FeatureFlag,
@@ -371,13 +407,36 @@ impl FeatureFlagMatcher {
             return Ok(FeatureFlagMatch {
                 matches: false,
                 variant: None,
-                reason: Some("NO_GROUP_TYPE".to_string()),
+                reason: FeatureFlagMatchReason::NoGroupType,
                 condition_index: None,
                 payload: None,
             });
         }
 
-        // TODO super group management, the last of the new queries to be implemented
+        let mut highest_match = FeatureFlagMatchReason::NoConditionMatch;
+        let mut highest_index = None;
+
+        // Evaluate any super conditions first
+        if let Some(super_groups) = &flag.filters.super_groups {
+            if !super_groups.is_empty() {
+                let (super_match, super_reason) = self
+                    .is_super_condition_match(flag, property_overrides.clone())
+                    .await?;
+
+                if super_match {
+                    let payload = self.get_matching_payload(None, flag);
+                    return Ok(FeatureFlagMatch {
+                        matches: super_match,
+                        variant: None,
+                        reason: super_reason,
+                        condition_index: Some(0),
+                        payload,
+                    });
+                }
+            }
+        }
+
+        println!("no super conditions matched");
 
         // Sort conditions with variant overrides to the top so that we can evaluate them first
         let mut sorted_conditions: Vec<(usize, &FlagGroupType)> =
@@ -387,50 +446,85 @@ impl FeatureFlagMatcher {
             .sort_by_key(|(_, condition)| if condition.variant.is_some() { 0 } else { 1 });
 
         for (index, condition) in sorted_conditions {
+            println!("evaluating condition: {:?}, index: {}", condition, index);
             let (is_match, reason) = self
                 .is_condition_match(flag, condition, property_overrides.clone())
                 .await?;
+            println!(
+                "condition_index {}, match: {}, reason: {:?}",
+                index, is_match, reason
+            );
+
+            // Update highest_match and highest_index regardless of is_match
+            let (new_highest_match, new_highest_index) = self
+                .get_highest_priority_match_evaluation(
+                    highest_match.clone(),
+                    highest_index,
+                    reason.clone(),
+                    Some(index),
+                );
+            highest_match = new_highest_match;
+            highest_index = new_highest_index;
 
             if is_match {
-                let variant = match &condition.variant {
-                    Some(variant_override)
-                        if flag
-                            .get_variants()
-                            .iter()
-                            .any(|v| &v.key == variant_override) =>
-                    {
-                        Some(variant_override.clone())
-                    }
-                    _ => self.get_matching_variant(flag).await?,
-                };
+                if highest_match == FeatureFlagMatchReason::SuperConditionValue {
+                    break; // Exit early if we've found a super condition match
+                }
 
+                let variant = self.get_matching_variant(flag).await?;
                 let payload = self.get_matching_payload(variant.as_deref(), flag);
 
                 return Ok(FeatureFlagMatch {
                     matches: true,
                     variant,
-                    reason: Some(reason),
-                    condition_index: Some(index),
+                    reason: highest_match,
+                    condition_index: highest_index,
                     payload,
                 });
             }
         }
 
+        // Return with the highest_match reason and index even if no conditions matched
         Ok(FeatureFlagMatch {
             matches: false,
             variant: None,
-            reason: Some("NO_CONDITION_MATCH".to_string()),
-            condition_index: None,
+            reason: highest_match,
+            condition_index: highest_index,
             payload: None,
         })
     }
 
+    /// This function determines the highest priority match evaluation for feature flag conditions.
+    /// It compares the current match reason with a new match reason and returns the higher priority one.
+    /// The priority is determined by the ordering of FeatureFlagMatchReason variants.
+    /// It's used to keep track of the most significant reason why a flag matched or didn't match,
+    /// which is especially useful when multiple conditions are evaluated.
+    fn get_highest_priority_match_evaluation(
+        &self,
+        current_match: FeatureFlagMatchReason,
+        current_index: Option<usize>,
+        new_match: FeatureFlagMatchReason,
+        new_index: Option<usize>,
+    ) -> (FeatureFlagMatchReason, Option<usize>) {
+        if current_match <= new_match {
+            (new_match, new_index)
+        } else {
+            (current_match, current_index)
+        }
+    }
+
+    /// Check if a condition matches for a feature flag.
+    ///
+    /// This function evaluates a specific condition of a feature flag to determine if it should be enabled.
+    /// It first checks if the condition has any property filters. If not, it performs a rollout check.
+    /// Otherwise, it fetches the relevant properties and checks if they match the condition's filters.
+    /// The function returns a tuple indicating whether the condition matched and the reason for the match.
     async fn is_condition_match(
         &mut self,
         feature_flag: &FeatureFlag,
         condition: &FlagGroupType,
         property_overrides: Option<HashMap<String, Value>>,
-    ) -> Result<(bool, String), FlagError> {
+    ) -> Result<(bool, FeatureFlagMatchReason), FlagError> {
         let rollout_percentage = condition.rollout_percentage.unwrap_or(100.0);
 
         if let Some(flag_property_filters) = &condition.properties {
@@ -438,46 +532,112 @@ impl FeatureFlagMatcher {
                 return self.check_rollout(feature_flag, rollout_percentage).await;
             }
 
-            let properties_to_check =
-                // Group-based flag
-                if let Some(group_type_index) = feature_flag.get_group_type_index() {
-                    if let Some(local_overrides) = locally_computable_property_overrides(
-                        &property_overrides.clone(),
-                        flag_property_filters,
-                    ) {
-                        local_overrides
-                    } else {
-                        self.get_group_properties_from_cache_or_db(group_type_index)
-                            .await?
-                    }
-                } else {
-                    // Person-based flag
-                    if let Some(person_overrides) = property_overrides {
-                        if let Some(local_overrides) = locally_computable_property_overrides(
-                            &Some(person_overrides),
-                            flag_property_filters,
-                        ) {
-                            local_overrides
-                        } else {
-                            self.get_person_properties_from_cache_or_db().await?
-                        }
-                    } else {
-                        // We hit this block if there are no overrides AND we know it's not a group-based flag
-                        self.get_person_properties_from_cache_or_db().await?
-                    }
-                };
+            // NB: we can only evaluate group or person properties, not both
+            let properties_to_check = self
+                .get_properties_to_check(feature_flag, property_overrides, flag_property_filters)
+                .await?;
 
-            let properties_match =
-                all_properties_match(flag_property_filters, &properties_to_check);
-
-            if !properties_match {
-                return Ok((false, "NO_CONDITION_MATCH".to_string()));
+            if !all_properties_match(flag_property_filters, &properties_to_check) {
+                return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
             }
         }
 
         self.check_rollout(feature_flag, rollout_percentage).await
     }
 
+    /// Get properties to check for a feature flag.
+    ///
+    /// This function determines which properties to check based on the feature flag's group type index.
+    /// If the flag is group-based, it fetches group properties; otherwise, it fetches person properties.
+    async fn get_properties_to_check(
+        &mut self,
+        feature_flag: &FeatureFlag,
+        property_overrides: Option<HashMap<String, Value>>,
+        flag_property_filters: &[PropertyFilter],
+    ) -> Result<HashMap<String, Value>, FlagError> {
+        if let Some(group_type_index) = feature_flag.get_group_type_index() {
+            self.get_group_properties(group_type_index, property_overrides, flag_property_filters)
+                .await
+        } else {
+            self.get_person_properties(property_overrides, flag_property_filters)
+                .await
+        }
+    }
+
+    /// Get group properties from cache or database.
+    ///
+    /// This function attempts to retrieve group properties either from a cache or directly from the database.
+    /// It first checks if there are any locally computable property overrides. If so, it returns those.
+    /// Otherwise, it fetches the properties from the cache or database and returns them.
+    async fn get_group_properties(
+        &mut self,
+        group_type_index: GroupTypeIndex,
+        property_overrides: Option<HashMap<String, Value>>,
+        flag_property_filters: &[PropertyFilter],
+    ) -> Result<HashMap<String, Value>, FlagError> {
+        if let Some(overrides) =
+            locally_computable_property_overrides(&property_overrides, flag_property_filters)
+        {
+            Ok(overrides)
+        } else {
+            self.get_group_properties_from_cache_or_db(group_type_index)
+                .await
+        }
+    }
+
+    /// Get person properties from cache or database.
+    ///
+    /// This function attempts to retrieve person properties either from a cache or directly from the database.
+    /// It first checks if there are any locally computable property overrides. If so, it returns those.
+    /// Otherwise, it fetches the properties from the cache or database and returns them.
+    async fn get_person_properties(
+        &mut self,
+        property_overrides: Option<HashMap<String, Value>>,
+        flag_property_filters: &[PropertyFilter],
+    ) -> Result<HashMap<String, Value>, FlagError> {
+        if let Some(overrides) =
+            locally_computable_property_overrides(&property_overrides, flag_property_filters)
+        {
+            Ok(overrides)
+        } else {
+            self.get_person_properties_from_cache_or_db().await
+        }
+    }
+
+    /// Check if a super condition matches for a feature flag.
+    ///
+    /// This function evaluates the super conditions of a feature flag to determine if any of them should be enabled.
+    /// It first checks if there are any super conditions. If so, it evaluates the first condition.
+    /// The function returns a tuple indicating whether the super condition matched and the reason for the match.
+    async fn is_super_condition_match(
+        &mut self,
+        feature_flag: &FeatureFlag,
+        property_overrides: Option<HashMap<String, Value>>,
+    ) -> Result<(bool, FeatureFlagMatchReason), FlagError> {
+        if let Some(super_conditions) = &feature_flag.filters.super_groups {
+            if let Some(first_condition) = super_conditions.first() {
+                let (is_match, evaluation_reason) = self
+                    .is_condition_match(feature_flag, first_condition, property_overrides)
+                    .await?;
+
+                let reason = if evaluation_reason == FeatureFlagMatchReason::ConditionMatch {
+                    FeatureFlagMatchReason::SuperConditionValue
+                } else {
+                    evaluation_reason
+                };
+
+                return Ok((is_match, reason));
+            }
+        }
+
+        Ok((false, FeatureFlagMatchReason::NoConditionMatch))
+    }
+
+    /// Get group properties from cache or database.
+    ///
+    /// This function attempts to retrieve group properties either from a cache or directly from the database.
+    /// It first checks if the properties are already cached. If so, it returns those.
+    /// Otherwise, it fetches the properties from the database and caches them.
     async fn get_group_properties_from_cache_or_db(
         &mut self,
         group_type_index: GroupTypeIndex,
@@ -503,6 +663,11 @@ impl FeatureFlagMatcher {
         Ok(db_properties)
     }
 
+    /// Get person properties from cache or database.
+    ///
+    /// This function attempts to retrieve person properties either from a cache or directly from the database.
+    /// It first checks if the properties are already cached. If so, it returns those.
+    /// Otherwise, it fetches the properties from the database and caches them.
     async fn get_person_properties_from_cache_or_db(
         &mut self,
     ) -> Result<HashMap<String, Value>, FlagError> {
@@ -521,10 +686,10 @@ impl FeatureFlagMatcher {
         Ok(db_properties)
     }
 
-    pub fn is_person_properties_cached(&self) -> bool {
-        self.properties_cache.person_properties.is_some()
-    }
-
+    /// Get hashed identifier for a feature flag.
+    ///
+    /// This function generates a hashed identifier for a feature flag based on the feature flag's group type index.
+    /// If the feature flag is group-based, it fetches the group key; otherwise, it uses the distinct ID.
     async fn hashed_identifier(&mut self, feature_flag: &FeatureFlag) -> Result<String, FlagError> {
         // TODO: Use hash key overrides for experience continuity
 
@@ -572,17 +737,26 @@ impl FeatureFlagMatcher {
         Ok(hash_val as f64 / LONG_SCALE as f64)
     }
 
+    /// Check if a feature flag should be shown based on its rollout percentage.
+    ///
+    /// This function determines if a feature flag should be shown to a user based on the flag's rollout percentage.
+    /// It first calculates a hash of the feature flag's identifier and compares it to the rollout percentage.
+    /// If the hash value is less than or equal to the rollout percentage, the flag is shown; otherwise, it is not.
+    /// The function returns a tuple indicating whether the flag matched and the reason for the match.
     async fn check_rollout(
         &mut self,
         feature_flag: &FeatureFlag,
         rollout_percentage: f64,
-    ) -> Result<(bool, String), FlagError> {
-        if rollout_percentage == 100.0
-            || self.get_hash(feature_flag, "").await? <= (rollout_percentage / 100.0)
-        {
-            Ok((true, "CONDITION_MATCH".to_string())) // TODO enum, I'll implement this when I implement evaluation reasons
+    ) -> Result<(bool, FeatureFlagMatchReason), FlagError> {
+        let hash = self.get_hash(feature_flag, "").await?;
+        println!(
+            "Rollout check: hash={}, rollout_percentage={}",
+            hash, rollout_percentage
+        );
+        if rollout_percentage == 100.0 || hash <= (rollout_percentage / 100.0) {
+            Ok((true, FeatureFlagMatchReason::ConditionMatch))
         } else {
-            Ok((false, "OUT_OF_ROLLOUT_BOUND".to_string())) // TODO enum, I'll implement this when I implement evaluation reasons
+            Ok((false, FeatureFlagMatchReason::OutOfRolloutBound))
         }
     }
 
@@ -603,6 +777,10 @@ impl FeatureFlagMatcher {
         Ok(None)
     }
 
+    /// Get matching payload for a feature flag.
+    ///
+    /// This function retrieves the payload associated with a matching variant of a feature flag.
+    /// It takes the matched variant key and the feature flag itself as inputs and returns the payload.
     fn get_matching_payload(
         &self,
         match_variant: Option<&str>,
@@ -613,6 +791,10 @@ impl FeatureFlagMatcher {
     }
 }
 
+/// Fetch and locally cache all properties for a given distinct ID and team ID.
+///
+/// This function fetches both person and group properties for a specified distinct ID and team ID.
+/// It updates the properties cache with the fetched properties and returns the result.
 async fn fetch_and_locally_cache_all_properties(
     properties_cache: &mut PropertiesCache,
     database_client: DatabaseClientArc,
@@ -683,6 +865,10 @@ async fn fetch_and_locally_cache_all_properties(
     Ok(())
 }
 
+/// Fetch person properties from the database for a given distinct ID and team ID.
+///
+/// This function constructs and executes a SQL query to fetch the person properties for a specified distinct ID and team ID.
+/// It returns the fetched properties as a HashMap.
 async fn fetch_person_properties_from_db(
     database_client: DatabaseClientArc,
     distinct_id: String,
@@ -714,6 +900,10 @@ async fn fetch_person_properties_from_db(
         .collect())
 }
 
+/// Fetch group properties from the database for a given team ID and group type index.
+///
+/// This function constructs and executes a SQL query to fetch the group properties for a specified team ID and group type index.
+/// It returns the fetched properties as a HashMap.
 async fn fetch_group_properties_from_db(
     database_client: DatabaseClientArc,
     team_id: TeamId,
@@ -1130,7 +1320,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(is_match, true);
-        assert_eq!(reason, "CONDITION_MATCH");
+        assert_eq!(reason, FeatureFlagMatchReason::ConditionMatch);
     }
 
     fn create_test_flag_with_variants(team_id: TeamId) -> FeatureFlag {
@@ -1348,6 +1538,91 @@ mod tests {
         assert_eq!(
             cached_properties.unwrap().get("email").unwrap(),
             &json!("test@example.com")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_property_caching() {
+        let client = setup_pg_client(None).await;
+        let team = insert_new_team_in_pg(client.clone()).await.unwrap();
+
+        let distinct_id = "test_user".to_string();
+        insert_person_for_team_in_pg(
+            client.clone(),
+            team.id,
+            distinct_id.clone(),
+            Some(json!({"email": "test@example.com", "age": 30})),
+        )
+        .await
+        .unwrap();
+
+        let mut matcher = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            team.id,
+            client.clone(),
+            None,
+            None,
+            None,
+        );
+
+        // First access should fetch from the database
+        let start = std::time::Instant::now();
+        let properties = matcher
+            .get_person_properties_from_cache_or_db()
+            .await
+            .unwrap();
+        let first_duration = start.elapsed();
+
+        // Second access should use the cache and be faster
+        let start = std::time::Instant::now();
+        let cached_properties = matcher
+            .get_person_properties_from_cache_or_db()
+            .await
+            .unwrap();
+        let second_duration = start.elapsed();
+
+        assert_eq!(properties, cached_properties);
+        assert!(
+            second_duration < first_duration,
+            "Second access should be faster due to caching"
+        );
+
+        // Create a new matcher to simulate a fresh state
+        let mut new_matcher = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            team.id,
+            client.clone(),
+            None,
+            None,
+            None,
+        );
+
+        // First access with new matcher should fetch from the database again
+        let start = std::time::Instant::now();
+        let new_properties = new_matcher
+            .get_person_properties_from_cache_or_db()
+            .await
+            .unwrap();
+        let new_first_duration = start.elapsed();
+
+        assert_eq!(properties, new_properties);
+        assert!(
+            new_first_duration > second_duration,
+            "First access with new matcher should be slower than cached access"
+        );
+
+        // Second access with new matcher should use the cache and be faster
+        let start = std::time::Instant::now();
+        let new_cached_properties = new_matcher
+            .get_person_properties_from_cache_or_db()
+            .await
+            .unwrap();
+        let new_second_duration = start.elapsed();
+
+        assert_eq!(properties, new_cached_properties);
+        assert!(
+            new_second_duration < new_first_duration,
+            "Second access with new matcher should be faster due to caching"
         );
     }
 
@@ -1751,67 +2026,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_property_caching() {
-        let client = setup_pg_client(None).await;
-        let team = insert_new_team_in_pg(client.clone()).await.unwrap();
-
-        let distinct_id = "test_user".to_string();
-        insert_person_for_team_in_pg(
-            client.clone(),
-            team.id,
-            distinct_id.clone(),
-            Some(json!({"email": "test@example.com", "age": 30})),
-        )
-        .await
-        .unwrap();
-
-        let mut matcher = FeatureFlagMatcher::new(
-            distinct_id.clone(),
-            team.id,
-            client.clone(),
-            None,
-            None,
-            None,
-        );
-
-        // First access should fetch from the database
-        let properties = matcher
-            .get_person_properties_from_cache_or_db()
-            .await
-            .unwrap();
-
-        assert!(matcher.is_person_properties_cached());
-
-        // Clear the cache to simulate a fresh state
-        matcher.properties_cache.person_properties = None;
-        assert!(!matcher.is_person_properties_cached());
-
-        // Second access should populate the cache again
-        let cached_properties = matcher
-            .get_person_properties_from_cache_or_db()
-            .await
-            .unwrap();
-
-        assert!(matcher.is_person_properties_cached());
-        assert_eq!(properties, cached_properties);
-
-        // Third access should use the cache
-        let start = std::time::Instant::now();
-        let cached_properties_again = matcher
-            .get_person_properties_from_cache_or_db()
-            .await
-            .unwrap();
-        let duration = start.elapsed();
-
-        assert!(matcher.is_person_properties_cached());
-        assert_eq!(properties, cached_properties_again);
-        assert!(
-            duration.as_micros() < 1000,
-            "Cache access should be very fast"
-        );
-    }
-
-    #[tokio::test]
     async fn test_get_match_with_insufficient_overrides() {
         let client = setup_pg_client(None).await;
         let team = insert_new_team_in_pg(client.clone()).await.unwrap();
@@ -1913,7 +2127,7 @@ mod tests {
             .unwrap();
 
         assert!(is_match);
-        assert_eq!(reason, "CONDITION_MATCH");
+        assert_eq!(reason, FeatureFlagMatchReason::ConditionMatch);
     }
 
     #[tokio::test]
@@ -1982,5 +2196,117 @@ mod tests {
         let result = matcher.get_match(&flag, None).await.unwrap();
 
         assert!(result.matches);
+    }
+
+    #[tokio::test]
+    async fn test_super_condition_matches_boolean() {
+        let client = setup_pg_client(None).await;
+        let team = insert_new_team_in_pg(client.clone()).await.unwrap();
+
+        let flag = create_test_flag(
+            Some(1),
+            Some(team.id),
+            Some("Super Condition Flag".to_string()),
+            Some("super_condition_flag".to_string()),
+            Some(FlagFilters {
+                groups: vec![
+                    FlagGroupType {
+                        properties: Some(vec![PropertyFilter {
+                            key: "email".to_string(),
+                            value: json!("fake@posthog.com"),
+                            operator: Some(OperatorType::Exact),
+                            prop_type: "person".to_string(),
+                            group_type_index: None,
+                        }]),
+                        rollout_percentage: Some(0.0),
+                        variant: None,
+                    },
+                    FlagGroupType {
+                        properties: Some(vec![PropertyFilter {
+                            key: "email".to_string(),
+                            value: json!("test@posthog.com"),
+                            operator: Some(OperatorType::Exact),
+                            prop_type: "person".to_string(),
+                            group_type_index: None,
+                        }]),
+                        rollout_percentage: Some(100.0),
+                        variant: None,
+                    },
+                    FlagGroupType {
+                        properties: None,
+                        rollout_percentage: Some(50.0),
+                        variant: None,
+                    },
+                ],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: Some(vec![FlagGroupType {
+                    properties: Some(vec![PropertyFilter {
+                        key: "is_enabled".to_string(),
+                        value: json!(["true"]),
+                        operator: Some(OperatorType::Exact),
+                        prop_type: "person".to_string(),
+                        group_type_index: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }]),
+            }),
+            None,
+            None,
+            None,
+        );
+
+        insert_person_for_team_in_pg(
+            client.clone(),
+            team.id,
+            "test_id".to_string(),
+            Some(json!({"email": "test@posthog.com", "is_enabled": true})),
+        )
+        .await
+        .unwrap();
+
+        let mut matcher_test_id = FeatureFlagMatcher::new(
+            "test_id".to_string(),
+            team.id,
+            client.clone(),
+            None,
+            None,
+            None,
+        );
+
+        let mut matcher_example_id = FeatureFlagMatcher::new(
+            "lil_id".to_string(),
+            team.id,
+            client.clone(),
+            None,
+            None,
+            None,
+        );
+
+        let mut matcher_another_id = FeatureFlagMatcher::new(
+            "another_id".to_string(),
+            team.id,
+            client.clone(),
+            None,
+            None,
+            None,
+        );
+
+        let result_test_id = matcher_test_id.get_match(&flag, None).await.unwrap();
+        let result_example_id = matcher_example_id.get_match(&flag, None).await.unwrap();
+        let result_another_id = matcher_another_id.get_match(&flag, None).await.unwrap();
+
+        println!("result_test_id: {:?}", result_test_id);
+        println!("result_example_id: {:?}", result_example_id);
+        println!("result_another_id: {:?}", result_another_id);
+
+        assert!(result_test_id.matches);
+        assert!(result_test_id.reason == FeatureFlagMatchReason::SuperConditionValue);
+        assert!(result_example_id.matches);
+        assert!(result_example_id.reason == FeatureFlagMatchReason::ConditionMatch);
+        assert!(!result_another_id.matches);
+        assert!(result_another_id.reason == FeatureFlagMatchReason::OutOfRolloutBound);
     }
 }
