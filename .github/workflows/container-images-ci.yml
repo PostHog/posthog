@@ -102,8 +102,6 @@ jobs:
                   EOT
 
             - name: Start PostHog
-              # these are required checks so, we can't skip entire sections
-              if: needs.changes.outputs.shouldTriggerCypress == 'true'
               run: |
                   mkdir -p /tmp/logs
 
@@ -116,11 +114,6 @@ jobs:
                   $DOCKER_RUN ./bin/docker-server &> /tmp/logs/server.txt &
 
             - name: Wait for PostHog
-              # these are required checks so, we can't skip entire sections
-              if: needs.changes.outputs.shouldTriggerCypress == 'true'
-              # this action might be abandoned - but v1 doesn't point to latest of v1 (which it should)
-              # so pointing to v1.1.0 to remove warnings about node version with v1
-              # todo check https://github.com/iFaxity/wait-on-action/releases for new releases
               uses: iFaxity/wait-on-action@v1.2.1
               timeout-minutes: 3
               with:
