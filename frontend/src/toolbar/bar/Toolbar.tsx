@@ -18,6 +18,7 @@ import { useActions, useValues } from 'kea'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { IconFlare, IconMenu } from 'lib/lemon-ui/icons'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { useEffect, useRef } from 'react'
 
 import { ActionsToolbarMenu } from '~/toolbar/actions/ActionsToolbarMenu'
@@ -94,7 +95,7 @@ export function ToolbarInfoMenu(): JSX.Element | null {
     const { visibleMenu, isDragging, menuProperties, minimized, isBlurred } = useValues(toolbarLogic)
     const { setMenu } = useActions(toolbarLogic)
     const { isAuthenticated } = useValues(toolbarConfigLogic)
-    const showExperiments = useToolbarFeatureFlag('web-experiments')
+    const showExperiments = inStorybook() || inStorybookTestRunner() ? true : useToolbarFeatureFlag('web-experiments')
     const content = minimized ? null : visibleMenu === 'flags' ? (
         <FlagsToolbarMenu />
     ) : visibleMenu === 'heatmap' ? (
@@ -152,7 +153,7 @@ export function Toolbar(): JSX.Element | null {
     const { setVisibleMenu, toggleMinimized, onMouseOrTouchDown, setElement, setIsBlurred } = useActions(toolbarLogic)
     const { isAuthenticated, userIntent } = useValues(toolbarConfigLogic)
     const { authenticate } = useActions(toolbarConfigLogic)
-    const showExperiments = useToolbarFeatureFlag('web-experiments')
+    const showExperiments = inStorybook() || inStorybookTestRunner() ? true : useToolbarFeatureFlag('web-experiments')
 
     useEffect(() => {
         setElement(ref.current)
