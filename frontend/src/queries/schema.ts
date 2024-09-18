@@ -1321,7 +1321,7 @@ export interface ActorsQuery extends DataNode<ActorsQueryResponse> {
     select?: HogQLExpression[]
     search?: string
     /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
-    properties?: AnyPersonScopeFilter[]
+    properties?: AnyPersonScopeFilter[] | PropertyGroupFilter
     /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
     fixedProperties?: AnyPersonScopeFilter[]
     orderBy?: string[]

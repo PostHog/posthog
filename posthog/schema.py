@@ -5741,7 +5741,10 @@ class ActorsQuery(BaseModel):
     offset: Optional[int] = None
     orderBy: Optional[list[str]] = None
     properties: Optional[
-        list[Union[PersonPropertyFilter, CohortPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter]]
+        Union[
+            list[Union[PersonPropertyFilter, CohortPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter]],
+            PropertyGroupFilter,
+        ]
     ] = Field(
         default=None,
         description=(

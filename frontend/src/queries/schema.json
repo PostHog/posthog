@@ -210,11 +210,18 @@
                     "type": "array"
                 },
                 "properties": {
-                    "description": "Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py.",
-                    "items": {
-                        "$ref": "#/definitions/AnyPersonScopeFilter"
-                    },
-                    "type": "array"
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/AnyPersonScopeFilter"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "$ref": "#/definitions/PropertyGroupFilter"
+                        }
+                    ],
+                    "description": "Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py."
                 },
                 "response": {
                     "$ref": "#/definitions/ActorsQueryResponse"
