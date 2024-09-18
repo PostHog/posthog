@@ -1,11 +1,11 @@
 from datetime import datetime
 from uuid import UUID
 
-import encrypted_fields
 import structlog
 import temporalio
 from django.db import models
 
+from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDModel, sane_repr
 from posthog.warehouse.util import database_sync_to_async
@@ -52,9 +52,7 @@ class ExternalDataSource(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
     # `status` is deprecated in favour of external_data_schema.status
     status = models.CharField(max_length=400)
     source_type = models.CharField(max_length=128, choices=Type.choices)
-    job_inputs: encrypted_fields.fields.EncryptedJSONField = encrypted_fields.fields.EncryptedJSONField(
-        null=True, blank=True
-    )
+    job_inputs = EncryptedJSONField(null=True, blank=True)
     are_tables_created = models.BooleanField(default=False)
     prefix = models.CharField(max_length=100, null=True, blank=True)
 
