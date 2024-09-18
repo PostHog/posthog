@@ -43,6 +43,7 @@ jobs:
               uses: ./.github/actions/build-n-cache-image
               id: build
               with:
+                  save: true
                   actions-id-token-request-url: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
 
     test_docker_startup:
