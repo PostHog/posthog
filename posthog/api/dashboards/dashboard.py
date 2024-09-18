@@ -6,7 +6,6 @@ from django.db.models import Prefetch, QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 from rest_framework import exceptions, serializers, viewsets
-from posthog.api.utils import action
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -18,10 +17,11 @@ from posthog.api.dashboards.dashboard_template_json_schema_parser import (
 )
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight import InsightSerializer, InsightViewSet
-from posthog.api.monitoring import monitor, Feature
+from posthog.api.monitoring import Feature, monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
+from posthog.api.utils import action
 from posthog.event_usage import report_user_action
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template
@@ -517,6 +517,7 @@ class DashboardsViewSet(
 
         try:
             dashboard_template = DashboardTemplate(**request.data["template"])
+            creation_context = request.data.get("creation_context")
             create_from_template(dashboard, dashboard_template)
 
             report_user_action(
@@ -528,6 +529,7 @@ class DashboardsViewSet(
                     "template_key": dashboard_template.template_name,
                     "duplicated": False,
                     "dashboard_id": dashboard.pk,
+                    "creation_context": creation_context,
                 },
             )
         except Exception:
