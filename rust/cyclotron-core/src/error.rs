@@ -4,24 +4,14 @@ use uuid::Uuid;
 pub enum QueueError {
     #[error("sqlx error: {0}")]
     SqlxError(#[from] sqlx::Error),
+    #[error("Unknown job id: {0}")]
+    UnknownJobId(Uuid),
+    #[error("Job {0} flushed without a new state, which would leave it in a running state forever (or until reaped)")]
+    FlushWithoutNextState(Uuid),
+    #[error("Invalid lock {0} used to update job {1}. This usually means a job has been reaped from under a worker - did you forget to set the heartbeat?")]
+    InvalidLock(Uuid, Uuid),
     #[error("Shard over capacity {0} for this manager, insert aborted")]
     ShardFull(u64),
     #[error("Timed waiting for shard to have capacity")]
     TimedOutWaitingForCapacity,
-    #[error(transparent)]
-    JobError(#[from] JobError),
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum JobError {
-    #[error("Unknown job id: {0}")]
-    UnknownJobId(Uuid),
-    #[error("Invalid lock id: {0} for job {1}")]
-    InvalidLock(Uuid, Uuid),
-    #[error("Cannot flush job {0} without a next state")]
-    FlushWithoutNextState(Uuid),
-    #[error("Deadline to flush update for job {0} exceeded")]
-    DeadlineExceeded(Uuid),
-    #[error("Update dropped before being flushed.")]
-    UpdateDropped,
 }

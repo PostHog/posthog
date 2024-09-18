@@ -3,7 +3,6 @@ use std::sync::{Arc, RwLock};
 use common_kafka::config::KafkaConfig;
 use common_kafka::kafka_producer::create_kafka_producer;
 use common_kafka::kafka_producer::KafkaContext;
-use cyclotron_core::WorkerConfig;
 use cyclotron_core::{PoolConfig, Worker, SHARD_ID_KEY};
 use health::HealthHandle;
 use rdkafka::producer::FutureProducer;
@@ -26,7 +25,6 @@ impl AppContext {
         config: AppConfig,
         pool_config: PoolConfig,
         kafka_config: KafkaConfig,
-        worker_config: WorkerConfig,
         liveness: HealthHandle,
         kafka_liveness: HealthHandle,
     ) -> Result<Self, FetchError> {
@@ -52,7 +50,7 @@ impl AppContext {
             }
         };
 
-        let worker = Worker::new(pool_config, worker_config).await?;
+        let worker = Worker::new(pool_config).await?;
 
         let labels = vec![
             (SHARD_ID_KEY.to_string(), config.shard_id.clone()),
