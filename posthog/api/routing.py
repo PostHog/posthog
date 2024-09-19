@@ -1,4 +1,5 @@
 from functools import cached_property, lru_cache
+from posthog.clickhouse.query_tagging import tag_queries
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 from uuid import UUID
 
@@ -202,20 +203,20 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
 
     @cached_property
     def team_id(self) -> int:
-        if self._is_project_view:
-            return self.project_id  # KLUDGE: This is just for the period of transition to project environments
-
         team_from_token = self._get_team_from_request()
-        if team_from_token:
-            return team_from_token.id
-
-        if self.param_derived_from_user_current_team == "team_id":
+        if self._is_project_view:
+            team_id = self.project_id  # KLUDGE: This is just for the period of transition to project environments
+        elif team_from_token:
+            team_id = team_from_token.id
+        elif self.param_derived_from_user_current_team == "team_id":
             user = cast(User, self.request.user)
             team = user.team
             assert team is not None
-            return team.id
-
-        return self.parents_query_dict["team_id"]
+            team_id = team.id
+        else:
+            team_id = self.parents_query_dict["team_id"]
+        tag_queries(team_id=team_id)
+        return team_id
 
     @cached_property
     def team(self) -> Team:
