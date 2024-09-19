@@ -168,7 +168,7 @@ abstract class CdpConsumerBase {
     }
 
     protected async runManyWithHeartbeat<T, R>(items: T[], func: (item: T) => Promise<R> | R): Promise<R[]> {
-        // Helper function to ensure that looping over lots of hog functions doesn't block up the thread, killing the consumer
+        // Helper function to ensure that looping over lots of hog functions doesn't block up the event loop, leading to healthcheck failures
         const results = []
 
         for (const item of items) {
@@ -476,8 +476,7 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
                 // TODO: Add a helper to hog functions to determine if they require groups or not and then only load those
                 await this.groupsManager.enrichGroups(invocationGlobals)
 
-                // Find all functions that could need running
-                invocationGlobals.forEach((globals) => {
+                await this.runManyWithHeartbeat(invocationGlobals, (globals) => {
                     const { matchingFunctions, nonMatchingFunctions } = this.hogExecutor.findMatchingFunctions(globals)
 
                     possibleInvocations.push(
