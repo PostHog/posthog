@@ -411,6 +411,15 @@ export class HogExecutor {
             }
         })
 
+        Object.entries(invocation.hogFunction.encrypted_inputs ?? {}).forEach(([key, item]) => {
+            builtInputs[key] = item.value
+
+            if (item.bytecode) {
+                // Use the bytecode to compile the field
+                builtInputs[key] = formatInput(item.bytecode, invocation.globals)
+            }
+        })
+
         return {
             ...invocation.globals,
             inputs: builtInputs,

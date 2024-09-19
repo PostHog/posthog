@@ -605,7 +605,7 @@ semver==3.0.2
     # via dlt
 sentry-sdk==1.44.1
     # via -r requirements.in
-setuptools==72.1.0
+setuptools==75.0.0
     # via
     #   dlt
     #   gunicorn
