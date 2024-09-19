@@ -31,6 +31,7 @@ fetch(f'{host}/e', {
         'event': event.name,
         'timestamp': event.timestamp,
         'distinct_id': event.distinct_id,
+        'elements_chain': event.elements_chain,
         'properties': properties
     }
 })

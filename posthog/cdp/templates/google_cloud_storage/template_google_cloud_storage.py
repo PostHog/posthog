@@ -103,7 +103,7 @@ class TemplateGoogleCloudStorageMigrator(HogFunctionTemplateMigrator):
             "bucketName": {"value": bucketName},
             "payload": {
                 "value": "uuid,event,properties,elements,people_set,people_set_once,distinct_id,team_id,ip,site_url,timestamp\n"
-                + "{event.uuid},{event.name},{jsonStringify(event.properties)},,,,{event.distinct_id},,,,{event.timestamp}"
+                + "{event.uuid},{event.name},{jsonStringify(event.properties)},{event.elements_chain},{jsonStringify(event.properties.$set)},{jsonStringify(event.properties.$set_once)},{event.distinct_id},,,,{event.timestamp}"
             },
             "filename": {
                 "value": "{toDate(event.timestamp)}/{replaceAll(replaceAll(replaceAll(toString(event.timestamp), '-', ''), ':', ''), 'T', '-')}-{event.uuid}.csv"

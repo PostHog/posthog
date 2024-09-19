@@ -43,6 +43,7 @@ if (inputs.debug) {
                     "teamId": "{project.id}",
                     "distinctId": "{event.distinct_id}",
                     "properties": "{event.properties}",
+                    "elementsChain": "{event.elementsChain}",
                     "timestamp": "{event.timestamp}",
                     "person": {"uuid": "{person.id}", "properties": "{person.properties}"},
                 },

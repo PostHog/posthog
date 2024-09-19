@@ -43,6 +43,9 @@ if (action == 'automatic') {
 }
 
 let attributes := inputs.include_all_properties ? action == 'identify' ? person.properties : event.properties : {}
+if (inputs.include_all_properties and action != 'identify' and not empty(event.elements_chain)) {
+    attributes['$elements_chain'] := event.elements_chain
+}
 let timestamp := toInt(toUnixTimestamp(toDateTime(event.timestamp)))
 
 for (let key, value in inputs.attributes) {

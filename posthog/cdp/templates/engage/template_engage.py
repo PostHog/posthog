@@ -9,17 +9,13 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Send events to Engage.so",
     icon_url="/static/services/engage.png",
     hog="""
-let body := event
-
-body['event'] := event.name
-
 fetch('https://api.engage.so/posthog', {
     'method': 'POST',
     'headers': {
         'Authorization': f'Basic {base64Encode(f'{inputs.public_key}:{inputs.private_key}')}',
         'Content-Type': 'application/json'
     },
-    'body': body
+    'body': event
 })
 """.strip(),
     inputs_schema=[

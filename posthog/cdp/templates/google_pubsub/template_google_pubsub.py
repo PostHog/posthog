@@ -111,6 +111,7 @@ class TemplateGooglePubSubMigrator(HogFunctionTemplateMigrator):
                 "value": {
                     "event": "{event.name}",
                     "distinct_id": "{event.distinct_id}",
+                    "elements_chain": "{event.elements_chain}",
                     "timestamp": "{event.timestamp}",
                     "uuid": "{event.uuid}",
                     "properties": "{event.properties}",

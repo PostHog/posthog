@@ -20,6 +20,9 @@ let body := {
     'messageId': event.uuid,
     'timestamp': event.timestamp
 }
+if (inputs.include_all_properties and not empty(event.elements_chain)) {
+    body['properties']['$elements_chain'] := event.elements_chain
+}
 
 for (let key, value in inputs.attributes) {
     if (not empty(value)) {
