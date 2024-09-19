@@ -151,7 +151,15 @@ export function convertToHogFunctionFilterGlobal(globals: HogFunctionInvocationG
         elements_chain_elements: [] as string[],
         timestamp: globals.event.timestamp,
         properties: globals.event.properties,
-        person: globals.person ? { properties: globals.person.properties } : undefined,
+        person: globals.person ? { id: globals.person.uuid, properties: globals.person.properties } : undefined,
+        pdi: globals.person
+            ? {
+                  distinct_id: globals.event.distinct_id,
+                  person_id: globals.person.uuid,
+                  person: { id: globals.person.uuid, properties: globals.person.properties },
+              }
+            : undefined,
+        distinct_id: globals.event.distinct_id,
         ...groups,
     } satisfies HogFunctionFilterGlobals
 

@@ -96,9 +96,19 @@ export type HogFunctionFilterGlobals = {
     elements_chain_ids: string[]
     elements_chain_elements: string[]
     properties: Record<string, any>
+    distinct_id: string
 
     person?: {
+        id: string
         properties: Record<string, any>
+    }
+    pdi?: {
+        distinct_id: string
+        person_id: string
+        person: {
+            id: string
+            properties: Record<string, any>
+        }
     }
 
     group_0?: {
