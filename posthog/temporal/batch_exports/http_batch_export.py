@@ -48,8 +48,8 @@ class RetryableResponseError(Exception):
 class NonRetryableResponseError(Exception):
     """Error for HTTP status >= 400 and < 500 (excluding 429)."""
 
-    def __init__(self, status):
-        super().__init__(f"NonRetryableResponseError status: {status}")
+    def __init__(self, status, content):
+        super().__init__(f"NonRetryableResponseError (status: {status}): {content}")
 
 
 def raise_for_status(response: aiohttp.ClientResponse):
@@ -59,7 +59,7 @@ def raise_for_status(response: aiohttp.ClientResponse):
         if response.status >= 500 or response.status == 429:
             raise RetryableResponseError(response.status)
         else:
-            raise NonRetryableResponseError(response.status)
+            raise NonRetryableResponseError(response.status, response.text())
 
 
 def http_default_fields() -> list[BatchExportField]:
