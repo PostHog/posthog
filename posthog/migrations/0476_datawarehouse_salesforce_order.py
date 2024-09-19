@@ -6,10 +6,10 @@ from django.db import migrations, connection
 def insert_salesforce_order_schemas(apps, schema_editor):
     with connection.cursor() as cursor:
         cursor.execute("SELECT id, team_id FROM posthog_externaldatasource where source_type = 'Salesforce'")
-        stripe_sources = cursor.fetchall()
+        salesforce_sources = cursor.fetchall()
 
     ExternalDataSchema = apps.get_model("posthog", "ExternalDataSchema")
-    for source in stripe_sources:
+    for source in salesforce_sources:
         schema = ExternalDataSchema.objects.create(
             name="Order",
             source_id=source[0],
