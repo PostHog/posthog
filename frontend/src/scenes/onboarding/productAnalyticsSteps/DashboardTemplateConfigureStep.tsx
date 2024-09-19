@@ -243,11 +243,11 @@ export const OnboardingDashboardTemplateConfigureStep = ({
                     </div>
                 ) : (
                     <div className="grid grid-cols-6 space-x-6 min-h-[80vh]">
-                        <div className="col-span-4 relative">
+                        <div className="col-span-4 relative max-h-[100vh] overflow-y-hidden">
                             {browserUrl && iframeBanner?.level != 'error' ? (
                                 <div className="border border-1 border-border-bold rounded h-full w-full flex flex-col">
                                     <UrlInput iframeRef={iframeRef} />
-                                    <div className="m-2 grow rounded">
+                                    <div className="m-2 grow rounded ">
                                         <IframedToolbarBrowser iframeRef={iframeRef} userIntent="add-action" />
                                     </div>
                                 </div>
