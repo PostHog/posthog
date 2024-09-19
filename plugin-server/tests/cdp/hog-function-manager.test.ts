@@ -19,7 +19,7 @@ describe('HogFunctionManager', () => {
     beforeEach(async () => {
         hub = await createHub()
         await resetTestDatabase()
-        manager = new HogFunctionManager(hub.postgres, hub)
+        manager = new HogFunctionManager(hub)
 
         const team = await hub.db.fetchTeam(2)
 
@@ -113,6 +113,7 @@ describe('HogFunctionManager', () => {
                         value: integrations[0].id,
                     },
                 },
+                encrypted_inputs: null,
                 masking: null,
                 depends_on_integration_ids: new Set([integrations[0].id]),
             },

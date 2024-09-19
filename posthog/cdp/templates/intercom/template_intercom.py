@@ -23,7 +23,7 @@ let res := fetch(f'https://{inputs.host}/events', {
     'Accept': 'application/json'
   },
   'body': {
-    'event_name': event.name,
+    'event_name': event.event,
     'created_at': toInt(toUnixTimestamp(toDateTime(event.timestamp))),
     'email': inputs.email,
     'id': event.distinct_id,

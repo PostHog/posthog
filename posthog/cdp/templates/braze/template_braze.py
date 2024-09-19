@@ -73,7 +73,7 @@ if (res.status >= 200 and res.status < 300) {
             "default": {
                 "properties": "{event.properties}",
                 "external_id": "{event.distinct_id}",
-                "name": "{event.name}",
+                "name": "{event.event}",
                 "time": "{event.timestamp}",
             },
             "secret": False,

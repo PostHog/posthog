@@ -30,6 +30,9 @@ template_create: HogFunctionTemplate = HogFunctionTemplate(
 let getPayload := () -> {
   let properties := {}
   if (inputs.include_all_event_properties) {
+    if (not empty(event.elements_chain)) {
+      properties['$elements_chain'] := event.elements_chain
+    }
     for (let key, value in event.properties) {
       properties[key] := value
     }

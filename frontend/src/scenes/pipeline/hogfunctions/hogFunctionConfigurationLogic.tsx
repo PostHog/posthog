@@ -66,10 +66,11 @@ export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFu
     const sanitizedInputs: Record<string, HogFunctionInputType> = {}
 
     data.inputs_schema?.forEach((input) => {
-        const value = data.inputs?.[input.key]?.value
         const secret = data.inputs?.[input.key]?.secret
+        let value = data.inputs?.[input.key]?.value
 
         if (secret) {
+            // If set this means we haven't changed the value
             sanitizedInputs[input.key] = {
                 value: '********', // Don't send the actual value
                 secret: true,
@@ -79,14 +80,12 @@ export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFu
 
         if (input.type === 'json' && typeof value === 'string') {
             try {
-                sanitizedInputs[input.key] = {
-                    value: JSON.parse(value),
-                }
+                value = JSON.parse(value)
             } catch (e) {
                 // Ignore
             }
-            return
         }
+
         sanitizedInputs[input.key] = {
             value: value,
         }
@@ -138,26 +137,28 @@ export function convertToHogFunctionInvocationGlobals(
     return {
         project: {
             id: team?.id ?? 0,
+
             name: team?.name ?? 'Default project',
             url: projectUrl,
         },
         event: {
             uuid: event.uuid ?? '',
-            name: event.event, // TODO: rename back to "event"?
+            event: event.event,
             distinct_id: event.distinct_id,
-            // TODO: add back elements_chain?
+            elements_chain: event.elements_chain ?? '',
+            properties: event.properties,
             timestamp: event.timestamp,
+
+            name: event.event,
             url: `${projectUrl}/events/${encodeURIComponent(event.uuid ?? '')}/${encodeURIComponent(event.timestamp)}`,
-            properties: {
-                ...event.properties,
-                ...(event.elements_chain ? { $elements_chain: event.elements_chain } : {}),
-            },
         },
         person: {
-            uuid: person.uuid ?? person.id ?? '', // TODO: rename back to "id"?
+            id: person.uuid ?? person.id ?? '',
+            uuid: person.uuid ?? person.id ?? '', // TODO: remove
+            properties: person.properties,
+
             name: asDisplay(person),
             url: `${projectUrl}/person/${encodeURIComponent(event.distinct_id)}`,
-            properties: person.properties,
         },
         groups: {},
     }
@@ -466,21 +467,24 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     event: {
                         uuid: eventId,
                         distinct_id: uuid(),
-                        name: '$pageview',
+                        event: '$pageview',
                         timestamp: dayjs().toISOString(),
-                        url: `${window.location.origin}/project/${currentTeam?.id}/events/`,
+                        elements_chain: '',
                         properties: {
                             $current_url: currentUrl,
                             $browser: 'Chrome',
                         },
+                        name: '$pageview',
+                        url: `${window.location.origin}/project/${currentTeam?.id}/events/`,
                     },
                     person: {
-                        uuid: personId,
-                        name: 'Example person',
-                        url: `${window.location.origin}/person/${personId}`,
+                        id: personId,
+                        uuid: personId, // TODO: remove
                         properties: {
                             email: 'example@posthog.com',
                         },
+                        name: 'Example person',
+                        url: `${window.location.origin}/person/${personId}`,
                     },
                     groups: {},
                     project: {

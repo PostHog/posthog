@@ -91,6 +91,9 @@ dependencies:
   fast-deep-equal:
     specifier: ^3.1.3
     version: 3.1.3
+  fernet-nodejs:
+    specifier: ^1.0.6
+    version: 1.0.6
   generic-pool:
     specifier: ^3.7.1
     version: 3.9.0
@@ -6139,6 +6142,10 @@ packages:
     dependencies:
       bser: 2.1.1
     dev: true
+
+  /fernet-nodejs@1.0.6:
+    resolution: {integrity: sha512-KXh8DfPm3kWP3lR4dyiUfS4vs/dVTNB836+qQnLVXIUfI3+irGSRXDstfSDlUVqe2xDrcb0epiCh2SEBOySrtA==}
+    dev: false
 
   /file-entry-cache@6.0.1:
     resolution: {integrity: sha512-7Gps/XWymbLk2QLYK4NzpMOrYjMhdIxXuIvy2QBsLE6ljuodKvdkWs/cpyJJ3CVIVpH0Oi1Hvg1ovbMzLdFBBg==}
