@@ -145,7 +145,7 @@ describe('CDP Function Processor', () => {
                 } as any,
                 event: {
                     uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0',
-                    name: '$pageview',
+                    event: '$pageview',
                     properties: {
                         $current_url: 'https://posthog.com',
                         $lib_version: '1.0.0',

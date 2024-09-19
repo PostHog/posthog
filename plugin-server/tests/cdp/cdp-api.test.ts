@@ -105,7 +105,7 @@ describe('CDP API', () => {
         const globals: Partial<HogFunctionInvocationGlobals> = {
             groups: {},
             person: {
-                uuid: '123',
+                id: '123',
                 name: 'Jane Doe',
                 url: 'https://example.com/person/123',
                 properties: {
@@ -114,7 +114,8 @@ describe('CDP API', () => {
             },
             event: {
                 uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0',
-                name: '$pageview',
+                event: '$pageview',
+                elements_chain: '',
                 distinct_id: '123',
                 timestamp: '2021-09-28T14:00:00Z',
                 url: 'https://example.com/events/b3a1fe86-b10c-43cc-acaf-d208977608d0/2021-09-28T14:00:00Z',

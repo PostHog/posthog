@@ -132,7 +132,8 @@ describe('Hog Executor', () => {
             expect(body).toEqual({
                 event: {
                     uuid: 'uuid',
-                    name: 'test',
+                    event: 'test',
+                    elements_chain: '',
                     distinct_id: 'distinct_id',
                     url: 'http://localhost:8000/events/1',
                     properties: { $lib_version: '1.2.3' },
@@ -141,7 +142,7 @@ describe('Hog Executor', () => {
                 groups: {},
                 nested: { foo: 'http://localhost:8000/events/1' },
                 person: {
-                    uuid: 'uuid',
+                    id: 'uuid',
                     name: 'test',
                     url: 'http://localhost:8000/persons/1',
                     properties: { email: 'test@posthog.com' },
@@ -215,7 +216,7 @@ describe('Hog Executor', () => {
                 createHogExecutionGlobals({
                     groups: {},
                     event: {
-                        name: '$pageview',
+                        event: '$pageview',
                         properties: {
                             $current_url: 'https://posthog.com',
                         },
@@ -241,7 +242,8 @@ describe('Hog Executor', () => {
                 groups: {},
                 event: {
                     uuid: 'uuid',
-                    name: '$autocapture',
+                    event: '$autocapture',
+                    elements_chain: '',
                     distinct_id: 'distinct_id',
                     url: 'http://localhost:8000/events/1',
                     properties: {
@@ -260,7 +262,8 @@ describe('Hog Executor', () => {
                 groups: {},
                 event: {
                     uuid: 'uuid',
-                    name: '$autocapture',
+                    event: '$autocapture',
+                    elements_chain: '',
                     distinct_id: 'distinct_id',
                     url: 'http://localhost:8000/events/1',
                     properties: {
@@ -291,7 +294,8 @@ describe('Hog Executor', () => {
                 groups: {},
                 event: {
                     uuid: 'uuid',
-                    name: '$autocapture',
+                    event: '$autocapture',
+                    elements_chain: '',
                     distinct_id: 'distinct_id',
                     url: 'http://localhost:8000/events/1',
                     properties: {
@@ -310,7 +314,8 @@ describe('Hog Executor', () => {
                 groups: {},
                 event: {
                     uuid: 'uuid',
-                    name: '$autocapture',
+                    event: '$autocapture',
+                    elements_chain: '',
                     distinct_id: 'distinct_id',
                     url: 'http://localhost:8000/events/1',
                     properties: {
@@ -341,7 +346,8 @@ describe('Hog Executor', () => {
                 groups: {},
                 event: {
                     uuid: 'uuid',
-                    name: '$autocapture',
+                    event: '$autocapture',
+                    elements_chain: '',
                     distinct_id: 'distinct_id',
                     url: 'http://localhost:8000/events/1',
                     properties: {
@@ -360,7 +366,8 @@ describe('Hog Executor', () => {
                 groups: {},
                 event: {
                     uuid: 'uuid',
-                    name: '$autocapture',
+                    event: '$autocapture',
+                    elements_chain: '',
                     distinct_id: 'distinct_id',
                     url: 'http://localhost:8000/events/1',
                     properties: {
