@@ -7,6 +7,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     name="Zapier",
     description="Sends a webhook templated by the incoming event data",
     icon_url="/static/services/zapier.png",
+    category=["Custom"],
     hog="""
 let res := fetch(f'https://hooks.zapier.com/{inputs.hook}', {
   'method': 'POST',

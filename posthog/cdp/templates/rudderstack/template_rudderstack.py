@@ -9,6 +9,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     name="RudderStack",
     description="Send data to RudderStack",
     icon_url="/static/services/rudderstack.png",
+    category=["Custom"],
     hog="""
 fun getPayload() {
     let rudderPayload := {

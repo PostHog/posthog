@@ -8,6 +8,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     name="Engage.so",
     description="Send events to Engage.so",
     icon_url="/static/services/engage.png",
+    category=["Email Marketing"],
     hog="""
 let body := event
 

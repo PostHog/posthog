@@ -6,6 +6,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     name="Gleap",
     description="Updates a contact in Gleap",
     icon_url="/static/services/gleap.png",
+    category=["Customer Success"],
     hog="""
 let action := inputs.action
 let name := event.name

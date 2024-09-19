@@ -6,6 +6,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     name="Knock",
     description="Send events to Knock",
     icon_url="/static/services/knock.png",
+    category=["SMS & Push Notifications"],
     hog="""
 if (empty(inputs.userId)) {
     print('No User ID set. Skipping...')

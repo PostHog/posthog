@@ -9,6 +9,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     name="Intercom",
     description="Send events and contact information to Intercom",
     icon_url="/static/services/intercom.png",
+    category=["Customer Success"],
     hog="""
 if (empty(inputs.email)) {
     print('`email` input is empty. Skipping.')

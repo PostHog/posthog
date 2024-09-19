@@ -8,6 +8,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     name="Loops",
     description="Send events to Loops",
     icon_url="/static/services/loops.png",
+    category=["Email Marketing"],
     hog="""
 let apiKey := inputs.apiKey
 

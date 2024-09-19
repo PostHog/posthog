@@ -7,6 +7,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     name="ActiveCampaign",
     description="Creates a new contact in ActiveCampaign whenever an event is triggered.",
     icon_url="/static/services/activecampaign.png",
+    category=["Email Marketing"],
     hog="""
 if (empty(inputs.email)) {
     print('`email` input is empty. Not creating a contact.')

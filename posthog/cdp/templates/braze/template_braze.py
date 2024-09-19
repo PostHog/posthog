@@ -7,6 +7,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     name="Braze",
     description="Send events to Braze",
     icon_url="/static/services/braze.png",
+    category=["Customer Success"],
     hog="""
 let getPayload := () -> [{
   'attributes': inputs.attributes,

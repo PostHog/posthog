@@ -10,6 +10,7 @@ template_mailgun_send_email: HogFunctionTemplate = HogFunctionTemplate(
     name="Mailgun",
     description="Send emails using the Mailgun HTTP API",
     icon_url="/static/services/mailgun.png",
+    category=["Email Marketing"],
     hog="""
 if (empty(inputs.template.to)) {
     return false
