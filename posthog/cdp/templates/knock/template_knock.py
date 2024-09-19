@@ -14,7 +14,7 @@ if (empty(inputs.userId)) {
 
 let body := {
     'type': 'track',
-    'event': event.name,
+    'event': event.event,
     'userId': inputs.userId,
     'properties': inputs.include_all_properties ? event.properties : {},
     'messageId': event.uuid,

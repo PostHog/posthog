@@ -8,7 +8,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     icon_url="/static/services/gleap.png",
     hog="""
 let action := inputs.action
-let name := event.name
+let name := event.event
 
 if (empty(inputs.userId)) {
     print('No User ID set. Skipping...')

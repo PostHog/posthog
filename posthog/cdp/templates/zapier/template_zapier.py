@@ -39,7 +39,7 @@ if (inputs.debug) {
                 },
                 "data": {
                     "eventUuid": "{event.uuid}",
-                    "event": "{event.name}",
+                    "event": "{event.event}",
                     "teamId": "{project.id}",
                     "distinctId": "{event.distinct_id}",
                     "properties": "{event.properties}",

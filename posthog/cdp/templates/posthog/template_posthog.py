@@ -28,7 +28,7 @@ fetch(f'{host}/e', {
     },
     'body': {
         'token': token,
-        'event': event.name,
+        'event': event.event,
         'timestamp': event.timestamp,
         'distinct_id': event.distinct_id,
         'elements_chain': event.elements_chain,

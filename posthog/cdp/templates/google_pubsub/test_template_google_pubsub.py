@@ -127,7 +127,7 @@ class TestTemplateMigration(BaseTest):
                 "topicId": {"value": "TOPIC_ID"},
                 "payload": {
                     "value": {
-                        "event": "{event.name}",
+                        "event": "{event.event}",
                         "distinct_id": "{event.distinct_id}",
                         "timestamp": "{event.timestamp}",
                         "uuid": "{event.uuid}",
@@ -177,7 +177,7 @@ class TestTemplateMigration(BaseTest):
                 "topicId": {"value": "TOPIC_ID"},
                 "payload": {
                     "value": {
-                        "event": "{event.name}",
+                        "event": "{event.event}",
                         "distinct_id": "{event.distinct_id}",
                         "timestamp": "{event.timestamp}",
                         "uuid": "{event.uuid}",

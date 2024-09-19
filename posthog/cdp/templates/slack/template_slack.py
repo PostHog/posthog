@@ -69,7 +69,7 @@ if (res.status != 200 or not res.body.ok) {
             "default": [
                 {
                     "text": {
-                        "text": "*{person.name}* triggered event: '{event.name}'",
+                        "text": "*{person.name}* triggered event: '{event.event}'",
                         "type": "mrkdwn",
                     },
                     "type": "section",

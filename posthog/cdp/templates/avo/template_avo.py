@@ -30,7 +30,7 @@ let avoEvent := {
     'trackingId': '',
     'samplingRate': 1,
     'type': 'event',
-    'eventName': event.name,
+    'eventName': event.event,
     'messageId': event.uuid,
     'eventProperties': []
 }

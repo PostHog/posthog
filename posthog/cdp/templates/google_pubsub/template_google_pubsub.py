@@ -109,7 +109,7 @@ class TemplateGooglePubSubMigrator(HogFunctionTemplateMigrator):
             "topicId": {"value": topicId},
             "payload": {
                 "value": {
-                    "event": "{event.name}",
+                    "event": "{event.event}",
                     "distinct_id": "{event.distinct_id}",
                     "elements_chain": "{event.elements_chain}",
                     "timestamp": "{event.timestamp}",

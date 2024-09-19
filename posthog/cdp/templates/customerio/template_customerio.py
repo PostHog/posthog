@@ -12,7 +12,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     icon_url="/static/services/customerio.png",
     hog="""
 let action := inputs.action
-let name := event.name
+let name := event.event
 
 let hasIdentifier := false
 
@@ -28,13 +28,13 @@ if (not hasIdentifier) {
 }
 
 if (action == 'automatic') {
-    if (event.name in ('$identify', '$set')) {
+    if (event.event in ('$identify', '$set')) {
         action := 'identify'
         name := null
-    } else if (event.name == '$pageview') {
+    } else if (event.event == '$pageview') {
         action := 'page'
         name := event.properties.$current_url
-    } else if (event.name == '$screen') {
+    } else if (event.event == '$screen') {
         action := 'screen'
         name := event.properties.$screen_name
     } else {
