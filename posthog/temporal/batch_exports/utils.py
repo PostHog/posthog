@@ -126,7 +126,7 @@ class JsonScalar(pa.ExtensionScalar):
 
         We attempt to decode the value returned by `as_py` as JSON 3 times:
         1. As returned by `as_py`, without changes.
-        2. By replacing any encoding errors.
+        2. By escaping and replacing any encoding errors.
         3. By treating the value as a string and surrouding it with quotes.
 
         If all else fails, we will log the offending value and re-raise the decoding error.
@@ -137,24 +137,28 @@ class JsonScalar(pa.ExtensionScalar):
             if not value:
                 return None
 
+            json_bytes = value.encode("utf-8")
+
             try:
-                return orjson.loads(value.encode("utf-8"))
+                return orjson.loads(json_bytes)
             except orjson.JSONDecodeError:
                 pass
 
+            json_bytes = value.encode("unicode-escape").decode("utf-8", "replace").encode("utf-8")
             try:
-                return orjson.loads(value.encode("utf-8", "replace"))
+                return orjson.loads(json_bytes)
             except orjson.JSONDecodeError:
                 pass
 
-            if isinstance(value, str) and len(value) > 0:
-                # Handles `"$set": "Something"`
+            if isinstance(value, str) and len(value) > 0 and not value.startswith("{") and not value.endswith("}"):
+                # Handles non-valid JSON strings like `'"$set": "Something"'` by quoting them.
                 value = f'"{value}"'
 
+            json_bytes = value.encode("unicode-escape").decode("utf-8", "replace").encode("utf-8")
             try:
-                return orjson.loads(value.encode("utf-8", "replace"))
+                return orjson.loads(json_bytes)
             except orjson.JSONDecodeError:
-                logger.exception("Failed to decode: %s", value)
+                logger.exception("Failed to decode with orjson: %s", value)
                 raise
 
         else:
