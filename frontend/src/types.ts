@@ -295,7 +295,7 @@ export interface MinimalHedgehogConfig {
     accessories: string[]
 }
 
-export type HedgehogSkin = 'default' | 'spiderhog'
+export type HedgehogSkin = 'default' | 'spiderhog' | 'hogzilla'
 
 export interface HedgehogConfig extends MinimalHedgehogConfig {
     enabled: boolean
