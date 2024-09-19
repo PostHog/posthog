@@ -84,7 +84,7 @@ export type HogFunctionInvocationGlobals = {
         properties: Record<string, any>
 
         /** Special fields in Hog */
-        uuid: string
+        uuid: string // TODO: remove?
         name: string
         url: string
     }
