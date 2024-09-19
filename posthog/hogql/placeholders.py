@@ -34,7 +34,7 @@ class ReplacePlaceholders(CloningVisitor):
 
     def visit_placeholder(self, node):
         if not self.placeholders:
-            raise QueryError(f"Placeholders, such as {{{node.field}}}, are not supported in this context")
+            raise QueryError(f"Unresolved placeholder: {{{node.field}}}")
         if node.field in self.placeholders and self.placeholders[node.field] is not None:
             new_node = self.placeholders[node.field]
             new_node.start = node.start
