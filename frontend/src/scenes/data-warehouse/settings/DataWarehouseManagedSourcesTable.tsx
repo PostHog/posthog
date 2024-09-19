@@ -24,7 +24,7 @@ import { manualLinkSources, PipelineNodeTab, PipelineStage } from '~/types'
 import { SOURCE_DETAILS } from '../new/sourceWizardLogic'
 import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
 
-const StatusTagSetting = {
+export const StatusTagSetting = {
     Running: 'primary',
     Completed: 'success',
     Error: 'danger',

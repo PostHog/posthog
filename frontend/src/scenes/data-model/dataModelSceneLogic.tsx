@@ -36,6 +36,7 @@ export const dataModelSceneLogic = kea<dataModelSceneLogicType>([
                     [ancestor]: {
                         nodeId: ancestor,
                         name: values.viewsMapById[ancestor]?.name || ancestor,
+                        savedQueryId: values.viewsMapById[ancestor]?.id,
                         leaf: [...(values.nodeMap[ancestor]?.leaf || []), viewId],
                     },
                 })
@@ -88,6 +89,7 @@ export const dataModelSceneLogic = kea<dataModelSceneLogicType>([
                     [field.id]: {
                         nodeId: field.id,
                         name: values.viewsMapById[field.id]?.name || field.id,
+                        savedQueryId: values.viewsMapById[field.id]?.id,
                         leaf: [`${field.name}_joined`],
                     },
                 })
