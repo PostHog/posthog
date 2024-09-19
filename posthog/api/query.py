@@ -60,10 +60,10 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     def get_throttles(self):
         if self.action in ("draft_sql", "chat"):
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
-        elif self.request.data.get("query", {}).get("kind") == "HogQLQuery":
-            return [HogQLQueryThrottle()]
-        else:
-            return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
+        if query := self.request.data.get("query"):
+            if kind := query.get("kind") == "HogQLQuery":
+                return [HogQLQueryThrottle()]
+        return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
 
     @extend_schema(
         request=QueryRequest,
