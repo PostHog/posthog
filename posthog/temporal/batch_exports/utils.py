@@ -2,6 +2,7 @@ import asyncio
 import collections.abc
 import contextlib
 import functools
+import json
 import typing
 import uuid
 
@@ -154,7 +155,12 @@ class JsonScalar(pa.ExtensionScalar):
             try:
                 return orjson.loads(value.encode("utf-8", "replace"))
             except orjson.JSONDecodeError:
-                logger.exception("Failed to decode: %s", value)
+                logger.exception("Failed to decode with orjson: %s", value)
+
+            try:
+                return json.loads(value.encode("utf-8", "replace"))
+            except json.JSONDecodeError:
+                logger.exception("Failed to decode with stdlib: %s", value)
                 raise
 
         else:
