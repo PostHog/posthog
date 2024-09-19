@@ -69,9 +69,10 @@ For the safety of your instance, you must generate and set a unique key.
     )
     sys.exit("[ERROR] Default SECRET_KEY in production. Stopping Django server…\n")
 
-# NOTE: Legacy salt key that will be removed later
+# These are legacy values only kept around for backwards compatibility with self hosted versions
 SALT_KEY = get_list(os.getenv("SALT_KEY", "0123456789abcdefghijklmnopqrstuvwxyz"))
-ENCRYPTION_SALT_KEYS = get_list(os.getenv("ENCRYPTION_SALT_KEYS", "0123456789abcdefghijklmnopqrstuvwxyz"))
+# We provide a default as it is needed for hobby deployments
+ENCRYPTION_SALT_KEYS = get_list(os.getenv("ENCRYPTION_SALT_KEYS", "00beef0000beef0000beef0000beef00"))
 
 INTERNAL_IPS = ["127.0.0.1", "172.18.0.1"]  # Docker IP
 CORS_ORIGIN_ALLOW_ALL = True
