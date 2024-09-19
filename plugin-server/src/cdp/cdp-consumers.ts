@@ -30,6 +30,7 @@ import { captureTeamEvent } from '../utils/posthog'
 import { status } from '../utils/status'
 import { castTimestampOrNow } from '../utils/utils'
 import { RustyHook } from '../worker/rusty-hook'
+import { ExceptionsManager } from './exceptions-manager'
 import { FetchExecutor } from './fetch-executor'
 import { GroupsManager } from './groups-manager'
 import { HogExecutor } from './hog-executor'
@@ -105,6 +106,7 @@ abstract class CdpConsumerBase {
     hogWatcher: HogWatcher
     hogMasker: HogMasker
     groupsManager: GroupsManager
+    exceptionsManager: ExceptionsManager
     isStopping = false
     messagesToProduce: HogFunctionMessageToProduce[] = []
     redis: CdpRedis
@@ -125,6 +127,7 @@ abstract class CdpConsumerBase {
         const rustyHook = this.hub?.rustyHook ?? new RustyHook(this.hub)
         this.fetchExecutor = new FetchExecutor(this.hub, rustyHook)
         this.groupsManager = new GroupsManager(this.hub)
+        this.exceptionsManager = new ExceptionsManager(this.hub)
     }
 
     public get service(): PluginServerService {
@@ -475,6 +478,9 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
 
                 // TODO: Add a helper to hog functions to determine if they require groups or not and then only load those
                 await this.groupsManager.enrichGroups(invocationGlobals)
+
+                // TODO: Add a helper to hog functions to determine if they were created from the exceptions template and only load those
+                await this.exceptionsManager.enrichExceptions(invocationGlobals)
 
                 // Find all functions that could need running
                 invocationGlobals.forEach((globals) => {
