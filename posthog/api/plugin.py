@@ -781,9 +781,9 @@ class PluginConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         orders = request.data.get("orders", {})
 
         plugin_configs = PluginConfig.objects.filter(team_id=self.team.pk, enabled=True)
-        plugin_configs_dict = {p.plugin_id: p for p in plugin_configs}
-        for plugin_id, order in orders.items():
-            plugin_config = plugin_configs_dict.get(int(plugin_id), None)
+        plugin_configs_dict = {p.id: p for p in plugin_configs}
+        for plugin_config_id, order in orders.items():
+            plugin_config = plugin_configs_dict.get(int(plugin_config_id), None)
             if plugin_config and plugin_config.order != order:
                 old_order = plugin_config.order
                 plugin_config.order = order

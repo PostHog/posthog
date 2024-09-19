@@ -210,7 +210,7 @@ mod tests {
     #[test]
     fn too_large_distinct_id_is_truncated() {
         let json = json!({
-            "distinct_id": std::iter::repeat("a").take(210).collect::<String>(),
+            "distinct_id": "a".repeat(210),
             "token": "my_token1",
         });
         let bytes = Bytes::from(json.to_string());

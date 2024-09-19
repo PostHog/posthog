@@ -18,7 +18,6 @@ from posthog.plugins.plugin_server_api import (
 
 DEFAULT_STATE = {"state": 0, "tokens": 0, "rating": 0}
 
-
 logger = structlog.get_logger(__name__)
 
 

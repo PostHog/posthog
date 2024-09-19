@@ -765,7 +765,7 @@ def serialize_fields(
                     schema_valid=schema_valid,
                     table=field.resolve_table(context).to_printed_hogql(),
                     fields=list(field.resolve_table(context).fields.keys()),
-                    id=id,
+                    id=id or field_key,
                 )
             )
         elif isinstance(field, VirtualTable):
