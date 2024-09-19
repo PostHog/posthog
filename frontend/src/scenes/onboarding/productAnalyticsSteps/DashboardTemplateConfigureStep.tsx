@@ -87,9 +87,20 @@ const UrlInput = ({ iframeRef }: { iframeRef: React.RefObject<HTMLIFrameElement>
 export const SiteChooser = (): JSX.Element => {
     const iframeRef = useRef<HTMLIFrameElement>(null)
     const { snippetHosts, hasSnippetEventsLoading } = useValues(sdksLogic)
-    const { addUrl } = useActions(authorizedUrlListLogic({ actionId: null, type: AuthorizedUrlListType.TOOLBAR_URLS }))
-    const { setBrowserUrl } = useActions(iframedToolbarBrowserLogic({ iframeRef, clearBrowserUrlOnUnmount: true }))
-    const { iframeBanner } = useValues(iframedToolbarBrowserLogic({ iframeRef, clearBrowserUrlOnUnmount: true }))
+    const { setProposedBrowserUrl } = useActions(
+        iframedToolbarBrowserLogic({
+            iframeRef,
+            clearBrowserUrlOnUnmount: true,
+            automaticallyAuthorizeBrowserUrl: true,
+        })
+    )
+    const { iframeBanner, proposedBrowserUrl } = useValues(
+        iframedToolbarBrowserLogic({
+            iframeRef,
+            clearBrowserUrlOnUnmount: true,
+            automaticallyAuthorizeBrowserUrl: true,
+        })
+    )
     const { setStepKey } = useActions(onboardingLogic)
 
     return (
@@ -125,10 +136,10 @@ export const SiteChooser = (): JSX.Element => {
                                         type="tertiary"
                                         status="default"
                                         onClick={() => {
-                                            addUrl(host)
-                                            setBrowserUrl(host)
+                                            setProposedBrowserUrl(host)
                                         }}
                                         sideIcon={<IconArrowRight />}
+                                        disabledReason={proposedBrowserUrl && 'Loading...'}
                                     >
                                         {host}
                                     </LemonButton>
