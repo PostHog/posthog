@@ -1,12 +1,11 @@
 # Web app specific settings/middleware/apps setup
 import os
 from datetime import timedelta
-import sys
 
 from corsheaders.defaults import default_headers
 import structlog
 
-from posthog.settings.base_variables import BASE_DIR, DEBUG, STATIC_COLLECTION, TEST
+from posthog.settings.base_variables import BASE_DIR, DEBUG, TEST
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 from posthog.utils_cors import CORS_ALLOWED_TRACING_HEADERS
 
