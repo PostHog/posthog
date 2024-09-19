@@ -128,6 +128,7 @@ class TestTemplateMigration(BaseTest):
                 "payload": {
                     "value": {
                         "event": "{event.event}",
+                        "elements_chain": "{event.elements_chain}",
                         "distinct_id": "{event.distinct_id}",
                         "timestamp": "{event.timestamp}",
                         "uuid": "{event.uuid}",
@@ -178,6 +179,7 @@ class TestTemplateMigration(BaseTest):
                 "payload": {
                     "value": {
                         "event": "{event.event}",
+                        "elements_chain": "{event.elements_chain}",
                         "distinct_id": "{event.distinct_id}",
                         "timestamp": "{event.timestamp}",
                         "uuid": "{event.uuid}",

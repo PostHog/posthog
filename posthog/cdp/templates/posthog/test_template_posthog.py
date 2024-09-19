@@ -27,6 +27,7 @@ class TestTemplatePosthog(BaseHogFunctionTemplateTest):
                     "headers": {"Content-Type": "application/json"},
                     "body": {
                         "token": "TOKEN",
+                        "elements_chain": "",
                         "event": "event-name",
                         "timestamp": "2024-01-01T00:00:00Z",
                         "distinct_id": "distinct-id",
