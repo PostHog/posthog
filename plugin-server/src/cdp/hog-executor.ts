@@ -118,7 +118,6 @@ export class HogExecutor {
                         return
                     }
                 } catch (error) {
-                    // TODO: This should be reported as a log or metric
                     status.error('🦔', `[HogExecutor] Error filtering function`, {
                         hogFunctionId: hogFunction.id,
                         hogFunctionName: hogFunction.name,
@@ -132,7 +131,7 @@ export class HogExecutor {
                     hogFunctionFilterDuration.observe(performance.now() - start)
 
                     if (duration > DEFAULT_TIMEOUT_MS) {
-                        status.warn('🦔', `[HogExecutor] Filter took longer than expected`, {
+                        status.error('🦔', `[HogExecutor] Filter took longer than expected`, {
                             hogFunctionId: hogFunction.id,
                             hogFunctionName: hogFunction.name,
                             teamId: hogFunction.team_id,
