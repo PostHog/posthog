@@ -4,8 +4,8 @@ export const listExperimentsAPIResponse = {
             id: 3,
             name: 'Page Header Test',
             feature_flag_key: 'signup-button-test',
-            variants: [
-                {
+            variants: {
+                Signup: {
                     transforms: [
                         {
                             html: "Its Corinne's birthday",
@@ -13,10 +13,19 @@ export const listExperimentsAPIResponse = {
                             selector: '#page > #body > .body h1',
                         },
                     ],
-                    variant_name: 'Signup',
                     rollout_percentage: 25,
                 },
-                {
+                control: {
+                    transforms: [
+                        {
+                            html: 'I am the control',
+                            text: 'Cosmonaut Happy Hour',
+                            selector: '#page > #body > .body h1',
+                        },
+                    ],
+                    rollout_percentage: 50,
+                },
+                'Send-it': {
                     transforms: [
                         {
                             html: 'One giant leap for Omega Watches',
@@ -27,25 +36,14 @@ export const listExperimentsAPIResponse = {
                     variant_name: 'Send-it',
                     rollout_percentage: 25,
                 },
-                {
-                    transforms: [
-                        {
-                            html: 'I am the control',
-                            text: 'Cosmonaut Happy Hour',
-                            selector: '#page > #body > .body h1',
-                        },
-                    ],
-                    variant_name: 'control',
-                    rollout_percentage: 50,
-                },
-            ],
+            },
         },
         {
             id: 2,
             name: 'HomePage hero banner test',
             feature_flag_key: 'amazon-hero-text',
-            variants: [
-                {
+            variants: {
+                'variant #0': {
                     transforms: [
                         {
                             html: '',
@@ -54,10 +52,9 @@ export const listExperimentsAPIResponse = {
                             className: 'O',
                         },
                     ],
-                    variant_name: 'variant #0',
                     rollout_percentage: 50,
                 },
-                {
+                control: {
                     transforms: [
                         {
                             html: '',
@@ -68,7 +65,7 @@ export const listExperimentsAPIResponse = {
                     variant_name: 'variant #1',
                     rollout_percentage: 50,
                 },
-            ],
+            },
         },
     ],
 }
