@@ -1,7 +1,7 @@
 import { calculateCost, convertHogToJS, exec, ExecOptions, ExecResult } from '@posthog/hogvm'
 import crypto from 'crypto'
 import { DateTime } from 'luxon'
-import { Histogram } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 import RE2 from 're2'
 
 import { status } from '../utils/status'
@@ -26,6 +26,18 @@ const hogExecutionDuration = new Histogram({
     help: 'Processing time and success status of internal functions',
     // We have a timeout so we don't need to worry about much more than that
     buckets: [0, 10, 20, 50, 100, 200],
+})
+
+const hogFunctionFilterDuration = new Histogram({
+    name: 'cdp_hog_function_filter_duration_ms',
+    help: 'Processing time for filtering a function',
+    // We have a timeout so we don't need to worry about much more than that
+    buckets: [0, 10, 20, 50, 100, 200],
+})
+
+const hogFunctionFilterErrors = new Counter({
+    name: 'cdp_hog_function_filter_errors',
+    help: 'Errors encountered while filtering functions',
 })
 
 export function execHog(bytecode: any, options?: ExecOptions): ExecResult {
@@ -96,7 +108,9 @@ export class HogExecutor {
         allFunctionsForTeam.forEach((hogFunction) => {
             try {
                 if (hogFunction.filters?.bytecode) {
+                    const start = performance.now()
                     const filterResult = execHog(hogFunction.filters.bytecode, { globals: filtersGlobals })
+                    hogFunctionFilterDuration.observe(performance.now() - start)
                     if (typeof filterResult.result === 'boolean' && filterResult.result) {
                         matchingFunctions.push(hogFunction)
                         return
@@ -109,6 +123,7 @@ export class HogExecutor {
                     hogFunctionName: hogFunction.name,
                     error: error.message,
                 })
+                hogFunctionFilterErrors.inc()
             }
 
             nonMatchingFunctions.push(hogFunction)

@@ -1,14 +1,15 @@
 from datetime import datetime
+from uuid import UUID
+
+import encrypted_fields
+import structlog
+import temporalio
 from django.db import models
 
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.team import Team
-from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDModel, UpdatedMetaFields, sane_repr
+from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDModel, sane_repr
 from posthog.warehouse.util import database_sync_to_async
-from uuid import UUID
-
-import structlog
-import temporalio
 
 logger = structlog.get_logger(__name__)
 
@@ -64,8 +65,8 @@ class ExternalDataSource(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
         self.save()
 
     def reload_schemas(self):
-        from posthog.warehouse.models.external_data_schema import ExternalDataSchema
         from posthog.warehouse.data_load.service import sync_external_data_job_workflow, trigger_external_data_workflow
+        from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 
         for schema in (
             ExternalDataSchema.objects.exclude(deleted=True)

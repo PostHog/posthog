@@ -372,22 +372,6 @@ KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS = int(os.getenv("KAFKA_PRODUCE_ACK_TIMEOUT_SEC
 # We keep the number of buckets low to reduce resource usage on the Prometheus
 PROMETHEUS_LATENCY_BUCKETS = [0.1, 0.3, 0.9, 2.7, 8.1, float("inf")]
 
-DEFAULT_SALT_KEY = "ABCDEFGHIJKLMNOPQRSTUVWXYZ012345"
-ENCRYPTION_SALT_KEYS = get_list(os.getenv("ENCRYPTION_SALT_KEYS", DEFAULT_SALT_KEY))
-
-if not DEBUG and not TEST and not STATIC_COLLECTION and DEFAULT_SALT_KEY in ENCRYPTION_SALT_KEYS:
-    logger.critical(
-        """
-You are using the default ENCRYPTION_SALT_KEYS in a production environment!
-For the safety of your instance, you must generate and set a unique key.
-"""
-    )
-    sys.exit("[ERROR] Default ENCRYPTION_SALT_KEYS in production. Stopping Django server…\n")
-
-# NOTE: Legacy salt key that will be removed later
-SALT_KEY = get_list(os.getenv("SALT_KEY", "0123456789abcdefghijklmnopqrstuvwxyz"))
-
-
 # temporary flag to control new UUID version setting in posthog-js
 # is set to v7 to test new generation but can be set to "og" to revert
 POSTHOG_JS_UUID_VERSION = os.getenv("POSTHOG_JS_UUID_VERSION", "v7")

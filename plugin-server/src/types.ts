@@ -287,8 +287,10 @@ export interface PluginsServerConfig extends CdpConfig {
     // kafka debug stats interval
     SESSION_RECORDING_KAFKA_CONSUMPTION_STATISTICS_EVENT_INTERVAL_MS: number
 
-    CYCLOTRON_DATABASE_URL: string
     ENCRYPTION_SALT_KEYS: string
+
+    CYCLOTRON_DATABASE_URL: string
+    CYCLOTRON_SHARD_DEPTH_LIMIT: number
 }
 
 export interface Hub extends PluginsServerConfig {

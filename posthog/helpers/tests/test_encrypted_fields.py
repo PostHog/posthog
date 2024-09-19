@@ -18,7 +18,7 @@ class TestEncryptedFields(BaseTest):
 
         assert (
             encrypted
-            == "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAAFoHDFl5z8lrvd6QPZj0FC-Hxr567WC_EQxa95EGyjRwCJ94LDuO4y7PzhSE77D0hA=="
+            == "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAAP89mTGU6xUyLcVUIB4ySnX2Y8ZgwLALpzYGfm76Fk64vPRY62flSIigMa_MqTlKyA=="
         )
         decrypted = ef.f.decrypt(bytes(encrypted, "utf-8")).decode("utf-8")
 

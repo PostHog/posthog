@@ -124,6 +124,7 @@ export const RRWebPerformanceEventReverseMapping: Record<string, keyof Performan
     requestBody: 'request_body',
     responseBody: 'response_body',
     method: 'method',
+    endTime: 'end_time',
 }
 
 export function initiatorTypeToColor(type: NonNullable<PerformanceEvent['initiator_type']>): string {
@@ -316,11 +317,18 @@ function bytesFrom(item: PerformanceEvent): number | null {
     if (isPositiveNumber(item.decoded_body_size)) {
         return item.decoded_body_size
     }
+
+    if (item.response_body && typeof item.response_body === 'string') {
+        const bodySize = new Blob([item.response_body]).size
+        const headerSize = new Blob([JSON.stringify(item.response_headers)]).size
+        return bodySize + headerSize
+    }
+
     // we use null as the default not 0 because 0 can mean "was cached" and if we have no data we don't know
     return null
 }
 
-export function itemSizeInfo(item: PerformanceEvent): {
+export interface PerformanceEventSizeInfo {
     formattedBytes: string
     compressionPercentage: number | null
     formattedDecodedBodySize: string | null
@@ -330,7 +338,9 @@ export function itemSizeInfo(item: PerformanceEvent): {
     bytes: number | null
     decodedBodySize: number | null
     encodedBodySize: number | null
-} {
+}
+
+export function itemSizeInfo(item: PerformanceEvent): PerformanceEventSizeInfo {
     const bytes = bytesFrom(item)
     const formattedBytes = humanizeBytes(bytes)
     const decodedBodySize = isPositiveNumber(item.decoded_body_size) ? item.decoded_body_size : null
