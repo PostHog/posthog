@@ -112,7 +112,6 @@ export class HogExecutor {
                 const start = performance.now()
                 try {
                     const filterResult = execHog(hogFunction.filters.bytecode, { globals: filtersGlobals })
-                    hogFunctionFilterDuration.observe(performance.now() - start)
                     if (typeof filterResult.result === 'boolean' && filterResult.result) {
                         matchingFunctions.push(hogFunction)
                         return
