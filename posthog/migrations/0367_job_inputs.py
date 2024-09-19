@@ -3,7 +3,7 @@
 from django.conf import settings
 from django.db import migrations, models
 import django.db.models.deletion
-from posthog.helpers.encrypted_fields import EncryptedJSONField
+import encrypted_fields.fields
 import posthog.models.utils
 
 
@@ -16,7 +16,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="externaldatasource",
             name="job_inputs",
-            field=EncryptedJSONField(blank=True, null=True),
+            field=encrypted_fields.fields.EncryptedJSONField(blank=True, null=True),
         ),
         migrations.AddField(
             model_name="datawarehousetable",
