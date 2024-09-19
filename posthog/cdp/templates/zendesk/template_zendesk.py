@@ -7,8 +7,8 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     id="template-zendesk",
     name="Zendesk",
     description="Update contacts in Zendesk",
-    icon_url="/api/projects/@current/hog_functions/icon/?id=zendesk.com",
     category=["Customer Success"],
+    icon_url="/static/services/zendesk.png",
     hog="""
 if (empty(inputs.email) or empty(inputs.name)) {
     print('`email` or `name` input is empty. Not creating a contact.')
