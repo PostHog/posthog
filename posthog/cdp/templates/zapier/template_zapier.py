@@ -44,7 +44,7 @@ if (inputs.debug) {
                     "distinctId": "{event.distinct_id}",
                     "properties": "{event.properties}",
                     "timestamp": "{event.timestamp}",
-                    "person": {"uuid": "{person.uuid}", "properties": "{person.properties}"},
+                    "person": {"uuid": "{person.id}", "properties": "{person.properties}"},
                 },
             },
             "secret": False,

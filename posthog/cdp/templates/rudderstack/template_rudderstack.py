@@ -117,7 +117,7 @@ fetch(f'{inputs.host}/v1/batch', getPayload())
             "key": "identifier",
             "type": "string",
             "label": "Identifier",
-            "default": "{person.uuid}",
+            "default": "{person.id}",
             "secret": False,
             "required": True,
         },
@@ -138,7 +138,7 @@ class TemplateRudderstackMigrator(HogFunctionTemplateMigrator):
         hf["inputs"] = {
             "host": {"value": host},
             "token": {"value": token},
-            "identifier": {"value": "{event.properties.$user_id ?? event.distinct_id ?? person.uuid}"},
+            "identifier": {"value": "{event.properties.$user_id ?? event.distinct_id ?? person.id}"},
         }
         hf["filters"] = {}
 
