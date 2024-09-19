@@ -269,8 +269,8 @@ dependencies:
     specifier: ^9.3.0
     version: 9.3.0(postcss@8.4.31)
   posthog-js:
-    specifier: 1.161.5
-    version: 1.161.5
+    specifier: 1.162.0
+    version: 1.162.0
   posthog-js-lite:
     specifier: 3.0.0
     version: 3.0.0
@@ -17709,8 +17709,8 @@ packages:
     resolution: {integrity: sha512-dyajjnfzZD1tht4N7p7iwf7nBnR1MjVaVu+MKr+7gBgA39bn28wizCIJZztZPtHy4PY0YwtSGgwfBCuG/hnHgA==}
     dev: false
 
-  /posthog-js@1.161.5:
-    resolution: {integrity: sha512-KGkb12grSQvGRauH6z+AUB83c4dgWqzmJFDjyMXarWRafaLN80HzjN1jk806x27HvdDXi21jtwiXekioWzEQ9g==}
+  /posthog-js@1.162.0:
+    resolution: {integrity: sha512-073tCsNtuuQQwhkt0Q/COWDxClC3jkP+L1X3OmXog7+W6DwRfovr4IVkLTplVogyHK7gGkYO4DQcq4Ia2t2fow==}
     dependencies:
       fflate: 0.4.8
       preact: 10.24.0
@@ -18315,7 +18315,7 @@ packages:
       react: '>=15'
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.78.0
+      unlayer-types: 1.95.0
     dev: false
 
   /react-error-boundary@3.1.4(react@18.2.0):
@@ -20862,8 +20862,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  /unlayer-types@1.78.0:
-    resolution: {integrity: sha512-yw/341vpxMyE3GR2mk86HWGeF5F8ZVtMC+XgEi58Kf6xCq/b8qW+Bu0Bpo95lkzJkTF8DoyL4TTL506ePf14vg==}
+  /unlayer-types@1.95.0:
+    resolution: {integrity: sha512-WsvQp85+Xl8Gggkt+dSSePawoVAnGqjJzJJcDhIQswlPejARBRzAhl5dOF1Q+LjQckhWhKNDaJ5tcOeT+PV4ew==}
     dev: false
 
   /unpipe@1.0.0:
