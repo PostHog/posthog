@@ -275,7 +275,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 setPlay: (state) => {
                     return {
                         isPlaying: true,
-                        lastTimestamp: state.lastTimestamp || performance.now(),
+                        // if we are already playing then we carry the last timestamp over, otherwise we start from now
+                        lastTimestamp: (state.isPlaying ? state.lastTimestamp : performance.now()) || performance.now(),
                         watchTime: state.watchTime,
                     }
                 },
