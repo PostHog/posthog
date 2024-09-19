@@ -144,7 +144,7 @@ class JsonScalar(pa.ExtensionScalar):
             except orjson.JSONDecodeError:
                 pass
 
-            json_bytes = value.encode("unicode-escape").decode("utf-8", "replace").encode("utf-8")
+            json_bytes = value.encode("unicode-escape").decode("utf-8", "replace").encode("unicode-escape")
             try:
                 return orjson.loads(json_bytes)
             except orjson.JSONDecodeError:
@@ -154,7 +154,7 @@ class JsonScalar(pa.ExtensionScalar):
                 # Handles non-valid JSON strings like `'"$set": "Something"'` by quoting them.
                 value = f'"{value}"'
 
-            json_bytes = value.encode("unicode-escape").decode("utf-8", "replace").encode("utf-8")
+            json_bytes = value.encode("unicode-escape").decode("utf-8", "replace").encode("unicode-escape")
             try:
                 return orjson.loads(json_bytes)
             except orjson.JSONDecodeError:
