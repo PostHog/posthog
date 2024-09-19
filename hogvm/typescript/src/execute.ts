@@ -3,7 +3,7 @@ import { isHogCallable, isHogClosure, isHogError, isHogUpValue, newHogCallable, 
 import { Operation } from './operation'
 import { BYTECODE_STL } from './stl/bytecode'
 import { ASYNC_STL, STL } from './stl/stl'
-import { CallFrame, ExecOptions, ExecResult, HogUpValue, ThrowFrame, VMState } from './types'
+import { CallFrame, ExecOptions, ExecResult, HogUpValue, Telemetry, ThrowFrame, VMState } from './types'
 import {
     calculateCost,
     convertHogToJS,
@@ -94,6 +94,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
     let ops = vmState ? vmState.ops : 0
     const timeout = options?.timeout ?? DEFAULT_TIMEOUT_MS
     const maxAsyncSteps = options?.maxAsyncSteps ?? DEFAULT_MAX_ASYNC_STEPS
+    const telemetry: Telemetry[] = []
 
     if (callStack.length === 0) {
         callStack.push({
@@ -189,6 +190,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
             asyncSteps,
             syncDuration: syncDuration + (Date.now() - startTime),
             maxMemUsed,
+            telemetry: options?.telemetry ? telemetry : undefined,
         }
     }
     function captureUpValue(index: number): HogUpValue {
@@ -219,12 +221,27 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
         }
         return options.external.regex.match
     }
+    const logTelemetry = (): void => {
+        telemetry.push([new Date().getTime(), frame.chunk, frame.ip, chunkBytecode[frame.ip]])
+    }
+
+    const nextOp = options?.telemetry
+        ? () => {
+              ops += 1
+              logTelemetry()
+              if ((ops & 127) === 0) {
+                  checkTimeout()
+              }
+          }
+        : () => {
+              ops += 1
+              if ((ops & 127) === 0) {
+                  checkTimeout()
+              }
+          }
 
     while (frame.ip < chunkBytecode.length) {
-        ops += 1
-        if ((ops & 127) === 0) {
-            checkTimeout()
-        }
+        nextOp()
         switch (chunkBytecode[frame.ip]) {
             case null:
                 break
@@ -654,6 +671,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                                 asyncSteps: asyncSteps + 1,
                                 syncDuration: syncDuration + (Date.now() - startTime),
                                 maxMemUsed,
+                                telemetry: options?.telemetry ? telemetry : undefined,
                             },
                         } satisfies ExecResult
                     } else if (name in STL) {
@@ -784,6 +802,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                             asyncSteps: asyncSteps + 1,
                             syncDuration: syncDuration + (Date.now() - startTime),
                             maxMemUsed,
+                            telemetry: options?.telemetry ? telemetry : undefined,
                         },
                     } satisfies ExecResult
                 } else {

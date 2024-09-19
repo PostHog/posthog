@@ -2446,4 +2446,31 @@ describe('hogvm execute', () => {
             },
         })
     })
+
+    test('logs telemetry', () => {
+        const bytecode = ['_h', op.INTEGER, 1, op.INTEGER, 2, op.PLUS, op.RETURN]
+        const result = exec(bytecode, { telemetry: true })
+        expect(result).toEqual({
+            result: 3,
+            finished: true,
+            state: {
+                bytecode: [],
+                stack: [],
+                upvalues: [],
+                callStack: [],
+                throwStack: [],
+                declaredFunctions: {},
+                ops: 4,
+                asyncSteps: 0,
+                syncDuration: expect.any(Number),
+                maxMemUsed: 16,
+                telemetry: [
+                    [expect.any(Number), 'root', 1, 33],
+                    [expect.any(Number), 'root', 3, 33],
+                    [expect.any(Number), 'root', 5, 6],
+                    [expect.any(Number), 'root', 6, 38],
+                ],
+            },
+        })
+    })
 })
