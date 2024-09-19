@@ -31,7 +31,7 @@ impl PoolConfig {
     }
 }
 
-pub const DEFAULT_QUEUE_DEPTH_LIMIT: u64 = 10_000;
+pub const DEFAULT_QUEUE_DEPTH_LIMIT: u64 = 1_000_000;
 pub const DEFAULT_SHARD_HEALTH_CHECK_INTERVAL: u64 = 10;
 
 #[derive(Debug, Serialize, Deserialize)]

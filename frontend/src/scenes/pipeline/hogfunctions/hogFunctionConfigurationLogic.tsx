@@ -66,10 +66,11 @@ export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFu
     const sanitizedInputs: Record<string, HogFunctionInputType> = {}
 
     data.inputs_schema?.forEach((input) => {
-        const value = data.inputs?.[input.key]?.value
         const secret = data.inputs?.[input.key]?.secret
+        let value = data.inputs?.[input.key]?.value
 
         if (secret) {
+            // If set this means we haven't changed the value
             sanitizedInputs[input.key] = {
                 value: '********', // Don't send the actual value
                 secret: true,
@@ -79,14 +80,12 @@ export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFu
 
         if (input.type === 'json' && typeof value === 'string') {
             try {
-                sanitizedInputs[input.key] = {
-                    value: JSON.parse(value),
-                }
+                value = JSON.parse(value)
             } catch (e) {
                 // Ignore
             }
-            return
         }
+
         sanitizedInputs[input.key] = {
             value: value,
         }

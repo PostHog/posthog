@@ -96,9 +96,19 @@ export type HogFunctionFilterGlobals = {
     elements_chain_ids: string[]
     elements_chain_elements: string[]
     properties: Record<string, any>
+    distinct_id: string
 
     person?: {
+        id: string
         properties: Record<string, any>
+    }
+    pdi?: {
+        distinct_id: string
+        person_id: string
+        person: {
+            id: string
+            properties: Record<string, any>
+        }
     }
 
     group_0?: {
@@ -244,6 +254,7 @@ export type HogFunctionType = {
     bytecode: HogBytecode
     inputs_schema?: HogFunctionInputSchemaType[]
     inputs?: Record<string, HogFunctionInputType>
+    encrypted_inputs?: Record<string, HogFunctionInputType>
     filters?: HogFunctionFilters | null
     masking?: HogFunctionFiltersMasking | null
     depends_on_integration_ids?: Set<IntegrationType['id']>
