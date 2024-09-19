@@ -70,29 +70,33 @@ def execute_hogql_query(
 
     with timings.measure("replace_placeholders"):
         placeholders_in_query = find_placeholders(select_query)
+        placeholder_fields = [
+            placeholder.field for placeholder in placeholders_in_query if placeholder.field is not None
+        ]
+
         placeholders = placeholders or {}
 
-        if "filters" in placeholders and filters is not None:
+        if "filters" in placeholder_fields and filters is not None:
             raise ValueError(
                 f"Query contains 'filters' placeholder, yet filters are also provided as a standalone query parameter."
             )
-        if "filters" in placeholders_in_query or any(
-            placeholder.startswith("filters.") for placeholder in placeholders_in_query
+        if "filters" in placeholder_fields or any(
+            placeholder.startswith("filters.") for placeholder in placeholder_fields
         ):
             select_query = replace_filters(select_query, filters, team)
 
-            leftover_placeholders: list[str] = []
+            leftover_placeholders: list[ast.Placeholder] = []
             for placeholder in placeholders_in_query:
-                if placeholder != "filters" and not placeholder.startswith("filters."):
+                if (
+                    placeholder.field is not None
+                    and placeholder.field != "filters"
+                    and not placeholder.field.startswith("filters.")
+                ):
                     leftover_placeholders.append(placeholder)
 
             placeholders_in_query = leftover_placeholders
 
         if len(placeholders_in_query) > 0:
-            if len(placeholders) == 0:
-                raise ValueError(
-                    f"Query contains placeholders, but none were provided. Placeholders in query: {', '.join(placeholders_in_query)}"
-                )
             select_query = replace_placeholders(select_query, placeholders)
 
     with timings.measure("max_limit"):

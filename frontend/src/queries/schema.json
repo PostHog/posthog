@@ -5963,23 +5963,12 @@
             "type": "object"
         },
         "HogQLXAST": {
-            "additionalProperties": false,
             "properties": {
                 "__hx_ast": {
                     "type": "string"
                 }
             },
             "required": ["__hx_ast"],
-            "type": "object"
-        },
-        "HogQLXTag": {
-            "additionalProperties": false,
-            "properties": {
-                "__hx_tag": {
-                    "type": "string"
-                }
-            },
-            "required": ["__hx_tag"],
             "type": "object"
         },
         "HogQuery": {

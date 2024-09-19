@@ -1,6 +1,8 @@
+import inspect
+import sys
 from enum import StrEnum
 from typing import Any, Literal, Optional, Union
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 
 from posthog.hogql.base import Type, Expr, CTE, ConstantType, UnknownType, AST
 from posthog.hogql.constants import ConstantDataType, HogQLQuerySettings
@@ -830,3 +832,44 @@ class HogQLXTag(AST):
             "kind": self.kind,
             **{a.name: a.value for a in self.attributes},
         }
+
+
+def create_ast_classes_mapping() -> dict[str, AST]:
+    current_module = sys.modules[__name__]
+    ast_classes: dict[str, AST] = {}
+
+    for name, obj in inspect.getmembers(current_module, inspect.isclass):
+        if issubclass(obj, AST) and obj is not AST:
+            ast_classes[name] = obj
+
+    return ast_classes
+
+
+# Call the function to dynamically generate AST_CLASSES
+AST_CLASSES = create_ast_classes_mapping()
+
+
+def deserialize_hx_ast(hx: dict) -> AST:
+    kind = hx.pop("__hx_ast", None)
+    if kind is None or kind not in AST_CLASSES:
+        raise ValueError(f"Invalid or missing '__hx_ast' field: {kind}")
+
+    cls = AST_CLASSES[kind]
+    cls_fields = {f.name for f in fields(cls)}
+    init_args = {}
+
+    for key, value in hx.items():
+        if key in cls_fields:
+            if isinstance(value, dict) and "__hx_ast" in value:
+                init_args[key] = deserialize_hx_ast(value)
+            elif isinstance(value, list):
+                init_args[key] = [
+                    deserialize_hx_ast(item) if isinstance(item, dict) and "__hx_ast" in item else item
+                    for item in value
+                ]
+            else:
+                init_args[key] = value
+        else:
+            raise ValueError(f"Unexpected field '{key}' for AST node '{kind}'")
+
+    return cls(**init_args)

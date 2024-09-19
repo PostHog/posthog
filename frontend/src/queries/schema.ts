@@ -264,12 +264,8 @@ export interface HogQLFilters {
     filterTestAccounts?: boolean
 }
 
-export interface HogQLXAST {
+export interface HogQLXAST extends Record<string, any> {
     __hx_ast: string
-}
-
-export interface HogQLXTag {
-    __hx_tag: string
 }
 
 export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
