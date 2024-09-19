@@ -203,10 +203,9 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
 
     @cached_property
     def team_id(self) -> int:
-        team_from_token = self._get_team_from_request()
         if self._is_project_view:
             team_id = self.project_id  # KLUDGE: This is just for the period of transition to project environments
-        elif team_from_token:
+        elif team_from_token := self._get_team_from_request():
             team_id = team_from_token.id
         elif self.param_derived_from_user_current_team == "team_id":
             user = cast(User, self.request.user)
@@ -220,8 +219,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
 
     @cached_property
     def team(self) -> Team:
-        team_from_token = self._get_team_from_request()
-        if team_from_token:
+        if team_from_token := self._get_team_from_request():
             return team_from_token
 
         if self._is_project_view:
@@ -243,8 +241,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
 
     @cached_property
     def project_id(self) -> int:
-        team_from_token = self._get_team_from_request()
-        if team_from_token:
+        if team_from_token := self._get_team_from_request():
             assert team_from_token.project_id is not None
             return team_from_token.project_id
 
