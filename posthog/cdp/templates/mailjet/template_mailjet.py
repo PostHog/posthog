@@ -32,8 +32,8 @@ common_filters = {
 template_create_contact: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
     id="template-mailjet-create-contact",
-    name="Add contacts to Mailjet",
-    description="Updates a contact in Mailjet",
+    name="Mailjet",
+    description="Add contacts to Mailjet",
     icon_url="/static/services/mailjet.png",
     hog="""
 if (empty(inputs.email)) {
@@ -81,8 +81,8 @@ fetch(f'https://api.mailjet.com/v3/REST/contact/', {
 template_update_contact_list: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
     id="template-mailjet-update-contact-list",
-    name="Update a Mailjet contact list",
-    description="Updates a contact in Mailjet",
+    name="Mailjet",
+    description="Update a Mailjet contact list",
     icon_url="/static/services/mailjet.png",
     hog="""
 if (empty(inputs.email)) {

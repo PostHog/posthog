@@ -6,7 +6,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, Hog
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
     id="template-Intercom",
-    name="Send data to Intercom",
+    name="Intercom",
     description="Send events and contact information to Intercom",
     icon_url="/static/services/intercom.png",
     hog="""

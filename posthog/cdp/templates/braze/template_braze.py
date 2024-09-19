@@ -4,7 +4,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
     id="template-braze",
-    name="Send events to Braze",
+    name="Braze",
     description="Send events to Braze",
     icon_url="/static/services/braze.png",
     hog="""

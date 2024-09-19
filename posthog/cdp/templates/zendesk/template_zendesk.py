@@ -5,7 +5,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
     id="template-zendesk",
-    name="Update contacts in Zendesk",
+    name="Zendesk",
     description="Update contacts in Zendesk",
     icon_url="/api/projects/@current/hog_functions/icon/?id=zendesk.com",
     hog="""

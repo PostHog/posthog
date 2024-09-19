@@ -3,7 +3,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
     id="template-knock",
-    name="Send events to Knock",
+    name="Knock",
     description="Send events to Knock",
     icon_url="/static/services/knock.png",
     hog="""

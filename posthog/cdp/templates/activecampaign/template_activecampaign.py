@@ -4,7 +4,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
     id="template-activecampaign",
-    name="Create contacts in ActiveCampaign",
+    name="ActiveCampaign",
     description="Creates a new contact in ActiveCampaign whenever an event is triggered.",
     icon_url="/static/services/activecampaign.png",
     hog="""

@@ -7,7 +7,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 template_mailgun_send_email: HogFunctionTemplate = HogFunctionTemplate(
     status="alpha",
     id="template-mailgun-send-email",
-    name="Send an email via Mailgun",
+    name="Mailgun",
     description="Send emails using the Mailgun HTTP API",
     icon_url="/static/services/mailgun.png",
     hog="""

@@ -5,8 +5,8 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, Hog
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
     id="template-loops",
-    name="Send events to Loops",
-    description="Passes PostHog events to Loops.so",
+    name="Loops",
+    description="Send events to Loops",
     icon_url="/static/services/loops.png",
     hog="""
 let apiKey := inputs.apiKey
