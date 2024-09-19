@@ -58,7 +58,7 @@ pandas==2.2.0
 paramiko==3.4.0
 Pillow==10.2.0
 pdpyras==5.2.0
-posthoganalytics==3.6.5
+posthoganalytics==3.6.6
 psutil==6.0.0
 psycopg2-binary==2.9.7
 pymssql==2.3.0
@@ -87,6 +87,7 @@ snowflake-sqlalchemy==1.6.1
 social-auth-app-django==5.0.0
 social-auth-core==4.3.0
 sqlalchemy==2.0.31
+sqlalchemy-bigquery[bqstorage]==1.11.0
 sshtunnel==0.4.0
 statshog==1.0.6
 structlog==23.2.0

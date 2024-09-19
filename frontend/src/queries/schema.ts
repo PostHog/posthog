@@ -1,6 +1,7 @@
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import {
+    AnyFilterLike,
     AnyPersonScopeFilter,
     AnyPropertyFilter,
     BaseMathType,
@@ -74,7 +75,6 @@ export enum NodeKind {
     RecordingsQuery = 'RecordingsQuery',
     SessionAttributionExplorerQuery = 'SessionAttributionExplorerQuery',
     ErrorTrackingQuery = 'ErrorTrackingQuery',
-    ExperimentResultQuery = 'ExperimentResultQuery',
 
     // Interface nodes
     DataTableNode = 'DataTableNode',
@@ -98,6 +98,10 @@ export enum NodeKind {
     WebStatsTableQuery = 'WebStatsTableQuery',
     WebExternalClicksTableQuery = 'WebExternalClicksTableQuery',
     WebGoalsQuery = 'WebGoalsQuery',
+
+    // Experiment queries
+    ExperimentFunnelQuery = 'ExperimentFunnelQuery',
+    ExperimentTrendQuery = 'ExperimentTrendQuery',
 
     // Database metadata
     DatabaseSchemaQuery = 'DatabaseSchemaQuery',
@@ -123,7 +127,8 @@ export type AnyDataNode =
     | WebGoalsQuery
     | SessionAttributionExplorerQuery
     | ErrorTrackingQuery
-    | ExperimentResultQuery
+    | ExperimentFunnelQuery
+    | ExperimentTrendQuery
 
 /**
  * @discriminator kind
@@ -150,7 +155,8 @@ export type QuerySchema =
     | WebGoalsQuery
     | SessionAttributionExplorerQuery
     | ErrorTrackingQuery
-    | ExperimentResultQuery
+    | ExperimentFunnelQuery
+    | ExperimentTrendQuery
 
     // Interface nodes
     | DataVisualizationNode
@@ -208,7 +214,7 @@ export interface DataNode<R extends Record<string, any> = Record<string, any>> e
 /** HogQL Query Options are automatically set per team. However, they can be overriden in the query. */
 export interface HogQLQueryModifiers {
     personsOnEventsMode?:
-        | 'disabled'
+        | 'disabled' // `disabled` is deprecated and set for removal - `person_id_override_properties_joined` is its faster functional equivalent
         | 'person_id_no_override_properties_on_events'
         | 'person_id_override_properties_on_events'
         | 'person_id_override_properties_joined'
@@ -514,7 +520,7 @@ export interface EventsQuery extends DataNode<EventsQueryResponse> {
     /** Properties configurable in the interface */
     properties?: AnyPropertyFilter[]
     /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
-    fixedProperties?: AnyPropertyFilter[]
+    fixedProperties?: AnyFilterLike[]
     /** Filter test accounts */
     filterTestAccounts?: boolean
     /** Limit to events matching this string */
@@ -577,7 +583,8 @@ export interface DataTableNode
                     | WebGoalsQuery
                     | SessionAttributionExplorerQuery
                     | ErrorTrackingQuery
-                    | ExperimentResultQuery
+                    | ExperimentFunnelQuery
+                    | ExperimentTrendQuery
                 )['response']
             >
         >,
@@ -597,7 +604,8 @@ export interface DataTableNode
         | WebGoalsQuery
         | SessionAttributionExplorerQuery
         | ErrorTrackingQuery
-        | ExperimentResultQuery
+        | ExperimentFunnelQuery
+        | ExperimentTrendQuery
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
     /** Columns that aren't shown in the table, even if in columns or returned data */
@@ -648,8 +656,19 @@ export interface ChartSettings {
     stackBars100?: boolean
 }
 
+export interface ConditionalFormattingRule {
+    id: string
+    templateId: string
+    columnName: string
+    bytecode: any[]
+    input: string
+    color: string
+    colorMode?: 'light' | 'dark'
+}
+
 export interface TableSettings {
     columns?: ChartAxis[]
+    conditionalFormatting?: ConditionalFormattingRule[]
 }
 
 export interface DataVisualizationNode extends Node<never> {
@@ -1168,6 +1187,7 @@ export interface QueryRequest {
      * see the [PostHog HogQL documentation](/docs/hogql#api-access).
      */
     query: QuerySchema
+    filters_override?: DashboardFilter
 }
 
 /**
@@ -1336,10 +1356,17 @@ export interface SessionsTimelineQuery extends DataNode<SessionsTimelineQueryRes
 }
 export type WebAnalyticsPropertyFilter = EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter
 export type WebAnalyticsPropertyFilters = WebAnalyticsPropertyFilter[]
-
+export type ActionConversionGoal = {
+    actionId: integer
+}
+export type CustomEventConversionGoal = {
+    customEventName: string
+}
+export type WebAnalyticsConversionGoal = ActionConversionGoal | CustomEventConversionGoal
 interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<R> {
     dateRange?: DateRange
     properties: WebAnalyticsPropertyFilters
+    conversionGoal?: WebAnalyticsConversionGoal | null
     sampling?: {
         enabled?: boolean
         forceSamplingRate?: SamplingRate
@@ -1535,6 +1562,7 @@ export type InsightQueryNode =
 
 export interface ExperimentVariantTrendResult {
     count: number
+    exposure: number
 }
 
 export interface ExperimentVariantFunnelResult {
@@ -1542,22 +1570,27 @@ export interface ExperimentVariantFunnelResult {
     failure_count: number
 }
 
-export interface ExperimentResultTrendQueryResponse {
+export interface ExperimentTrendQueryResponse {
     insight: InsightType.TRENDS
     results: Record<string, ExperimentVariantTrendResult>
 }
 
-export interface ExperimentResultFunnelQueryResponse {
+export interface ExperimentFunnelQueryResponse {
     insight: InsightType.FUNNELS
     results: Record<string, ExperimentVariantFunnelResult>
 }
 
-export type ExperimentResultQueryResponse = ExperimentResultTrendQueryResponse | ExperimentResultFunnelQueryResponse
+export interface ExperimentFunnelQuery extends DataNode<ExperimentFunnelQueryResponse> {
+    kind: NodeKind.ExperimentFunnelQuery
+    source: FunnelsQuery
+    experiment_id: integer
+}
 
-export interface ExperimentResultQuery extends DataNode<ExperimentResultQueryResponse> {
-    kind: NodeKind.ExperimentResultQuery
-    source: TrendsQuery | FunnelsQuery
-    variants: string[]
+export interface ExperimentTrendQuery extends DataNode<ExperimentTrendQueryResponse> {
+    kind: NodeKind.ExperimentTrendQuery
+    count_source: TrendsQuery
+    exposure_source: TrendsQuery
+    experiment_id: integer
 }
 
 /**
@@ -1918,4 +1951,8 @@ export interface AlertType extends AlertTypeBase {
     state: string
     last_notified_at: string
     checks: AlertCheck[]
+}
+
+export interface HogCompileResponse {
+    bytecode: any[]
 }

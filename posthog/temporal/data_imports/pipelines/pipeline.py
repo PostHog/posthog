@@ -17,7 +17,7 @@ from dlt.sources import DltSource
 from deltalake.exceptions import DeltaError
 from collections import Counter
 
-from posthog.warehouse.data_load.validate_schema import validate_schema_and_update_table
+from posthog.warehouse.data_load.validate_schema import update_last_synced_at, validate_schema_and_update_table
 from posthog.warehouse.models.external_data_job import ExternalDataJob, get_external_data_job
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema, aget_schema_by_id
 from posthog.warehouse.models.external_data_source import ExternalDataSource
@@ -57,6 +57,7 @@ class DataImportPipeline:
             and inputs.job_type != ExternalDataSource.Type.MYSQL
             and inputs.job_type != ExternalDataSource.Type.MSSQL
             and inputs.job_type != ExternalDataSource.Type.SNOWFLAKE
+            and inputs.job_type != ExternalDataSource.Type.BIGQUERY
         )
 
         if self.should_chunk_pipeline:
@@ -251,6 +252,11 @@ class DataImportPipeline:
                 )
             else:
                 self.logger.info("No table_counts, skipping validate_schema_and_update_table")
+
+        # Update last_synced_at on schema
+        async_to_sync(update_last_synced_at)(
+            job_id=self.inputs.run_id, schema_id=str(self.inputs.schema_id), team_id=self.inputs.team_id
+        )
 
         # Cleanup: delete local state from the file system
         pipeline.drop()

@@ -60,11 +60,7 @@ export function PersonPreview(props: PersonPreviewProps): JSX.Element | null {
                     onNotebookOpened={() => props.onClose?.()}
                     size="small"
                 />
-                <LemonButton
-                    size="small"
-                    icon={<IconOpenInNew />}
-                    to={urls.personByDistinctId(person?.distinct_ids[0])}
-                />
+                <LemonButton size="small" icon={<IconOpenInNew />} to={url} />
             </div>
 
             <div className="flex-1 overflow-y-auto border-t">

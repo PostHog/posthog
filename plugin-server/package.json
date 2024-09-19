@@ -69,6 +69,7 @@
         "express": "^4.18.2",
         "faker": "^5.5.3",
         "fast-deep-equal": "^3.1.3",
+        "fernet-nodejs": "^1.0.6",
         "generic-pool": "^3.7.1",
         "graphile-worker": "0.13.0",
         "ioredis": "^4.27.6",
@@ -144,5 +145,9 @@
         "patchedDependencies": {
             "node-rdkafka@2.17.0": "patches/node-rdkafka@2.17.0.patch"
         }
+    },
+    "cyclotron": {
+        "//This is a short term workaround to ensure that cyclotron changes trigger a rebuild": true,
+        "version": "0.1.4"
     }
 }

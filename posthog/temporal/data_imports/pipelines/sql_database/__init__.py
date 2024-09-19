@@ -4,7 +4,7 @@ from datetime import datetime, date
 from typing import Any, Optional, Union, List, cast  # noqa: UP035
 from collections.abc import Iterable
 from zoneinfo import ZoneInfo
-from sqlalchemy import MetaData, Table
+from sqlalchemy import MetaData, Table, create_engine
 from sqlalchemy.engine import Engine, CursorResult
 
 import dlt
@@ -182,6 +182,38 @@ def snowflake_source(
     return db_source
 
 
+def bigquery_source(
+    dataset_id: str,
+    project_id: str,
+    private_key: str,
+    private_key_id: str,
+    client_email: str,
+    token_uri: str,
+    table_name: str,
+    incremental_field: Optional[str] = None,
+    incremental_field_type: Optional[IncrementalFieldType] = None,
+) -> DltSource:
+    if incremental_field is not None and incremental_field_type is not None:
+        incremental: dlt.sources.incremental | None = dlt.sources.incremental(
+            cursor_path=incremental_field, initial_value=incremental_type_to_initial_value(incremental_field_type)
+        )
+    else:
+        incremental = None
+
+    credentials_info = {
+        "type": "service_account",
+        "project_id": project_id,
+        "private_key": private_key,
+        "private_key_id": private_key_id,
+        "client_email": client_email,
+        "token_uri": token_uri,
+    }
+
+    engine = create_engine(f"bigquery://{project_id}/{dataset_id}", credentials_info=credentials_info)
+
+    return sql_database(engine, schema=None, table_names=[table_name], incremental=incremental)
+
+
 # Temp while DLT doesn't support `interval` columns
 def remove_columns(columns_to_drop: list[str], team_id: Optional[int]):
     def internal_remove(doc: dict) -> dict:
@@ -262,6 +294,10 @@ def sql_database(
 
 
 def get_binary_columns(engine: Engine, schema_name: str, table_name: str) -> list[str]:
+    # TODO(@Gilbert09): Add support for querying bigquery here
+    if engine.url.drivername == "bigquery":
+        return []
+
     with engine.connect() as conn:
         execute_result: CursorResult = conn.execute(
             text(
@@ -284,6 +320,10 @@ def get_binary_columns(engine: Engine, schema_name: str, table_name: str) -> lis
 
 
 def get_column_hints(engine: Engine, schema_name: str, table_name: str) -> dict[str, TColumnSchema]:
+    # TODO(@Gilbert09): Add support for querying bigquery here
+    if engine.url.drivername == "bigquery":
+        return {}
+
     with engine.connect() as conn:
         execute_result: CursorResult = conn.execute(
             text(

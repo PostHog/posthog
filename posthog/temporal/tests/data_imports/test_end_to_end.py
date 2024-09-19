@@ -131,10 +131,13 @@ async def _run(
 
     await _execute_run(workflow_id, inputs, mock_data_response)
 
-    run = await get_latest_run_if_exists(team_id=team.pk, pipeline_id=source.pk)
+    run: ExternalDataJob = await get_latest_run_if_exists(team_id=team.pk, pipeline_id=source.pk)
 
     assert run is not None
     assert run.status == ExternalDataJob.Status.COMPLETED
+
+    await sync_to_async(schema.refresh_from_db)()
+    assert schema.last_synced_at == run.created_at
 
     res = await sync_to_async(execute_hogql_query)(f"SELECT * FROM {table_name}", team)
     assert len(res.results) == 1
@@ -546,10 +549,8 @@ async def test_postgres_binary_columns(team, postgres_config, postgres_connectio
     columns = res.columns
 
     assert columns is not None
-    assert len(columns) == 3
+    assert len(columns) == 1
     assert columns[0] == "id"
-    assert columns[1] == "_dlt_id"
-    assert columns[2] == "_dlt_load_id"
 
 
 @pytest.mark.django_db(transaction=True)
@@ -659,10 +660,8 @@ async def test_postgres_schema_evolution(team, postgres_config, postgres_connect
     columns = res.columns
 
     assert columns is not None
-    assert len(columns) == 3
+    assert len(columns) == 1
     assert any(x == "id" for x in columns)
-    assert any(x == "_dlt_id" for x in columns)
-    assert any(x == "_dlt_load_id" for x in columns)
 
     # Evole schema
     await postgres_connection.execute(
@@ -680,11 +679,9 @@ async def test_postgres_schema_evolution(team, postgres_config, postgres_connect
     columns = res.columns
 
     assert columns is not None
-    assert len(columns) == 4
+    assert len(columns) == 2
     assert any(x == "id" for x in columns)
     assert any(x == "new_col" for x in columns)
-    assert any(x == "_dlt_id" for x in columns)
-    assert any(x == "_dlt_load_id" for x in columns)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -724,10 +721,8 @@ async def test_sql_database_missing_incremental_values(team, postgres_config, po
     columns = res.columns
 
     assert columns is not None
-    assert len(columns) == 3
+    assert len(columns) == 1
     assert any(x == "id" for x in columns)
-    assert any(x == "_dlt_id" for x in columns)
-    assert any(x == "_dlt_load_id" for x in columns)
 
     # Exclude rows that don't have the incremental cursor key set
     assert len(res.results) == 1
@@ -768,10 +763,8 @@ async def test_sql_database_incremental_initual_value(team, postgres_config, pos
     columns = res.columns
 
     assert columns is not None
-    assert len(columns) == 3
+    assert len(columns) == 1
     assert any(x == "id" for x in columns)
-    assert any(x == "_dlt_id" for x in columns)
-    assert any(x == "_dlt_load_id" for x in columns)
 
     # Include rows that have the same incremental value as the `initial_value`
     assert len(res.results) == 1

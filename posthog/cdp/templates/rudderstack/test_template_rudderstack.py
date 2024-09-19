@@ -1,6 +1,12 @@
 from inline_snapshot import snapshot
+
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-from posthog.cdp.templates.rudderstack.template_rudderstack import template as template_rudderstack
+from posthog.models import PluginConfig
+from posthog.test.base import BaseTest
+from posthog.cdp.templates.rudderstack.template_rudderstack import (
+    template as template_rudderstack,
+    TemplateRudderstackMigrator,
+)
 
 
 class TestTemplateRudderstack(BaseHogFunctionTemplateTest):
@@ -23,7 +29,7 @@ class TestTemplateRudderstack(BaseHogFunctionTemplateTest):
                     "uuid": "96a04bdc-6021-4120-a3e3-f1988f59ba5f",
                     "timestamp": "2024-08-29T13:40:22.713Z",
                     "distinct_id": "85bcd2e4-d10d-4a99-9dc8-43789b7226a1",
-                    "name": "$pageview",
+                    "event": "$pageview",
                     "properties": {"$current_url": "https://example.com", "$browser": "Chrome"},
                 },
                 "person": {"uuid": "a08ff8e1-a5ee-49cc-99e9-564e455c33f0"},
@@ -46,40 +52,22 @@ class TestTemplateRudderstack(BaseHogFunctionTemplateTest):
                             {
                                 "context": {
                                     "app": {"name": "PostHogPlugin"},
-                                    "os": {"name": None},
-                                    "browser": "Chrome",
-                                    "browser_version": None,
+                                    "os": {},
                                     "page": {
-                                        "host": None,
                                         "url": "https://example.com",
-                                        "path": None,
-                                        "referrer": None,
-                                        "initial_referrer": None,
-                                        "referring_domain": None,
-                                        "initial_referring_domain": None,
                                     },
-                                    "screen": {"height": None, "width": None},
-                                    "library": {"name": None, "version": None},
-                                    "ip": None,
-                                    "active_feature_flags": None,
-                                    "token": None,
+                                    "screen": {},
+                                    "library": {},
+                                    "browser": "Chrome",
                                 },
                                 "channel": "s2s",
                                 "messageId": "96a04bdc-6021-4120-a3e3-f1988f59ba5f",
                                 "originalTimestamp": "2024-08-29T13:40:22.713Z",
                                 "userId": "a08ff8e1-a5ee-49cc-99e9-564e455c33f0",
-                                "anonymousId": None,
                                 "type": "page",
                                 "properties": {
-                                    "host": None,
                                     "url": "https://example.com",
-                                    "path": None,
-                                    "referrer": None,
-                                    "initial_referrer": None,
-                                    "referring_domain": None,
-                                    "initial_referring_domain": None,
                                 },
-                                "name": None,
                             }
                         ],
                         "sentAt": {"__hogDateTime__": True, "dt": 1724946899.775266, "zone": "UTC"},
@@ -100,8 +88,30 @@ class TestTemplateRudderstack(BaseHogFunctionTemplateTest):
             self.run_function(
                 inputs=self._inputs(),
                 globals={
-                    "event": {"name": event_name, "properties": {"url": "https://example.com", "$browser": "Chrome"}},
+                    "event": {"event": event_name, "properties": {"url": "https://example.com", "$browser": "Chrome"}},
                 },
             )
 
             assert self.get_mock_fetch_calls()[0][1]["body"]["batch"][0]["type"] == expected_action
+
+
+class TestTemplateMigration(BaseTest):
+    def get_plugin_config(self, config: dict):
+        _config = {
+            "dataPlaneUrl": "us.i.example.com",
+            "writeKey": "ignored",
+        }
+        _config.update(config)
+        return PluginConfig(enabled=True, order=0, config=_config)
+
+    def test_default_config(self):
+        obj = self.get_plugin_config({})
+        template = TemplateRudderstackMigrator.migrate(obj)
+        assert template["inputs"] == snapshot(
+            {
+                "host": {"value": "us.i.example.com"},
+                "token": {"value": "ignored"},
+                "identifier": {"value": "{event.properties.$user_id ?? event.distinct_id ?? person.id}"},
+            }
+        )
+        assert template["filters"] == {}

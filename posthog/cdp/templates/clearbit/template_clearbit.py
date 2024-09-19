@@ -13,7 +13,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
 let api_key := inputs.api_key
 let email := inputs.email
 
-if (empty(email) or event.name == '$set' or person.properties.clearbit_enriched) {
+if (empty(email) or event.event == '$set' or person.properties.clearbit_enriched) {
     return false
 }
 

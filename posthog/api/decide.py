@@ -10,7 +10,7 @@ from rest_framework import status
 from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
 
-from posthog.api.geoip import get_geoip_properties
+from posthog.geoip import get_geoip_properties
 from posthog.api.survey import SURVEY_TARGETING_FLAG_PREFIX
 from posthog.api.utils import get_project_id, get_token, hostname_in_allowed_url_list, parse_domain
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
@@ -140,6 +140,17 @@ def get_decide(request: HttpRequest):
             team = user.teams.get(id=project_id)
 
         if team:
+            if team.id in settings.DECIDE_SHORT_CIRCUITED_TEAM_IDS:
+                return cors_response(
+                    request,
+                    generate_exception_response(
+                        "decide",
+                        f"Team with ID {team.id} cannot access the /decide endpoint."
+                        f"Please contact us at hey@posthog.com",
+                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    ),
+                )
+
             token = cast(str, token)  # we know it's not None if we found a team
             structlog.contextvars.bind_contextvars(team_id=team.id)
 
