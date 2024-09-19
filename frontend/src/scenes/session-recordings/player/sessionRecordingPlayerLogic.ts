@@ -224,31 +224,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 setCurrentTimestamp: (_, { timestamp }) => timestamp,
             },
         ],
-        timestampChangeTracking: [
-            // if the player gets stuck on the same timestamp we shouldn't appear to pause the replay
-            // better for the replay to not get stuck but...
-            { timestamp: null, timestampMatchesPrevious: 0 } as {
-                timestamp: number | null
-                timestampMatchesPrevious: number
-            },
-            {
-                setCurrentTimestamp: (state, { timestamp }) => {
-                    return {
-                        timestamp,
-                        timestampMatchesPrevious:
-                            state.timestamp !== null && state.timestamp === timestamp
-                                ? state.timestampMatchesPrevious + 1
-                                : 0,
-                    }
-                },
-                skipPlayerForward: () => {
-                    return {
-                        timestamp: null,
-                        timestampMatchesPrevious: 0,
-                    }
-                },
-            },
-        ],
         currentSegment: [
             null as RecordingSegment | null,
             {
@@ -1055,17 +1030,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             if (hasSnapshotChanges) {
                 actions.syncSnapshotsWithPlayer()
-            }
-        },
-        timestampChangeTracking: (next) => {
-            if (next.timestampMatchesPrevious < 10) {
-                return
-            }
-
-            const rrwebPlayerTime = values.player?.replayer?.getCurrentTime()
-
-            if (rrwebPlayerTime !== undefined && values.currentPlayerState === SessionPlayerState.PLAY) {
-                actions.skipPlayerForward(rrwebPlayerTime, values.roughAnimationFPS)
             }
         },
         messageTooLargeWarnings: (next) => {
