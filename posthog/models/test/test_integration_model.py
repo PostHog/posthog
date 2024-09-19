@@ -42,7 +42,7 @@ class TestIntegrationModel(BaseTest):
                 assert integration.sensitive_config == {"refresh_token": "REFRESH", "id_token": None}
                 assert (
                     get_db_field_value("sensitive_config", integration.id)
-                    == '{"id_token": null, "refresh_token": "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAAG8GspK_OhPyaqyzjpK0QgCoWWIz80JwwAktNcSNXNLljRgCct3L6YNMD6QznR0oeg=="}'
+                    == '{"id_token": null, "refresh_token": "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAAJgmFh-MNX9haUNHNfYLvULI6vSRYVd3o8xd4f8xBkWEWAa5RJ2ikOM2dsW5_9F7Mw=="}'
                 )
 
                 # update the value to non-encrypted and check it still loads
