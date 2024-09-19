@@ -178,20 +178,21 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         return super().validate(attrs)
 
     def to_representation(self, data):
-        encrypted_inputs = data.encrypted_inputs if isinstance(data, HogFunction) else None
+        encrypted_inputs = data.encrypted_inputs or {} if isinstance(data, HogFunction) else {}
         data = super().to_representation(data)
-        data["inputs"] = data.get("inputs") or {}
 
-        if encrypted_inputs:
-            inputs_schema = data.get("inputs_schema", [])
-            inputs = data.get("inputs", {})
+        inputs_schema = data.get("inputs_schema", [])
+        inputs = data.get("inputs") or {}
 
-            for schema in inputs_schema:
-                if schema.get("secret") and encrypted_inputs.get(schema["key"]):
+        for schema in inputs_schema:
+            if schema.get("secret"):
+                # TRICKY: We used to store these inputs so we check both the encrypted and non-encrypted inputs
+                has_value = encrypted_inputs.get(schema["key"]) or inputs.get(schema["key"])
+                if has_value:
                     # Marker to indicate to the user that a secret is set
                     inputs[schema["key"]] = {"secret": True}
 
-            data["inputs"] = inputs
+        data["inputs"] = inputs
 
         return data
 

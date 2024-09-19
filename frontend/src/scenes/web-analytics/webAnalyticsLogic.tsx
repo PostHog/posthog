@@ -537,15 +537,23 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     math: BaseMathType.UniqueSessions,
                     custom_name: 'Sessions',
                 }
-                const uniqueConversionsSeries: ActionsNode | undefined = conversionGoal?.actionId
+                const uniqueConversionsSeries: ActionsNode | EventsNode | undefined = !conversionGoal
+                    ? undefined
+                    : 'actionId' in conversionGoal
                     ? {
                           kind: NodeKind.ActionsNode,
-                          id: conversionGoal?.actionId ?? 0,
+                          id: conversionGoal.actionId,
                           math: BaseMathType.UniqueUsers,
                           name: 'Unique conversions',
                           custom_name: 'Unique conversions',
                       }
-                    : undefined
+                    : {
+                          kind: NodeKind.EventsNode,
+                          event: conversionGoal.customEventName,
+                          math: BaseMathType.UniqueUsers,
+                          name: 'Unique conversions',
+                          custom_name: 'Unique conversions',
+                      }
                 const totalConversionSeries = uniqueConversionsSeries
                     ? {
                           ...uniqueConversionsSeries,
@@ -698,7 +706,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                           [totalConversionSeries, uniqueConversionsSeries],
                                           {
                                               formula: 'A / B',
-                                              aggregationAxisFormat: 'percentage_scaled',
+                                              aggregationAxisFormat: 'percentage',
                                           }
                                       )
                                     : null,

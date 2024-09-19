@@ -71,9 +71,9 @@ class EncryptedFieldMixin:
         try:
             value = self.f.decrypt(bytes(value, "utf-8")).decode("utf-8")
         except InvalidToken:
-            pass
+            return None
         except UnicodeEncodeError:
-            pass
+            return None
         return super().to_python(value)  # type: ignore
 
     def clean(self, value, model_instance):

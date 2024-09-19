@@ -871,11 +871,11 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "futures",
- "rand",
  "serde",
  "sqlx",
  "thiserror",
  "tokio",
+ "tracing",
  "uuid",
 ]
 
@@ -1168,9 +1168,11 @@ dependencies = [
  "base64 0.22.0",
  "bytes",
  "common-alloc",
+ "common-metrics",
  "envconfig",
  "flate2",
  "futures",
+ "health",
  "maxminddb",
  "once_cell",
  "rand",
@@ -1184,6 +1186,7 @@ dependencies = [
  "sqlx",
  "thiserror",
  "tokio",
+ "tower",
  "tracing",
  "tracing-subscriber",
  "uuid",

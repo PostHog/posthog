@@ -17,6 +17,22 @@ export type CyclotronInternalPoolConfig = {
     idle_timeout_seconds?: number
 }
 
+// Config specific to tuning the worker batch flush and heartbeat behaviour
+export type CyclotronWorkerTuningConfig = {
+    // The worker will issue at most 1 heartbeat per this many seconds per job.
+    heartbeatWindowSeconds?: number
+    // Updates released by the worker will be buffered for at most this many milliseconds before a flush is attempted.
+    lingerTimeMs?: number
+    // The maximum number of updates that can be buffered before a flush is attempted.
+    maxUpdatesBuffered?: number
+    // The maximum number of update bytes the worker will buffer, calculated as the sum of VM state and blob
+    maxBytesBuffered?: number
+    // The worker flushes update batches in a background loop, which will check if a flush is due based on the
+    // conditions above every this many milliseconds. Users may also call forceFlush(), which will try to flush any
+    // pending updates immediately.
+    flushLoopIntervalMs?: number
+}
+
 export type CyclotronJobState = 'available' | 'running' | 'completed' | 'failed' | 'paused'
 
 export type CyclotronJob = {

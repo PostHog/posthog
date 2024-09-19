@@ -216,7 +216,8 @@ impl Shard {
         }
 
         let pending = count_total_waiting_jobs(&self.pool).await?;
-        let is_full = pending >= self.depth_limit;
+        let total_pending = pending.iter().map(|(count, _)| count).sum::<u64>();
+        let is_full = total_pending >= self.depth_limit;
         if !is_full {
             *last_healthy = Utc::now();
         }

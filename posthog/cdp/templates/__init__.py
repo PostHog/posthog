@@ -23,6 +23,7 @@ from .google_pubsub.template_google_pubsub import template as google_pubsub, Tem
 from .engage.template_engage import template as engage, TemplateEngageMigrator
 from .zendesk.template_zendesk import template as zendesk
 from .knock.template_knock import template as knock
+from .activecampaign.template_activecampaign import template as activecampaign
 from .google_cloud_storage.template_google_cloud_storage import (
     template as google_cloud_storage,
     TemplateGoogleCloudStorageMigrator,
@@ -55,6 +56,7 @@ HOG_FUNCTION_TEMPLATES = [
     google_cloud_storage,
     braze,
     knock,
+    activecampaign,
 ]
 
 

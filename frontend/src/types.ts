@@ -949,6 +949,7 @@ export enum SessionRecordingUsageType {
 }
 
 export enum SessionRecordingSidebarTab {
+    PERSON = 'person',
     INSPECTOR = 'inspector',
     DEBUGGER = 'debugger',
 }
@@ -1513,6 +1514,9 @@ export interface PerformanceEvent {
     request_body?: Body
     response_body?: Body
     method?: string
+    // normally, can rely on performance event values like duration,
+    // but they may be absent in which case the SDK may have sent start and end time
+    end_time?: number
 
     //rrweb/network@1 - i.e. not in ClickHouse table
     is_initial?: boolean
