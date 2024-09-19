@@ -1,7 +1,6 @@
 # Web app specific settings/middleware/apps setup
 import os
 from datetime import timedelta
-import sys
 
 from corsheaders.defaults import default_headers
 import structlog
