@@ -60,6 +60,7 @@ describe('Hog Executor', () => {
                 invocation: {
                     id: expect.any(String),
                     teamId: 1,
+                    priority: 0,
                     globals: invocation.globals,
                     hogFunction: invocation.hogFunction,
                     queue: 'fetch',
@@ -89,7 +90,7 @@ describe('Hog Executor', () => {
                 {
                     timestamp: expect.any(DateTime),
                     level: 'debug',
-                    message: "Suspending function due to async function call 'fetch'. Payload: 1818 bytes",
+                    message: "Suspending function due to async function call 'fetch'. Payload: 1847 bytes",
                 },
             ])
         })
@@ -170,10 +171,10 @@ describe('Hog Executor', () => {
             expect(logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 Array [
                   "Executing function",
-                  "Suspending function due to async function call 'fetch'. Payload: 1818 bytes",
+                  "Suspending function due to async function call 'fetch'. Payload: 1847 bytes",
                   "Resuming function",
                   "Fetch response:, {\\"status\\":200,\\"body\\":\\"success\\"}",
-                  "Function completed in 100ms. Sync: 0ms. Mem: 750 bytes. Ops: 22.",
+                  "Function completed in 100ms. Sync: 0ms. Mem: 779 bytes. Ops: 22.",
                 ]
             `)
         })
@@ -189,10 +190,10 @@ describe('Hog Executor', () => {
             expect(logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 Array [
                   "Executing function",
-                  "Suspending function due to async function call 'fetch'. Payload: 1818 bytes",
+                  "Suspending function due to async function call 'fetch'. Payload: 1847 bytes",
                   "Resuming function",
                   "Fetch response:, {\\"status\\":200,\\"body\\":{\\"foo\\":\\"bar\\"}}",
-                  "Function completed in 100ms. Sync: 0ms. Mem: 750 bytes. Ops: 22.",
+                  "Function completed in 100ms. Sync: 0ms. Mem: 779 bytes. Ops: 22.",
                 ]
             `)
         })
@@ -243,12 +244,11 @@ describe('Hog Executor', () => {
                 event: {
                     uuid: 'uuid',
                     event: '$autocapture',
-                    elements_chain: '',
+                    elements_chain: elementsChain('Not our text'),
                     distinct_id: 'distinct_id',
                     url: 'http://localhost:8000/events/1',
                     properties: {
                         $lib_version: '1.2.3',
-                        $elements_chain: elementsChain('Not our text'),
                     },
                     timestamp: new Date().toISOString(),
                 },
@@ -263,12 +263,11 @@ describe('Hog Executor', () => {
                 event: {
                     uuid: 'uuid',
                     event: '$autocapture',
-                    elements_chain: '',
+                    elements_chain: elementsChain('Reload'),
                     distinct_id: 'distinct_id',
                     url: 'http://localhost:8000/events/1',
                     properties: {
                         $lib_version: '1.2.3',
-                        $elements_chain: elementsChain('Reload'),
                     },
                     timestamp: new Date().toISOString(),
                 },
@@ -295,12 +294,11 @@ describe('Hog Executor', () => {
                 event: {
                     uuid: 'uuid',
                     event: '$autocapture',
-                    elements_chain: '',
+                    elements_chain: elementsChain('/project/1/not-a-link'),
                     distinct_id: 'distinct_id',
                     url: 'http://localhost:8000/events/1',
                     properties: {
                         $lib_version: '1.2.3',
-                        $elements_chain: elementsChain('/project/1/not-a-link'),
                     },
                     timestamp: new Date().toISOString(),
                 },
@@ -315,12 +313,11 @@ describe('Hog Executor', () => {
                 event: {
                     uuid: 'uuid',
                     event: '$autocapture',
-                    elements_chain: '',
+                    elements_chain: elementsChain('/project/1/activity/explore'),
                     distinct_id: 'distinct_id',
                     url: 'http://localhost:8000/events/1',
                     properties: {
                         $lib_version: '1.2.3',
-                        $elements_chain: elementsChain('/project/1/activity/explore'),
                     },
                     timestamp: new Date().toISOString(),
                 },
@@ -347,12 +344,11 @@ describe('Hog Executor', () => {
                 event: {
                     uuid: 'uuid',
                     event: '$autocapture',
-                    elements_chain: '',
+                    elements_chain: elementsChain('notfound'),
                     distinct_id: 'distinct_id',
                     url: 'http://localhost:8000/events/1',
                     properties: {
                         $lib_version: '1.2.3',
-                        $elements_chain: elementsChain('notfound'),
                     },
                     timestamp: new Date().toISOString(),
                 },
@@ -367,12 +363,11 @@ describe('Hog Executor', () => {
                 event: {
                     uuid: 'uuid',
                     event: '$autocapture',
-                    elements_chain: '',
+                    elements_chain: elementsChain('homelink'),
                     distinct_id: 'distinct_id',
                     url: 'http://localhost:8000/events/1',
                     properties: {
                         $lib_version: '1.2.3',
-                        $elements_chain: elementsChain('homelink'),
                     },
                     timestamp: new Date().toISOString(),
                 },
