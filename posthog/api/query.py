@@ -63,7 +63,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         elif self.request.data.get("query", {}).get("kind") == "HogQLQuery":
             return [HogQLQueryThrottle()]
         else:
-            return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle]
+            return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
 
     @extend_schema(
         request=QueryRequest,
