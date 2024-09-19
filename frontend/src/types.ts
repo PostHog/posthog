@@ -4502,17 +4502,20 @@ export type HogFunctionInvocationGlobals = {
     }
     event: {
         uuid: string
-        name: string
+        event: string
+        elements_chain: string
         distinct_id: string
         properties: Record<string, any>
         timestamp: string
+        name: string
         url: string
     }
     person?: {
+        id: string
+        properties: Record<string, any>
         uuid: string
         name: string
         url: string
-        properties: Record<string, any>
     }
     groups?: Record<
         string,
