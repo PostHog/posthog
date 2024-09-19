@@ -87,6 +87,7 @@ snowflake-sqlalchemy==1.6.1
 social-auth-app-django==5.0.0
 social-auth-core==4.3.0
 sqlalchemy==2.0.31
+sqlalchemy-bigquery[bqstorage]==1.11.0
 sshtunnel==0.4.0
 statshog==1.0.6
 structlog==23.2.0
