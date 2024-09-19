@@ -124,7 +124,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
         "Order": {
             "name": "Order",
             "table_name": "order",
-            **({"primary_key": "Id"} if is_incremental else {}),
+            **({"primary_key": "id"} if is_incremental else {}),
             "write_disposition": "replace",
             "endpoint": {
                 "data_selector": "records",
