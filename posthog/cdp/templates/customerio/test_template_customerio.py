@@ -30,7 +30,7 @@ class TestTemplateCustomerio(BaseHogFunctionTemplateTest):
         self.run_function(
             inputs=create_inputs(),
             globals={
-                "event": {"name": "$pageview", "properties": {"url": "https://example.com"}},
+                "event": {"event": "$pageview", "properties": {"url": "https://example.com"}},
             },
         )
 
@@ -85,7 +85,7 @@ class TestTemplateCustomerio(BaseHogFunctionTemplateTest):
             self.run_function(
                 inputs=create_inputs(),
                 globals={
-                    "event": {"name": event_name, "properties": {"url": "https://example.com"}},
+                    "event": {"event": event_name, "properties": {"url": "https://example.com"}},
                 },
             )
 
@@ -102,7 +102,7 @@ class TestTemplateCustomerio(BaseHogFunctionTemplateTest):
             self.run_function(
                 inputs=create_inputs(action="event"),
                 globals={
-                    "event": {"name": event_name, "properties": {"url": "https://example.com"}},
+                    "event": {"event": event_name, "properties": {"url": "https://example.com"}},
                 },
             )
 

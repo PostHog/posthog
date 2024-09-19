@@ -8,7 +8,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     icon_url="/static/services/gleap.png",
     hog="""
 let action := inputs.action
-let name := event.name
+let name := event.event
 
 if (empty(inputs.userId)) {
     print('No User ID set. Skipping...')
@@ -53,7 +53,7 @@ if (res.status >= 400) {
             "type": "string",
             "label": "User ID",
             "description": "You can choose to fill this from an `email` property or an `id` property. If the value is empty nothing will be sent. See here for more information: https://docs.gleap.io/server/rest-api",
-            "default": "{person.uuid}",
+            "default": "{person.id}",
             "secret": False,
             "required": True,
         },

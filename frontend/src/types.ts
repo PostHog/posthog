@@ -949,6 +949,7 @@ export enum SessionRecordingUsageType {
 }
 
 export enum SessionRecordingSidebarTab {
+    PERSON = 'person',
     INSPECTOR = 'inspector',
     DEBUGGER = 'debugger',
 }
@@ -1513,6 +1514,9 @@ export interface PerformanceEvent {
     request_body?: Body
     response_body?: Body
     method?: string
+    // normally, can rely on performance event values like duration,
+    // but they may be absent in which case the SDK may have sent start and end time
+    end_time?: number
 
     //rrweb/network@1 - i.e. not in ClickHouse table
     is_initial?: boolean
@@ -1795,6 +1799,11 @@ export interface DashboardType<T = InsightModel> extends DashboardBasicType {
     filters: DashboardFilter
 }
 
+export enum TemplateAvailabilityContext {
+    GENERAL = 'general',
+    ONBOARDING = 'onboarding',
+}
+
 export interface DashboardTemplateType<T = InsightModel> {
     id: string
     team_id?: number
@@ -1807,6 +1816,7 @@ export interface DashboardTemplateType<T = InsightModel> {
     tags?: string[]
     image_url?: string
     scope?: DashboardTemplateScope
+    availability_contexts?: TemplateAvailabilityContext[]
 }
 
 export interface MonacoMarker {
@@ -2172,6 +2182,7 @@ export interface TemplateVariableStep {
     url?: string | null
     properties?: Record<string, any>[]
     custom_name?: string
+    custom_event?: boolean
 }
 
 export interface PropertiesTimelineFilterType {
@@ -3911,6 +3922,7 @@ export const externalDataSources = [
     'Snowflake',
     'Salesforce',
     'Vitally',
+    'BigQuery',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -4295,11 +4307,20 @@ export interface SourceFieldSwitchGroupConfig {
     fields: SourceFieldConfig[]
 }
 
+export interface SourceFieldFileUploadConfig {
+    type: 'file-upload'
+    name: string
+    label: string
+    fileFormat: string
+    required: boolean
+}
+
 export type SourceFieldConfig =
     | SourceFieldInputConfig
     | SourceFieldSwitchGroupConfig
     | SourceFieldSelectConfig
     | SourceFieldOauthConfig
+    | SourceFieldFileUploadConfig
 
 export interface SourceConfig {
     name: ExternalDataSourceType
@@ -4491,17 +4512,20 @@ export type HogFunctionInvocationGlobals = {
     }
     event: {
         uuid: string
-        name: string
+        event: string
+        elements_chain: string
         distinct_id: string
         properties: Record<string, any>
         timestamp: string
+        name: string
         url: string
     }
     person?: {
+        id: string
+        properties: Record<string, any>
         uuid: string
         name: string
         url: string
-        properties: Record<string, any>
     }
     groups?: Record<
         string,

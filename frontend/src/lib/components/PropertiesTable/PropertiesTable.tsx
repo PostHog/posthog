@@ -175,7 +175,7 @@ function ValueDisplay({
     )
 }
 interface PropertiesTableType extends BasePropertyType {
-    properties?: Record<string, any>
+    properties?: Record<string, any> | Array<Record<string, any>>
     sortProperties?: boolean
     searchable?: boolean
     filterable?: boolean
@@ -210,32 +210,8 @@ export function PropertiesTable({
     const { hidePostHogPropertiesInTable } = useValues(userPreferencesLogic)
     const { setHidePostHogPropertiesInTable } = useActions(userPreferencesLogic)
 
-    if (Array.isArray(properties)) {
-        return (
-            <div>
-                {properties.length ? (
-                    properties.map((item, index) => (
-                        <PropertiesTable
-                            key={index}
-                            type={type}
-                            properties={item}
-                            nestingLevel={nestingLevel + 1}
-                            useDetectedPropertyType={
-                                ['$set', '$set_once'].some((s) => s === rootKey) ? false : useDetectedPropertyType
-                            }
-                        />
-                    ))
-                ) : (
-                    <LemonTag type="muted" className="font-mono uppercase">
-                        Array (empty)
-                    </LemonTag>
-                )}
-            </div>
-        )
-    }
-
     const objectProperties = useMemo(() => {
-        if (!properties || !(properties instanceof Object)) {
+        if (!properties || Array.isArray(properties)) {
             return []
         }
         let entries = Object.entries(properties)
@@ -281,6 +257,30 @@ export function PropertiesTable({
         }
         return entries
     }, [properties, sortProperties, searchTerm, hidePostHogPropertiesInTable])
+
+    if (Array.isArray(properties)) {
+        return (
+            <div>
+                {properties.length ? (
+                    properties.map((item, index) => (
+                        <PropertiesTable
+                            key={index}
+                            type={type}
+                            properties={item}
+                            nestingLevel={nestingLevel + 1}
+                            useDetectedPropertyType={
+                                ['$set', '$set_once'].some((s) => s === rootKey) ? false : useDetectedPropertyType
+                            }
+                        />
+                    ))
+                ) : (
+                    <LemonTag type="muted" className="font-mono uppercase">
+                        Array (empty)
+                    </LemonTag>
+                )}
+            </div>
+        )
+    }
 
     if (properties instanceof Object) {
         const columns: LemonTableColumns<Record<string, any>> = [
@@ -446,6 +446,7 @@ export function PropertiesTable({
             </>
         )
     }
+
     // if none of above, it's a value
     return (
         <ValueDisplay

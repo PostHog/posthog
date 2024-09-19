@@ -13,7 +13,7 @@ let apiKey := inputs.apiKey
 
 let payload := {
     'userId': event.distinct_id,
-    'eventName': event.name == '$set' ? '$identify' : event.name,
+    'eventName': event.event == '$set' ? '$identify' : event.event,
     'email': person.properties.email
 }
 for (let key, value in person.properties) {
