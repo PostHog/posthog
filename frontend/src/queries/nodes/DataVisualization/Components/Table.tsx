@@ -1,8 +1,10 @@
 import { LemonTable, LemonTableColumn } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { execHog } from 'lib/hog'
+import { lightenDarkenColor } from 'lib/utils'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
 
@@ -18,6 +20,8 @@ interface TableProps {
 }
 
 export const Table = (props: TableProps): JSX.Element => {
+    const { isDarkModeOn } = useValues(themeLogic)
+
     const {
         tabularData,
         tabularColumns,
@@ -59,8 +63,26 @@ export const Table = (props: TableProps): JSX.Element => {
                 const conditionalFormattingMatches = cf.find((n) => Boolean(n.result))
 
                 if (conditionalFormattingMatches) {
+                    const ruleColor = conditionalFormattingMatches.rule.color
+                    const colorMode = conditionalFormattingMatches.rule.colorMode ?? 'light'
+
+                    // If the color mode matches the current theme, return as it was saved
+                    if ((colorMode === 'dark' && isDarkModeOn) || (colorMode === 'light' && !isDarkModeOn)) {
+                        return {
+                            backgroundColor: ruleColor,
+                        }
+                    }
+
+                    // If the color mode is dark, but we're in light mode - then lighten the color
+                    if (colorMode === 'dark' && !isDarkModeOn) {
+                        return {
+                            backgroundColor: lightenDarkenColor(ruleColor, 30),
+                        }
+                    }
+
+                    // If the color mode is light, but we're in dark mode - then darken the color
                     return {
-                        backgroundColor: conditionalFormattingMatches.rule.color,
+                        backgroundColor: lightenDarkenColor(ruleColor, -30),
                     }
                 }
 

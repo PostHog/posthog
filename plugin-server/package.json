@@ -147,7 +147,7 @@
         }
     },
     "cyclotron": {
-        "//This is a short term workaround to ensure that cyclotron changes trigger a rebuild": 2,
-        "version": "0.1.1"
+        "//This is a short term workaround to ensure that cyclotron changes trigger a rebuild": true,
+        "version": "0.1.4"
     }
 }

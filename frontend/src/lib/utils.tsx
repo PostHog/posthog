@@ -49,13 +49,17 @@ export const humanizeBytes = (fileSizeInBytes: number | null): string => {
     }
 
     let i = -1
+    let convertedBytes = fileSizeInBytes
     const byteUnits = ['kB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB']
     do {
-        fileSizeInBytes = fileSizeInBytes / 1024
+        convertedBytes = convertedBytes / 1024
         i++
-    } while (fileSizeInBytes > 1024)
+    } while (convertedBytes > 1024)
 
-    return Math.max(fileSizeInBytes, 0.1).toFixed(1) + ' ' + byteUnits[i]
+    if (convertedBytes < 0.1) {
+        return fileSizeInBytes + ' bytes'
+    }
+    return convertedBytes.toFixed(2) + ' ' + byteUnits[i]
 }
 
 export function toParams(obj: Record<string, any>, explodeArrays: boolean = false): string {
@@ -1429,6 +1433,12 @@ export function hexToRGBA(hex: string, alpha = 1): string {
     const { r, g, b } = hexToRGB(hex)
     const a = alpha
     return `rgba(${[r, g, b, a].join(',')})`
+}
+
+export function RGBToHex(rgb: string): string {
+    const rgbValues = rgb.replace('rgb(', '').replace(')', '').split(',').map(Number)
+
+    return `#${rgbValues.map((val) => val.toString(16).padStart(2, '0')).join('')}`
 }
 
 export function RGBToRGBA(rgb: string, a: number): string {
