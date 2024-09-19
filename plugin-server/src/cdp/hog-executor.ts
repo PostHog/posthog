@@ -97,33 +97,49 @@ export class HogExecutor {
     findMatchingFunctions(event: HogFunctionInvocationGlobals): {
         matchingFunctions: HogFunctionType[]
         nonMatchingFunctions: HogFunctionType[]
+        erroredFunctions: HogFunctionType[]
     } {
         const allFunctionsForTeam = this.hogFunctionManager.getTeamHogFunctions(event.project.id)
         const filtersGlobals = convertToHogFunctionFilterGlobal(event)
 
         const nonMatchingFunctions: HogFunctionType[] = []
         const matchingFunctions: HogFunctionType[] = []
+        const erroredFunctions: HogFunctionType[] = []
 
         // Filter all functions based on the invocation
         allFunctionsForTeam.forEach((hogFunction) => {
-            try {
-                if (hogFunction.filters?.bytecode) {
-                    const start = performance.now()
+            if (hogFunction.filters?.bytecode) {
+                const start = performance.now()
+                try {
                     const filterResult = execHog(hogFunction.filters.bytecode, { globals: filtersGlobals })
                     hogFunctionFilterDuration.observe(performance.now() - start)
                     if (typeof filterResult.result === 'boolean' && filterResult.result) {
                         matchingFunctions.push(hogFunction)
                         return
                     }
+                } catch (error) {
+                    // TODO: This should be reported as a log or metric
+                    status.error('🦔', `[HogExecutor] Error filtering function`, {
+                        hogFunctionId: hogFunction.id,
+                        hogFunctionName: hogFunction.name,
+                        error: error.message,
+                    })
+                    hogFunctionFilterErrors.inc()
+                    erroredFunctions.push(hogFunction)
+                    return
+                } finally {
+                    const duration = performance.now() - start
+                    hogFunctionFilterDuration.observe(performance.now() - start)
+
+                    if (duration > DEFAULT_TIMEOUT_MS) {
+                        status.warn('🦔', `[HogExecutor] Filter took longer than expected`, {
+                            hogFunctionId: hogFunction.id,
+                            hogFunctionName: hogFunction.name,
+                            teamId: hogFunction.team_id,
+                            duration,
+                        })
+                    }
                 }
-            } catch (error) {
-                // TODO: This should be reported as a log or metric
-                status.error('🦔', `[HogExecutor] Error filtering function`, {
-                    hogFunctionId: hogFunction.id,
-                    hogFunctionName: hogFunction.name,
-                    error: error.message,
-                })
-                hogFunctionFilterErrors.inc()
             }
 
             nonMatchingFunctions.push(hogFunction)
@@ -139,6 +155,7 @@ export class HogExecutor {
         return {
             nonMatchingFunctions,
             matchingFunctions,
+            erroredFunctions,
         }
     }
 
