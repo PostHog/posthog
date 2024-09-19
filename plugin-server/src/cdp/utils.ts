@@ -1,17 +1,21 @@
 // NOTE: PostIngestionEvent is our context event - it should never be sent directly to an output, but rather transformed into a lightweight schema
 
+import { CyclotronJob, CyclotronJobUpdate } from '@posthog/cyclotron'
+import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
 import RE2 from 're2'
 import { gunzip, gzip } from 'zlib'
 
 import { RawClickHouseEvent, Team, TimestampFormat } from '../types'
 import { safeClickhouseString } from '../utils/db/utils'
+import { status } from '../utils/status'
 import { castTimestampOrNow, clickHouseTimestampToISO, UUIDT } from '../utils/utils'
 import {
     HogFunctionCapturedEvent,
     HogFunctionFilterGlobals,
     HogFunctionInvocation,
     HogFunctionInvocationGlobals,
+    HogFunctionInvocationQueueParameters,
     HogFunctionInvocationResult,
     HogFunctionInvocationSerialized,
     HogFunctionLogEntrySerialized,
@@ -291,7 +295,6 @@ export function serializeHogFunctionInvocation(invocation: HogFunctionInvocation
         hogFunctionId: invocation.hogFunction.id,
         // We clear the params as they are never used in the serialized form
         queueParameters: undefined,
-        queueBlob: undefined,
     }
 
     delete (serializedInvocation as any).hogFunction
@@ -299,6 +302,73 @@ export function serializeHogFunctionInvocation(invocation: HogFunctionInvocation
     return serializedInvocation
 }
 
-export function queueBlobToString(blob?: HogFunctionInvocation['queueBlob']): string | undefined {
-    return blob ? Buffer.from(blob).toString('utf-8') : undefined
+function prepareQueueParams(
+    _params?: HogFunctionInvocation['queueParameters']
+): Pick<CyclotronJobUpdate, 'parameters' | 'blob'> {
+    let parameters: HogFunctionInvocation['queueParameters'] = _params
+    let blob: CyclotronJobUpdate['blob'] = undefined
+
+    if (parameters && 'body' in parameters) {
+        // Fetch request
+        const { body, ...rest } = parameters
+        parameters = rest
+        blob = body ? Buffer.from(body) : undefined
+    } else if (parameters && 'response' in parameters && parameters.response) {
+        // Fetch response
+        const { body, ...rest } = parameters.response
+        parameters = {
+            ...parameters,
+            response: rest,
+        }
+        blob = body ? Buffer.from(body) : undefined
+    }
+
+    return {
+        parameters,
+        blob,
+    }
+}
+
+export function invocationToCyclotronJobUpdate(invocation: HogFunctionInvocation): CyclotronJobUpdate {
+    const updates = {
+        priority: invocation.priority,
+        vmState: serializeHogFunctionInvocation(invocation),
+        queueName: invocation.queue,
+        ...prepareQueueParams(invocation.queueParameters),
+    }
+    return updates
+}
+
+export function cyclotronJobToInvocation(job: CyclotronJob, hogFunction: HogFunctionType): HogFunctionInvocation {
+    const parsedState = job.vmState as HogFunctionInvocationSerialized
+    const params = job.parameters as HogFunctionInvocationQueueParameters | undefined
+
+    if (job.blob && params) {
+        // Deserialize the blob into the params
+        try {
+            const body = job.blob ? Buffer.from(job.blob).toString('utf-8') : undefined
+            if ('response' in params && params.response) {
+                // Fetch response
+                params.response.body = body
+            } else if ('method' in params) {
+                // Fetch request
+                params.body = body
+            }
+        } catch (e) {
+            status.error('Error parsing blob', e, job.blob)
+            captureException(e)
+        }
+    }
+
+    return {
+        id: job.id,
+        globals: parsedState.globals,
+        teamId: hogFunction.team_id,
+        hogFunction,
+        priority: job.priority,
+        queue: (job.queueName as any) ?? 'hog',
+        queueParameters: params,
+        vmState: parsedState.vmState,
+        timings: parsedState.timings,
+    }
 }

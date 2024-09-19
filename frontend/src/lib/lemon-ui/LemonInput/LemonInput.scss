@@ -102,6 +102,7 @@
 
     &.LemonInput--type-number {
         .LemonInput__input {
+            font-variant-numeric: tabular-nums;
             text-overflow: clip;
         }
     }

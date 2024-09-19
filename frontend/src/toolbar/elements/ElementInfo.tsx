@@ -7,6 +7,8 @@ import { ActionStep } from '~/toolbar/actions/ActionStep'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 
+import { actionsTabLogic } from '../actions/actionsTabLogic'
+
 function ElementStatistic({
     prefix,
     suffix,
@@ -34,6 +36,7 @@ export function ElementInfo(): JSX.Element | null {
 
     const { activeMeta } = useValues(elementsLogic)
     const { createAction } = useActions(elementsLogic)
+    const { automaticActionCreationEnabled } = useValues(actionsTabLogic)
 
     if (!activeMeta) {
         return null
@@ -79,17 +82,37 @@ export function ElementInfo(): JSX.Element | null {
             ) : null}
             {/* eslint-disable-next-line react/forbid-dom-props */}
             <div className="p-3" style={{ borderLeft: '5px solid #94D674', background: 'hsla(100, 74%, 98%, 1)' }}>
-                <h1 className="section-title">Actions ({activeMeta.actions.length})</h1>
+                {!automaticActionCreationEnabled && (
+                    <>
+                        <h1 className="section-title">Actions ({activeMeta.actions.length})</h1>
 
-                {activeMeta.actions.length === 0 ? (
-                    <p>No actions include this element</p>
-                ) : (
-                    <ActionsListView actions={activeMeta.actions.map((a) => a.action)} />
+                        {activeMeta.actions.length === 0 ? (
+                            <p>No actions include this element</p>
+                        ) : (
+                            <ActionsListView actions={activeMeta.actions.map((a) => a.action)} />
+                        )}
+                    </>
                 )}
-
-                <LemonButton size="small" type="secondary" onClick={() => createAction(element)} icon={<IconPlus />}>
-                    Create a new action
-                </LemonButton>
+                {automaticActionCreationEnabled ? (
+                    <LemonButton
+                        size="small"
+                        type="primary"
+                        status="alt"
+                        onClick={() => createAction(element)}
+                        icon={<IconPlus />}
+                    >
+                        Select element
+                    </LemonButton>
+                ) : (
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        onClick={() => createAction(element)}
+                        icon={<IconPlus />}
+                    >
+                        Create a new action
+                    </LemonButton>
+                )}
             </div>
         </>
     )

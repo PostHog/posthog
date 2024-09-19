@@ -96,6 +96,8 @@ pub enum FlagError {
     DatabaseUnavailable,
     #[error("Timed out while fetching data")]
     TimeoutError,
+    #[error("No group type mappings")]
+    NoGroupTypeMappings,
 }
 
 impl IntoResponse for FlagError {
@@ -167,6 +169,13 @@ impl IntoResponse for FlagError {
                     "The request timed out. This could be due to high load or network issues. Please try again later.".to_string(),
                 )
             }
+            FlagError::NoGroupTypeMappings => {
+                tracing::error!("No group type mappings: {:?}", self);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "No group type mappings found. This is likely a configuration issue. Please contact support.".to_string(),
+                )
+            }
         }
         .into_response()
     }
@@ -192,7 +201,6 @@ impl From<CustomRedisError> for FlagError {
 impl From<CustomDatabaseError> for FlagError {
     fn from(e: CustomDatabaseError) -> Self {
         match e {
-            CustomDatabaseError::NotFound => FlagError::TokenValidationError,
             CustomDatabaseError::Other(_) => {
                 tracing::error!("failed to get connection: {}", e);
                 FlagError::DatabaseUnavailable

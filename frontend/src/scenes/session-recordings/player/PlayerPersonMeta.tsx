@@ -1,57 +1,35 @@
 import './PlayerMeta.scss'
 
-import clsx from 'clsx'
-import { useValues } from 'kea'
-import { TZLabel } from 'lib/components/TZLabel'
-import { dayjs } from 'lib/dayjs'
+import { useActions, useValues } from 'kea'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { asDisplay } from 'scenes/persons/person-utils'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+import { PersonIcon } from 'scenes/persons/PersonDisplay'
 import { playerMetaLogic } from 'scenes/session-recordings/player/playerMetaLogic'
 
+import { SessionRecordingSidebarTab } from '~/types'
+
+import { playerSettingsLogic } from './playerSettingsLogic'
 import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
+import { playerSidebarLogic } from './sidebar/playerSidebarLogic'
 
 export function PlayerPersonMeta(): JSX.Element {
-    const { logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
+    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { sessionPerson } = useValues(playerMetaLogic(logicProps))
 
-    const { sessionPerson, startTime } = useValues(playerMetaLogic(logicProps))
+    const { setTab } = useActions(playerSidebarLogic)
+    const { setSidebarOpen } = useActions(playerSettingsLogic)
+
+    const onClick = (): void => {
+        setSidebarOpen(true)
+        setTab(SessionRecordingSidebarTab.PERSON)
+    }
 
     return (
-        <div
-            className={clsx('PlayerMeta', {
-                'PlayerMeta--fullscreen': isFullScreen,
-            })}
-        >
-            <div className={clsx('PlayerMeta__top flex items-center gap-1 shrink-0', isFullScreen && ' text-xs')}>
-                <div className="ph-no-capture">
-                    {!sessionPerson ? (
-                        <LemonSkeleton.Circle className="w-8 h-8" />
-                    ) : (
-                        <ProfilePicture size="md" name={asDisplay(sessionPerson)} />
-                    )}
-                </div>
-                <div className="overflow-hidden ph-no-capture flex-1">
-                    <div>
-                        {!sessionPerson || !startTime ? (
-                            <LemonSkeleton className="w-1/3 h-4 my-1" />
-                        ) : (
-                            <div className="flex gap-1">
-                                <span className="font-bold whitespace-nowrap truncate">
-                                    <PersonDisplay person={sessionPerson} withIcon={false} noEllipsis={true} />
-                                </span>
-                                ·
-                                <TZLabel
-                                    time={dayjs(startTime)}
-                                    formatDate="MMMM DD, YYYY"
-                                    formatTime="h:mm A"
-                                    showPopover={false}
-                                />
-                            </div>
-                        )}
-                    </div>
-                </div>
-            </div>
+        <div className="PlayerMeta__top flex items-center gap-1 shrink-0 cursor-pointer mb-2" onClick={onClick}>
+            {!sessionPerson ? (
+                <LemonSkeleton.Circle className="w-8 h-8" />
+            ) : (
+                <PersonIcon person={sessionPerson} size="md" className="mr-0" />
+            )}
         </div>
     )
 }

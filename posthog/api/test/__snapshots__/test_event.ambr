@@ -1,6 +1,18 @@
 # serializer version: 1
 # name: TestEvents.test_event_property_values
   '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: TestEvents.test_event_property_values.1
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
   FROM events
@@ -11,7 +23,7 @@
   LIMIT 10
   '''
 # ---
-# name: TestEvents.test_event_property_values.1
+# name: TestEvents.test_event_property_values.2
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
@@ -25,7 +37,7 @@
   LIMIT 10
   '''
 # ---
-# name: TestEvents.test_event_property_values.2
+# name: TestEvents.test_event_property_values.3
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
@@ -39,7 +51,7 @@
   LIMIT 10
   '''
 # ---
-# name: TestEvents.test_event_property_values.3
+# name: TestEvents.test_event_property_values.4
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
@@ -53,7 +65,7 @@
   LIMIT 10
   '''
 # ---
-# name: TestEvents.test_event_property_values.4
+# name: TestEvents.test_event_property_values.5
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
@@ -68,7 +80,7 @@
   LIMIT 10
   '''
 # ---
-# name: TestEvents.test_event_property_values.5
+# name: TestEvents.test_event_property_values.6
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
@@ -84,7 +96,7 @@
   LIMIT 10
   '''
 # ---
-# name: TestEvents.test_event_property_values.6
+# name: TestEvents.test_event_property_values.7
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
@@ -101,6 +113,18 @@
 # ---
 # name: TestEvents.test_event_property_values_materialized
   '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: TestEvents.test_event_property_values_materialized.1
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT "mat_random_prop"
   FROM events
@@ -111,7 +135,7 @@
   LIMIT 10
   '''
 # ---
-# name: TestEvents.test_event_property_values_materialized.1
+# name: TestEvents.test_event_property_values_materialized.2
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT "mat_random_prop"
@@ -125,7 +149,7 @@
   LIMIT 10
   '''
 # ---
-# name: TestEvents.test_event_property_values_materialized.2
+# name: TestEvents.test_event_property_values_materialized.3
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT "mat_random_prop"
@@ -139,7 +163,7 @@
   LIMIT 10
   '''
 # ---
-# name: TestEvents.test_event_property_values_materialized.3
+# name: TestEvents.test_event_property_values_materialized.4
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT "mat_random_prop"
@@ -153,7 +177,7 @@
   LIMIT 10
   '''
 # ---
-# name: TestEvents.test_event_property_values_materialized.4
+# name: TestEvents.test_event_property_values_materialized.5
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT "mat_random_prop"
@@ -168,7 +192,7 @@
   LIMIT 10
   '''
 # ---
-# name: TestEvents.test_event_property_values_materialized.5
+# name: TestEvents.test_event_property_values_materialized.6
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT "mat_random_prop"
@@ -184,7 +208,7 @@
   LIMIT 10
   '''
 # ---
-# name: TestEvents.test_event_property_values_materialized.6
+# name: TestEvents.test_event_property_values_materialized.7
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT "mat_random_prop"

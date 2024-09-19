@@ -2,6 +2,7 @@ from abc import ABCMeta, abstractmethod
 from typing import Any, Optional, Union
 
 from posthog.clickhouse.materialized_columns import ColumnName
+from posthog.hogql.database.database import create_hogql_database
 from posthog.models import Cohort, Filter, Property
 from posthog.models.cohort.util import is_precalculated_query
 from posthog.models.filters import AnyFilter
@@ -89,6 +90,13 @@ class EventQuery(metaclass=ABCMeta):
         self._should_join_sessions = should_join_sessions
         self._extra_fields = extra_fields
         self._person_on_events_mode = alias_poe_mode_for_legacy(person_on_events_mode)
+
+        # HACK: Because we're in a legacy query, we need to override hogql_context with the legacy-alised PoE mode
+        self._filter.hogql_context.modifiers.personsOnEventsMode = self._person_on_events_mode
+        # Recreate the database with the legacy-alised PoE mode
+        self._filter.hogql_context.database = create_hogql_database(
+            team_id=self._team.pk, modifiers=self._filter.hogql_context.modifiers
+        )
 
         # Guards against a ClickHouse bug involving multiple joins against the same table with the same column name.
         # This issue manifests for us with formulas, where on queries A and B we join events against itself

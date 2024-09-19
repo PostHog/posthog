@@ -96,6 +96,7 @@ describe('insightDataLogic', () => {
                                         {
                                             key: 'id',
                                             type: 'cohort',
+                                            operator: 'in',
                                             value: 2,
                                         },
                                     ],

@@ -15,9 +15,28 @@ import {
 
 describe('sessionRecordingsPlaylistLogic', () => {
     let logic: ReturnType<typeof sessionRecordingsPlaylistLogic.build>
-    const aRecording = { id: 'abc', viewed: false, recording_duration: 10, console_error_count: 50 }
-    const bRecording = { id: 'def', viewed: false, recording_duration: 10, console_error_count: 100 }
+    const aRecording = {
+        id: 'abc',
+        viewed: false,
+        recording_duration: 10,
+        start_time: '2023-10-12T16:55:36.404000Z',
+        console_error_count: 50,
+    }
+    const bRecording = {
+        id: 'def',
+        viewed: false,
+        recording_duration: 10,
+        start_time: '2023-05-12T16:55:36.404000Z',
+        console_error_count: 100,
+    }
     const listOfSessionRecordings = [aRecording, bRecording]
+    const offsetRecording = {
+        id: `recording_offset_by_${listOfSessionRecordings.length}`,
+        viewed: false,
+        recording_duration: 10,
+        start_time: '2023-08-12T16:55:36.404000Z',
+        console_error_count: 75,
+    }
 
     beforeEach(() => {
         useMocks({
@@ -54,7 +73,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                         return [
                             200,
                             {
-                                results: [`List of recordings offset by ${listOfSessionRecordings.length}`],
+                                results: [offsetRecording],
                             },
                         ]
                     } else if (
@@ -167,6 +186,11 @@ describe('sessionRecordingsPlaylistLogic', () => {
         })
 
         describe('ordering', () => {
+            afterEach(() => {
+                logic.actions.setOrderBy('start_time')
+                logic.actions.loadSessionRecordings()
+            })
+
             it('is set by setOrderBy, loads filtered results and orders the non pinned recordings', async () => {
                 await expectLogic(logic, () => {
                     logic.actions.setOrderBy('console_error_count')
@@ -179,21 +203,22 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 expect(logic.values.otherRecordings.map((r) => r.console_error_count)).toEqual([100, 50])
             })
 
-            it('adds an offset when not using latest ordering', async () => {
+            it('adds an offset', async () => {
                 await expectLogic(logic, () => {
-                    logic.actions.setOrderBy('console_error_count')
+                    logic.actions.loadSessionRecordings()
                 })
-                    .toDispatchActionsInAnyOrder(['loadSessionRecordingsSuccess'])
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
                     .toMatchValues({
                         sessionRecordings: listOfSessionRecordings,
                     })
 
                 await expectLogic(logic, () => {
-                    logic.actions.maybeLoadSessionRecordings('newer')
+                    logic.actions.loadSessionRecordings('older')
                 })
                     .toDispatchActions(['loadSessionRecordingsSuccess'])
                     .toMatchValues({
-                        sessionRecordings: [...listOfSessionRecordings, 'List of recordings offset by 2'],
+                        // reorganises recordings based on start_time
+                        sessionRecordings: [aRecording, offsetRecording, bRecording],
                     })
             })
         })
@@ -306,6 +331,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 expect(router.values.searchParams.filters).toHaveProperty('date_to', '2021-10-20')
             })
         })
+
         describe('duration filter', () => {
             it('is set by setFilters and fetches results from server and sets the url', async () => {
                 await expectLogic(logic, () => {
@@ -370,8 +396,9 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     .toFinishAllListeners()
                     .toMatchValues({
                         sessionRecordingsResponse: {
-                            results: listOfSessionRecordings,
+                            order: 'start_time',
                             has_next: undefined,
+                            results: listOfSessionRecordings,
                         },
                         sessionRecordings: listOfSessionRecordings,
                     })
@@ -382,6 +409,8 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     .toFinishAllListeners()
                     .toMatchValues({
                         sessionRecordingsResponse: {
+                            has_next: undefined,
+                            order: 'start_time',
                             results: [
                                 {
                                     ...aRecording,

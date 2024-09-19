@@ -134,6 +134,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
             {playlist.short_id && pinnedRecordings !== null ? (
                 <div className="SessionRecordingPlaylistHeightWrapper">
                     <SessionRecordingsPlaylist
+                        logicKey={playlist.short_id}
                         // backwards compatibilty for legacy filters
                         filters={
                             playlist.filters && isUniversalFilters(playlist.filters)

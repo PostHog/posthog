@@ -1,7 +1,18 @@
-import { actions, kea, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { iframedToolbarBrowserLogic } from 'lib/components/IframedToolbarBrowser/iframedToolbarBrowserLogic'
+import { PostHogAppToolbarEvent } from 'lib/components/IframedToolbarBrowser/utils'
 import { isEmptyObject } from 'lib/utils'
 
-import { DashboardTemplateVariableType, FilterType, Optional } from '~/types'
+import {
+    ActionType,
+    BaseMathType,
+    DashboardTemplateVariableType,
+    EntityType,
+    EntityTypes,
+    FilterType,
+    Optional,
+    TemplateVariableStep,
+} from '~/types'
 
 import type { dashboardTemplateVariablesLogicType } from './dashboardTemplateVariablesLogicType'
 
@@ -11,24 +22,33 @@ export interface DashboardTemplateVariablesLogicProps {
 
 const FALLBACK_EVENT = {
     id: '$pageview',
-    math: 'dau',
-    type: 'events',
+    math: BaseMathType.UniqueUsers,
+    type: EntityTypes.EVENTS,
 }
 
 export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLogicType>([
     path(['scenes', 'dashboard', 'DashboardTemplateVariablesLogic']),
     props({ variables: [] } as DashboardTemplateVariablesLogicProps),
+    connect({
+        actions: [iframedToolbarBrowserLogic, ['toolbarMessageReceived', 'disableElementSelector']],
+    }),
     actions({
         setVariables: (variables: DashboardTemplateVariableType[]) => ({ variables }),
         setVariable: (variableName: string, filterGroup: Optional<FilterType, 'type'>) => ({
             variable_name: variableName,
             filterGroup,
         }),
+        setVariableFromAction: (variableName: string, action: ActionType) => ({ variableName, action }),
+        setVariableForPageview: (variableName: string, url: string) => ({ variableName, url }),
+        setVariableForScreenview: (variableName: string) => ({ variableName }),
         setActiveVariableIndex: (index: number) => ({ index }),
         incrementActiveVariableIndex: true,
         possiblyIncrementActiveVariableIndex: true,
         resetVariable: (variableId: string) => ({ variableId }),
         goToNextUntouchedActiveVariableIndex: true,
+        setIsCurrentlySelectingElement: (isSelecting: boolean) => ({ isSelecting }),
+        setActiveVariableCustomEventName: (customEventName?: string | null) => ({ customEventName }),
+        maybeResetActiveVariableCustomEventName: true,
     }),
     reducers({
         variables: [
@@ -43,10 +63,23 @@ export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLog
                     })
                 },
                 setVariable: (state, { variable_name: variableName, filterGroup }): DashboardTemplateVariableType[] => {
-                    // TODO: handle actions as well as events
+                    // There is only one type with contents at a time
+                    // So iterate through the types to find the first one with contents
+                    const typeWithContents: EntityType = Object.keys(filterGroup).filter(
+                        (group) => (filterGroup[group as EntityType] || [])?.length > 0
+                    )?.[0] as EntityType
+
+                    if (!typeWithContents) {
+                        return state
+                    }
+
                     return state.map((v: DashboardTemplateVariableType) => {
-                        if (v.name === variableName && filterGroup?.events?.length && filterGroup.events[0]) {
-                            return { ...v, default: filterGroup.events[0], touched: true }
+                        if (
+                            v.name === variableName &&
+                            filterGroup?.[typeWithContents]?.length &&
+                            filterGroup?.[typeWithContents]?.[0]
+                        ) {
+                            return { ...v, default: filterGroup[typeWithContents]?.[0] || {}, touched: true }
                         }
                         return { ...v }
                     })
@@ -68,6 +101,18 @@ export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLog
                 incrementActiveVariableIndex: (state) => state + 1,
             },
         ],
+        activeVariableCustomEventName: [
+            null as string | null | undefined,
+            {
+                setActiveVariableCustomEventName: (_, { customEventName }) => customEventName,
+            },
+        ],
+        isCurrentlySelectingElement: [
+            false as boolean,
+            {
+                setIsCurrentlySelectingElement: (_, { isSelecting }) => isSelecting,
+            },
+        ],
     }),
     selectors(() => ({
         activeVariable: [
@@ -80,6 +125,12 @@ export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLog
             (s) => [s.variables],
             (variables: DashboardTemplateVariableType[]) => {
                 return variables.every((v) => v.touched)
+            },
+        ],
+        hasTouchedAnyVariable: [
+            (s) => [s.variables],
+            (variables: DashboardTemplateVariableType[]) => {
+                return variables.some((v) => v.touched)
             },
         ],
     })),
@@ -102,6 +153,76 @@ export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLog
                 }
             }
             actions.setActiveVariableIndex(nextIndex)
+        },
+        setVariableFromAction: ({ variableName, action }) => {
+            const originalVariableName = variableName.replace(/\s-\s\d+/g, '')
+            const step: TemplateVariableStep = {
+                id: action.id.toString(),
+                math: BaseMathType.UniqueUsers,
+                name: action.name,
+                custom_name: originalVariableName,
+                order: 0,
+                type: EntityTypes.ACTIONS,
+                selector: action.steps?.[0]?.selector,
+                href: action.steps?.[0]?.href,
+                url: action.steps?.[0]?.url,
+            }
+            const filterGroup: FilterType = {
+                actions: [step],
+            }
+            actions.setVariable(originalVariableName, filterGroup)
+            actions.setIsCurrentlySelectingElement(false)
+        },
+        setVariableForPageview: ({ variableName, url }) => {
+            const step: TemplateVariableStep = {
+                id: '$pageview',
+                math: BaseMathType.UniqueUsers,
+                type: EntityTypes.EVENTS,
+                order: 0,
+                name: '$pageview',
+                custom_name: variableName,
+                properties: [
+                    {
+                        key: '$current_url',
+                        value: url,
+                        operator: 'icontains',
+                        type: 'event',
+                    },
+                ],
+            }
+            const filterGroup: FilterType = {
+                events: [step],
+            }
+            actions.setVariable(variableName, filterGroup)
+            actions.setIsCurrentlySelectingElement(false)
+        },
+        setVariableForScreenview: ({ variableName }) => {
+            const step: TemplateVariableStep = {
+                id: '$screenview',
+                math: BaseMathType.UniqueUsers,
+                type: EntityTypes.EVENTS,
+                order: 0,
+                name: '$screenview',
+                custom_name: variableName,
+            }
+            const filterGroup: FilterType = {
+                events: [step],
+            }
+            actions.setVariable(variableName, filterGroup)
+            actions.setIsCurrentlySelectingElement(false)
+        },
+        toolbarMessageReceived: ({ type, payload }) => {
+            if (type === PostHogAppToolbarEvent.PH_NEW_ACTION_CREATED) {
+                actions.setVariableFromAction(payload.action.name, payload.action as ActionType)
+                actions.disableElementSelector()
+            }
+        },
+        maybeResetActiveVariableCustomEventName: () => {
+            if (!values.activeVariable?.touched || !values.activeVariable?.default?.custom_event) {
+                actions.setActiveVariableCustomEventName(null)
+            } else if (values.activeVariable?.default?.custom_event) {
+                actions.setActiveVariableCustomEventName(values.activeVariable.default.id)
+            }
         },
     })),
     propsChanged(({ actions, props }, oldProps) => {

@@ -95,14 +95,6 @@ describe('CDP E2E', () => {
         })
 
         afterEach(async () => {
-            console.log('AfterEach', {
-                processedEventsConsumer,
-                functionProcessor,
-                kafkaObserver,
-                cyclotronWorker,
-                cyclotronFetchWorker,
-            })
-
             const stoppers = [
                 processedEventsConsumer?.stop().then(() => console.log('Stopped processedEventsConsumer')),
                 functionProcessor?.stop().then(() => console.log('Stopped functionProcessor')),
@@ -131,7 +123,7 @@ describe('CDP E2E', () => {
 
             await waitForExpect(() => {
                 expect(kafkaObserver.messages).toHaveLength(6)
-            })
+            }, 5000)
 
             expect(mockFetch).toHaveBeenCalledTimes(1)
 
