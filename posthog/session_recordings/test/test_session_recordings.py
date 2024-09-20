@@ -1165,11 +1165,11 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             },
         )
 
-        # data needs time to settle :'(
-        time.sleep(1)
+        flush_persons_and_events()
 
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_id}/comments")
         assert response.status_code == status.HTTP_200_OK
+
         assert response.json() == {
             "comments": [
                 {"short_id": notebook_short_id, "session_id": session_id, "timestamp": 12345, "comment": "text"}

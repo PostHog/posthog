@@ -297,7 +297,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(
         exclude=True,
         description="""
-        Gets the comments associated with a single recording""",
+        Gets the comments associated with a single recording from any notebooks""",
     )
     @action(methods=["GET"], detail=True)
     def comments(self, request: request.Request, *args: Any, **kwargs: Any) -> JsonResponse:
@@ -333,6 +333,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                         "timeInRecording": result[2],
                     }
                 )
+
         return JsonResponse(data={"results": recording_comments})
 
     @extend_schema(
