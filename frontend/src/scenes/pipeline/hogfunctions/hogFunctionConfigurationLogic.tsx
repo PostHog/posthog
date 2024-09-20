@@ -52,6 +52,7 @@ export interface HogFunctionConfigurationLogicProps {
 }
 
 export const EVENT_VOLUME_DAILY_WARNING_THRESHOLD = 1000
+const UNSAVED_CONFIGURATION_TTL = 1000 * 60 * 5
 
 const NEW_FUNCTION_TEMPLATE: HogFunctionTemplateType = {
     id: 'new',
@@ -182,6 +183,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         sparklineQueryChanged: (sparklineQuery: TrendsQuery) => ({ sparklineQuery } as { sparklineQuery: TrendsQuery }),
         setSubTemplateId: (subTemplateId: HogFunctionSubTemplateIdType | null) => ({ subTemplateId }),
         loadSampleGlobals: true,
+        setUnsavedConfiguration: (configuration: HogFunctionConfigurationType | null) => ({ configuration }),
     }),
     reducers({
         showSource: [
@@ -201,6 +203,23 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             null as HogFunctionSubTemplateIdType | null,
             {
                 setSubTemplateId: (_, { subTemplateId }) => subTemplateId,
+            },
+        ],
+
+        ready: [
+            false,
+            {
+                // Helper as this needs to be called before anything is ready to go
+                resetConfiguration: () => true,
+            },
+        ],
+
+        unsavedConfiguration: [
+            null as { timestamp: number; configuration: HogFunctionConfigurationType } | null,
+            { persist: true },
+            {
+                setUnsavedConfiguration: (_, { configuration }) =>
+                    configuration ? { timestamp: Date.now(), configuration } : null,
             },
         ],
     }),
@@ -696,16 +715,27 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             }
 
             const paramsFromUrl = cache.paramsFromUrl ?? {}
-            if (paramsFromUrl.integration_target && paramsFromUrl.integration_id) {
-                config.inputs = config.inputs ?? {}
-                config.inputs[paramsFromUrl.integration_target] = {
-                    value: paramsFromUrl.integration_id,
-                }
-            }
-
-            // TODO: Pull out sub template info
+            const unsavedConfigurationToApply =
+                !values.ready && (values.unsavedConfiguration?.timestamp ?? 0) > Date.now() - UNSAVED_CONFIGURATION_TTL
+                    ? values.unsavedConfiguration?.configuration
+                    : null
 
             actions.resetConfiguration(config)
+
+            if (unsavedConfigurationToApply) {
+                actions.setConfigurationValues(unsavedConfigurationToApply)
+            }
+
+            if (paramsFromUrl.integration_target && paramsFromUrl.integration_id) {
+                const inputs = values.configuration?.inputs ?? {}
+                inputs[paramsFromUrl.integration_target] = {
+                    value: paramsFromUrl.integration_id,
+                }
+
+                actions.setConfigurationValues({
+                    inputs,
+                })
+            }
         },
 
         duplicate: async () => {
@@ -811,27 +841,19 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             actions.loadHogFunction()
         }
 
-        if (router.values.searchParams.integration_target) {
-            const searchParams = router.values.searchParams
-            delete searchParams.integration_id
-            delete searchParams.integration_target
-            // Clear query params so we don't keep trying to set the integration
-            router.actions.replace(router.values.location.pathname, searchParams, router.values.hashParams)
-        }
+        // if (router.values.searchParams.integration_target) {
+        //     const searchParams = router.values.searchParams
+        //     delete searchParams.integration_id
+        //     delete searchParams.integration_target
+        //     // Clear query params so we don't keep trying to set the integration
+        //     router.actions.replace(router.values.location.pathname, searchParams, router.values.hashParams)
+        // }
     }),
 
-    subscriptions(({ props, cache, actions }) => ({
+    subscriptions(({ props, actions, values }) => ({
         configuration: (configuration) => {
-            if (!Object.keys(configuration).length) {
-                return
-            }
-
-            if (props.templateId) {
-                // Sync state to the URL bar if new
-                cache.ignoreUrlChange = true
-                router.actions.replace(router.values.location.pathname, router.values.searchParams, {
-                    configuration,
-                })
+            if (values.ready) {
+                actions.setUnsavedConfiguration(values.configurationChanged ? configuration : null)
             }
         },
 
