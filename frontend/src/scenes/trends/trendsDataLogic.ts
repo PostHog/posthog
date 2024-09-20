@@ -10,7 +10,7 @@ import {
     BREAKDOWN_OTHER_STRING_LABEL,
 } from 'scenes/insights/utils'
 
-import { LifecycleQuery, MathType, TrendsFilter } from '~/queries/schema'
+import { EventsNode, InsightQueryNode, LifecycleQuery, MathType, TrendsFilter, TrendsQuery } from '~/queries/schema'
 import {
     ChartDisplayType,
     CountPerActorMathType,
@@ -96,8 +96,20 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
         /** Alerts can't be calculated more often than every hour currently */
         calculationIntervalsForAlerts: [
             (s) => [s.enabledIntervals],
-            (enabledIntervals: Intervals) => {
+            (enabledIntervals: Intervals): string[] => {
                 return Object.keys(enabledIntervals).filter((interval) => !['minute'].includes(interval))
+            },
+        ],
+
+        /** series within the trend insight on which user can set alerts */
+        alertSeries: [
+            (s) => [s.querySource],
+            (queryNode: InsightQueryNode | null): EventsNode[] => {
+                if (queryNode === null) {
+                    return []
+                }
+
+                return (queryNode as TrendsQuery).series as EventsNode[]
             },
         ],
 

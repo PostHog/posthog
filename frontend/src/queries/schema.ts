@@ -1917,6 +1917,7 @@ export interface AlertTypeBase {
     condition: AlertCondition
     enabled: boolean
     insight: number
+    insight_short_id: InsightShortId
 }
 
 export interface AlertTypeWrite extends AlertTypeBase {

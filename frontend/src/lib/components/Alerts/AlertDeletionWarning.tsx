@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
-import { alertsLogic } from './alertsLogic'
+import { insightAlertsLogic } from './insightAlertsLogic'
 
 export function AlertDeletionWarning(): JSX.Element | null {
     const { insightProps, insight } = useValues(insightLogic)
@@ -12,7 +12,7 @@ export function AlertDeletionWarning(): JSX.Element | null {
     }
 
     const { shouldShowAlertDeletionWarning } = useValues(
-        alertsLogic({
+        insightAlertsLogic({
             insightShortId: insight.short_id,
             insightId: insight.id as number,
             insightLogicProps: insightProps,

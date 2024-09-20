@@ -2,7 +2,7 @@ import { combineUrl } from 'kea-router'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { ExportOptions } from '~/exporter/types'
-import { DashboardFilter, HogQLFilters, Node } from '~/queries/schema'
+import { AlertType, DashboardFilter, HogQLFilters, Node } from '~/queries/schema'
 import {
     ActionType,
     ActivityTab,
@@ -224,7 +224,10 @@ export const urls = {
     moveToPostHogCloud: (): string => '/move-to-cloud',
     heatmaps: (params?: string): string =>
         `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
-    alert: (id: InsightShortId, alertId: string): string => `/insights/${id}/alerts/${alertId}`,
-    alerts: (id: InsightShortId): string => `/insights/${id}/alerts`,
+    alert: (alertId: string): string => `/insights?tab=alerts&alert_id=${alertId}`,
+    alerts: (): string => `/insights?tab=alerts`,
+    insightAlerts: (insightShortId: InsightShortId): string => `/insights/${insightShortId}/alerts`,
+    insightAlert: (insightShortId: InsightShortId, alertId: AlertType['id']): string =>
+        `/insights/${insightShortId}/alerts?alert_id=${alertId}`,
     sessionAttributionExplorer: (): string => '/web/session-attribution-explorer',
 }

@@ -144,6 +144,12 @@ register_grandfathered_environment_nested_viewset(
 
 projects_router.register(r"annotations", annotation.AnnotationsViewSet, "project_annotations", ["project_id"])
 projects_router.register(
+    "alerts",
+    alert.AlertViewSet,
+    "project_alerts",
+    ["project_id"],
+)
+projects_router.register(
     r"activity_log",
     activity_log.ActivityLogViewSet,
     "project_activity_log",
@@ -452,13 +458,6 @@ project_insights_router.register(
     ["team_id", "insight_id"],
 )
 
-project_insights_router.register(
-    "alerts",
-    alert.AlertViewSet,
-    "project_insight_alerts",
-    ["team_id", "insight_id"],
-)
-
 environment_sessions_recordings_router.register(
     r"sharing",
     sharing.SharingConfigurationViewSet,
@@ -514,11 +513,11 @@ projects_router.register(
     ["team_id"],
 )
 
-register_grandfathered_environment_nested_viewset(
-    r"alerts",
-    alert.AlertViewSet,
-    "environment_alerts",
-    ["team_id"],
-)
+# register_grandfathered_environment_nested_viewset(
+#     r"alerts",
+#     alert.AlertViewSet,
+#     "environment_alerts",
+#     ["team_id"],
+# )
 
 projects_router.register(r"search", search.SearchViewSet, "project_search", ["project_id"])

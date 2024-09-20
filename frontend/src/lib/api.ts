@@ -738,12 +738,20 @@ class ApiRequest {
     }
 
     // # Alerts
-    public alerts(id: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.insight(id, teamId).addPathComponent('alerts')
+    public alerts(alertId?: AlertType['id'], insightId?: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
+        if (alertId) {
+            return this.projectsDetail(teamId).addPathComponent('alerts').addPathComponent(alertId).withQueryString({
+                insight_id: insightId,
+            })
+        }
+
+        return this.projectsDetail(teamId).addPathComponent('alerts').withQueryString({
+            insight_id: insightId,
+        })
     }
 
-    public alert(id: AlertType['id'], insightId: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.alerts(insightId, teamId).addPathComponent(id)
+    public alert(alertId: AlertType['id']): ApiRequest {
+        return this.alerts(alertId)
     }
 
     // Resource Access Permissions
@@ -2298,20 +2306,20 @@ const api = {
     },
 
     alerts: {
-        async get(insightId: number, alertId: AlertType['id']): Promise<AlertType> {
-            return await new ApiRequest().alert(alertId, insightId).get()
+        async get(alertId: AlertType['id']): Promise<AlertType> {
+            return await new ApiRequest().alert(alertId).get()
         },
-        async create(insightId: number, data: Partial<AlertTypeWrite>): Promise<AlertType> {
-            return await new ApiRequest().alerts(insightId).create({ data })
+        async create(data: Partial<AlertTypeWrite>): Promise<AlertType> {
+            return await new ApiRequest().alerts().create({ data })
         },
-        async update(insightId: number, alertId: AlertType['id'], data: Partial<AlertTypeWrite>): Promise<AlertType> {
-            return await new ApiRequest().alert(alertId, insightId).update({ data })
+        async update(alertId: AlertType['id'], data: Partial<AlertTypeWrite>): Promise<AlertType> {
+            return await new ApiRequest().alert(alertId).update({ data })
         },
-        async list(insightId: number): Promise<PaginatedResponse<AlertType>> {
-            return await new ApiRequest().alerts(insightId).get()
+        async list(insightId?: InsightModel['id']): Promise<PaginatedResponse<AlertType>> {
+            return await new ApiRequest().alerts(undefined, insightId).get()
         },
-        async delete(insightId: number, alertId: AlertType['id']): Promise<void> {
-            return await new ApiRequest().alert(alertId, insightId).delete()
+        async delete(alertId: AlertType['id']): Promise<void> {
+            return await new ApiRequest().alert(alertId).delete()
         },
     },
 

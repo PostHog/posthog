@@ -100,12 +100,14 @@ class AlertSerializer(serializers.ModelSerializer):
             "checks",
             "series_index",
             "calculation_interval",
+            "insight_short_id",
         ]
         read_only_fields = [
             "id",
             "created_at",
             "state",
             "last_notified_at",
+            "insight_short_id",
         ]
 
     def to_representation(self, instance):
@@ -213,7 +215,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             queryset = queryset.filter(insight_id=filters["insight"])
         return queryset
 
-    def retrieve(self, request, *args, **kwargs):
+    def retrieve(self, _request, *args, **kwargs):
         instance = self.get_object()
         instance.checks = instance.alertcheck_set.all().order_by("-created_at")[:5]
         serializer = self.get_serializer(instance)

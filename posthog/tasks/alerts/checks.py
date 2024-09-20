@@ -123,7 +123,7 @@ def check_alert(alert_id: str) -> None:
 
         aggregated_value = _aggregate_insight_result_value(alert, query, filters_override, calculation_result)
     except Exception as e:
-        # TODO: judging by exception we need to retry. Like if too many simultaneious queries
+        # TODO: judging by exception we need to retry. Like if too many simultaneous queries
         # maybe should handle in celery logic instead of here
         event_id = capture_exception(e)
         error = {

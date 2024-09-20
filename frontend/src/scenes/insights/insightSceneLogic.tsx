@@ -17,7 +17,7 @@ import { ActivityFilters } from '~/layout/navigation-3000/sidepanel/panels/activ
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
-import { DashboardFilter, Node } from '~/queries/schema'
+import { AlertType, DashboardFilter, Node } from '~/queries/schema'
 import { ActivityScope, Breadcrumb, InsightShortId, InsightType, ItemMode } from '~/types'
 
 import { insightDataLogic } from './insightDataLogic'
@@ -47,11 +47,13 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             insightId: InsightShortId,
             insightMode: ItemMode,
             itemId: string | undefined,
+            alertId: AlertType['id'] | undefined,
             filtersOverride: DashboardFilter | undefined
         ) => ({
             insightId,
             insightMode,
             itemId,
+            alertId,
             filtersOverride,
         }),
         setInsightLogicRef: (logic: BuiltLogic<insightLogicType> | null, unmount: null | (() => void)) => ({
@@ -88,6 +90,12 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                             ? parseInt(itemId, 10)
                             : itemId
                         : null,
+            },
+        ],
+        alertId: [
+            null as null | AlertType['id'],
+            {
+                setSceneState: (_, { alertId }) => (alertId !== undefined ? alertId : null),
             },
         ],
         filtersOverride: [
@@ -202,7 +210,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
     urlToAction(({ actions, values }) => ({
         '/insights/:shortId(/:mode)(/:itemId)': (
             { shortId, mode, itemId }, // url params
-            { dashboard, ...searchParams }, // search params
+            { dashboard, alert_id, ...searchParams }, // search params
             { insight: insightType, q }, // hash params
             { method, initial }, // "location changed" event payload
             { searchParams: previousSearchParams } // previous location
@@ -239,9 +247,10 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 insightId !== values.insightId ||
                 insightMode !== values.insightMode ||
                 itemId !== values.itemId ||
+                alert_id !== values.alertId ||
                 !objectsEqual(searchParams['filters_override'], values.filtersOverride)
             ) {
-                actions.setSceneState(insightId, insightMode, itemId, searchParams['filters_override'])
+                actions.setSceneState(insightId, insightMode, itemId, alert_id, searchParams['filters_override'])
             }
 
             let queryFromUrl: Node | null = null

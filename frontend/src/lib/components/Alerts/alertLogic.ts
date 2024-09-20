@@ -1,34 +1,30 @@
-import { connect, kea, key, listeners, path, props } from 'kea'
+import { actions, events, kea, key, listeners, path, props } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+// import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { urls } from 'scenes/urls'
 
 import { AlertType, AlertTypeWrite } from '~/queries/schema'
 
 import type { alertLogicType } from './alertLogicType'
-import { alertsLogic, AlertsLogicProps } from './alertsLogic'
 
-export interface AlertLogicProps extends AlertsLogicProps {
-    id?: string
+export interface AlertLogicProps {
+    alertId?: string
+    onEditSuccess: () => void
 }
 
 export const alertLogic = kea<alertLogicType>([
     path(['lib', 'components', 'Alerts', 'alertLogic']),
     props({} as AlertLogicProps),
-    key(({ id, insightId }) => `${insightId}-${id ?? 'new'}`),
-    connect(() => ({
-        actions: [alertsLogic, ['loadAlerts'], router, ['push']],
-    })),
+    key(({ alertId }) => alertId ?? 'new'),
 
     loaders(({ props }) => ({
         alert: {
             __default: undefined as unknown as AlertType,
             loadAlert: async () => {
-                if (props.id) {
-                    return await api.alerts.get(props.insightId, props.id)
+                if (props.alertId) {
+                    return await api.alerts.get(props.alertId)
                 }
                 return {
                     enabled: true,
@@ -36,6 +32,10 @@ export const alertLogic = kea<alertLogicType>([
             },
         },
     })),
+
+    actions({
+        deleteAlert: true,
+    }),
 
     forms(({ props, actions }) => ({
         alert: {
@@ -47,17 +47,15 @@ export const alertLogic = kea<alertLogicType>([
                 const payload: AlertTypeWrite = {
                     ...alert,
                     subscribed_users: alert.subscribed_users?.map(({ id }) => id),
-                    insight: props.insightId,
                 }
 
                 try {
-                    const updatedAlert: AlertType = !props.id
-                        ? await api.alerts.create(props.insightId, payload)
-                        : await api.alerts.update(props.insightId, props.id, payload)
+                    const updatedAlert: AlertType = !props.alertId
+                        ? await api.alerts.create(payload)
+                        : await api.alerts.update(props.alertId, payload)
 
                     actions.resetAlert()
 
-                    actions.loadAlerts()
                     actions.loadAlertSuccess(updatedAlert)
                     lemonToast.success(`Alert saved.`)
 
@@ -72,13 +70,19 @@ export const alertLogic = kea<alertLogicType>([
     })),
 
     listeners(({ props }) => ({
+        deleteAlert: async () => {
+            // deletion only allowed on created alert (which will have alertId)
+            await api.alerts.delete(props.alertId!)
+            props.onEditSuccess()
+        },
+
         submitAlertSuccess: () => {
-            router.actions.push(urls.alerts(props.insightShortId))
+            props.onEditSuccess()
         },
     })),
 
-    urlToAction(({ actions }) => ({
-        '/*/*/alerts/:id': () => {
+    events(({ actions }) => ({
+        afterMount() {
             actions.loadAlert()
         },
     })),

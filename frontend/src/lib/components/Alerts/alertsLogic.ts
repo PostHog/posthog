@@ -1,71 +1,59 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, afterMount, kea, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { AlertType } from '~/queries/schema'
-import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
-import { InsightLogicProps, InsightShortId } from '~/types'
 
-import type { alertsLogicType } from './alertsLogicType'
+import { alertsLogicType } from './alertsLogicType'
 
-export interface AlertsLogicProps {
-    insightId: number
-    insightShortId: InsightShortId
-    insightLogicProps: InsightLogicProps
-}
-
-export const areAlertsSupportedForInsight = (query?: Record<string, any> | null): boolean => {
-    return !!query && isInsightVizNode(query) && isTrendsQuery(query.source) && query.source.trendsFilter !== null
-}
+export interface AlertsLogicProps {}
 
 export const alertsLogic = kea<alertsLogicType>([
     path(['lib', 'components', 'Alerts', 'alertsLogic']),
     props({} as AlertsLogicProps),
-    key(({ insightId }) => `insight-${insightId}`),
     actions({
-        deleteAlert: (id: string) => ({ id }),
-        setShouldShowAlertDeletionWarning: (show: boolean) => ({ show }),
+        // deleteAlert: (id: string) => ({ id }),
+        // setShouldShowAlertDeletionWarning: (show: boolean) => ({ show }),
     }),
 
-    connect((props: AlertsLogicProps) => ({
-        actions: [insightVizDataLogic(props.insightLogicProps), ['setQuery']],
-    })),
+    // connect((props: AlertsLogicProps) => ({
+    //     actions: [insightVizDataLogic(props.insightLogicProps), ['setQuery']],
+    // })),
 
-    loaders(({ props }) => ({
+    loaders({
         alerts: {
             __default: [] as AlertType[],
             loadAlerts: async () => {
-                const response = await api.alerts.list(props.insightId)
+                const response = await api.alerts.list()
                 return response.results
             },
         },
-    })),
+    }),
+
+    selectors({
+        alertsSortedByState: [
+            (s) => [s.alerts],
+            (alerts: AlertType[]) => alerts.sort((a, b) => (a.state === 'firing' ? -1 : b.state === 'firing' ? 1 : 0)),
+        ],
+    }),
 
     reducers({
         alerts: {
             deleteAlert: (state, { id }) => state.filter((a) => a.id !== id),
         },
-        shouldShowAlertDeletionWarning: [
-            false,
-            {
-                setShouldShowAlertDeletionWarning: (_, { show }) => show,
-            },
-        ],
+        // shouldShowAlertDeletionWarning: [
+        //     false,
+        //     {
+        //         setShouldShowAlertDeletionWarning: (_, { show }) => show,
+        //     },
+        // ],
     }),
 
-    listeners(({ actions, values, props }) => ({
-        deleteAlert: async ({ id }) => {
-            await api.alerts.delete(props.insightId, id)
-        },
-        setQuery: ({ query }) => {
-            if (values.alerts.length === 0 || areAlertsSupportedForInsight(query)) {
-                actions.setShouldShowAlertDeletionWarning(false)
-            } else {
-                actions.setShouldShowAlertDeletionWarning(true)
-            }
-        },
-    })),
+    // listeners(({ actions, values, props }) => ({
+    //     deleteAlert: async ({ id }) => {
+    //         await api.alerts.delete(props.insightId, id)
+    //     },
+    // })),
 
     afterMount(({ actions }) => actions.loadAlerts()),
 ])

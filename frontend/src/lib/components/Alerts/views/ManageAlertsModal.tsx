@@ -1,7 +1,5 @@
-import { IconEllipsis, IconPause } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
@@ -11,7 +9,7 @@ import { urls } from 'scenes/urls'
 
 import { AlertType } from '~/queries/schema'
 
-import { alertsLogic, AlertsLogicProps } from '../alertsLogic'
+import { insightAlertsLogic, InsightAlertsLogicProps } from '../insightAlertsLogic'
 
 export function AlertStateIndicator({ alert }: { alert: AlertType }): JSX.Element {
     return alert.state === 'firing' ? (
@@ -24,55 +22,30 @@ export function AlertStateIndicator({ alert }: { alert: AlertType }): JSX.Elemen
 interface AlertListItemProps {
     alert: AlertType
     onClick: () => void
-    onDelete?: () => void
 }
 
-export function AlertListItem({ alert, onClick, onDelete }: AlertListItemProps): JSX.Element {
+export function AlertListItem({ alert, onClick }: AlertListItemProps): JSX.Element {
     const absoluteThreshold = alert.threshold?.configuration?.absoluteThreshold
     return (
-        <LemonButton
-            type="secondary"
-            onClick={onClick}
-            data-attr="alert-list-item"
-            fullWidth
-            icon={alert.enabled ? <IconPlayCircle /> : <IconPause />}
-            sideAction={{
-                icon: <IconEllipsis />,
-                dropdown: {
-                    overlay: (
-                        <>
-                            {onDelete && (
-                                <LemonButton
-                                    onClick={onDelete}
-                                    data-attr="alert-list-item-delete"
-                                    status="danger"
-                                    fullWidth
-                                >
-                                    Delete Alert
-                                </LemonButton>
-                            )}
-                        </>
-                    ),
-                },
-            }}
-        >
-            <div className="flex justify-between flex-auto items-center p-2">
-                <div>
-                    <div className="text-link font-medium">
+        <LemonButton type="secondary" onClick={onClick} data-attr="alert-list-item" fullWidth>
+            <div className="flex justify-between flex-auto items-baseline py-2">
+                <div className="flex flex-row gap-1 items-baseline justify-between">
+                    {/* <div className="text-link font-medium"> */}
+                    <div>
+                        <AlertStateIndicator alert={alert} />
                         {alert.name}
-                        {alert.enabled ? (
-                            <>
-                                <AlertStateIndicator alert={alert} />
-                                <div className="text-xs text-muted">
-                                    {absoluteThreshold?.lower && `Low ${absoluteThreshold.lower}`}
-                                    {absoluteThreshold?.lower && absoluteThreshold?.upper ? ' · ' : ''}
-                                    {absoluteThreshold?.upper && `High ${absoluteThreshold.upper}`}
-                                </div>
-                            </>
-                        ) : (
-                            <div className="text-muted">Disabled</div>
-                        )}
                     </div>
+
+                    {alert.enabled ? (
+                        <div className="text-muted pl-2">
+                            {absoluteThreshold?.lower && `Low ${absoluteThreshold.lower}`}
+                            {absoluteThreshold?.lower && absoluteThreshold?.upper ? ' · ' : ''}
+                            {absoluteThreshold?.upper && `High ${absoluteThreshold.upper}`}
+                        </div>
+                    ) : (
+                        <div className="text-muted pl-2">Disabled</div>
+                    )}
+                    {/* </div> */}
                 </div>
                 <ProfileBubbles limit={4} people={alert.subscribed_users?.map(({ email }) => ({ email }))} />
             </div>
@@ -80,20 +53,19 @@ export function AlertListItem({ alert, onClick, onDelete }: AlertListItemProps):
     )
 }
 
-interface ManageAlertsProps extends AlertsLogicProps {
-    onCancel: () => void
-    onSelect: (value?: string) => void
+interface ManageAlertsModalProps extends InsightAlertsLogicProps {
+    isOpen: boolean
+    onClose?: () => void
 }
 
-export function ManageAlerts(props: ManageAlertsProps): JSX.Element {
+export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
     const { push } = useActions(router)
-    const logic = alertsLogic(props)
+    const logic = insightAlertsLogic(props)
 
     const { alerts } = useValues(logic)
-    const { deleteAlert } = useActions(logic)
 
     return (
-        <>
+        <LemonModal onClose={props.onClose} isOpen={props.isOpen} width={600} simple title="">
             <LemonModal.Header>
                 <h3>
                     Manage Alerts <LemonTag type="warning">ALPHA</LemonTag>
@@ -115,8 +87,7 @@ export function ManageAlerts(props: ManageAlertsProps): JSX.Element {
                             <AlertListItem
                                 key={alert.id}
                                 alert={alert}
-                                onClick={() => props.onSelect(alert.id)}
-                                onDelete={() => deleteAlert(alert.id)}
+                                onClick={() => push(urls.insightAlert(props.insightShortId, alert.id))}
                             />
                         ))}
                     </div>
@@ -130,13 +101,13 @@ export function ManageAlerts(props: ManageAlertsProps): JSX.Element {
             </LemonModal.Content>
 
             <LemonModal.Footer>
-                <LemonButton type="primary" onClick={() => push(urls.alert(props.insightShortId, 'new'))}>
+                <LemonButton type="primary" onClick={() => push(urls.insightAlert(props.insightShortId, 'new'))}>
                     New alert
                 </LemonButton>
-                <LemonButton type="secondary" onClick={props.onCancel}>
+                <LemonButton type="secondary" onClick={props.onClose}>
                     Close
                 </LemonButton>
             </LemonModal.Footer>
-        </>
+        </LemonModal>
     )
 }
