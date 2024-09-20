@@ -17,8 +17,6 @@ import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 
 const ExperimentsListToolbarMenu = (): JSX.Element => {
     const { searchTerm } = useValues(experimentsLogic)
-    // const { setSearchTerm, getActions } = useActions(actionsLogic)
-
     const { newExperiment } = useActions(experimentsTabLogic)
     const { setSearchTerm, getExperiments } = useActions(experimentsLogic)
     const { allExperiments, sortedExperiments, allExperimentsLoading } = useValues(experimentsLogic)

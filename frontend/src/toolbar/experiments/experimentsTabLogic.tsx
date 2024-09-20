@@ -23,7 +23,7 @@ import type { experimentsTabLogicType } from './experimentsTabLogicType'
 
 function newExperiment(): ExperimentForm {
     return {
-        name: 'new experiment',
+        name: '',
         variants: {
             control: {
                 transforms: [
@@ -32,7 +32,16 @@ function newExperiment(): ExperimentForm {
                         html: '',
                     } as unknown as WebExperimentTransform,
                 ],
-                rollout_percentage: 100,
+                rollout_percentage: 50,
+            },
+            test: {
+                transforms: [
+                    {
+                        text: '',
+                        html: '',
+                    } as unknown as WebExperimentTransform,
+                ],
+                rollout_percentage: 50,
             },
         },
     } as unknown as ExperimentForm
@@ -46,12 +55,12 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
         newExperiment: (element?: HTMLElement) => ({
             element: element || null,
         }),
-        newVariant: () => ({}),
+        addNewVariant: () => ({}),
         rebalanceRolloutPercentage: () => ({}),
         removeVariant: (variant: string) => ({
             variant,
         }),
-        newElement: (variant: string) => ({ variant }),
+        addNewElement: (variant: string) => ({ variant }),
         removeElement: (variant: string, index: number) => ({ variant, index }),
         inspectForElementWithIndex: (variant: string, index: number | null) => ({ variant, index }),
         editSelectorWithIndex: (variant: string, index: number | null) => ({ variant, index }),
@@ -260,7 +269,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
             }
             actions.setExperimentFormValue('variants', values.experimentForm.variants)
         },
-        newVariant: () => {
+        addNewVariant: () => {
             if (values.experimentForm) {
                 const nextVariantName = `variant #${Object.keys(values.experimentForm.variants || {}).length}`
 
@@ -283,7 +292,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                 actions.rebalanceRolloutPercentage()
             }
         },
-        newElement: ({ variant }) => {
+        addNewElement: ({ variant }) => {
             if (values.experimentForm.variants) {
                 const webVariant = values.experimentForm.variants[variant]
                 if (webVariant) {

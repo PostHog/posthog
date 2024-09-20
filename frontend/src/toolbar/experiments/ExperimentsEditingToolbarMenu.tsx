@@ -17,8 +17,8 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
         selectVariant,
         inspectForElementWithIndex,
         deleteExperiment,
-        newVariant,
-        newElement,
+        addNewVariant,
+        addNewElement,
         removeElement,
         removeVariant,
     } = useActions(experimentsTabLogic)
@@ -43,6 +43,7 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                         <div className="flex">
                             {selectedExperimentId === 'new' ? (
                                 <EditableField
+                                    placeholder="please enter experiment name"
                                     onSave={(newName) => {
                                         experimentForm.name = newName
                                     }}
@@ -57,9 +58,9 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                 size="small"
                                 className="ml-3"
                                 sideIcon={<IconPlus />}
-                                onClick={newVariant}
+                                onClick={addNewVariant}
                             >
-                                Add Variant
+                                Add variant
                             </LemonButton>
                         </div>
                         <Group name="variants">
@@ -69,7 +70,7 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                 {Object.keys(experimentForm.variants || {}).map((variant, index) => (
                                     <Group key={variant} name={['variants', index]}>
                                         <div className="flex flex-col">
-                                            {selectedExperimentId === 'new' ? (
+                                            {selectedExperimentId === 'new' && variant !== 'control' ? (
                                                 <EditableField
                                                     onSave={(newName) => {
                                                         if (experimentForm.variants) {
@@ -107,10 +108,10 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                                     sideIcon={<IconPlus />}
                                                     onClick={(e) => {
                                                         e.stopPropagation()
-                                                        newElement(variant)
+                                                        addNewElement(variant)
                                                     }}
                                                 >
-                                                    Add Element
+                                                    Add element
                                                 </LemonButton>
 
                                                 <LemonButton
@@ -151,7 +152,7 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                                             }}
                                                             icon={<IconSearch />}
                                                         >
-                                                            {transform.selector ? 'Change Element' : 'Select Element'}
+                                                            {transform.selector ? 'Change element' : 'Select element'}
                                                         </LemonButton>
                                                         <LemonButton
                                                             type="tertiary"

@@ -99,7 +99,7 @@ describe('experimentsTabLogic', () => {
             })
                 .toMatchValues({
                     experimentForm: {
-                        name: 'new experiment',
+                        name: '',
                         variants: {
                             control: {
                                 transforms: [
@@ -108,7 +108,16 @@ describe('experimentsTabLogic', () => {
                                         html: '',
                                     } as unknown as WebExperimentTransform,
                                 ],
-                                rollout_percentage: 100,
+                                rollout_percentage: 50,
+                            },
+                            test: {
+                                transforms: [
+                                    {
+                                        text: '',
+                                        html: '',
+                                    } as unknown as WebExperimentTransform,
+                                ],
+                                rollout_percentage: 50,
                             },
                         },
                     },
@@ -119,7 +128,7 @@ describe('experimentsTabLogic', () => {
         it('can add a new variant', async () => {
             await expectLogic(theExperimentsTabLogic, () => {
                 theExperimentsTabLogic.actions.selectExperiment(1)
-                theExperimentsTabLogic.actions.newVariant()
+                theExperimentsTabLogic.actions.addNewVariant()
             })
                 .toMatchValues({
                     experimentForm: {
@@ -133,7 +142,7 @@ describe('experimentsTabLogic', () => {
                         },
                     },
                 })
-                .toDispatchActions(['selectExperiment', 'newVariant'])
+                .toDispatchActions(['selectExperiment', 'addNewVariant'])
         })
 
         it('can remove an existing variant', async () => {
@@ -169,7 +178,16 @@ describe('experimentsTabLogic', () => {
                                         html: '',
                                     } as unknown as WebExperimentTransform,
                                 ],
-                                rollout_percentage: 100,
+                                rollout_percentage: 50,
+                            },
+                            test: {
+                                transforms: [
+                                    {
+                                        text: '',
+                                        html: '',
+                                    } as unknown as WebExperimentTransform,
+                                ],
+                                rollout_percentage: 50,
                             },
                         },
                     },
