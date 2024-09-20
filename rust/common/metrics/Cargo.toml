@@ -11,3 +11,4 @@ axum = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
 tokio = { workspace = true }
 metrics = { workspace = true }
+uuid = { workspace = true }

@@ -15,3 +15,4 @@ thiserror = { workspace = true }
 uuid = { workspace = true }
 futures = { workspace = true }
 tracing = { workspace = true }
+metrics = { workspace = true }

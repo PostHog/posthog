@@ -17,8 +17,8 @@ pub async fn serve(router: Router, bind: &str) -> Result<(), std::io::Error> {
 }
 
 /// Add the prometheus endpoint and middleware to a router, should be called last.
-pub fn setup_metrics_routes(router: Router) -> Router {
-    let recorder_handle = setup_metrics_recorder();
+pub fn setup_metrics_routes(router: Router, service: &str, process: Option<&str>) -> Router {
+    let recorder_handle = setup_metrics_recorder(service, process);
 
     router
         .route(
@@ -28,12 +28,16 @@ pub fn setup_metrics_routes(router: Router) -> Router {
         .layer(axum::middleware::from_fn(track_metrics))
 }
 
-pub fn setup_metrics_recorder() -> PrometheusHandle {
+pub fn setup_metrics_recorder(service: &str, process: Option<&str>) -> PrometheusHandle {
+    let default_process = uuid::Uuid::now_v7().to_string();
+    let process = process.unwrap_or(&default_process);
     const BUCKETS: &[f64] = &[
         0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 50.0, 100.0, 250.0,
     ];
 
     PrometheusBuilder::new()
+        .add_global_label("service", service)
+        .add_global_label("process", process)
         .set_buckets(BUCKETS)
         .unwrap()
         .install_recorder()

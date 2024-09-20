@@ -744,6 +744,7 @@ dependencies = [
  "metrics",
  "metrics-exporter-prometheus",
  "tokio",
+ "uuid",
 ]
 
 [[package]]
@@ -871,6 +872,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "futures",
+ "metrics",
  "serde",
  "sqlx",
  "thiserror",
@@ -2877,7 +2879,6 @@ dependencies = [
  "rdkafka",
  "serde",
  "serde_json",
- "serve-metrics",
  "sqlx",
  "time",
  "tokio",
@@ -3489,16 +3490,6 @@ dependencies = [
  "itoa",
  "ryu",
  "serde",
-]
-
-[[package]]
-name = "serve-metrics"
-version = "0.1.0"
-dependencies = [
- "axum 0.7.5",
- "metrics",
- "metrics-exporter-prometheus",
- "tokio",
 ]
 
 [[package]]

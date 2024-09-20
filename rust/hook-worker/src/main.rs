@@ -73,7 +73,7 @@ async fn main() -> Result<(), WorkerError> {
         .route("/", get(index))
         .route("/_readiness", get(index))
         .route("/_liveness", get(move || ready(liveness.get_status())));
-    let router = setup_metrics_routes(router);
+    let router = setup_metrics_routes(router, "hook-worker", None);
     let bind = config.bind();
     tokio::task::spawn(async move {
         serve(router, &bind)

@@ -16,7 +16,6 @@ futures = { workspace = true }
 health = { path = "../common/health" }
 time = { workspace = true }
 axum = { workspace = true }
-serve-metrics = { path = "../common/serve_metrics" }
 metrics = { workspace = true }
 chrono = { workspace = true }
 quick_cache = { workspace = true }

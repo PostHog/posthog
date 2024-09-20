@@ -54,7 +54,7 @@ where
     // Don't install metrics unless asked to
     // Global metrics recorders can play poorly with e.g. tests
     if metrics {
-        let recorder_handle = setup_metrics_recorder();
+        let recorder_handle = setup_metrics_recorder("feature-flags", None);
         router.route("/metrics", get(move || ready(recorder_handle.render())))
     } else {
         router

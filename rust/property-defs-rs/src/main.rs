@@ -2,6 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use ahash::AHashSet;
 use axum::{routing::get, Router};
+use common_metrics::{serve, setup_metrics_routes};
 use envconfig::Envconfig;
 use futures::future::ready;
 use property_defs_rs::{
@@ -21,7 +22,6 @@ use rdkafka::{
     consumer::{Consumer, StreamConsumer},
     ClientConfig,
 };
-use serve_metrics::{serve, setup_metrics_routes};
 use tokio::{
     sync::{
         mpsc::{self, error::TrySendError},
@@ -56,7 +56,7 @@ fn start_health_liveness_server(config: &Config, context: Arc<AppContext>) -> Jo
             "/_liveness",
             get(move || ready(context.liveness.get_status())),
         );
-    let router = setup_metrics_routes(router);
+    let router = setup_metrics_routes(router, "property-defs-rs", None);
     let bind = format!("{}:{}", config.host, config.port);
     tokio::task::spawn(async move {
         serve(router, &bind)

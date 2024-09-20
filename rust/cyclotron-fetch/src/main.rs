@@ -75,7 +75,11 @@ async fn main() {
         .register("rdkafka".to_string(), time::Duration::seconds(30))
         .await;
 
-    let app = setup_metrics_routes(app(liveness, app_config.worker_id.clone()));
+    let app = setup_metrics_routes(
+        app(liveness, app_config.worker_id.clone()),
+        "cyclotron-fetch",
+        Some(&app_config.worker_id),
+    );
 
     let context = AppContext::create(
         app_config,

@@ -43,7 +43,7 @@ async fn main() {
         config.max_body_size,
         config.concurrency_limit,
     );
-    let app = setup_metrics_routes(app);
+    let app = setup_metrics_routes(app, "hook-api", None);
 
     match listen(app, config.bind()).await {
         Ok(_) => {}

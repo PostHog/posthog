@@ -85,7 +85,7 @@ async fn main() {
         cleanup_liveness,
     ));
 
-    let app = setup_metrics_routes(handlers::app(liveness));
+    let app = setup_metrics_routes(handlers::app(liveness), "hook-janitor", None);
     let http_server = Box::pin(listen(app, config.bind()));
 
     match select(http_server, cleanup_loop).await {
