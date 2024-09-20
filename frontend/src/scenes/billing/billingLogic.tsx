@@ -463,6 +463,7 @@ export const billingLogic = kea<billingLogicType>([
                 values.computedDiscount * 100,
                     await api.create('api/billing/credits/purchase', {
                         annual_amount_usd: +Math.round(+creditInput - +creditInput * values.creditDiscount),
+                        discount_percent: values.computedDiscount * 100,
                         collection_method: collectionMethod,
                     })
 
