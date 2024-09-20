@@ -56,6 +56,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "created_by": ANY,
             "pinned_at": None,
             "deleted": False,
+            "creation_context": None,
             "is_calculating": False,
             "last_calculated_at": ANY,
             "team_id": self.team.id,
@@ -82,6 +83,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "deleted": False,
                 "pinned": False,
                 "pinned_at": None,
+                "creation_context": None,
             },
         )
 

@@ -4,7 +4,7 @@ from posthog.warehouse.types import IncrementalFieldType
 INCREMENTAL_ENDPOINTS = ("Account",)
 
 ENDPOINTS = [
-    *("User", "UserRole", "Lead", "Contact", "Campaign", "Product2", "Pricebook2", "PricebookEntry"),
+    *("User", "UserRole", "Lead", "Contact", "Campaign", "Product2", "Pricebook2", "PricebookEntry", "Order"),
     *INCREMENTAL_ENDPOINTS,
 ]
 

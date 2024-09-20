@@ -5,21 +5,18 @@ import dataclasses
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
     id="template-engage-so",
-    name="Send events to Engage.so",
+    name="Engage.so",
     description="Send events to Engage.so",
     icon_url="/static/services/engage.png",
+    category=["Email Marketing"],
     hog="""
-let body := event
-
-body['event'] := event.name
-
 fetch('https://api.engage.so/posthog', {
     'method': 'POST',
     'headers': {
         'Authorization': f'Basic {base64Encode(f'{inputs.public_key}:{inputs.private_key}')}',
         'Content-Type': 'application/json'
     },
-    'body': body
+    'body': event
 })
 """.strip(),
     inputs_schema=[

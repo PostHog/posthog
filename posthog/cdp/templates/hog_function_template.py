@@ -31,6 +31,7 @@ class HogFunctionTemplate:
     description: str
     hog: str
     inputs_schema: list[dict]
+    category: list[str]
     sub_templates: Optional[list[HogFunctionSubTemplate]] = None
     filters: Optional[dict] = None
     masking: Optional[dict] = None
