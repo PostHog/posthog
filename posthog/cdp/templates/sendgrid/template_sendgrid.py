@@ -8,9 +8,10 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, Hog
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
     id="template-sendgrid",
-    name="Update marketing contacts in Sendgrid",
+    name="Sendgrid",
     description="Update marketing contacts in Sendgrid",
     icon_url="/static/services/sendgrid.png",
+    category=["Email Marketing"],
     hog="""
 if (empty(inputs.email)) {
     print('`email` input is empty. Not updating contacts.')
