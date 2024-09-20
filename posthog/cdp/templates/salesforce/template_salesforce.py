@@ -23,13 +23,17 @@ common_inputs = {
 template_create: HogFunctionTemplate = HogFunctionTemplate(
     status="alpha",
     id="template-salesforce-create",
-    name="Create Salesforce objects",
+    name="Salesforce",
     description="Create objects in Salesforce",
     icon_url="/static/services/salesforce.png",
+    category=["CRM", "Customer Success"],
     hog="""
 let getPayload := () -> {
   let properties := {}
   if (inputs.include_all_event_properties) {
+    if (not empty(event.elements_chain)) {
+      properties['$elements_chain'] := event.elements_chain
+    }
     for (let key, value in event.properties) {
       properties[key] := value
     }
@@ -105,9 +109,10 @@ if (res.status >= 400) {
 template_update: HogFunctionTemplate = HogFunctionTemplate(
     status="alpha",
     id="template-salesforce-update",
-    name="Update Salesforce objects",
+    name="Salesforce",
     description="Update objects in Salesforce",
     icon_url="/static/services/salesforce.png",
+    category=["CRM", "Customer Success"],
     hog="""
 let getPayload := () -> {
   let properties := {}

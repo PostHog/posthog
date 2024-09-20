@@ -2,7 +2,7 @@ import { DateTime } from 'luxon'
 
 import { isHogCallable, isHogClosure, isHogDate, isHogDateTime, isHogError, newHogError } from '../objects'
 import { AsyncSTLFunction, STLFunction } from '../types'
-import { like } from '../utils'
+import { getNestedValue, like } from '../utils'
 import { md5Hex, sha256Hex, sha256HmacChainHex } from './crypto'
 import {
     formatDateTime,
@@ -246,6 +246,89 @@ export const STL: Record<string, STLFunction> = {
         },
         minArgs: 1,
         maxArgs: 1,
+    },
+    JSONHas: {
+        fn: ([obj, ...path]) => {
+            let current = obj
+            for (const key of path) {
+                let currentParsed = current
+                if (typeof current === 'string') {
+                    try {
+                        currentParsed = JSON.parse(current)
+                    } catch (e) {
+                        return false
+                    }
+                }
+                if (currentParsed instanceof Map) {
+                    if (!currentParsed.has(key)) {
+                        return false
+                    }
+                    current = currentParsed.get(key)
+                } else if (typeof currentParsed === 'object') {
+                    if (typeof key === 'number') {
+                        if (Array.isArray(currentParsed)) {
+                            if (key < 0) {
+                                if (key < -currentParsed.length) {
+                                    return false
+                                }
+                                current = currentParsed[currentParsed.length + key]
+                            } else if (key === 0) {
+                                return false
+                            } else {
+                                if (key > currentParsed.length) {
+                                    return false
+                                }
+                                current = currentParsed[key - 1]
+                            }
+                        }
+                    } else {
+                        if (!(key in currentParsed)) {
+                            return false
+                        }
+                        current = currentParsed[key]
+                    }
+                } else {
+                    return false
+                }
+            }
+            return true
+        },
+        minArgs: 2,
+    },
+    isValidJSON: {
+        fn: ([str]) => {
+            try {
+                JSON.parse(str)
+                return true
+            } catch (e) {
+                return false
+            }
+        },
+        minArgs: 1,
+        maxArgs: 1,
+    },
+    JSONLength: {
+        fn: ([obj, ...path]) => {
+            try {
+                if (typeof obj === 'string') {
+                    obj = JSON.parse(obj)
+                }
+            } catch (e) {
+                return 0
+            }
+            if (typeof obj === 'object') {
+                const value = getNestedValue(obj, path, true)
+                if (Array.isArray(value)) {
+                    return value.length
+                } else if (value instanceof Map) {
+                    return value.size
+                } else if (typeof value === 'object') {
+                    return Object.keys(value).length
+                }
+            }
+            return 0
+        },
+        minArgs: 2,
     },
     base64Encode: {
         fn: (args) => {

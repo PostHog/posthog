@@ -245,7 +245,10 @@ mod tests {
             .await
             .expect("Failed to fetch flags from redis");
         assert_eq!(flags_from_redis.flags.len(), 1);
-        let flag = flags_from_redis.flags.get(0).expect("Empty flags in redis");
+        let flag = flags_from_redis
+            .flags
+            .first()
+            .expect("Empty flags in redis");
         assert_eq!(flag.key, "flag1");
         assert_eq!(flag.team_id, team.id);
         assert_eq!(flag.filters.groups.len(), 1);
@@ -296,7 +299,7 @@ mod tests {
             .expect("Failed to fetch flags from pg");
 
         assert_eq!(flags_from_pg.flags.len(), 1);
-        let flag = flags_from_pg.flags.get(0).expect("Flags should be in pg");
+        let flag = flags_from_pg.flags.first().expect("Flags should be in pg");
 
         assert_eq!(flag.key, "flag1");
         assert_eq!(flag.team_id, team.id);
@@ -422,13 +425,11 @@ mod tests {
     async fn test_fetch_empty_team_from_pg() {
         let client = setup_pg_client(None).await;
 
-        match FeatureFlagList::from_pg(client.clone(), 1234)
+        let FeatureFlagList { flags } = FeatureFlagList::from_pg(client.clone(), 1234)
             .await
-            .expect("Failed to fetch flags from pg")
+            .expect("Failed to fetch flags from pg");
         {
-            FeatureFlagList { flags } => {
-                assert_eq!(flags.len(), 0);
-            }
+            assert_eq!(flags.len(), 0);
         }
     }
 

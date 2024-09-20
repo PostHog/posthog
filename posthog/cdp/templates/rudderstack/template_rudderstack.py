@@ -6,9 +6,10 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, Hog
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="alpha",
     id="template-rudderstack",
-    name="Send data to RudderStack",
+    name="RudderStack",
     description="Send data to RudderStack",
     icon_url="/static/services/rudderstack.png",
+    category=["Custom"],
     hog="""
 fun getPayload() {
     let rudderPayload := {
@@ -48,15 +49,15 @@ fun getPayload() {
     if (not empty(inputs.identifier)) rudderPayload.userId := inputs.identifier
     if (not empty(event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.properties.distinct_id)) rudderPayload.anonymousId := event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.properties.distinct_id
 
-    if (event.name in ('$identify', '$set')) {
+    if (event.event in ('$identify', '$set')) {
         rudderPayload.type := 'identify'
         if (not empty(event.properties.$set)) rudderPayload.context.trait := event.properties.$set
         if (not empty(event.properties.$set)) rudderPayload.traits := event.properties.$set
-    } else if (event.name == '$create_alias') {
+    } else if (event.event == '$create_alias') {
         rudderPayload.type := 'alias'
         if (not empty(event.properties.alias)) rudderPayload.userId := event.properties.alias
         if (not empty(event.distinct_id)) rudderPayload.previousId := event.distinct_id
-    } else if (event.name == '$pageview') {
+    } else if (event.event == '$pageview') {
         rudderPayload.type := 'page'
         if (not empty(event.properties.name)) rudderPayload.name := event.properties.name
         if (not empty(event.properties.$host)) rudderPayload.properties.host := event.properties.$host
@@ -66,12 +67,12 @@ fun getPayload() {
         if (not empty(event.properties.$initial_referrer)) rudderPayload.properties.initial_referrer := event.properties.$initial_referrer
         if (not empty(event.properties.$referring_domain)) rudderPayload.properties.referring_domain := event.properties.$referring_domain
         if (not empty(event.properties.$initial_referring_domain)) rudderPayload.properties.initial_referring_domain := event.properties.$initial_referring_domain
-    } else if (event.name == '$autocapture') {
+    } else if (event.event == '$autocapture') {
         rudderPayload.type := 'track'
         if (not empty(event.properties.$event_type)) rudderPayload.event := event.properties.$event_type
     } else {
         rudderPayload.type := 'track'
-        if (not empty(event.name)) rudderPayload.event := event.name
+        if (not empty(event.event)) rudderPayload.event := event.event
     }
 
     for (let key, value in event.properties) {
@@ -117,7 +118,7 @@ fetch(f'{inputs.host}/v1/batch', getPayload())
             "key": "identifier",
             "type": "string",
             "label": "Identifier",
-            "default": "{person.uuid}",
+            "default": "{person.id}",
             "secret": False,
             "required": True,
         },
@@ -138,7 +139,7 @@ class TemplateRudderstackMigrator(HogFunctionTemplateMigrator):
         hf["inputs"] = {
             "host": {"value": host},
             "token": {"value": token},
-            "identifier": {"value": "{event.properties.$user_id ?? event.distinct_id ?? person.uuid}"},
+            "identifier": {"value": "{event.properties.$user_id ?? event.distinct_id ?? person.id}"},
         }
         hf["filters"] = {}
 

@@ -35,6 +35,9 @@ base64.workspace = true
 flate2.workspace = true
 common-alloc = { path = "../common/alloc" }
 strum = { version = "0.26", features = ["derive"] }
+health = { path = "../common/health" }
+common-metrics = { path = "../common/metrics" }
+tower = { workspace = true }
 
 [lints]
 workspace = true

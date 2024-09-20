@@ -32,6 +32,10 @@ export const createIntegration = (integration: Partial<IntegrationType>) => {
         errors: '',
         created_at: new Date().toISOString(),
         created_by_id: 1001,
+        id: integration.id ?? 1,
+        kind: integration.kind ?? 'slack',
+        config: {},
+        sensitive_config: {},
         ...integration,
     }
 
@@ -50,6 +54,7 @@ export const createIncomingEvent = (teamId: number, data: Partial<RawClickHouseE
         event: '$pageview',
         timestamp: new Date().toISOString() as ClickHouseTimestamp,
         properties: '{}',
+        person_mode: 'full',
         ...data,
     }
 }
@@ -110,7 +115,7 @@ export const createHogExecutionGlobals = (
         groups: {},
         ...data,
         person: {
-            uuid: 'uuid',
+            id: 'uuid',
             name: 'test',
             url: 'http://localhost:8000/persons/1',
             properties: {
@@ -126,7 +131,8 @@ export const createHogExecutionGlobals = (
         },
         event: {
             uuid: 'uuid',
-            name: 'test',
+            event: 'test',
+            elements_chain: '',
             distinct_id: 'distinct_id',
             url: 'http://localhost:8000/events/1',
             properties: {
@@ -160,5 +166,6 @@ export const createInvocation = (
         hogFunction,
         queue: 'hog',
         timings: [],
+        priority: 0,
     }
 }

@@ -105,7 +105,7 @@ async fn it_is_consistent_with_rollout_calculation_for_simple_flags() {
         false, true, true,
     ];
 
-    for i in 0..1000 {
+    for (i, result) in results.iter().enumerate().take(1000) {
         let database_client = setup_pg_client(None).await;
 
         let distinct_id = format!("distinct_id_{}", i);
@@ -116,7 +116,7 @@ async fn it_is_consistent_with_rollout_calculation_for_simple_flags() {
                 .await
                 .unwrap();
 
-        if results[i] {
+        if *result {
             assert_eq!(
                 feature_flag_match,
                 FeatureFlagMatch {
@@ -1196,7 +1196,7 @@ async fn it_is_consistent_with_rollout_calculation_for_multivariate_flags() {
         Some("first-variant".to_string()),
     ];
 
-    for i in 0..1000 {
+    for (i, result) in results.iter().enumerate().take(1000) {
         let database_client = setup_pg_client(None).await;
         let distinct_id = format!("distinct_id_{}", i);
 
@@ -1206,7 +1206,7 @@ async fn it_is_consistent_with_rollout_calculation_for_multivariate_flags() {
                 .await
                 .unwrap();
 
-        if let Some(variant) = &results[i] {
+        if let Some(variant) = &result {
             assert_eq!(
                 feature_flag_match,
                 FeatureFlagMatch {
