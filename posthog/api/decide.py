@@ -52,7 +52,8 @@ def on_permitted_recording_domain(team: Team, request: HttpRequest) -> bool:
     # TODO this is a short term fix for beta testers
     # TODO we will match on the app identifier in the origin instead and allow users to auth those
     is_authorized_mobile_client: bool = user_agent is not None and any(
-        keyword in user_agent for keyword in ["posthog-android", "posthog-ios"]
+        keyword in user_agent
+        for keyword in ["posthog-android", "posthog-ios", "posthog-ios", "posthog-react-native", "posthog-flutter"]
     )
 
     return is_authorized_web_client or is_authorized_mobile_client
