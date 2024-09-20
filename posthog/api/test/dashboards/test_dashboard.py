@@ -238,7 +238,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "insight": "TRENDS",
             }
 
-            baseline = 3
+            baseline = 4
 
             with self.assertNumQueries(baseline + 10):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
@@ -269,7 +269,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         self.client.force_login(user_with_collaboration)
 
-        with self.assertNumQueries(9):
+        with self.assertNumQueries(10):
             self.dashboard_api.list_dashboards()
 
         for i in range(5):

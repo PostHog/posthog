@@ -417,7 +417,7 @@ class APIScopePermission(ScopeBasePermission):
         return True
 
     def check_team_and_org_permissions(self, request, view) -> None:
-        scope_object = self.get_scope_object(request, view)
+        scope_object = self._get_scope_object(request, view)
         if scope_object == "user":
             return  # The /api/users/@me/ endpoint is exempt from team and org scoping
 
