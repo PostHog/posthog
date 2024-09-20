@@ -308,7 +308,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         summarizeSession: (id: SessionRecordingType['id']) => ({ id }),
         loadNext: true,
         loadPrev: true,
-        toggleShowOtherRecordings: (show?: boolean) => ({ show }),
+        setShowOtherRecordings: (show?: boolean) => ({ show }),
     }),
     propsChanged(({ actions, props }, oldProps) => {
         // If the defined list changes, we need to call the loader to either load the new items or change the list
@@ -445,7 +445,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             {
                 loadPinnedRecordingsSuccess: (state, { pinnedRecordings }) =>
                     pinnedRecordings.length === 0 ? true : state,
-                toggleShowOtherRecordings: (state, { show }) => (show === undefined ? !state : show),
+                setShowOtherRecordings: (_, { show }) => show,
             },
         ],
         unusableEventsInFilter: [
