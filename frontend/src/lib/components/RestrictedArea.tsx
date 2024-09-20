@@ -37,6 +37,7 @@ export function useRestrictedArea({ scope, minimumAccessLevel }: UseRestrictedAr
             if (!isAuthenticatedTeam(currentTeam)) {
                 return 'Loading current project…'
             }
+            // TODO: Check the user_access_level
             scopeAccessLevel = currentTeam.effective_membership_level
         } else {
             if (!currentOrganization) {

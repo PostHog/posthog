@@ -3,13 +3,15 @@ import { PersonsJoinMode } from 'scenes/settings/project/PersonsJoinMode'
 import { PersonsOnEvents } from 'scenes/settings/project/PersonsOnEvents'
 import { SessionsTableVersion } from 'scenes/settings/project/SessionsTableVersion'
 
+import { RolesAndResourceAccessControls } from '~/layout/navigation-3000/sidepanel/panels/access_control/RolesAndResourceAccessControls'
+
 import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
 import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
 import { OrganizationEmailPreferences } from './organization/OrgEmailPreferences'
 import { OrganizationLogo } from './organization/OrgLogo'
-import { PermissionsGrid } from './organization/Permissions/PermissionsGrid'
+import { RoleBasedAccess } from './organization/Permissions/RoleBasedAccess'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import {
     AutocaptureSettings,
@@ -275,16 +277,23 @@ export const SettingsMap: SettingSection[] = [
     },
     {
         level: 'project',
-        id: 'project-rbac',
+        id: 'project-access-control',
         title: 'Access control',
         settings: [
             {
-                id: 'project-rbac',
+                id: 'project-access-control',
                 title: 'Access control',
                 component: <ProjectAccessControl />,
             },
+            {
+                id: 'project-role-based-access-control',
+                title: 'Role based access control',
+                flag: 'ACCESS_CONTROL',
+                component: <RolesAndResourceAccessControls />,
+            },
         ],
     },
+
     {
         level: 'project',
         id: 'project-danger-zone',
@@ -340,6 +349,18 @@ export const SettingsMap: SettingSection[] = [
     },
     {
         level: 'organization',
+        id: 'organization-rbac',
+        title: 'Role-based access',
+        settings: [
+            {
+                id: 'organization-rbac',
+                title: 'Role-based access',
+                component: <RoleBasedAccess />,
+            },
+        ],
+    },
+    {
+        level: 'organization',
         id: 'organization-authentication',
         title: 'Authentication domains & SSO',
         settings: [
@@ -347,18 +368,6 @@ export const SettingsMap: SettingSection[] = [
                 id: 'authentication-domains',
                 title: 'Authentication Domains',
                 component: <VerifiedDomains />,
-            },
-        ],
-    },
-    {
-        level: 'organization',
-        id: 'organization-rbac',
-        title: 'Role-based access',
-        settings: [
-            {
-                id: 'organization-rbac',
-                title: 'Role-based access',
-                component: <PermissionsGrid />,
             },
         ],
     },

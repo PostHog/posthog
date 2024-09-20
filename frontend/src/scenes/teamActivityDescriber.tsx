@@ -281,6 +281,7 @@ const teamActionsMapping: Record<
     id: () => null,
     updated_at: () => null,
     uuid: () => null,
+    user_access_level: () => null,
     live_events_token: () => null,
 }
 
