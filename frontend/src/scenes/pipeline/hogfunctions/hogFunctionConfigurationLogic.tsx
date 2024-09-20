@@ -3,7 +3,7 @@ import equal from 'fast-deep-equal'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { beforeUnload, router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
@@ -184,6 +184,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         setSubTemplateId: (subTemplateId: HogFunctionSubTemplateIdType | null) => ({ subTemplateId }),
         loadSampleGlobals: true,
         setUnsavedConfiguration: (configuration: HogFunctionConfigurationType | null) => ({ configuration }),
+        disableBeforeUnload: true,
     }),
     reducers({
         showSource: [
@@ -211,6 +212,13 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             {
                 // Helper as this needs to be called before anything is ready to go
                 resetConfiguration: () => true,
+            },
+        ],
+
+        beforeUnloadDisabled: [
+            false,
+            {
+                disableBeforeUnload: () => true,
             },
         ],
 
@@ -841,13 +849,13 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             actions.loadHogFunction()
         }
 
-        // if (router.values.searchParams.integration_target) {
-        //     const searchParams = router.values.searchParams
-        //     delete searchParams.integration_id
-        //     delete searchParams.integration_target
-        //     // Clear query params so we don't keep trying to set the integration
-        //     router.actions.replace(router.values.location.pathname, searchParams, router.values.hashParams)
-        // }
+        if (router.values.searchParams.integration_target) {
+            const searchParams = router.values.searchParams
+            delete searchParams.integration_id
+            delete searchParams.integration_target
+            // Clear query params so we don't keep trying to set the integration
+            router.actions.replace(router.values.location.pathname, searchParams, router.values.hashParams)
+        }
     }),
 
     subscriptions(({ props, actions, values }) => ({
@@ -872,6 +880,14 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
 
         lastEventQuery: () => {
             actions.loadSampleGlobals()
+        },
+    })),
+
+    beforeUnload(({ actions, values }) => ({
+        enabled: () => !values.beforeUnloadDisabled && values.configurationChanged,
+        message: 'Changes you made will be discarded.',
+        onConfirm: () => {
+            actions.resetForm()
         },
     })),
 ])

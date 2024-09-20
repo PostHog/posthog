@@ -102,16 +102,22 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
 
     const saveButtons = (
         <>
-            <LemonButton
-                type="secondary"
-                htmlType="reset"
-                onClick={() => resetForm()}
-                disabledReason={
-                    !configurationChanged ? 'No changes' : isConfigurationSubmitting ? 'Saving in progress…' : undefined
-                }
-            >
-                Clear changes
-            </LemonButton>
+            {configurationChanged ? (
+                <LemonButton
+                    type="secondary"
+                    htmlType="reset"
+                    onClick={() => resetForm()}
+                    disabledReason={
+                        !configurationChanged
+                            ? 'No changes'
+                            : isConfigurationSubmitting
+                            ? 'Saving in progress…'
+                            : undefined
+                    }
+                >
+                    Clear changes
+                </LemonButton>
+            ) : null}
             <LemonButton
                 type="primary"
                 htmlType="submit"
