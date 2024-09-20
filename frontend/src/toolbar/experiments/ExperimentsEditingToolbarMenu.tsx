@@ -16,7 +16,6 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
         selectExperiment,
         selectVariant,
         inspectForElementWithIndex,
-        deleteExperiment,
         addNewVariant,
         addNewElement,
         removeElement,
@@ -182,19 +181,6 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                     </div>
                 </ToolbarMenu.Body>
                 <ToolbarMenu.Footer>
-                    <span className="flex-1">
-                        {selectedExperimentId !== 'new' ? (
-                            <LemonButton
-                                type="secondary"
-                                status="danger"
-                                onClick={deleteExperiment}
-                                icon={<IconTrash />}
-                                size="small"
-                            >
-                                Delete
-                            </LemonButton>
-                        ) : null}
-                    </span>
                     <LemonButton type="secondary" size="small" onClick={() => selectExperiment(null)}>
                         Cancel
                     </LemonButton>

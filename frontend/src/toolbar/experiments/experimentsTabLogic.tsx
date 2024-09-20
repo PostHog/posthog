@@ -71,7 +71,6 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
         }),
         incrementVariantCounter: true,
         saveExperiment: (formValues: ExperimentForm) => ({ formValues }),
-        deleteExperiment: true,
         showButtonExperiments: true,
         hideButtonExperiments: true,
         setShowExperimentsTooltip: (showExperimentsTooltip: boolean) => ({ showExperimentsTooltip }),
@@ -314,17 +313,6 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                     webVariant.transforms.splice(index, 1)
                     actions.setExperimentFormValue('variants', values.experimentForm.variants)
                 }
-            }
-        },
-        deleteExperiment: async () => {
-            const { selectedExperimentId, apiURL, temporaryToken } = values
-            if (selectedExperimentId && selectedExperimentId !== 'new') {
-                await api.delete(
-                    `${apiURL}/api/projects/@current/web_experiments/${selectedExperimentId}/?temporary_token=${temporaryToken}`
-                )
-                experimentsLogic.actions.deleteExperiment({ id: selectedExperimentId })
-                actions.selectExperiment(null)
-                lemonToast.info('Experiment deleted')
             }
         },
         showButtonExperiments: () => {
