@@ -115,6 +115,18 @@ class UsageReportCounters:
     survey_responses_count_in_period: int
     # Data Warehouse
     rows_synced_in_period: int
+    # SDK usage
+    web_events_count_in_period: int
+    node_events_count_in_period: int
+    android_events_count_in_period: int
+    flutter_events_count_in_period: int
+    ios_events_count_in_period: int
+    go_events_count_in_period: int
+    java_events_count_in_period: int
+    react_native_events_count_in_period: int
+    ruby_events_count_in_period: int
+    python_events_count_in_period: int
+    php_events_count_in_period: int
 
 
 # Instance metadata to be included in oveall report
@@ -478,48 +490,62 @@ def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datet
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_teams_with_llm_integration_event_counts_in_period(
-    begin: datetime, end: datetime
-) -> dict[str, list[tuple[int, int]]]:
+def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str, list[tuple[int, int]]]:
     results = sync_execute(
         """
         SELECT
             team_id,
             multiIf(
-                event LIKE 'helicone%%', 'helicone',
-                event LIKE 'langfuse%%', 'langfuse',
-                event LIKE 'keywords_ai%%', 'keywords_ai',
-                event LIKE 'traceloop%%', 'traceloop',
+                event LIKE 'helicone%%', 'helicone_events',
+                event LIKE 'langfuse%%', 'langfuse_events',
+                event LIKE 'keywords_ai%%', 'keywords_ai_events',
+                event LIKE 'traceloop%%', 'traceloop_events',
+                JSONExtractString(properties, '$lib') = 'web', 'web_events',
+                JSONExtractString(properties, '$lib') = 'posthog-node', 'node_events',
+                JSONExtractString(properties, '$lib') = 'posthog-android', 'android_events',
+                JSONExtractString(properties, '$lib') = 'posthog-flutter', 'flutter_events',
+                JSONExtractString(properties, '$lib') = 'posthog-ios', 'ios_events',
+                JSONExtractString(properties, '$lib') = 'posthog-go', 'go_events',
+                JSONExtractString(properties, '$lib') = 'posthog-java', 'java_events',
+                JSONExtractString(properties, '$lib') = 'posthog-react-native', 'react_native_events',
+                JSONExtractString(properties, '$lib') = 'posthog-ruby', 'ruby_events',
+                JSONExtractString(properties, '$lib') = 'posthog-python', 'python_events',
+                JSONExtractString(properties, '$lib') = 'posthog-php', 'php_events',
                 'other'
-            ) AS integration,
+            ) AS metric,
             count(1) as count
         FROM events
         WHERE timestamp BETWEEN %(begin)s AND %(end)s
-        AND (
-            event LIKE 'helicone%%' OR
-            event LIKE 'langfuse%%' OR
-            event LIKE 'keywords_ai%%' OR
-            event LIKE 'traceloop%%'
-        )
-        GROUP BY team_id, integration
-        HAVING integration != 'other'
+        GROUP BY team_id, metric
+        HAVING metric != 'other'
     """,
         {"begin": begin, "end": end},
         workload=Workload.OFFLINE,
         settings=CH_BILLING_SETTINGS,
     )
 
-    teams_with_event_count: dict[str, list[tuple[int, int]]] = {
-        "helicone": [],
-        "langfuse": [],
-        "keywords_ai": [],
-        "traceloop": [],
+    metrics: dict[str, list[tuple[int, int]]] = {
+        "helicone_events": [],
+        "langfuse_events": [],
+        "keywords_ai_events": [],
+        "traceloop_events": [],
+        "web_events": [],
+        "node_events": [],
+        "android_events": [],
+        "flutter_events": [],
+        "ios_events": [],
+        "go_events": [],
+        "java_events": [],
+        "react_native_events": [],
+        "ruby_events": [],
+        "python_events": [],
+        "php_events": [],
     }
 
-    for team_id, integration, count in results:
-        teams_with_event_count[integration].append((team_id, count))
+    for team_id, metric, count in results:
+        metrics[metric].append((team_id, count))
 
-    return teams_with_event_count
+    return metrics
 
 
 @timed_log()
@@ -713,7 +739,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
     we count across all teams rather than doing it one by one
     """
 
-    integration_event_counts = get_teams_with_llm_integration_event_counts_in_period(period_start, period_end)
+    all_metrics = get_all_event_metrics_in_period(period_start, period_end)
 
     return {
         "teams_with_event_count_in_period": get_teams_with_billable_event_count_in_period(
@@ -728,10 +754,21 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_event_count_with_groups_in_period": get_teams_with_event_count_with_groups_in_period(
             period_start, period_end
         ),
-        "teams_with_event_count_from_helicone_in_period": integration_event_counts["helicone"],
-        "teams_with_event_count_from_langfuse_in_period": integration_event_counts["langfuse"],
-        "teams_with_event_count_from_keywords_ai_in_period": integration_event_counts["keywords_ai"],
-        "teams_with_event_count_from_traceloop_in_period": integration_event_counts["traceloop"],
+        "teams_with_event_count_from_helicone_in_period": all_metrics["helicone_events"],
+        "teams_with_event_count_from_langfuse_in_period": all_metrics["langfuse_events"],
+        "teams_with_event_count_from_keywords_ai_in_period": all_metrics["keywords_ai_events"],
+        "teams_with_event_count_from_traceloop_in_period": all_metrics["traceloop_events"],
+        "teams_with_web_events_count_in_period": all_metrics["web_events"],
+        "teams_with_node_events_count_in_period": all_metrics["node_events"],
+        "teams_with_android_events_count_in_period": all_metrics["android_events"],
+        "teams_with_flutter_events_count_in_period": all_metrics["flutter_events"],
+        "teams_with_ios_events_count_in_period": all_metrics["ios_events"],
+        "teams_with_go_events_count_in_period": all_metrics["go_events"],
+        "teams_with_java_events_count_in_period": all_metrics["java_events"],
+        "teams_with_react_native_events_count_in_period": all_metrics["react_native_events"],
+        "teams_with_ruby_events_count_in_period": all_metrics["ruby_events"],
+        "teams_with_python_events_count_in_period": all_metrics["python_events"],
+        "teams_with_php_events_count_in_period": all_metrics["php_events"],
         "teams_with_recording_count_in_period": get_teams_with_recording_count_in_period(
             period_start, period_end, snapshot_source="web"
         ),
@@ -934,6 +971,17 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         event_explorer_api_duration_ms=all_data["teams_with_event_explorer_api_duration_ms"].get(team.id, 0),
         survey_responses_count_in_period=all_data["teams_with_survey_responses_count_in_period"].get(team.id, 0),
         rows_synced_in_period=all_data["teams_with_rows_synced_in_period"].get(team.id, 0),
+        web_events_count_in_period=all_data["teams_with_web_events_count_in_period"].get(team.id, 0),
+        node_events_count_in_period=all_data["teams_with_node_events_count_in_period"].get(team.id, 0),
+        android_events_count_in_period=all_data["teams_with_android_events_count_in_period"].get(team.id, 0),
+        flutter_events_count_in_period=all_data["teams_with_flutter_events_count_in_period"].get(team.id, 0),
+        ios_events_count_in_period=all_data["teams_with_ios_events_count_in_period"].get(team.id, 0),
+        go_events_count_in_period=all_data["teams_with_go_events_count_in_period"].get(team.id, 0),
+        java_events_count_in_period=all_data["teams_with_java_events_count_in_period"].get(team.id, 0),
+        react_native_events_count_in_period=all_data["teams_with_react_native_events_count_in_period"].get(team.id, 0),
+        ruby_events_count_in_period=all_data["teams_with_ruby_events_count_in_period"].get(team.id, 0),
+        python_events_count_in_period=all_data["teams_with_python_events_count_in_period"].get(team.id, 0),
+        php_events_count_in_period=all_data["teams_with_php_events_count_in_period"].get(team.id, 0),
     )
 
 
