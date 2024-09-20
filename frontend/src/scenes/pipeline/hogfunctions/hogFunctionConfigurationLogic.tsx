@@ -456,10 +456,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
 
-        willEnableOnSave: [
+        willChangeEnabledOnSave: [
             (s) => [s.configuration, s.hogFunction],
             (configuration, hogFunction) => {
-                return configuration?.enabled && (!hogFunction || !hogFunction.enabled)
+                return configuration?.enabled !== (hogFunction?.enabled ?? false)
             },
         ],
         exampleInvocationGlobals: [
