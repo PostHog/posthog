@@ -84,7 +84,12 @@ async fn main() {
         config.cleanup_interval_secs,
     ));
 
-    let app = setup_metrics_routes(app(liveness, janitor_id));
+    // This is a silly clone because we re-use the id to pass a ref to this same function, but it's done once so who cares
+    let app = setup_metrics_routes(
+        app(liveness, janitor_id.clone()),
+        "cyclotron-janitor",
+        Some(&janitor_id),
+    );
     let http_server = tokio::spawn(listen(app, bind));
 
     tokio::select! {
