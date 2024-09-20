@@ -12,6 +12,7 @@ import {
     isLogEntryPropertyFilter,
     isRecordingPropertyFilter,
 } from 'lib/components/UniversalFilters/utils'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectClean } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -423,9 +424,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
         ],
     })),
-    reducers(({ props }) => ({
+    reducers(({ props, values }) => ({
         orderBy: [
-            'start_time' as RecordingsQuery['order'],
+            (values.featureFlags[FEATURE_FLAGS.REPLAY_DEFAULT_SORT_ORDER_EXPERIMENT] === 'control'
+                ? 'start_time'
+                : values.featureFlags[FEATURE_FLAGS.REPLAY_DEFAULT_SORT_ORDER_EXPERIMENT]) as RecordingsQuery['order'],
             { persist: true },
             {
                 setOrderBy: (_, { orderBy }) => orderBy,
