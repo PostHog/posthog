@@ -1,5 +1,7 @@
 #!/bin/sh
 
+# Taken from https://github.com/nginx/unit/blob/master/pkg/docker/Dockerfile.python3.11#L11
+
 set -ex &&
     savedAptMark="$(apt-mark showmanual)" &&
     apt-get update &&
