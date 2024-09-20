@@ -26,6 +26,7 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
         pollStats: true,
         setStats: (stats) => ({ stats }),
         showLiveStreamErrorToast: true,
+        addEventHost: (eventHost) => ({ eventHost }),
     })),
     reducers({
         events: [
@@ -78,6 +79,17 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
                 addEvents: (state, { events }) => {
                     if (events.length > 0) {
                         return performance.now()
+                    }
+                    return state
+                },
+            },
+        ],
+        eventHosts: [
+            [] as string[],
+            {
+                addEventHost: (state, { eventHost }) => {
+                    if (!state.includes(eventHost)) {
+                        return [...state, eventHost]
                     }
                     return state
                 },
@@ -175,6 +187,17 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
                 actions.setStats(data)
             } catch (error) {
                 console.error('Failed to poll stats:', error)
+            }
+        },
+        addEvents: ({ events }) => {
+            if (events.length > 0) {
+                const event = events[0]
+                const eventUrl = event.properties?.$current_url
+                if (eventUrl) {
+                    const eventHost = new URL(eventUrl).host
+                    const eventProtocol = new URL(eventUrl).protocol
+                    actions.addEventHost(`${eventProtocol}//${eventHost}`)
+                }
             }
         },
     })),
