@@ -62,7 +62,7 @@ class TestIntegrationModel(BaseTest):
                 assert integration.sensitive_config == {"id_token": None, "refresh_token": "REFRESH2"}
                 assert (
                     get_db_field_value("sensitive_config", integration.id)
-                    == '{"id_token": null, "refresh_token": "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAANWZEhLS1Pau6w5c9_w1upLhO5kF9jLsg0EifNa1zZ456V6Nt-4jBq_Wh1wPgh4a8A=="}'
+                    == '{"id_token": null, "refresh_token": "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAAHlWz9QOMnXDvmix-z5lNG4v0VcO9lGWejmcE_BXHXPZ1wNkb-38JupntWbshBrfFQ=="}'
                 )
 
     def test_slack_integration_config(self):
