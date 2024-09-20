@@ -103,7 +103,7 @@ class UserAccessControl:
             raise ValueError("Organization ID must be provided either directly or via the team")
 
         self._organization_id = organization_id
-        self._cache: dict[str, "list[AccessControl]"] = {}
+        self._cache: dict[str, list[AccessControl]] = {}
 
     def _clear_cache(self):
         # Primarily intended for tests

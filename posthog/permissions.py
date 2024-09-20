@@ -1,6 +1,5 @@
 from typing import Optional, cast
 import time
-from typing import cast
 
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
