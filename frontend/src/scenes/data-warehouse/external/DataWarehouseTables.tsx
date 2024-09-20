@@ -4,6 +4,8 @@ import { clsx } from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { DatabaseTableTree, TreeItem } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useState } from 'react'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -15,6 +17,7 @@ import { DatabaseSchemaTable } from '~/queries/schema'
 import { ExternalDataSourceType, InsightLogicProps } from '~/types'
 
 import { SOURCE_DETAILS } from '../new/sourceWizardLogic'
+import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { dataWarehouseSceneLogic } from '../settings/dataWarehouseSceneLogic'
 import { viewLinkLogic } from '../viewLinkLogic'
 import { ViewLinkModal } from '../ViewLinkModal'
@@ -61,6 +64,8 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
     const [collapsed, setCollapsed] = useState(false)
     const { toggleJoinTableModal, selectSourceTable } = useActions(viewLinkLogic)
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { runDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
 
     const deleteButton = (table: DatabaseSchemaTable | null): JSX.Element => {
         if (!table) {
@@ -130,6 +135,17 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                     fullWidth
                 >
                     Edit view definition
+                </LemonButton>
+            )}
+            {table.type == 'view' && featureFlags[FEATURE_FLAGS.DATA_MODELING] && (
+                <LemonButton
+                    onClick={() => {
+                        runDataWarehouseSavedQuery(table.id)
+                    }}
+                    data-attr="schema-list-item-materialize"
+                    fullWidth
+                >
+                    Materialize
                 </LemonButton>
             )}
             {deleteButton(table)}

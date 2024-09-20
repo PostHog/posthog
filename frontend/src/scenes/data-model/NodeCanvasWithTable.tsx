@@ -397,7 +397,7 @@ const NodeCanvasWithTable = ({
                                             type={
                                                 (dataWarehouseSavedQueryMapById[savedQueryId]?.status &&
                                                     StatusTagSetting[
-                                                        dataWarehouseSavedQueryMapById[savedQueryId]?.status
+                                                        dataWarehouseSavedQueryMapById[savedQueryId].status as string
                                                     ]) ||
                                                 'default'
                                             }
