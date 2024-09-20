@@ -615,7 +615,9 @@ class TestSignupAPI(APIBaseTest):
             response, "/login?error_code=no_new_organizations"
         )  # show the user an error; operation not permitted
 
-    def run_test_for_allowed_domain(self, mock_sso_providers, mock_request, mock_capture, use_invite: bool = False):
+    def run_test_for_allowed_domain(
+        self, mock_sso_providers, mock_request, mock_capture, use_invite: bool = False, expired_invite: bool = False
+    ):
         # Make sure Google Auth is valid for this test instance
         mock_sso_providers.return_value = {"google-oauth2": True}
 
@@ -632,13 +634,17 @@ class TestSignupAPI(APIBaseTest):
             private_project: Team = Team.objects.create(
                 organization=new_org, name="Private Project", access_control=True
             )
-            OrganizationInvite.objects.create(
+            invite = OrganizationInvite.objects.create(
                 target_email="jane@hogflix.posthog.com",
                 organization=new_org,
                 first_name="Jane",
                 level=OrganizationMembership.Level.MEMBER,
                 private_project_access=[{"id": private_project.id, "level": ExplicitTeamMembership.Level.ADMIN}],
             )
+            if expired_invite:
+                invite.created_at = timezone.now() - timezone.timedelta(days=30)  # Set invite to 30 days old
+                invite.save()
+
         user_count = User.objects.count()
         response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
@@ -684,6 +690,12 @@ class TestSignupAPI(APIBaseTest):
             )
             assert explicit_team_membership.level == ExplicitTeamMembership.Level.ADMIN
 
+        if expired_invite:
+            # Check that the user was still created and added to the organization
+            self.assertEqual(user.organization, new_org)
+            # But they shouldn't have access to the private project
+            self.assertFalse(teams.filter(pk=private_project.pk).exists())
+
     @patch("posthoganalytics.capture")
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
@@ -719,6 +731,24 @@ class TestSignupAPI(APIBaseTest):
     @mock.patch("posthog.tasks.user_identify.identify_task")
     @pytest.mark.ee
     def test_social_signup_with_allowed_domain_on_cloud_with_existing_invite(
+        self,
+        mock_identify,
+        mock_sso_providers,
+        mock_request,
+        mock_update_billing_organization_users,
+        mock_capture,
+    ):
+        with self.is_cloud(True):
+            self.run_test_for_allowed_domain(mock_sso_providers, mock_request, mock_capture, use_invite=True)
+        assert mock_update_billing_organization_users.called_once()
+
+    @patch("posthoganalytics.capture")
+    @mock.patch("ee.billing.billing_manager.BillingManager.update_billing_organization_users")
+    @mock.patch("social_core.backends.base.BaseAuth.request")
+    @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
+    @mock.patch("posthog.tasks.user_identify.identify_task")
+    @pytest.mark.ee
+    def test_social_signup_with_allowed_domain_on_cloud_with_existing_expired_invite(
         self,
         mock_identify,
         mock_sso_providers,
