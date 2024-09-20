@@ -6,7 +6,7 @@ import posthog.helpers.encrypted_fields
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0474_hogfunction_encrypted_inputs"),
+        ("posthog", "0475_alter_externaldatasource_source_type"),
     ]
 
     operations = [

@@ -14,11 +14,14 @@ if (empty(inputs.userId)) {
 
 let body := {
     'type': 'track',
-    'event': event.name,
+    'event': event.event,
     'userId': inputs.userId,
     'properties': inputs.include_all_properties ? event.properties : {},
     'messageId': event.uuid,
     'timestamp': event.timestamp
+}
+if (inputs.include_all_properties and not empty(event.elements_chain)) {
+    body['properties']['$elements_chain'] := event.elements_chain
 }
 
 for (let key, value in inputs.attributes) {
@@ -53,7 +56,7 @@ if (res.status >= 400) {
             "type": "string",
             "label": "User ID",
             "description": "You can choose to fill this from an `email` property or an `id` property. If the value is empty nothing will be sent. See here for more information: https://docs.gleap.io/server/rest-api",
-            "default": "{person.uuid}",
+            "default": "{person.id}",
             "secret": False,
             "required": True,
         },

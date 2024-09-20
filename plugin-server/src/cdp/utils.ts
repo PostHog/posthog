@@ -50,10 +50,6 @@ export function convertToHogFunctionInvocationGlobals(
     siteUrl: string
 ): HogFunctionInvocationGlobals {
     const properties = event.properties ? JSON.parse(event.properties) : {}
-    if (event.elements_chain) {
-        properties['$elements_chain'] = event.elements_chain
-    }
-
     const projectUrl = `${siteUrl}/project/${team.id}`
 
     let person: HogFunctionInvocationGlobals['person']
@@ -63,9 +59,10 @@ export function convertToHogFunctionInvocationGlobals(
         const personDisplayName = getPersonDisplayName(team, event.distinct_id, personProperties)
 
         person = {
+            id: event.person_id,
+            properties: personProperties,
             uuid: event.person_id,
             name: personDisplayName,
-            properties: personProperties,
             url: `${projectUrl}/person/${encodeURIComponent(event.distinct_id)}`,
         }
     }
@@ -80,10 +77,12 @@ export function convertToHogFunctionInvocationGlobals(
         },
         event: {
             uuid: event.uuid,
-            name: event.event!,
+            event: event.event!,
+            elements_chain: event.elements_chain,
             distinct_id: event.distinct_id,
             properties,
             timestamp: eventTimestamp,
+            name: event.event!,
             url: `${projectUrl}/events/${encodeURIComponent(event.uuid)}/${encodeURIComponent(eventTimestamp)}`,
         },
         person,
@@ -141,7 +140,7 @@ export function convertToHogFunctionFilterGlobal(globals: HogFunctionInvocationG
         }
     }
 
-    const elementsChain = globals.event.properties['$elements_chain']
+    const elementsChain = globals.event.elements_chain ?? globals.event.properties['$elements_chain']
     const response = {
         event: globals.event.name,
         elements_chain: elementsChain,
