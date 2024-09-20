@@ -4,6 +4,7 @@ from typing import Optional, cast
 from unittest import mock
 from unittest.mock import ANY, patch
 from zoneinfo import ZoneInfo
+from datetime import timedelta
 
 import pytest
 from django.core import mail
@@ -642,7 +643,7 @@ class TestSignupAPI(APIBaseTest):
                 private_project_access=[{"id": private_project.id, "level": ExplicitTeamMembership.Level.ADMIN}],
             )
             if expired_invite:
-                invite.created_at = timezone.now() - timezone.timedelta(days=30)  # Set invite to 30 days old
+                invite.created_at = timezone.now() - timedelta(days=30)  # Set invite to 30 days old
                 invite.save()
 
         user_count = User.objects.count()
