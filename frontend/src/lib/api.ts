@@ -6,6 +6,7 @@ import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { objectClean, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
 import { stringifiedFingerprint } from 'scenes/error-tracking/utils'
+import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
@@ -1784,6 +1785,10 @@ const api = {
 
         async persist(recordingId: SessionRecordingType['id']): Promise<{ success: boolean }> {
             return await new ApiRequest().recording(recordingId).withAction('persist').create()
+        },
+
+        async comments(recordingId: SessionRecordingType['id']): Promise<{ results: RecordingComment[] }> {
+            return await new ApiRequest().recording(recordingId).withAction('comments').get()
         },
 
         async summarize(recordingId: SessionRecordingType['id']): Promise<{ content: string }> {

@@ -147,6 +147,15 @@
             background-color: var(--tick-color);
             border-radius: 2px;
             opacity: 0.5;
+
+            &.PlayerSeekbarTick__icon {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                width: 1em;
+                background-color: transparent;
+                opacity: 1;
+            }
         }
 
         .PlayerSeekbarTick__info {

@@ -25,6 +25,7 @@ import { isObject } from 'lib/utils'
 import { chainToElements } from 'lib/utils/elements-chain'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
+import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema'
 import { hogql } from '~/queries/utils'
@@ -324,6 +325,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     actions({
         setFilters: (filters: Partial<RecordingEventsFilters>) => ({ filters }),
         loadRecordingMeta: true,
+        loadRecordingComments: true,
         maybeLoadRecordingMeta: true,
         loadSnapshots: true,
         loadSnapshotSources: true,
@@ -382,6 +384,19 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
     })),
     loaders(({ values, props, cache }) => ({
+        sessionComments: {
+            loadRecordingComments: async (_, breakpoint) => {
+                const empty: RecordingComment[] = []
+                if (!props.sessionRecordingId) {
+                    return empty
+                }
+
+                const response = await api.recordings.comments(props.sessionRecordingId)
+                breakpoint()
+
+                return response.results || empty
+            },
+        },
         sessionPlayerMetaData: {
             loadRecordingMeta: async (_, breakpoint) => {
                 if (!props.sessionRecordingId) {
@@ -621,6 +636,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         maybeLoadRecordingMeta: () => {
             if (!values.sessionPlayerMetaDataLoading) {
                 actions.loadRecordingMeta()
+            }
+            if (!values.sessionCommentsLoading) {
+                actions.loadRecordingComments()
             }
         },
         loadSnapshotSources: () => {

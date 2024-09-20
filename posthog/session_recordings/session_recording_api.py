@@ -307,9 +307,8 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             query = """
                 SELECT
                     short_id,
-                    jsonb_extract_path_text(timestamp_elem->'attrs', 'sessionRecordingId') AS session_recording_id,
-                    timestamp_elem->'attrs'->>'playbackTime' AS timestamp,
-                    string_agg(text_elem->>'text', ' ') AS text
+                    string_agg(text_elem->>'text', ' ') AS comment,
+                    timestamp_elem->'attrs'->>'playbackTime' AS timeInRecording
                 FROM
                     posthog_notebook,
                     LATERAL jsonb_array_elements(content->'content') AS timestamp_json,  -- Explode the top-level content array
@@ -319,12 +318,22 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     timestamp_elem->>'type' = 'ph-replay-timestamp'
                     AND team_id = %s
                     AND jsonb_extract_path_text(timestamp_elem->'attrs', 'sessionRecordingId') = %s
-                GROUP BY team_id, short_id, session_recording_id, timestamp;
+                GROUP BY team_id, short_id, timeInRecording;
             """
-            breakpoint()
+
             cursor.execute(query, [self.team_id, recording.session_id])
             results = cursor.fetchall()
-        return JsonResponse(data=results, safe=False)
+            recording_comments = []
+            for result in results:
+                recording_comments.append(
+                    {
+                        "id": f"{result[0]}-{result[1]}",
+                        "notebookShortId": result[0],
+                        "comment": result[1],
+                        "timeInRecording": result[2],
+                    }
+                )
+        return JsonResponse(data={"results": recording_comments})
 
     @extend_schema(
         exclude=True,

@@ -2,7 +2,7 @@ import { IconDashboard, IconEye, IconGear, IconTerminal } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { IconOffline, IconUnverifiedEvent } from 'lib/lemon-ui/icons'
+import { IconComment, IconOffline, IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { ceilMsToClosestSecond, colonDelimitedDuration } from 'lib/utils'
 import { useEffect } from 'react'
@@ -18,7 +18,7 @@ import { sessionRecordingPlayerLogic } from '../../sessionRecordingPlayerLogic'
 import { InspectorListItem, playerInspectorLogic } from '../playerInspectorLogic'
 import { ItemConsoleLog } from './ItemConsoleLog'
 import { ItemDoctor } from './ItemDoctor'
-import { ItemEvent } from './ItemEvent'
+import { ItemComment, ItemEvent } from './ItemEvent'
 
 const typeToIconAndDescription = {
     [SessionRecordingPlayerTab.ALL]: {
@@ -52,6 +52,10 @@ const typeToIconAndDescription = {
     ['doctor']: {
         Icon: undefined,
         tooltip: 'Doctor event',
+    },
+    ['comment']: {
+        Icon: IconComment,
+        tooltip: 'Comment',
     },
 }
 const PLAYER_INSPECTOR_LIST_ITEM_MARGIN = 4
@@ -182,6 +186,8 @@ export function PlayerInspectorListItem({
                     <div className="flex items-start p-2 text-xs">Window became {item.status}</div>
                 ) : item.type === SessionRecordingPlayerTab.DOCTOR ? (
                     <ItemDoctor item={item} {...itemProps} />
+                ) : item.type === 'comment' ? (
+                    <ItemComment item={item} {...itemProps} />
                 ) : null}
 
                 {isExpanded ? (
