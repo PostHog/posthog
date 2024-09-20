@@ -2,6 +2,8 @@ import os
 import time
 from contextlib import contextmanager
 from datetime import datetime, timedelta, UTC
+
+from django.db import connection
 from prometheus_client import Histogram
 import json
 from typing import Any, cast
@@ -291,6 +293,38 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         filter = SessionRecordingsFilter(request=request, team=self.team)
         return list_recordings_response(filter, request, self.get_serializer_context())
+
+    @extend_schema(
+        exclude=True,
+        description="""
+        Gets the comments associated with a single recording""",
+    )
+    @action(methods=["GET"], detail=True)
+    def comments(self, request: request.Request, *args: Any, **kwargs: Any) -> JsonResponse:
+        recording: SessionRecording = self.get_object()
+
+        with connection.cursor() as cursor:
+            query = """
+                SELECT
+                    short_id,
+                    jsonb_extract_path_text(timestamp_elem->'attrs', 'sessionRecordingId') AS session_recording_id,
+                    timestamp_elem->'attrs'->>'playbackTime' AS timestamp,
+                    string_agg(text_elem->>'text', ' ') AS text
+                FROM
+                    posthog_notebook,
+                    LATERAL jsonb_array_elements(content->'content') AS timestamp_json,  -- Explode the top-level content array
+                    LATERAL jsonb_array_elements(timestamp_json->'content') AS timestamp_elem -- Explore deeper content
+                    LEFT JOIN LATERAL jsonb_array_elements(timestamp_json->'content') AS text_elem ON text_elem->>'type' = 'text'
+                WHERE
+                    timestamp_elem->>'type' = 'ph-replay-timestamp'
+                    AND team_id = %s
+                    AND jsonb_extract_path_text(timestamp_elem->'attrs', 'sessionRecordingId') = %s
+                GROUP BY team_id, short_id, session_recording_id, timestamp;
+            """
+            breakpoint()
+            cursor.execute(query, [self.team_id, recording.session_id])
+            results = cursor.fetchall()
+        return JsonResponse(data=results, safe=False)
 
     @extend_schema(
         exclude=True,

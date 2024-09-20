@@ -1079,3 +1079,106 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             f"/api/projects/{self.team.id}/session_recordings/1/snapshots?",
         )
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_does_not_404_comments_when_no_recording(self) -> None:
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings/can-not-possibly-be-a-recording/comments"
+        )
+        # the session recording endpoint never 404s
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == []
+
+    def test_can_load_when_no_comments(self) -> None:
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+
+        # the matching session
+        session_id = f"test_can_load_when_no_comments-1-{uuid.uuid4()}"
+        self.produce_replay_summary("user", session_id, base_time)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_id}/comments")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == []
+
+    def test_can_load_when_comments(self) -> None:
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+
+        # the matching session
+        session_id = f"test_can_load_when_no_comments-1-{uuid.uuid4()}"
+        self.produce_replay_summary("user", session_id, base_time)
+
+        notebook_short_id = self._create_notebook_with_comment_for(
+            session_id,
+            {
+                "type": "doc",
+                "content": [
+                    {"type": "heading", "attrs": {"level": 1}, "content": [{"text": "Notes 19/09", "type": "text"}]},
+                    {
+                        "type": "ph-recording",
+                        "attrs": {
+                            "id": session_id,
+                            "nodeId": "3e322994-3c42-4c5e-8d90-2a0c3ea5029d",
+                        },
+                    },
+                    {
+                        "type": "paragraph",
+                        "content": [
+                            {
+                                "type": "ph-replay-timestamp",
+                                "attrs": {
+                                    "playbackTime": 479000,
+                                    "sourceNodeId": "3e322994-3c42-4c5e-8d90-2a0c3ea5029d",
+                                    "sessionRecordingId": session_id,
+                                },
+                            },
+                            {"text": " ok", "type": "text"},
+                        ],
+                    },
+                    {
+                        "type": "paragraph",
+                        "content": [
+                            {
+                                "type": "ph-replay-timestamp",
+                                "attrs": {
+                                    "playbackTime": 884965.8784179688,
+                                    "sourceNodeId": None,
+                                    "sessionRecordingId": session_id,
+                                },
+                            },
+                            {"text": " ok", "type": "text"},
+                        ],
+                    },
+                    {
+                        "type": "paragraph",
+                        "content": [
+                            {
+                                "type": "ph-replay-timestamp",
+                                "attrs": {
+                                    "playbackTime": 926183.5515136719,
+                                    "sourceNodeId": None,
+                                    "sessionRecordingId": session_id,
+                                },
+                            },
+                            {"text": " ok", "type": "text"},
+                        ],
+                    },
+                ],
+            },
+        )
+
+        # data needs time to settle :'(
+        time.sleep(1)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_id}/comments")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "comments": [
+                {"short_id": notebook_short_id, "session_id": session_id, "timestamp": 12345, "comment": "text"}
+            ]
+        }
+
+    def _create_notebook_with_comment_for(self, session_id: str, data: dict | None = None) -> str:
+        response = self.client.post(f"/api/projects/{self.team.id}/notebooks/", data=data or {})
+        assert response.status_code == status.HTTP_201_CREATED
+        response_json = response.json()
+        assert "short_id" in response_json
+        return response_json["short_id"]
