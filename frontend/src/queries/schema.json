@@ -5609,9 +5609,17 @@
                 "bytecode": {
                     "items": {},
                     "type": "array"
+                },
+                "locals": {
+                    "items": {},
+                    "type": "array"
+                },
+                "upvalues": {
+                    "items": {},
+                    "type": "array"
                 }
             },
-            "required": ["bytecode"],
+            "required": ["bytecode", "locals", "upvalues"],
             "type": "object"
         },
         "HogLanguage": {

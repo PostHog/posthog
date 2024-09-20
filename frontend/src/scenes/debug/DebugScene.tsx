@@ -7,6 +7,7 @@ import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DebugSceneQuery } from 'scenes/debug/DebugSceneQuery'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { stringifiedExamples } from '~/queries/examples'
 
@@ -22,6 +23,7 @@ export function DebugScene(): JSX.Element {
             <PageHeader
                 buttons={
                     <>
+                        <LemonButton to={urls.debugRepl()}>Repl</LemonButton>
                         <LemonButton active={!!query2} onClick={() => (query2 ? setQuery2('') : setQuery2(query1))}>
                             Split
                         </LemonButton>

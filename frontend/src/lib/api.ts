@@ -1658,8 +1658,8 @@ const api = {
         },
     },
     hog: {
-        async create(hog: string): Promise<HogCompileResponse> {
-            return await new ApiRequest().hog().create({ data: { hog } })
+        async create(hog: string, locals?: any[]): Promise<HogCompileResponse> {
+            return await new ApiRequest().hog().create({ data: { hog, locals } })
         },
     },
     hogFunctions: {

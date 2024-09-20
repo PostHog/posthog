@@ -22,7 +22,7 @@ for filename in glob.glob(source):
     for declaration in program.declarations:
         if isinstance(declaration, ast.Function) and declaration.name == basename:
             found = True
-            bytecode = create_bytecode(declaration.body, args=declaration.params)
+            bytecode = create_bytecode(declaration.body, args=declaration.params).bytecode
             bytecodes[basename] = [declaration.params, bytecode]
     if not found:
         print(f"Error: no function called {basename} was found in {filename}!")  # noqa: T201

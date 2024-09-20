@@ -16,7 +16,7 @@ import {
     unifyComparisonTypes,
 } from './utils'
 
-export function execSync(bytecode: any[], options?: ExecOptions): any {
+export function execSync(bytecode: any[] | VMState, options?: ExecOptions): any {
     const response = exec(bytecode, options)
     if (response.finished) {
         return response.result
@@ -24,12 +24,12 @@ export function execSync(bytecode: any[], options?: ExecOptions): any {
     throw new HogVMException('Unexpected async function call: ' + response.asyncFunctionName)
 }
 
-export async function execAsync(bytecode: any[], options?: ExecOptions): Promise<any> {
+export async function execAsyncFull(bytecode: any[] | VMState, options?: ExecOptions): Promise<ExecResult> {
     let vmState: VMState | undefined = undefined
     while (true) {
         const response = exec(vmState ?? bytecode, options)
         if (response.finished) {
-            return response.result
+            return response
         }
         if (response.state && response.asyncFunctionName && response.asyncFunctionArgs) {
             vmState = response.state
@@ -50,6 +50,10 @@ export async function execAsync(bytecode: any[], options?: ExecOptions): Promise
             throw new HogVMException('Invalid async function call')
         }
     }
+}
+
+export async function execAsync(bytecode: any[] | VMState, options?: ExecOptions): Promise<any> {
+    return (await execAsyncFull(bytecode, options)).result
 }
 
 export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
@@ -180,8 +184,8 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
     function getFinishedState(): VMState {
         return {
             bytecode: [],
-            stack: [],
-            upvalues: [],
+            stack: stack.map(convertHogToJS),
+            upvalues: sortedUpValues.map((v) => ({ ...v, value: convertHogToJS(v.value) })),
             callStack: [],
             throwStack: [],
             declaredFunctions: {},
@@ -834,13 +838,5 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
         frame.ip++
     }
 
-    if (stack.length > 1) {
-        throw new HogVMException('Invalid bytecode. More than one value left on stack')
-    }
-
-    if (stack.length === 0) {
-        return { result: null, finished: true, state: getFinishedState() } satisfies ExecResult
-    }
-
-    return { result: popStack() ?? null, finished: true, state: getFinishedState() } satisfies ExecResult
+    return { result: null, finished: true, state: getFinishedState() } satisfies ExecResult
 }

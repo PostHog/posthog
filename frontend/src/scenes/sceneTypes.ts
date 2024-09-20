@@ -70,6 +70,7 @@ export enum Scene {
     OrganizationCreationConfirm = 'OrganizationCreationConfirm',
     Unsubscribe = 'Unsubscribe',
     DebugQuery = 'DebugQuery',
+    DebugRepl = 'DebugRepl',
     VerifyEmail = 'VerifyEmail',
     Notebooks = 'Notebooks',
     Notebook = 'Notebook',

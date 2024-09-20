@@ -50,29 +50,6 @@ ARITHMETIC_OPERATIONS = {
 }
 
 
-def to_bytecode(expr: str) -> list[Any]:
-    from posthog.hogql.parser import parse_expr
-
-    return create_bytecode(parse_expr(expr))
-
-
-def create_bytecode(
-    expr: ast.Expr | ast.Statement | ast.Program,
-    supported_functions: Optional[set[str]] = None,
-    args: Optional[list[str]] = None,
-    context: Optional[HogQLContext] = None,
-    enclosing: Optional["BytecodeCompiler"] = None,
-) -> list[Any]:
-    supported_functions = supported_functions or set()
-    bytecode: list[Any] = []
-    if args is None:
-        bytecode.append(HOGQL_BYTECODE_IDENTIFIER)
-        bytecode.append(HOGQL_BYTECODE_VERSION)
-
-    bytecode.extend(BytecodeCompiler(supported_functions, args, context, enclosing).visit(expr))
-    return bytecode
-
-
 @dataclasses.dataclass
 class Local:
     name: str
@@ -93,6 +70,38 @@ class UpValue:
         self.is_local = is_local
 
 
+def to_bytecode(expr: str) -> list[Any]:
+    from posthog.hogql.parser import parse_expr
+
+    return create_bytecode(parse_expr(expr)).bytecode
+
+
+@dataclasses.dataclass
+class CompiledBytecode:
+    bytecode: list[Any]
+    locals: list[Local]
+    upvalues: list[UpValue]
+
+
+def create_bytecode(
+    expr: ast.Expr | ast.Statement | ast.Program,
+    supported_functions: Optional[set[str]] = None,
+    args: Optional[list[str]] = None,
+    context: Optional[HogQLContext] = None,
+    enclosing: Optional["BytecodeCompiler"] = None,
+    keep_last_scope_open: Optional[bool] = False,
+    locals: Optional[list[Local]] = None,
+) -> CompiledBytecode:
+    supported_functions = supported_functions or set()
+    bytecode: list[Any] = []
+    if args is None:
+        bytecode.append(HOGQL_BYTECODE_IDENTIFIER)
+        bytecode.append(HOGQL_BYTECODE_VERSION)
+    compiler = BytecodeCompiler(supported_functions, args, context, enclosing, keep_last_scope_open, locals)
+    bytecode.extend(compiler.visit(expr))
+    return CompiledBytecode(bytecode, locals=compiler.locals, upvalues=compiler.upvalues)
+
+
 class BytecodeCompiler(Visitor):
     def __init__(
         self,
@@ -100,13 +109,16 @@ class BytecodeCompiler(Visitor):
         args: Optional[list[str]] = None,
         context: Optional[HogQLContext] = None,
         enclosing: Optional["BytecodeCompiler"] = None,
+        keep_last_scope_open: Optional[bool] = False,
+        locals: Optional[list[Local]] = None,
     ):
         super().__init__()
         self.enclosing = enclosing
         self.supported_functions = supported_functions or set()
-        self.locals: list[Local] = []
+        self.locals: list[Local] = locals or []
         self.upvalues: list[UpValue] = []
         self.scope_depth = 0
+        self.keep_last_scope_open = keep_last_scope_open or False
         self.args = args
         # we're in a function definition
         if args is not None:
@@ -118,8 +130,11 @@ class BytecodeCompiler(Visitor):
         self.scope_depth += 1
 
     def _end_scope(self) -> list[Any]:
-        response: list[Any] = []
         self.scope_depth -= 1
+        if self.keep_last_scope_open and self.scope_depth == 0:
+            return []
+
+        response: list[Any] = []
         for local in reversed(self.locals):
             if local.depth <= self.scope_depth:
                 break
@@ -814,5 +829,5 @@ def execute_hog(
         program,
         supported_functions=set(functions.keys()) if functions is not None else set(),
         context=HogQLContext(team_id=team.id if team else None),
-    )
+    ).bytecode
     return execute_bytecode(bytecode, globals=globals, functions=functions, timeout=timeout, team=team)

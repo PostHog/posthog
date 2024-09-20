@@ -639,6 +639,8 @@ class HogCompileResponse(BaseModel):
         extra="forbid",
     )
     bytecode: list
+    locals: list
+    upvalues: list
 
 
 class HogLanguage(StrEnum):

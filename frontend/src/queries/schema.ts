@@ -1955,4 +1955,6 @@ export interface AlertType extends AlertTypeBase {
 
 export interface HogCompileResponse {
     bytecode: any[]
+    locals: any[]
+    upvalues: any[]
 }
