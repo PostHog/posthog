@@ -101,7 +101,9 @@ const calculateNodePositions = (nodesWithDepth: NodeWithDepth[]): NodePosition[]
 
 const calculateTablePosition = (nodePositions: NodePosition[]): Position => {
     // Find the node with the maximum x position
-    const farthestNode = nodePositions.reduce((max, node) => (node.position.x > max.position.x ? node : max))
+    const farthestNode = nodePositions.reduce((max, node) => (node.position.x > max.position.x ? node : max), {
+        position: { x: 0, y: 0 },
+    })
 
     // Calculate the table position to be slightly to the right of the farthest node
     const tablePosition: Position = {

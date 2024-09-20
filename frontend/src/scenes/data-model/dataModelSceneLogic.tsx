@@ -12,7 +12,7 @@ import { Node } from './types'
 export const dataModelSceneLogic = kea<dataModelSceneLogicType>([
     path(['scenes', 'data-model', 'dataModelSceneLogic']),
     connect(() => ({
-        values: [databaseTableListLogic, ['posthogTablesMap', 'viewsMapById']],
+        values: [databaseTableListLogic, ['posthogTablesMap', 'viewsMapById', 'dataWarehouseTablesMapById']],
     })),
     actions({
         traverseAncestors: (viewId: DataWarehouseSavedQuery['id'], level: number) => ({ viewId, level }),
@@ -35,7 +35,10 @@ export const dataModelSceneLogic = kea<dataModelSceneLogicType>([
                     ...values.nodeMap,
                     [ancestor]: {
                         nodeId: ancestor,
-                        name: values.viewsMapById[ancestor]?.name || ancestor,
+                        name:
+                            values.viewsMapById[ancestor]?.name ||
+                            values.dataWarehouseTablesMapById[ancestor]?.name ||
+                            ancestor,
                         savedQueryId: values.viewsMapById[ancestor]?.id,
                         leaf: [...(values.nodeMap[ancestor]?.leaf || []), viewId],
                     },
@@ -69,17 +72,7 @@ export const dataModelSceneLogic = kea<dataModelSceneLogicType>([
                     table: field.name,
                 })) || [],
         ],
-        allNodes: [
-            (s) => [s.nodeMap],
-            (nodeMap) => [
-                {
-                    nodeId: 'posthog',
-                    name: 'PostHog',
-                    leaf: ['schema'],
-                },
-                ...Object.values(nodeMap),
-            ],
-        ],
+        allNodes: [(s) => [s.nodeMap], (nodeMap) => [...Object.values(nodeMap)]],
     }),
     subscriptions(({ actions, values }) => ({
         joinedFields: (joinedFields) => {
@@ -88,7 +81,10 @@ export const dataModelSceneLogic = kea<dataModelSceneLogicType>([
                     ...values.nodeMap,
                     [field.id]: {
                         nodeId: field.id,
-                        name: values.viewsMapById[field.id]?.name || field.id,
+                        name:
+                            values.viewsMapById[field.id]?.name ||
+                            values.dataWarehouseTablesMapById[field.id]?.name ||
+                            field.id,
                         savedQueryId: values.viewsMapById[field.id]?.id,
                         leaf: [`${field.name}_joined`],
                     },
