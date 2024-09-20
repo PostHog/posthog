@@ -429,7 +429,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             (values.featureFlags[FEATURE_FLAGS.REPLAY_DEFAULT_SORT_ORDER_EXPERIMENT] === 'control'
                 ? 'start_time'
                 : values.featureFlags[FEATURE_FLAGS.REPLAY_DEFAULT_SORT_ORDER_EXPERIMENT]) as RecordingsQuery['order'],
-            { persist: true },
+            { persist: true, prefix: 'orderByExperiment' },
             {
                 setOrderBy: (_, { orderBy }) => orderBy,
             },
