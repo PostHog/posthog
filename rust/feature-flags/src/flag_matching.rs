@@ -646,9 +646,10 @@ impl FeatureFlagMatcher {
             .properties_cache
             .group_properties
             .get(&group_type_index)
-            .cloned()
         {
-            return Ok(properties);
+            let mut result = HashMap::new();
+            result.clone_from(properties);
+            return Ok(result);
         }
 
         let database_client = self.database_client.clone();
@@ -672,7 +673,9 @@ impl FeatureFlagMatcher {
         &mut self,
     ) -> Result<HashMap<String, Value>, FlagError> {
         if let Some(properties) = &self.properties_cache.person_properties {
-            return Ok(properties.clone());
+            let mut result = HashMap::new();
+            result.clone_from(properties);
+            return Ok(result);
         }
 
         let database_client = self.database_client.clone();
