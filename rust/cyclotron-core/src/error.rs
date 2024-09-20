@@ -25,3 +25,15 @@ pub enum JobError {
     #[error("Update dropped before being flushed.")]
     UpdateDropped,
 }
+
+impl JobError {
+    pub fn to_label(&self) -> &'static str {
+        match self {
+            JobError::UnknownJobId(_) => "unknown_job_id",
+            JobError::InvalidLock(_, _) => "invalid_lock",
+            JobError::FlushWithoutNextState(_) => "flush_without_next_state",
+            JobError::DeadlineExceeded(_) => "deadline_exceeded",
+            JobError::UpdateDropped => "update_dropped",
+        }
+    }
+}

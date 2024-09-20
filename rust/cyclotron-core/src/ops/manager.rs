@@ -1,8 +1,10 @@
 use chrono::{DateTime, Utc};
+use futures::TryFutureExt;
 use uuid::Uuid;
 
 use crate::{
     error::QueueError,
+    metrics_consts::{BULK_INSERT_ATTEMPT, JOBS_INSERTS, JOB_INSERT_ATTEMPT},
     types::{JobInit, JobState},
 };
 
@@ -49,8 +51,14 @@ VALUES
         data.blob
     )
     .execute(executor)
+    .map_err(|e| {
+        metrics::counter!(JOB_INSERT_ATTEMPT, "outcome" => "failure").increment(1);
+        e
+    })
     .await?;
 
+    metrics::counter!(JOB_INSERT_ATTEMPT, "outcome" => "success").increment(1);
+    metrics::counter!(JOBS_INSERTS).increment(1);
     Ok(())
 }
 
@@ -161,7 +169,14 @@ FROM UNNEST(
     .bind(parameters)
     .bind(blob)
     .execute(executor)
-    .await?;
+    .await
+    .map_err(|e: sqlx::Error| {
+        metrics::counter!(BULK_INSERT_ATTEMPT, "outcome" => "failure").increment(1);
+        e
+    })?;
+
+    metrics::counter!(BULK_INSERT_ATTEMPT, "outcome" => "success").increment(1);
+    metrics::counter!(JOBS_INSERTS).increment(jobs.len() as u64);
 
     Ok(())
 }

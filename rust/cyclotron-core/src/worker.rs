@@ -16,6 +16,9 @@ use uuid::Uuid;
 use crate::{
     config::WorkerConfig,
     error::JobError,
+    metrics_consts::{
+        FLUSHED_UPDATES, FLUSH_ATTEMPT, FLUSH_BATCH_SIZE, JOB_RELEASED, UPDATE_FLUSHED_BYTES,
+    },
     ops::{
         meta::{dead_letter, run_migrations},
         worker::{dequeue_jobs, dequeue_with_vm_state, flush_job, get_vm_state, set_heartbeat},
@@ -152,6 +155,7 @@ impl Worker {
     /// this workers lock on the job has been lost), or until the deadline is exceeded, if one is
     /// provided. All updates will have at least one flush attempt.
     pub fn release_job(&self, job_id: Uuid, deadline: Option<Duration>) -> FlushHandle {
+        metrics::counter!(JOB_RELEASED).increment(1);
         let update = {
             let mut running = self.running.lock().unwrap();
             let Some(update) = running.remove(&job_id) else {
@@ -189,7 +193,7 @@ impl Worker {
     pub async fn force_flush(&self) -> Result<(), QueueError> {
         let mut to_flush = { self.flush_batch.lock().unwrap().take() };
         let res = if !to_flush.pending.is_empty() {
-            to_flush.flush(&self.pool).await
+            to_flush.flush(&self.pool, FlushCause::Forced).await
         } else {
             Ok(())
         };
@@ -345,8 +349,9 @@ async fn flush_loop(
         };
         // Contemplating sync mutexes on the tree of woe.
         let mut to_flush = { batch.lock().unwrap().take() };
-        if to_flush.should_flush(max_buffered, max_bytes) {
-            if let Err(e) = to_flush.flush(&pool).await {
+        let flush_cause = to_flush.get_cause(max_buffered, max_bytes);
+        if let Some(cause) = flush_cause {
+            if let Err(e) = to_flush.flush(&pool, cause).await {
                 error!("Error flushing batch: {:?}", e);
             }
         }
@@ -400,7 +405,9 @@ impl FlushBatch {
         self.pending.push(pending);
     }
 
-    async fn flush(&mut self, pool: &PgPool) -> Result<(), QueueError> {
+    async fn flush(&mut self, pool: &PgPool, cause: FlushCause) -> Result<(), QueueError> {
+        metrics::histogram!(FLUSH_BATCH_SIZE, "cause" => cause.as_str())
+            .record(self.pending.len() as f64);
         let now = Utc::now();
         // First, filter any updates whose deadline is exceeded that we have
         // already tried to flush once, sending a deadline exceeded error to the
@@ -414,7 +421,11 @@ impl FlushBatch {
             }
         }
 
-        let mut txn = pool.begin().await?;
+        let mut txn = pool.begin().await.map_err(|e| {
+            metrics::counter!(FLUSH_ATTEMPT, "cause" => cause.as_str(), "outcome" => "begin_failed")
+                .increment(1);
+            e
+        })?;
         let mut results = Vec::new();
         for to_flush in self.pending.iter_mut() {
             to_flush.tries += 1;
@@ -427,11 +438,19 @@ impl FlushBatch {
                     results.push(Err(e));
                 }
                 Err(e) => {
+                    metrics::counter!(FLUSH_ATTEMPT, "cause" => cause.as_str(), "outcome" => "flush_error")
+                        .increment(1);
                     return Err(e);
                 }
             }
         }
-        txn.commit().await?;
+        txn.commit().await.map_err(|e| {
+            metrics::counter!(FLUSH_ATTEMPT, "cause" => cause.as_str(), "outcome" => "commit_failed")
+                .increment(1);
+            e
+        })?;
+        metrics::counter!(FLUSH_ATTEMPT, "cause" => cause.as_str(), "outcome" => "success")
+            .increment(results.len() as u64);
 
         // We only dispatch results and clear the pending set if we actually commit the transaction, otherwise
         // the updates in this batch should be retried.
@@ -441,12 +460,20 @@ impl FlushBatch {
         Ok(())
     }
 
-    fn should_flush(&self, max_buffered: usize, max_bytes: usize) -> bool {
-        let would_flush = Utc::now() >= self.next_mandatory_flush
-            || self.pending.len() >= max_buffered
-            || self.blobs_size + self.vm_states_size >= max_bytes;
-
-        would_flush && !self.pending.is_empty() // we only should flush if we have something to flush
+    fn get_cause(&self, max_buffered: usize, max_bytes: usize) -> Option<FlushCause> {
+        if self.pending.is_empty() {
+            return None;
+        }
+        if Utc::now() >= self.next_mandatory_flush {
+            return Some(FlushCause::Linger);
+        }
+        if self.pending.len() >= max_buffered {
+            return Some(FlushCause::Buffer);
+        }
+        if self.blobs_size + self.vm_states_size >= max_bytes {
+            return Some(FlushCause::Bytes);
+        }
+        None
     }
 
     // Take the current batch, replacing it in memory with an empty one. Used along with "merge"
@@ -501,6 +528,20 @@ impl PendingUpdate {
     }
 
     pub fn resolve(self, result: Result<(), JobError>) {
+        let result_str = if let Err(e) = &result {
+            e.to_label()
+        } else {
+            "committed"
+        };
+        metrics::counter!(FLUSHED_UPDATES, "result" => result_str).increment(1);
+        if let Some(Some(blob)) = self.update.blob.as_ref() {
+            metrics::counter!(UPDATE_FLUSHED_BYTES, "result" => result_str, "type" => "blob")
+                .increment(blob.len() as u64);
+        }
+        if let Some(Some(vm_state)) = self.update.vm_state.as_ref() {
+            metrics::counter!(UPDATE_FLUSHED_BYTES, "result" => result_str, "type" => "vm_state")
+                .increment(vm_state.len() as u64);
+        }
         // We do not care if someone is waiting for this result or not
         let _ = self.tx.send(result);
     }
@@ -512,6 +553,14 @@ pub struct FlushHandle {
 
 impl FlushHandle {
     pub fn immediate(result: Result<(), JobError>) -> Self {
+        let result_str = if let Err(e) = &result {
+            e.to_label()
+        } else {
+            "committed"
+        };
+        // Since immediates are only ever used in error cases anyway, we expect
+        // the to be rare enough that the fact I'm not counting bytes here is fine.
+        metrics::counter!(FLUSHED_UPDATES, "result" => result_str).increment(1);
         let (tx, rx) = oneshot::channel();
         let _ = tx.send(result);
         Self { inner: rx }
@@ -531,6 +580,24 @@ impl Future for FlushHandle {
             Poll::Ready(Ok(result)) => Poll::Ready(result),
             Poll::Ready(Err(_)) => Poll::Ready(Err(JobError::UpdateDropped)),
             Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+enum FlushCause {
+    Forced,
+    Linger,
+    Buffer,
+    Bytes,
+}
+
+impl FlushCause {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Forced => "forced",
+            Self::Linger => "linger",
+            Self::Buffer => "buffer",
+            Self::Bytes => "bytes",
         }
     }
 }

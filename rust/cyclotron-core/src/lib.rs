@@ -1,3 +1,4 @@
+mod metrics_consts;
 mod ops;
 
 // We do this pattern (privately use a module, then re-export parts of it) so we can refactor/rename or generally futz around with the internals without breaking the public API
