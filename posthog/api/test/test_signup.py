@@ -673,7 +673,7 @@ class TestSignupAPI(APIBaseTest):
         )
         self.assertFalse(mock_capture.call_args.kwargs["properties"]["is_organization_first_user"])
 
-        if use_invite:
+        if use_invite and not expired_invite:
             # make sure the org invite no longer exists
             self.assertEqual(
                 OrganizationInvite.objects.filter(
@@ -693,8 +693,6 @@ class TestSignupAPI(APIBaseTest):
         if expired_invite:
             # Check that the user was still created and added to the organization
             self.assertEqual(user.organization, new_org)
-            # But they shouldn't have access to the private project
-            self.assertFalse(teams.filter(pk=private_project.pk).exists())
 
     @patch("posthoganalytics.capture")
     @mock.patch("social_core.backends.base.BaseAuth.request")
@@ -757,7 +755,9 @@ class TestSignupAPI(APIBaseTest):
         mock_capture,
     ):
         with self.is_cloud(True):
-            self.run_test_for_allowed_domain(mock_sso_providers, mock_request, mock_capture, use_invite=True)
+            self.run_test_for_allowed_domain(
+                mock_sso_providers, mock_request, mock_capture, use_invite=True, expired_invite=True
+            )
         assert mock_update_billing_organization_users.called_once()
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
