@@ -395,9 +395,11 @@ const NodeCanvasWithTable = ({
                                     <div className="text-xs mt-2 max-w-full">
                                         <LemonTag
                                             type={
-                                                StatusTagSetting[
-                                                    dataWarehouseSavedQueryMapById[savedQueryId]?.status
-                                                ] || 'default'
+                                                (dataWarehouseSavedQueryMapById[savedQueryId]?.status &&
+                                                    StatusTagSetting[
+                                                        dataWarehouseSavedQueryMapById[savedQueryId]?.status
+                                                    ]) ||
+                                                'default'
                                             }
                                             className="break-words"
                                         >
