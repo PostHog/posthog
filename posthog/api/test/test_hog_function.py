@@ -176,6 +176,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "id": template_webhook.id,
             "status": template_webhook.status,
             "icon_url": template_webhook.icon_url,
+            "category": template_webhook.category,
             "inputs_schema": template_webhook.inputs_schema,
             "hog": template_webhook.hog,
             "filters": None,

@@ -7,9 +7,10 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, Hog
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
     id="template-customerio",
-    name="Send events to Customer.io",
+    name="Customer.io",
     description="Identify or track events against customers in Customer.io",
     icon_url="/static/services/customerio.png",
+    category=["Email Marketing"],
     hog="""
 let action := inputs.action
 let name := event.event
