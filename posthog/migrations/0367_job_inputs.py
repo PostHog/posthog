@@ -3,6 +3,7 @@
 import django.db.models.deletion
 from django.conf import settings
 from django.db import migrations, models
+
 import posthog.models.utils
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 
