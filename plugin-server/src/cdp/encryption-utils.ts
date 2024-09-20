@@ -19,7 +19,7 @@ export class EncryptedFields {
         return this.fernets[0].encrypt(value)
     }
 
-    decrypt(value: string): string | undefined {
+    decrypt(value: string, options?: { ignoreDecryptionErrors: boolean }): string | undefined {
         let error: Error | undefined
         // Iterate over all keys and try to decrypt the value
         for (const fernet of this.fernets) {
@@ -30,6 +30,32 @@ export class EncryptedFields {
             }
         }
 
+        if (options?.ignoreDecryptionErrors) {
+            return value
+        }
+
         throw error
+    }
+
+    decryptObject(value: any, options?: { ignoreDecryptionErrors: boolean }): any {
+        if (typeof value === 'string') {
+            return this.decrypt(value, options)
+        }
+
+        if (value === null || value === undefined) {
+            return value
+        }
+
+        if (Array.isArray(value)) {
+            return value.map((item) => this.decryptObject(item, options))
+        }
+
+        if (typeof value === 'object') {
+            return Object.fromEntries(
+                Object.entries(value).map(([key, value]) => [key, this.decryptObject(value, options)])
+            )
+        }
+
+        return value
     }
 }

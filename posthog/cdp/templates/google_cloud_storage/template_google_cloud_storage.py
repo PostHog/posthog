@@ -12,6 +12,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     name="Google Cloud Storage",
     description="Send data to GCS. This creates a file per event.",
     icon_url="/static/services/google-cloud-storage.png",
+    category=["Custom"],
     hog="""
 let res := fetch(f'https://storage.googleapis.com/upload/storage/v1/b/{encodeURLComponent(inputs.bucketName)}/o?uploadType=media&name={encodeURLComponent(inputs.filename)}', {
   'method': 'POST',
@@ -103,7 +104,7 @@ class TemplateGoogleCloudStorageMigrator(HogFunctionTemplateMigrator):
             "bucketName": {"value": bucketName},
             "payload": {
                 "value": "uuid,event,properties,elements,people_set,people_set_once,distinct_id,team_id,ip,site_url,timestamp\n"
-                + "{event.uuid},{event.name},{jsonStringify(event.properties)},,,,{event.distinct_id},,,,{event.timestamp}"
+                + "{event.uuid},{event.event},{jsonStringify(event.properties)},{event.elements_chain},{jsonStringify(event.properties.$set)},{jsonStringify(event.properties.$set_once)},{event.distinct_id},,,,{event.timestamp}"
             },
             "filename": {
                 "value": "{toDate(event.timestamp)}/{replaceAll(replaceAll(replaceAll(toString(event.timestamp), '-', ''), ':', ''), 'T', '-')}-{event.uuid}.csv"

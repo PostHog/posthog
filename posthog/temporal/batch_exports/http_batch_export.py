@@ -48,18 +48,19 @@ class RetryableResponseError(Exception):
 class NonRetryableResponseError(Exception):
     """Error for HTTP status >= 400 and < 500 (excluding 429)."""
 
-    def __init__(self, status):
-        super().__init__(f"NonRetryableResponseError status: {status}")
+    def __init__(self, status, content):
+        super().__init__(f"NonRetryableResponseError (status: {status}): {content}")
 
 
-def raise_for_status(response: aiohttp.ClientResponse):
+async def raise_for_status(response: aiohttp.ClientResponse):
     """Like aiohttp raise_for_status, but it distinguishes between retryable and non-retryable
     errors."""
     if not response.ok:
         if response.status >= 500 or response.status == 429:
             raise RetryableResponseError(response.status)
         else:
-            raise NonRetryableResponseError(response.status)
+            text = await response.text()
+            raise NonRetryableResponseError(response.status, text)
 
 
 def http_default_fields() -> list[BatchExportField]:
@@ -155,7 +156,7 @@ async def post_json_file_to_url(url, batch_file, session: aiohttp.ClientSession)
     data_reader.close = lambda: None  # type: ignore
 
     async with session.post(url, data=data_reader, headers=headers) as response:
-        raise_for_status(response)
+        await raise_for_status(response)
 
     data_reader.detach()
     return response

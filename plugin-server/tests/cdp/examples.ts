@@ -244,7 +244,7 @@ export const HOG_EXAMPLES: Record<string, Pick<HogFunctionType, 'hog' | 'bytecod
         ],
     },
     posthog_capture: {
-        hog: "postHogCapture({\n    'event': f'{event.name} (copy)',\n    'distinct_id': event.distinct_id,\n    'properties': {}\n})",
+        hog: "postHogCapture({\n    'event': f'{event.event} (copy)',\n    'distinct_id': event.distinct_id,\n    'properties': {}\n})",
         bytecode: [
             '_h',
             32,
@@ -252,7 +252,7 @@ export const HOG_EXAMPLES: Record<string, Pick<HogFunctionType, 'hog' | 'bytecod
             32,
             ' (copy)',
             32,
-            'name',
+            'event',
             32,
             'event',
             1,

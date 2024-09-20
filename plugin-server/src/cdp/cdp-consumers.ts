@@ -477,7 +477,8 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
                 await this.groupsManager.enrichGroups(invocationGlobals)
 
                 await this.runManyWithHeartbeat(invocationGlobals, (globals) => {
-                    const { matchingFunctions, nonMatchingFunctions } = this.hogExecutor.findMatchingFunctions(globals)
+                    const { matchingFunctions, nonMatchingFunctions, erroredFunctions } =
+                        this.hogExecutor.findMatchingFunctions(globals)
 
                     possibleInvocations.push(
                         ...matchingFunctions.map((hogFunction) => createInvocation(globals, hogFunction))
@@ -489,6 +490,16 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
                             app_source_id: item.id,
                             metric_kind: 'other',
                             metric_name: 'filtered',
+                            count: 1,
+                        })
+                    )
+
+                    erroredFunctions.forEach((item) =>
+                        this.produceAppMetric({
+                            team_id: item.team_id,
+                            app_source_id: item.id,
+                            metric_kind: 'other',
+                            metric_name: 'filtering_failed',
                             count: 1,
                         })
                     )
