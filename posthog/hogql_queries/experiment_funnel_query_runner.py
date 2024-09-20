@@ -45,17 +45,16 @@ class ExperimentFunnelQueryRunner(QueryRunner):
 
         # Set the date range to match the experiment's duration, using the project's timezone
         if self.team.timezone:
-            start_date = self.experiment.start_date.astimezone(ZoneInfo(self.team.timezone))
-            end_date = (
-                self.experiment.end_date.astimezone(ZoneInfo(self.team.timezone)) if self.experiment.end_date else None
-            )
+            tz = ZoneInfo(self.team.timezone)
+            start_date = self.experiment.start_date.astimezone(tz) if self.experiment.start_date else None
+            end_date = self.experiment.end_date.astimezone(tz) if self.experiment.end_date else None
         else:
             start_date = self.experiment.start_date
             end_date = self.experiment.end_date
 
         prepared_funnel_query.dateRange = InsightDateRange(
-            date_from=start_date.strftime("%Y-%m-%d"),
-            date_to=end_date.strftime("%Y-%m-%d") if end_date else None,
+            date_from=start_date.isoformat() if start_date else None,
+            date_to=end_date.isoformat() if end_date else None,
             explicitDate=True,
         )
 
