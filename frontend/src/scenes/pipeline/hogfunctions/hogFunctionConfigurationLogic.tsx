@@ -149,12 +149,10 @@ export function convertToHogFunctionInvocationGlobals(
             properties: event.properties,
             timestamp: event.timestamp,
 
-            name: event.event,
             url: `${projectUrl}/events/${encodeURIComponent(event.uuid ?? '')}/${encodeURIComponent(event.timestamp)}`,
         },
         person: {
-            id: person.uuid ?? person.id ?? '',
-            uuid: person.uuid ?? person.id ?? '', // TODO: remove
+            id: person.id ?? '',
             properties: person.properties,
 
             name: asDisplay(person),
@@ -474,12 +472,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                             $current_url: currentUrl,
                             $browser: 'Chrome',
                         },
-                        name: '$pageview',
                         url: `${window.location.origin}/project/${currentTeam?.id}/events/`,
                     },
                     person: {
                         id: personId,
-                        uuid: personId, // TODO: remove
                         properties: {
                             email: 'example@posthog.com',
                         },

@@ -3,9 +3,10 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
     id="template-gleap",
-    name="Add contacts to Gleap",
+    name="Gleap",
     description="Updates a contact in Gleap",
     icon_url="/static/services/gleap.png",
+    category=["Customer Success"],
     hog="""
 let action := inputs.action
 let name := event.event

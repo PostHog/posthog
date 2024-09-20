@@ -27,7 +27,7 @@ def reverse(apps, _):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0475_alter_externaldatasource_source_type"),
+        ("posthog", "0476_alter_integration_sensitive_config"),
     ]
 
     operations = [

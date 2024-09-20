@@ -24,7 +24,7 @@ from .date import (
 )
 from .crypto import sha256Hex, md5Hex, sha256HmacChainHex
 from ..objects import is_hog_error, new_hog_error, is_hog_callable, is_hog_closure
-from ..utils import like
+from ..utils import like, get_nested_value
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -158,6 +158,64 @@ def jsonStringify(args: list[Any], team: Optional["Team"], stdout: Optional[list
     if len(args) > 1 and isinstance(args[1], int) and args[1] > 0:
         return json.dumps(json_safe(args[0]), indent=args[1])
     return json.dumps(json_safe(args[0]))
+
+
+def JSONHas(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> bool:
+    obj = args[0]
+    path = args[1:]
+    current = obj
+    for key in path:
+        currentParsed = current
+        if isinstance(current, str):
+            try:
+                currentParsed = json.loads(current)
+            except json.JSONDecodeError:
+                return False
+        if isinstance(currentParsed, dict):
+            if key not in currentParsed:
+                return False
+            current = currentParsed[key]
+        elif isinstance(currentParsed, list):
+            if isinstance(key, int):
+                if key < 0:
+                    if key < -len(currentParsed):
+                        return False
+                    current = currentParsed[len(currentParsed) + key]
+                elif key == 0:
+                    return False
+                else:
+                    if key > len(currentParsed):
+                        return False
+                    current = currentParsed[key - 1]
+            else:
+                return False
+        else:
+            return False
+    return True
+
+
+def isValidJSON(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> bool:
+    try:
+        json.loads(args[0])
+        return True
+    except json.JSONDecodeError:
+        return False
+
+
+def JSONLength(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> int:
+    obj = args[0]
+    path = args[1:]
+    try:
+        if isinstance(obj, str):
+            obj = json.loads(obj)
+    except json.JSONDecodeError:
+        return 0
+    if not isinstance(obj, dict) and not isinstance(obj, list):
+        return 0
+    current = get_nested_value(obj, path, nullish=True)
+    if isinstance(current, dict) or isinstance(current, list):
+        return len(current)
+    return 0
 
 
 def base64Encode(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> str:
@@ -384,6 +442,9 @@ STL: dict[str, STLFunction] = {
     "print": STLFunction(fn=print, minArgs=0, maxArgs=None),
     "jsonParse": STLFunction(fn=jsonParse, minArgs=1, maxArgs=1),
     "jsonStringify": STLFunction(fn=jsonStringify, minArgs=1, maxArgs=1),
+    "JSONHas": STLFunction(fn=JSONHas, minArgs=2, maxArgs=None),
+    "isValidJSON": STLFunction(fn=isValidJSON, minArgs=1, maxArgs=1),
+    "JSONLength": STLFunction(fn=JSONLength, minArgs=2, maxArgs=None),
     "base64Encode": STLFunction(fn=base64Encode, minArgs=1, maxArgs=1),
     "base64Decode": STLFunction(fn=base64Decode, minArgs=1, maxArgs=1),
     "encodeURLComponent": STLFunction(fn=encodeURLComponent, minArgs=1, maxArgs=1),
