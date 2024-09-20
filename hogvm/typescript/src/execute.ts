@@ -221,8 +221,25 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
         }
         return options.external.regex.match
     }
+    let lastChunk = ''
     const logTelemetry = (): void => {
-        telemetry.push([new Date().getTime(), frame.chunk, frame.ip, chunkBytecode[frame.ip]])
+        const op = chunkBytecode[frame.ip]
+        let debug = ''
+        if (op === Operation.GET_GLOBAL) {
+            debug = String(stack[stack.length - 1])
+        } else if (op === Operation.CALL_GLOBAL) {
+            debug = String(chunkBytecode[frame.ip + 1])
+        } else if (op === Operation.CALL_LOCAL) {
+            debug = String(stack[stack.length - 1])
+        }
+        telemetry.push([
+            new Date().getTime(),
+            frame.chunk !== lastChunk ? frame.chunk : '',
+            frame.ip,
+            chunkBytecode[frame.ip],
+            debug,
+        ])
+        lastChunk = frame.chunk
     }
 
     const nextOp = options?.telemetry

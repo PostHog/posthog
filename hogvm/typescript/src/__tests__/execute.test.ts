@@ -2465,10 +2465,36 @@ describe('hogvm execute', () => {
                 syncDuration: expect.any(Number),
                 maxMemUsed: 16,
                 telemetry: [
-                    [expect.any(Number), 'root', 1, 33],
-                    [expect.any(Number), 'root', 3, 33],
-                    [expect.any(Number), 'root', 5, 6],
-                    [expect.any(Number), 'root', 6, 38],
+                    [expect.any(Number), 'root', 1, 33, ''],
+                    [expect.any(Number), '', 3, 33, ''],
+                    [expect.any(Number), '', 5, 6, ''],
+                    [expect.any(Number), '', 6, 38, ''],
+                ],
+            },
+        })
+    })
+
+    test('logs telemetry for calls', () => {
+        const bytecode = ['_h', op.FALSE, op.TRUE, op.CALL_GLOBAL, 'concat', 2]
+        const result = exec(bytecode, { telemetry: true })
+        expect(result).toEqual({
+            result: 'truefalse',
+            finished: true,
+            state: {
+                bytecode: [],
+                stack: [],
+                upvalues: [],
+                callStack: [],
+                throwStack: [],
+                declaredFunctions: {},
+                ops: 3,
+                asyncSteps: 0,
+                syncDuration: expect.any(Number),
+                maxMemUsed: 17,
+                telemetry: [
+                    [expect.any(Number), 'root', 1, 30, ''],
+                    [expect.any(Number), '', 2, 29, ''],
+                    [expect.any(Number), '', 3, 2, 'concat'],
                 ],
             },
         })

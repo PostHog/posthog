@@ -57,7 +57,9 @@ export type Telemetry = [
     /** Current position in chunk */
     number,
     /** Opcode */
-    number
+    number,
+    /** Debug */
+    string
 ]
 
 export interface ExecResult {
