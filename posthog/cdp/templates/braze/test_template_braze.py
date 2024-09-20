@@ -14,7 +14,7 @@ class TestTemplateBraze(BaseHogFunctionTemplateTest):
                 "apiKey": "my_secret_key",
                 "attributes": {"email": "{person.properties.email}"},
                 "event": {
-                    "name": "{event.name}",
+                    "name": "{event.event}",
                     "time": "{event.timestamp}",
                     "properties": "{event.properties}",
                     "external_id": "{event.distinct_id}",
@@ -36,7 +36,7 @@ class TestTemplateBraze(BaseHogFunctionTemplateTest):
                         "events": [
                             {
                                 "external_id": "{event.distinct_id}",
-                                "name": "{event.name}",
+                                "name": "{event.event}",
                                 "properties": "{event.properties}",
                                 "time": "{event.timestamp}",
                             },

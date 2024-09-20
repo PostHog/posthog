@@ -47,7 +47,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
         loaded,
         hogFunction,
         willReEnableOnSave,
-        exampleInvocationGlobalsWithInputs,
+        globalsWithInputs,
         showPaygate,
         hasAddon,
         sparkline,
@@ -177,7 +177,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                         {template && <DestinationTag status={template.status} />}
                                     </div>
 
-                                    <HogFunctionStatusIndicator />
+                                    <HogFunctionStatusIndicator hogFunction={hogFunction} />
 
                                     <LemonField name="enabled">
                                         {({ value, onChange }) => (
@@ -377,7 +377,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                                             language="hog"
                                                             value={value ?? ''}
                                                             onChange={(v) => onChange(v ?? '')}
-                                                            globals={exampleInvocationGlobalsWithInputs}
+                                                            globals={globalsWithInputs}
                                                             options={{
                                                                 minimap: {
                                                                     enabled: false,

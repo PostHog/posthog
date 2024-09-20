@@ -129,6 +129,16 @@
                 }
             ]
         },
+        "ActionConversionGoal": {
+            "additionalProperties": false,
+            "properties": {
+                "actionId": {
+                    "type": "integer"
+                }
+            },
+            "required": ["actionId"],
+            "type": "object"
+        },
         "ActionsNode": {
             "additionalProperties": false,
             "properties": {
@@ -527,6 +537,19 @@
                 },
                 {
                     "$ref": "#/definitions/DataWarehouseNode"
+                }
+            ]
+        },
+        "AnyFilterLike": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/AnyPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/PropertyGroupFilter"
+                },
+                {
+                    "$ref": "#/definitions/PropertyGroupFilterValue"
                 }
             ]
         },
@@ -2597,6 +2620,10 @@
                 "label": {
                     "type": "string"
                 },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator",
+                    "default": "in"
+                },
                 "type": {
                     "const": "cohort",
                     "type": "string"
@@ -2605,7 +2632,7 @@
                     "type": "integer"
                 }
             },
-            "required": ["key", "type", "value"],
+            "required": ["key", "operator", "type", "value"],
             "type": "object"
         },
         "CompareFilter": {
@@ -2628,6 +2655,10 @@
                     "type": "array"
                 },
                 "color": {
+                    "type": "string"
+                },
+                "colorMode": {
+                    "enum": ["light", "dark"],
                     "type": "string"
                 },
                 "columnName": {
@@ -2657,6 +2688,16 @@
                 "p99_count_per_actor"
             ],
             "type": "string"
+        },
+        "CustomEventConversionGoal": {
+            "additionalProperties": false,
+            "properties": {
+                "customEventName": {
+                    "type": "string"
+                }
+            },
+            "required": ["customEventName"],
+            "type": "object"
         },
         "DashboardFilter": {
             "additionalProperties": false,
@@ -4390,7 +4431,7 @@
                 "fixedProperties": {
                     "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
                     "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
+                        "$ref": "#/definitions/AnyFilterLike"
                     },
                     "type": "array"
                 },
@@ -4536,6 +4577,9 @@
         "ExperimentFunnelQuery": {
             "additionalProperties": false,
             "properties": {
+                "experiment_id": {
+                    "type": "integer"
+                },
                 "kind": {
                     "const": "ExperimentFunnelQuery",
                     "type": "string"
@@ -4549,15 +4593,9 @@
                 },
                 "source": {
                     "$ref": "#/definitions/FunnelsQuery"
-                },
-                "variants": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
                 }
             },
-            "required": ["kind", "source", "variants"],
+            "required": ["experiment_id", "kind", "source"],
             "type": "object"
         },
         "ExperimentFunnelQueryResponse": {
@@ -4583,6 +4621,9 @@
                 "count_source": {
                     "$ref": "#/definitions/TrendsQuery"
                 },
+                "experiment_id": {
+                    "type": "integer"
+                },
                 "exposure_source": {
                     "$ref": "#/definitions/TrendsQuery"
                 },
@@ -4596,15 +4637,9 @@
                 },
                 "response": {
                     "$ref": "#/definitions/ExperimentTrendQueryResponse"
-                },
-                "variants": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
                 }
             },
-            "required": ["count_source", "exposure_source", "kind", "variants"],
+            "required": ["count_source", "experiment_id", "exposure_source", "kind"],
             "type": "object"
         },
         "ExperimentTrendQueryResponse": {
@@ -7384,7 +7419,9 @@
                 "between",
                 "not_between",
                 "min",
-                "max"
+                "max",
+                "in",
+                "not_in"
             ],
             "type": "string"
         },
@@ -10771,14 +10808,14 @@
             "type": "object"
         },
         "WebAnalyticsConversionGoal": {
-            "additionalProperties": false,
-            "properties": {
-                "actionId": {
-                    "type": "integer"
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/ActionConversionGoal"
+                },
+                {
+                    "$ref": "#/definitions/CustomEventConversionGoal"
                 }
-            },
-            "required": ["actionId"],
-            "type": "object"
+            ]
         },
         "WebAnalyticsPropertyFilter": {
             "anyOf": [

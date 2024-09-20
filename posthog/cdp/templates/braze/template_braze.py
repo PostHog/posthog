@@ -4,9 +4,10 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
     id="template-braze",
-    name="Send events to Braze",
+    name="Braze",
     description="Send events to Braze",
     icon_url="/static/services/braze.png",
+    category=["Customer Success"],
     hog="""
 let getPayload := () -> [{
   'attributes': inputs.attributes,
@@ -73,7 +74,7 @@ if (res.status >= 200 and res.status < 300) {
             "default": {
                 "properties": "{event.properties}",
                 "external_id": "{event.distinct_id}",
-                "name": "{event.name}",
+                "name": "{event.event}",
                 "time": "{event.timestamp}",
             },
             "secret": False,

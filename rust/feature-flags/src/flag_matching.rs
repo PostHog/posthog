@@ -91,7 +91,7 @@ impl GroupTypeMappingCache {
                 return Err(e);
             }
         };
-        self.group_types_to_indexes = mapping.clone();
+        self.group_types_to_indexes.clone_from(&mapping);
 
         Ok(mapping)
     }
@@ -108,7 +108,7 @@ impl GroupTypeMappingCache {
             types_to_indexes.into_iter().map(|(k, v)| (v, k)).collect();
 
         if !result.is_empty() {
-            self.group_indexes_to_types = result.clone();
+            self.group_indexes_to_types.clone_from(&result);
             Ok(result)
         } else {
             Err(FlagError::NoGroupTypeMappings)
@@ -836,7 +836,7 @@ mod tests {
             None,
         );
         let match_result = matcher.get_match(&flag, None).await.unwrap();
-        assert_eq!(match_result.matches, true);
+        assert!(match_result.matches);
         assert_eq!(match_result.variant, None);
 
         let mut matcher = FeatureFlagMatcher::new(
@@ -848,7 +848,7 @@ mod tests {
             None,
         );
         let match_result = matcher.get_match(&flag, None).await.unwrap();
-        assert_eq!(match_result.matches, false);
+        assert!(!match_result.matches);
         assert_eq!(match_result.variant, None);
 
         let mut matcher = FeatureFlagMatcher::new(
@@ -860,7 +860,7 @@ mod tests {
             None,
         );
         let match_result = matcher.get_match(&flag, None).await.unwrap();
-        assert_eq!(match_result.matches, false);
+        assert!(!match_result.matches);
         assert_eq!(match_result.variant, None);
     }
 
@@ -1041,7 +1041,7 @@ mod tests {
             .is_condition_match(&flag, &condition, None)
             .await
             .unwrap();
-        assert_eq!(is_match, true);
+        assert!(is_match);
         assert_eq!(reason, "CONDITION_MATCH");
     }
 

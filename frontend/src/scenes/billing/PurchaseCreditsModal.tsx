@@ -12,7 +12,7 @@ import { BillingGaugeItemKind } from './types'
 
 export const PurchaseCreditsModal = (): JSX.Element | null => {
     const { showPurchaseCreditsModal, submitCreditForm } = useActions(billingLogic)
-    const { selfServeCreditOverview, isCreditFormSubmitting, creditForm, creditDiscount } = useValues(billingLogic)
+    const { creditOverview, isCreditFormSubmitting, creditForm, creditDiscount } = useValues(billingLogic)
     const { openSupportForm } = useActions(supportLogic)
 
     const creditInputValue: number = +creditForm.creditInput || 0
@@ -56,7 +56,7 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                         Based on your usage, we think you'll use{' '}
                         <b>
                             $
-                            {(+selfServeCreditOverview.estimated_monthly_credit_amount_usd).toLocaleString('en-US', {
+                            {(+creditOverview.estimated_monthly_credit_amount_usd).toLocaleString('en-US', {
                                 minimumFractionDigits: 0,
                                 maximumFractionDigits: 0,
                             })}
@@ -64,13 +64,10 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                         of credits per months, for a total of{' '}
                         <b>
                             $
-                            {(+selfServeCreditOverview.estimated_monthly_credit_amount_usd * 12).toLocaleString(
-                                'en-US',
-                                {
-                                    minimumFractionDigits: 0,
-                                    maximumFractionDigits: 0,
-                                }
-                            )}
+                            {(+creditOverview.estimated_monthly_credit_amount_usd * 12).toLocaleString('en-US', {
+                                minimumFractionDigits: 0,
+                                maximumFractionDigits: 0,
+                            })}
                         </b>{' '}
                         credits for the year.
                     </p>
@@ -183,14 +180,14 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                                 options={[
                                     {
                                         value: 'charge_automatically',
-                                        label: selfServeCreditOverview.cc_last_four
-                                            ? `Pay with credit card on file (**** ${selfServeCreditOverview.cc_last_four})`
+                                        label: creditOverview.cc_last_four
+                                            ? `Pay with credit card on file (**** ${creditOverview.cc_last_four})`
                                             : 'Pay with credit card on file',
                                     },
                                     {
                                         value: 'send_invoice',
-                                        label: selfServeCreditOverview.email
-                                            ? `Send me an invoice to ${selfServeCreditOverview.email}`
+                                        label: creditOverview.email
+                                            ? `Send me an invoice to ${creditOverview.email}`
                                             : 'Send me an invoice',
                                     },
                                 ]}

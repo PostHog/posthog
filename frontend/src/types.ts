@@ -375,6 +375,7 @@ export interface OrganizationDomainType {
 export interface BaseMemberType {
     id: string
     user: UserBasicType
+    last_login: string | null
     joined_at: string
     updated_at: string
     is_2fa_enabled: boolean
@@ -640,6 +641,8 @@ export enum PropertyOperator {
     NotBetween = 'not_between',
     Minimum = 'min',
     Maximum = 'max',
+    In = 'in',
+    NotIn = 'not_in',
 }
 
 export enum SavedInsightsTabs {
@@ -770,6 +773,8 @@ export interface CohortPropertyFilter extends BasePropertyFilter {
     key: 'id'
     /**  @asType integer */
     value: number
+    /** @default 'in' */
+    operator: PropertyOperator
 }
 
 export interface GroupPropertyFilter extends BasePropertyFilter {
@@ -945,6 +950,7 @@ export enum SessionRecordingUsageType {
 }
 
 export enum SessionRecordingSidebarTab {
+    PERSON = 'person',
     INSPECTOR = 'inspector',
     DEBUGGER = 'debugger',
 }
@@ -1509,6 +1515,9 @@ export interface PerformanceEvent {
     request_body?: Body
     response_body?: Body
     method?: string
+    // normally, can rely on performance event values like duration,
+    // but they may be absent in which case the SDK may have sent start and end time
+    end_time?: number
 
     //rrweb/network@1 - i.e. not in ClickHouse table
     is_initial?: boolean
@@ -1791,6 +1800,11 @@ export interface DashboardType<T = InsightModel> extends DashboardBasicType {
     filters: DashboardFilter
 }
 
+export enum TemplateAvailabilityContext {
+    GENERAL = 'general',
+    ONBOARDING = 'onboarding',
+}
+
 export interface DashboardTemplateType<T = InsightModel> {
     id: string
     team_id?: number
@@ -1803,6 +1817,7 @@ export interface DashboardTemplateType<T = InsightModel> {
     tags?: string[]
     image_url?: string
     scope?: DashboardTemplateScope
+    availability_contexts?: TemplateAvailabilityContext[]
 }
 
 export interface MonacoMarker {
@@ -2168,6 +2183,7 @@ export interface TemplateVariableStep {
     url?: string | null
     properties?: Record<string, any>[]
     custom_name?: string
+    custom_event?: boolean
 }
 
 export interface PropertiesTimelineFilterType {
@@ -3102,6 +3118,7 @@ export enum PropertyType {
     Boolean = 'Boolean',
     Duration = 'Duration',
     Selector = 'Selector',
+    Cohort = 'Cohort',
 }
 
 export enum PropertyDefinitionType {
@@ -3323,6 +3340,7 @@ export interface AppContext {
     year_in_hog_url?: string
     /** Support flow aid: a staff-only list of users who may be impersonated to access this resource. */
     suggested_users_with_access?: UserBasicType[]
+    is_region_blocked?: boolean
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
@@ -3905,6 +3923,7 @@ export const externalDataSources = [
     'Snowflake',
     'Salesforce',
     'Vitally',
+    'BigQuery',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -4289,11 +4308,20 @@ export interface SourceFieldSwitchGroupConfig {
     fields: SourceFieldConfig[]
 }
 
+export interface SourceFieldFileUploadConfig {
+    type: 'file-upload'
+    name: string
+    label: string
+    fileFormat: string
+    required: boolean
+}
+
 export type SourceFieldConfig =
     | SourceFieldInputConfig
     | SourceFieldSwitchGroupConfig
     | SourceFieldSelectConfig
     | SourceFieldOauthConfig
+    | SourceFieldFileUploadConfig
 
 export interface SourceConfig {
     name: ExternalDataSourceType
@@ -4485,17 +4513,18 @@ export type HogFunctionInvocationGlobals = {
     }
     event: {
         uuid: string
-        name: string
+        event: string
+        elements_chain: string
         distinct_id: string
         properties: Record<string, any>
         timestamp: string
         url: string
     }
     person?: {
-        uuid: string
+        id: string
+        properties: Record<string, any>
         name: string
         url: string
-        properties: Record<string, any>
     }
     groups?: Record<
         string,
