@@ -12,6 +12,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     name="Google Pub/Sub",
     description="Send data to a Google Pub/Sub topic",
     icon_url="/static/services/google-cloud.png",
+    category=["Custom"],
     hog="""
 let headers := () -> {
   'Authorization': f'Bearer {inputs.auth.access_token}',
@@ -109,8 +110,9 @@ class TemplateGooglePubSubMigrator(HogFunctionTemplateMigrator):
             "topicId": {"value": topicId},
             "payload": {
                 "value": {
-                    "event": "{event.name}",
+                    "event": "{event.event}",
                     "distinct_id": "{event.distinct_id}",
+                    "elements_chain": "{event.elements_chain}",
                     "timestamp": "{event.timestamp}",
                     "uuid": "{event.uuid}",
                     "properties": "{event.properties}",

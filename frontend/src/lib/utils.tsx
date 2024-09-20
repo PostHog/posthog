@@ -49,13 +49,17 @@ export const humanizeBytes = (fileSizeInBytes: number | null): string => {
     }
 
     let i = -1
+    let convertedBytes = fileSizeInBytes
     const byteUnits = ['kB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB']
     do {
-        fileSizeInBytes = fileSizeInBytes / 1024
+        convertedBytes = convertedBytes / 1024
         i++
-    } while (fileSizeInBytes > 1024)
+    } while (convertedBytes > 1024)
 
-    return Math.max(fileSizeInBytes, 0.1).toFixed(1) + ' ' + byteUnits[i]
+    if (convertedBytes < 0.1) {
+        return fileSizeInBytes + ' bytes'
+    }
+    return convertedBytes.toFixed(2) + ' ' + byteUnits[i]
 }
 
 export function toParams(obj: Record<string, any>, explodeArrays: boolean = false): string {
@@ -429,6 +433,22 @@ export function humanFriendlyNumber(d: number, precision: number = DEFAULT_DECIM
         precision = DEFAULT_DECIMAL_PLACES
     }
     return d.toLocaleString('en-US', { maximumFractionDigits: precision })
+}
+
+/** Format currency from string with commas and 2 decimal places. */
+export function humanFriendlyCurrency(d: string | undefined | number): string {
+    if (!d) {
+        d = '0.00'
+    }
+
+    let number: number
+    if (typeof d === 'string') {
+        number = parseFloat(d)
+    } else {
+        number = d
+    }
+
+    return `$${number.toLocaleString('en-US', { maximumFractionDigits: 2, minimumFractionDigits: 2 })}`
 }
 
 export function humanFriendlyLargeNumber(d: number): string {
@@ -1413,6 +1433,12 @@ export function hexToRGBA(hex: string, alpha = 1): string {
     const { r, g, b } = hexToRGB(hex)
     const a = alpha
     return `rgba(${[r, g, b, a].join(',')})`
+}
+
+export function RGBToHex(rgb: string): string {
+    const rgbValues = rgb.replace('rgb(', '').replace(')', '').split(',').map(Number)
+
+    return `#${rgbValues.map((val) => val.toString(16).padStart(2, '0')).join('')}`
 }
 
 export function RGBToRGBA(rgb: string, a: number): string {

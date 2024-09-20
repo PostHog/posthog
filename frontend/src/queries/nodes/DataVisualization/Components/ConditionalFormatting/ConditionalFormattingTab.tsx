@@ -4,7 +4,7 @@ import { IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCollapse, LemonInput, LemonSelect, LemonTag, Popover } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
-import { hexToRGBA, lightenDarkenColor, RGBToRGBA } from 'lib/utils'
+import { hexToRGBA, lightenDarkenColor, RGBToHex, RGBToRGBA } from 'lib/utils'
 import { useState } from 'react'
 import { ColorResult, TwitterPicker } from 'react-color'
 
@@ -119,10 +119,14 @@ const ColourPickerButton = ({
         }
     }
 
+    const colors = isDarkModeOn
+        ? DEFAULT_PICKER_COLORS.map((n) => RGBToHex(lightenDarkenColor(n, -30)))
+        : DEFAULT_PICKER_COLORS
+
     return (
         <Popover
             visible={pickerOpen}
-            overlay={<TwitterPicker color={color} colors={DEFAULT_PICKER_COLORS} onChangeComplete={onColorSelect} />}
+            overlay={<TwitterPicker color={color} colors={colors} onChangeComplete={onColorSelect} />}
             onClickOutside={() => setPickerOpen(false)}
             padded={false}
         >
