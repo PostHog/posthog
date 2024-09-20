@@ -1,11 +1,12 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import { dayjs } from 'lib/dayjs'
-import { uuid } from 'lib/utils'
+import { lightenDarkenColor, RGBToHex, uuid } from 'lib/utils'
 import mergeObject from 'lodash.merge'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { insightVizDataCollectionId } from '~/queries/nodes/InsightViz/InsightViz'
 import {
     AnyResponseType,
@@ -222,6 +223,8 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 loadPriority: props.insightLogicProps.loadPriority,
             }),
             ['response', 'responseLoading', 'responseError', 'queryCancelled'],
+            themeLogic,
+            ['isDarkModeOn'],
         ],
     })),
     props({ query: {} } as DataVisualizationLogicProps),
@@ -252,10 +255,14 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         updateChartSettings: (settings: ChartSettings) => ({ settings }),
         setSideBarTab: (tab: SideBarTab) => ({ tab }),
         toggleChartSettingsPanel: (open?: boolean) => ({ open }),
-        addConditionalFormattingRule: (rule?: ConditionalFormattingRule) => rule ?? { id: uuid() },
+        addConditionalFormattingRule: (rule?: ConditionalFormattingRule) => ({
+            rule: rule ?? { id: uuid() },
+            isDarkModeOn: values.isDarkModeOn,
+        }),
         updateConditionalFormattingRule: (rule: ConditionalFormattingRule, deleteRule?: boolean) => ({
             rule,
             deleteRule,
+            colorMode: values.isDarkModeOn ? 'dark' : 'light',
         }),
         setConditionalFormattingRulesPanelActiveKeys: (keys: string[]) => ({ keys }),
     })),
@@ -455,7 +462,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         conditionalFormattingRules: [
             [] as ConditionalFormattingRule[],
             {
-                addConditionalFormattingRule: (state, rule) => {
+                addConditionalFormattingRule: (state, { rule, isDarkModeOn }) => {
                     const rules = [...state]
 
                     rules.push({
@@ -463,13 +470,13 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                         columnName: '',
                         bytecode: [],
                         input: '',
-                        color: '#FFADAD',
+                        color: isDarkModeOn ? RGBToHex(lightenDarkenColor('#FFADAD', -30)) : '#FFADAD',
                         ...rule,
                     })
 
                     return rules
                 },
-                updateConditionalFormattingRule: (state, { rule, deleteRule }) => {
+                updateConditionalFormattingRule: (state, { rule, deleteRule, colorMode }) => {
                     const rules = [...state]
 
                     const index = rules.findIndex((n) => n.id === rule.id)
@@ -482,7 +489,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                         return rules
                     }
 
-                    rules[index] = { ...rule }
+                    rules[index] = { ...rule, colorMode: colorMode as 'light' | 'dark' }
                     return rules
                 },
             },
@@ -490,7 +497,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         conditionalFormattingRulesPanelActiveKeys: [
             [] as string[],
             {
-                addConditionalFormattingRule: (state, { id }) => {
+                addConditionalFormattingRule: (state, { rule: { id } }) => {
                     return [...state, id]
                 },
                 setConditionalFormattingRulesPanelActiveKeys: (_, { keys }) => {

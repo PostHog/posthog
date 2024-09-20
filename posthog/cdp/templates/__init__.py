@@ -23,6 +23,7 @@ from .google_pubsub.template_google_pubsub import template as google_pubsub, Tem
 from .engage.template_engage import template as engage, TemplateEngageMigrator
 from .zendesk.template_zendesk import template as zendesk
 from .knock.template_knock import template as knock
+from .activecampaign.template_activecampaign import template as activecampaign
 from .google_cloud_storage.template_google_cloud_storage import (
     template as google_cloud_storage,
     TemplateGoogleCloudStorageMigrator,
@@ -32,29 +33,30 @@ from .google_cloud_storage.template_google_cloud_storage import (
 HOG_FUNCTION_TEMPLATES = [
     slack,
     webhook,
-    hubspot,
-    customerio,
-    intercom,
-    posthog,
-    sendgrid,
+    activecampaign,
+    avo,
     aws_kinesis,
-    zapier,
-    salesforce_create,
-    salesforce_update,
+    braze,
+    clearbit,
+    customerio,
+    engage,
+    gleap,
+    google_cloud_storage,
+    google_pubsub,
+    hubspot,
+    intercom,
+    knock,
+    loops,
+    mailgun,
     mailjet_create_contact,
     mailjet_update_contact_list,
-    clearbit,
-    mailgun,
-    loops,
+    posthog,
     rudderstack,
-    avo,
-    gleap,
-    google_pubsub,
-    engage,
+    salesforce_create,
+    salesforce_update,
+    sendgrid,
+    zapier,
     zendesk,
-    google_cloud_storage,
-    braze,
-    knock,
 ]
 
 

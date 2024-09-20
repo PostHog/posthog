@@ -7,9 +7,10 @@ from posthog.hogql.escape_sql import escape_hogql_string
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
     id="template-posthog-replicator",
-    name="Replicate data to another PostHog instance",
+    name="PostHog",
     description="Send a copy of the incoming data in realtime to another PostHog instance",
     icon_url="/static/posthog-icon.svg",
+    category=["Custom", "Analytics"],
     hog="""
 let host := inputs.host
 let token := inputs.token
@@ -28,9 +29,10 @@ fetch(f'{host}/e', {
     },
     'body': {
         'token': token,
-        'event': event.name,
+        'event': event.event,
         'timestamp': event.timestamp,
         'distinct_id': event.distinct_id,
+        'elements_chain': event.elements_chain,
         'properties': properties
     }
 })

@@ -237,9 +237,15 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
 
         # Replace fields with any redefined fields if they exist
         external_table_fields = external_tables.get(self.table_name_without_prefix())
+        default_fields = external_tables.get("*", {})
         if external_table_fields is not None:
-            default_fields = external_tables.get("*", {})
             fields = {**external_table_fields, **default_fields}
+        else:
+            # Hide the `_dlt` fields from tables
+            if fields.get("_dlt_id") and fields.get("_dlt_load_id"):
+                del fields["_dlt_id"]
+                del fields["_dlt_load_id"]
+                fields = {**fields, **default_fields}
 
         return S3Table(
             name=self.name,

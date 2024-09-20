@@ -1,4 +1,5 @@
 import { actions, connect, kea, listeners, path, reducers } from 'kea'
+import { forms } from 'kea-forms'
 import { urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 import { dashboardTemplateVariablesLogic } from 'scenes/dashboard/dashboardTemplateVariablesLogic'
@@ -28,7 +29,7 @@ export const onboardingTemplateConfigLogic = kea<onboardingTemplateConfigLogicTy
                 'maybeResetActiveVariableCustomEventName',
             ],
             onboardingLogic,
-            ['goToPreviousStep', 'setOnCompleteOnboardingRedirectUrl'],
+            ['goToPreviousStep', 'setOnCompleteOnboardingRedirectUrl', 'goToNextStep'],
         ],
     }),
     actions({
@@ -36,6 +37,8 @@ export const onboardingTemplateConfigLogic = kea<onboardingTemplateConfigLogicTy
         showCustomEventField: true,
         hideCustomEventField: true,
         reportTemplateSelected: (template: DashboardTemplateType) => ({ template }),
+        showTemplateRequestModal: true,
+        hideTemplateRequestModal: true,
     }),
     reducers({
         dashboardCreatedDuringOnboarding: [
@@ -47,13 +50,42 @@ export const onboardingTemplateConfigLogic = kea<onboardingTemplateConfigLogicTy
             },
         ],
         customEventFieldShown: [
-            false,
+            false as boolean,
             {
                 showCustomEventField: () => true,
                 hideCustomEventField: () => false,
             },
         ],
+        isTemplateRequestModalOpen: [
+            false as boolean,
+            {
+                showTemplateRequestModal: () => true,
+                hideTemplateRequestModal: () => false,
+            },
+        ],
     }),
+    forms(({ actions, values }) => ({
+        templateRequestForm: {
+            alwaysShowErrors: true,
+            showErrorsOnTouch: true,
+            defaults: {
+                templateRequest: '',
+            },
+            errors: ({ templateRequest }) => ({
+                templateRequest: !templateRequest
+                    ? "Please enter a template you'd like us to add to continue"
+                    : undefined,
+            }),
+            submit: async () => {
+                posthog.capture('template requested during onboarding', {
+                    template_request: values.templateRequestForm.templateRequest,
+                })
+                actions.hideTemplateRequestModal()
+                actions.resetTemplateRequestForm()
+                actions.goToNextStep(2)
+            },
+        },
+    })),
     listeners(({ actions, values }) => ({
         submitNewDashboardSuccessWithResult: ({ result, variables }) => {
             if (result && variables?.length == 0) {

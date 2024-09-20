@@ -15,22 +15,22 @@ jobs:
         strategy:
             matrix:
                 include:
-                - image: capture
-                  dockerfile: ./rust/Dockerfile
-                - image: hook-api
-                  dockerfile: ./rust/Dockerfile
-                - image: hook-janitor
-                  dockerfile: ./rust/Dockerfile
-                - image: hook-worker
-                  dockerfile: ./rust/Dockerfile
-                - image: hook-migrator
-                  dockerfile: ./rust/Dockerfile.migrate-hooks
-                - image: cyclotron-janitor
-                  dockerfile: ./rust/Dockerfile
-                - image: cyclotron-fetch
-                  dockerfile: ./rust/Dockerfile
-                - image: property-defs-rs
-                  dockerfile: ./rust/Dockerfile
+                    - image: capture
+                      dockerfile: ./rust/Dockerfile
+                    - image: hook-api
+                      dockerfile: ./rust/Dockerfile
+                    - image: hook-janitor
+                      dockerfile: ./rust/Dockerfile
+                    - image: hook-worker
+                      dockerfile: ./rust/Dockerfile
+                    - image: hook-migrator
+                      dockerfile: ./rust/Dockerfile.migrate-hooks
+                    - image: cyclotron-janitor
+                      dockerfile: ./rust/Dockerfile
+                    - image: cyclotron-fetch
+                      dockerfile: ./rust/Dockerfile
+                    - image: property-defs-rs
+                      dockerfile: ./rust/Dockerfile
         runs-on: depot-ubuntu-22.04-4
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
@@ -122,35 +122,35 @@ jobs:
         if: github.ref == 'refs/heads/master'
         strategy:
             matrix:
-              include:
-              - release: capture
-                values:
-                  image:
-                    sha: "${{ needs.build.outputs.capture_digest }}"
-              - release: capture-replay
-                values:
-                  image:
-                    sha: "${{ needs.build.outputs.capture_digest }}"
-              - release: cyclotron
-                values:
-                  fetch_image:
-                    sha: "${{ needs.build.outputs.cyclotron-fetch_digest }}"
-                  janitor_image:
-                    sha: "${{ needs.build.outputs.cyclotron-janitor_digest }}"
-              - release: property-defs-rs
-                values:
-                  image:
-                    sha: "${{ needs.build.outputs.property-defs-rs_digest }}"
-              - release: hoghooks
-                values:
-                  api_image:
-                    sha: "${{ needs.build.outputs.hook-api_digest }}"
-                  janitor_image:
-                    sha: "${{ needs.build.outputs.hook-janitor_digest }}"
-                  worker_image:
-                    sha: "${{ needs.build.outputs.hook-worker_digest }}"
-                  migrator_image:
-                    sha: "${{ needs.build.outputs.hook-migrator_digest }}"
+                include:
+                    - release: capture
+                      values:
+                          image:
+                              sha: '${{ needs.build.outputs.capture_digest }}'
+                    - release: capture-replay
+                      values:
+                          image:
+                              sha: '${{ needs.build.outputs.capture_digest }}'
+                    - release: cyclotron
+                      values:
+                          fetch_image:
+                              sha: '${{ needs.build.outputs.cyclotron-fetch_digest }}'
+                          janitor_image:
+                              sha: '${{ needs.build.outputs.cyclotron-janitor_digest }}'
+                    - release: property-defs-rs
+                      values:
+                          image:
+                              sha: '${{ needs.build.outputs.property-defs-rs_digest }}'
+                    - release: hoghooks
+                      values:
+                          api_image:
+                              sha: '${{ needs.build.outputs.hook-api_digest }}'
+                          janitor_image:
+                              sha: '${{ needs.build.outputs.hook-janitor_digest }}'
+                          worker_image:
+                              sha: '${{ needs.build.outputs.hook-worker_digest }}'
+                          migrator_image:
+                              sha: '${{ needs.build.outputs.hook-migrator_digest }}'
         steps:
             - name: get deployer token
               id: deployer

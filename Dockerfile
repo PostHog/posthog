@@ -111,7 +111,7 @@ COPY hogvm hogvm/
 COPY posthog posthog/
 COPY ee ee/
 COPY --from=frontend-build /code/frontend/dist /code/frontend/dist
-RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 SECRET_KEY='unsafe secret key for collectstatic only' DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
+RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 STATIC_COLLECTION=1 DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
 
 
 #
