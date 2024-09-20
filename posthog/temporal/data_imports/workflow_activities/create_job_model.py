@@ -32,7 +32,7 @@ async def create_external_data_job_model_activity(inputs: CreateExternalDataJobM
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
 
     try:
-        run = await sync_to_async(create_external_data_job)(
+        job = await sync_to_async(create_external_data_job)(
             team_id=inputs.team_id,
             external_data_source_id=inputs.source_id,
             external_data_schema_id=inputs.schema_id,
@@ -46,7 +46,11 @@ async def create_external_data_job_model_activity(inputs: CreateExternalDataJobM
 
         source = await sync_to_async(ExternalDataSource.objects.get)(team_id=inputs.team_id, id=inputs.source_id)
 
-        if source.source_type in [ExternalDataSource.Type.POSTGRES, ExternalDataSource.Type.MYSQL]:
+        if source.source_type in [
+            ExternalDataSource.Type.POSTGRES,
+            ExternalDataSource.Type.MYSQL,
+            ExternalDataSource.Type.MSSQL,
+        ]:
             host = source.job_inputs.get("host")
             port = source.job_inputs.get("port")
             user = source.job_inputs.get("user")
@@ -108,7 +112,7 @@ async def create_external_data_job_model_activity(inputs: CreateExternalDataJobM
         if schema_model is None:
             raise ValueError(f"Schema with ID {inputs.schema_id} not found")
 
-        return str(run.id), schema_model.is_incremental
+        return str(job.id), schema_model.is_incremental
     except Exception as e:
         logger.exception(
             f"External data job failed on create_external_data_job_model_activity for {str(inputs.source_id)} with error: {e}"

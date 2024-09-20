@@ -1,14 +1,13 @@
 import { HogFunctionManager } from '../../src/cdp/hog-function-manager'
 import { HogFunctionType, IntegrationType } from '../../src/cdp/types'
 import { Hub } from '../../src/types'
-import { createHub } from '../../src/utils/db/hub'
+import { closeHub, createHub } from '../../src/utils/db/hub'
 import { PostgresUse } from '../../src/utils/db/postgres'
 import { createTeam, resetTestDatabase } from '../helpers/sql'
 import { insertHogFunction, insertIntegration } from './fixtures'
 
 describe('HogFunctionManager', () => {
     let hub: Hub
-    let closeServer: () => Promise<void>
     let manager: HogFunctionManager
 
     let hogFunctions: HogFunctionType[]
@@ -18,9 +17,9 @@ describe('HogFunctionManager', () => {
     let teamId2: number
 
     beforeEach(async () => {
-        ;[hub, closeServer] = await createHub()
+        hub = await createHub()
         await resetTestDatabase()
-        manager = new HogFunctionManager(hub.postgres, hub)
+        manager = new HogFunctionManager(hub)
 
         const team = await hub.db.fetchTeam(2)
 
@@ -34,7 +33,10 @@ describe('HogFunctionManager', () => {
             await insertIntegration(hub.postgres, teamId1, {
                 kind: 'slack',
                 config: { team: 'foobar' },
-                sensitive_config: { access_token: 'token' },
+                sensitive_config: {
+                    access_token: hub.encryptedFields.encrypt('token'),
+                    not_encrypted: 'not-encrypted',
+                },
             })
         )
 
@@ -82,7 +84,8 @@ describe('HogFunctionManager', () => {
     })
 
     afterEach(async () => {
-        await closeServer()
+        await manager.stop()
+        await closeHub(hub)
     })
 
     it('returns the hog functions', async () => {
@@ -94,7 +97,7 @@ describe('HogFunctionManager', () => {
                 team_id: teamId1,
                 name: 'Test Hog Function team 1',
                 enabled: true,
-                bytecode: null,
+                bytecode: {},
                 filters: null,
                 inputs_schema: [
                     {
@@ -107,12 +110,14 @@ describe('HogFunctionManager', () => {
                         value: {
                             access_token: 'token',
                             team: 'foobar',
+                            not_encrypted: 'not-encrypted',
                         },
                     },
                     normal: {
                         value: integrations[0].id,
                     },
                 },
+                encrypted_inputs: null,
                 masking: null,
                 depends_on_integration_ids: new Set([integrations[0].id]),
             },
@@ -172,6 +177,7 @@ describe('HogFunctionManager', () => {
                 value: {
                     access_token: 'token',
                     team: 'foobar',
+                    not_encrypted: 'not-encrypted',
                 },
             },
             normal: {

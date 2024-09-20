@@ -108,10 +108,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: '',
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: KAFKA_EVENTS_JSON,
         CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
-        CONVERSION_BUFFER_ENABLED: false,
-        CONVERSION_BUFFER_ENABLED_TEAMS: '',
-        CONVERSION_BUFFER_TOPIC_ENABLED_TEAMS: '',
-        BUFFER_CONVERSION_SECONDS: isDevEnv() ? 2 : 60, // KEEP IN SYNC WITH posthog/settings/ingestion.py
         PERSON_INFO_CACHE_TTL: 5 * 60, // 5 min
         KAFKA_HEALTHCHECK_SECONDS: 20,
         OBJECT_STORAGE_ENABLED: true,
@@ -175,6 +171,9 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_OVERFLOW_MIN_PER_BATCH: 1_000_000, // All sessions consume at least 1MB/batch, to penalise poor batching
         SESSION_RECORDING_KAFKA_CONSUMPTION_STATISTICS_EVENT_INTERVAL_MS: 0, // 0 disables stats collection
         SESSION_RECORDING_KAFKA_FETCH_MIN_BYTES: 1_048_576, // 1MB
+
+        ENCRYPTION_SALT_KEYS: isDevEnv() || isTestEnv() ? '00beef0000beef0000beef0000beef00' : '',
+
         // CDP
         CDP_WATCHER_COST_ERROR: 100,
         CDP_WATCHER_COST_TIMING: 20,
@@ -187,13 +186,22 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_WATCHER_REFILL_RATE: 10,
         CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT: 3,
         CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS: '',
-        CDP_ASYNC_FUNCTIONS_CYCLOTRON_TEAMS: '',
+        CDP_CYCLOTRON_ENABLED_TEAMS: '',
         CDP_REDIS_PASSWORD: '',
+        CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: true,
         CDP_REDIS_HOST: '',
         CDP_REDIS_PORT: 6479,
+        CDP_CYCLOTRON_BATCH_DELAY_MS: 50,
+        CDP_CYCLOTRON_BATCH_SIZE: 500,
 
         // Cyclotron
-        CYCLOTRON_DATABASE_URL: '',
+        CYCLOTRON_DATABASE_URL: isTestEnv()
+            ? 'postgres://posthog:posthog@localhost:5432/test_cyclotron'
+            : isDevEnv()
+            ? 'postgres://posthog:posthog@localhost:5432/cyclotron'
+            : '',
+
+        CYCLOTRON_SHARD_DEPTH_LIMIT: 1000000,
     }
 }
 

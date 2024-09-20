@@ -38,11 +38,16 @@ def get_nested_value(obj, chain, nullish=False) -> Any:
         if nullish and obj is None:
             return None
         if isinstance(key, int):
-            if key <= 0:
+            if key == 0:
                 raise HogVMException(f"Hog arrays start from index 1")
-            if nullish and key > len(obj):
-                return None
-            obj = obj[key - 1]
+            elif key > 0:
+                if key > len(obj):
+                    return None
+                obj = obj[key - 1]
+            elif key < 0:
+                if -key > len(obj):
+                    return None
+                obj = obj[key]
         else:
             obj = obj.get(key, None)
     return obj
@@ -90,3 +95,19 @@ def calculate_cost(object, marked: set | None = None) -> int:
     elif isinstance(object, str):
         return COST_PER_UNIT + len(object)
     return COST_PER_UNIT
+
+
+def unify_comparison_types(left, right):
+    if isinstance(left, int | float) and isinstance(right, str):
+        return left, float(right)
+    if isinstance(left, str) and isinstance(right, int | float):
+        return float(left), right
+    if isinstance(left, bool) and isinstance(right, str):
+        return left, bool(right)
+    if isinstance(left, str) and isinstance(right, bool):
+        return bool(left), right
+    if isinstance(left, int | float) and isinstance(right, bool):
+        return left, int(right)
+    if isinstance(left, bool) and isinstance(right, int | float):
+        return int(left), right
+    return left, right

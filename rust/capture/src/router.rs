@@ -8,32 +8,34 @@ use axum::{
     Router,
 };
 use health::HealthRegistry;
+use tower::limit::ConcurrencyLimitLayer;
 use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 
-use crate::{
-    limiters::billing::BillingLimiter, redis::Client, sinks, time::TimeSource, v0_endpoint,
-};
+use crate::test_endpoint;
+use crate::{limiters::redis::RedisLimiter, redis::Client, sinks, time::TimeSource, v0_endpoint};
 
 use crate::config::CaptureMode;
 use crate::prometheus::{setup_metrics_recorder, track_metrics};
 
 const EVENT_BODY_SIZE: usize = 2 * 1024 * 1024; // 2MB
 const BATCH_BODY_SIZE: usize = 20 * 1024 * 1024; // 20MB, up from the default 2MB used for normal event payloads
-const RECORDING_BODY_SIZE: usize = 20 * 1024 * 1024; // 20MB, up from the default 2MB used for normal event payloads
+const RECORDING_BODY_SIZE: usize = 25 * 1024 * 1024; // 25MB, up from the default 2MB used for normal event payloads
 
 #[derive(Clone)]
 pub struct State {
     pub sink: Arc<dyn sinks::Event + Send + Sync>,
     pub timesource: Arc<dyn TimeSource + Send + Sync>,
     pub redis: Arc<dyn Client + Send + Sync>,
-    pub billing: BillingLimiter,
+    pub billing_limiter: RedisLimiter,
+    pub event_size_limit: usize,
 }
 
 async fn index() -> &'static str {
     "capture"
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn router<
     TZ: TimeSource + Send + Sync + 'static,
     S: sinks::Event + Send + Sync + 'static,
@@ -43,15 +45,18 @@ pub fn router<
     liveness: HealthRegistry,
     sink: S,
     redis: Arc<R>,
-    billing: BillingLimiter,
+    billing_limiter: RedisLimiter,
     metrics: bool,
     capture_mode: CaptureMode,
+    concurrency_limit: Option<usize>,
+    event_size_limit: usize,
 ) -> Router {
     let state = State {
         sink: Arc::new(sink),
         timesource: Arc::new(timesource),
         redis,
-        billing,
+        billing_limiter,
+        event_size_limit,
     };
 
     // Very permissive CORS policy, as old SDK versions
@@ -61,6 +66,21 @@ pub fn router<
         .allow_headers(AllowHeaders::mirror_request())
         .allow_credentials(true)
         .allow_origin(AllowOrigin::mirror_request());
+
+    let test_router = Router::new()
+        .route(
+            "/test/black_hole",
+            post(test_endpoint::test_black_hole)
+                .get(test_endpoint::test_black_hole)
+                .options(v0_endpoint::options),
+        )
+        .route(
+            "/test/black_hole/",
+            post(test_endpoint::test_black_hole)
+                .get(test_endpoint::test_black_hole)
+                .options(v0_endpoint::options),
+        )
+        .layer(DefaultBodyLimit::max(BATCH_BODY_SIZE));
 
     let batch_router = Router::new()
         .route(
@@ -124,15 +144,24 @@ pub fn router<
         )
         .layer(DefaultBodyLimit::max(RECORDING_BODY_SIZE));
 
-    let router = match capture_mode {
-        CaptureMode::Events => Router::new().merge(batch_router).merge(event_router),
+    let mut router = match capture_mode {
+        CaptureMode::Events => Router::new()
+            .merge(batch_router)
+            .merge(event_router)
+            .merge(test_router),
         CaptureMode::Recordings => Router::new().merge(recordings_router),
+    };
+
+    if let Some(limit) = concurrency_limit {
+        router = router.layer(ConcurrencyLimitLayer::new(limit));
     }
-    .merge(status_router)
-    .layer(TraceLayer::new_for_http())
-    .layer(cors)
-    .layer(axum::middleware::from_fn(track_metrics))
-    .with_state(state);
+
+    let router = router
+        .merge(status_router)
+        .layer(TraceLayer::new_for_http())
+        .layer(cors)
+        .layer(axum::middleware::from_fn(track_metrics))
+        .with_state(state);
 
     // Don't install metrics unless asked to
     // Installing a global recorder when capture is used as a library (during tests etc)

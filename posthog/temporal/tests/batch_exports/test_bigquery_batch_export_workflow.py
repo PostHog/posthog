@@ -5,6 +5,7 @@ import operator
 import os
 import typing
 import uuid
+import warnings
 
 import pyarrow as pa
 import pytest
@@ -213,7 +214,12 @@ def bigquery_dataset(bigquery_config, bigquery_client) -> typing.Generator[bigqu
 
     yield dataset
 
-    # bigquery_client.delete_dataset(dataset_id, delete_contents=True, not_found_ok=True)
+    try:
+        bigquery_client.delete_dataset(dataset_id, delete_contents=True, not_found_ok=True)
+    except Exception as exc:
+        warnings.warn(
+            f"Failed to clean up dataset: {dataset_id} due to '{exc.__class__.__name__}': {str(exc)}", stacklevel=1
+        )
 
 
 @pytest.fixture

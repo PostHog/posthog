@@ -17,6 +17,42 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         "__dlt_id": StringDatabaseField(name="_dlt_id", hidden=True),
         "__dlt_load_id": StringDatabaseField(name="_dlt_load_id", hidden=True),
     },
+    "stripe_account": {
+        "id": StringDatabaseField(name="id"),
+        "object": StringDatabaseField(name="object"),
+        "business_profile": StringJSONDatabaseField(name="business_profile"),
+        "business_type": StringDatabaseField(name="business_type"),
+        "capabilities": StringJSONDatabaseField(name="capabilities"),
+        "charges_enabled": BooleanDatabaseField(name="charges_enabled"),
+        "controller": StringJSONDatabaseField(name="controller"),
+        "country": StringDatabaseField(name="country"),
+        "__created": IntegerDatabaseField(name="created", hidden=True),
+        "created_at": ast.ExpressionField(
+            isolate_scope=True,
+            expr=ast.Call(
+                name="toDateTime",
+                args=[
+                    ast.Call(
+                        name="toString",
+                        args=[ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__created"])])],
+                    )
+                ],
+            ),
+            name="created_at",
+        ),
+        "default_currency": StringDatabaseField(name="default_currency"),
+        "details_submitted": BooleanDatabaseField(name="details_submitted"),
+        "email": StringDatabaseField(name="email"),
+        "external_accounts": StringJSONDatabaseField(name="external_accounts"),
+        "future_requirements": StringJSONDatabaseField(name="future_requirements"),
+        "login_links": StringJSONDatabaseField(name="login_links"),
+        "metadata": StringJSONDatabaseField(name="metadata"),
+        "payouts_enabled": BooleanDatabaseField(name="payouts_enabled"),
+        "requirements": StringJSONDatabaseField(name="requirements"),
+        "settings": StringJSONDatabaseField(name="settings"),
+        "tos_acceptance": StringJSONDatabaseField(name="tos_acceptance"),
+        "type": StringDatabaseField(name="type"),
+    },
     "stripe_customer": {
         "id": StringDatabaseField(name="id"),
         "name": StringDatabaseField(name="name"),
@@ -419,6 +455,35 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         ),
         "cancel_at_period_end": BooleanDatabaseField(name="cancel_at_period_end"),
         "cancellation_details": StringJSONDatabaseField(name="cancellation_details"),
+        "__trial_end": IntegerDatabaseField(name="trial_end", hidden=True),
+        "trial_end": ast.ExpressionField(
+            isolate_scope=True,
+            expr=ast.Call(
+                name="toDateTime",
+                args=[
+                    ast.Call(
+                        name="toString",
+                        args=[ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__trial_end"])])],
+                    )
+                ],
+            ),
+            name="trial_end",
+        ),
+        "__trial_start": IntegerDatabaseField(name="trial_start", hidden=True),
+        "trial_start": ast.ExpressionField(
+            isolate_scope=True,
+            expr=ast.Call(
+                name="toDateTime",
+                args=[
+                    ast.Call(
+                        name="toString",
+                        args=[ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__trial_start"])])],
+                    )
+                ],
+            ),
+            name="trial_start",
+        ),
+        "trial_settings": StringJSONDatabaseField(name="trial_settings"),
     },
     "stripe_balancetransaction": {
         "id": StringDatabaseField(name="id"),

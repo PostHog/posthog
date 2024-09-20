@@ -35,9 +35,12 @@ class TableLoader:
             try:
                 self.cursor_column: Optional[Column[Any]] = table.c[incremental.cursor_path]
             except KeyError as e:
-                raise KeyError(
-                    f"Cursor column '{incremental.cursor_path}' does not exist in table '{table.name}'"
-                ) from e
+                try:
+                    self.cursor_column = table.c[incremental.cursor_path.lower()]
+                except KeyError:
+                    raise KeyError(
+                        f"Cursor column '{incremental.cursor_path}' does not exist in table '{table.name}'"
+                    ) from e
             self.last_value = incremental.last_value
         else:
             self.cursor_column = None
@@ -51,10 +54,16 @@ class TableLoader:
         last_value_func = self.incremental.last_value_func
         if last_value_func is max:  # Query ordered and filtered according to last_value function
             order_by = self.cursor_column.asc()  # type: ignore
-            filter_op = operator.gt
+            if self.last_value == self.incremental.initial_value:
+                filter_op = operator.ge
+            else:
+                filter_op = operator.gt
         elif last_value_func is min:
             order_by = self.cursor_column.desc()  # type: ignore
-            filter_op = operator.lt
+            if self.last_value == self.incremental.initial_value:
+                filter_op = operator.le
+            else:
+                filter_op = operator.lt
         else:  # Custom last_value, load everything and let incremental handle filtering
             return query
         query = query.order_by(order_by)

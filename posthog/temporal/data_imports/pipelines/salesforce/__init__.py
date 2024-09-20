@@ -1,3 +1,4 @@
+from typing import Any, Optional
 import dlt
 from dlt.sources.helpers.rest_client.paginators import BasePaginator
 from dlt.sources.helpers.requests import Response, Request
@@ -11,7 +12,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
         "User": {
             "name": "User",
             "table_name": "user",
-            "primary_key": "id",
+            **({"primary_key": "id"} if is_incremental else {}),
             "write_disposition": "replace",
             "endpoint": {
                 "data_selector": "records",
@@ -25,7 +26,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
         "UserRole": {
             "name": "UserRole",
             "table_name": "user_role",
-            "primary_key": "id",
+            **({"primary_key": "id"} if is_incremental else {}),
             "write_disposition": "replace",
             "endpoint": {
                 "data_selector": "records",
@@ -39,7 +40,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
         "Lead": {
             "name": "Lead",
             "table_name": "lead",
-            "primary_key": "id",
+            **({"primary_key": "id"} if is_incremental else {}),
             "write_disposition": "replace",
             "endpoint": {
                 "data_selector": "records",
@@ -53,7 +54,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
         "Contact": {
             "name": "Contact",
             "table_name": "contact",
-            "primary_key": "id",
+            **({"primary_key": "id"} if is_incremental else {}),
             "write_disposition": "replace",
             "endpoint": {
                 "data_selector": "records",
@@ -67,7 +68,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
         "Campaign": {
             "name": "Campaign",
             "table_name": "campaign",
-            "primary_key": "id",
+            **({"primary_key": "id"} if is_incremental else {}),
             "write_disposition": "replace",
             "endpoint": {
                 "data_selector": "records",
@@ -81,7 +82,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
         "Product2": {
             "name": "Product2",
             "table_name": "product2",
-            "primary_key": "id",
+            **({"primary_key": "id"} if is_incremental else {}),
             "write_disposition": "replace",
             "endpoint": {
                 "data_selector": "records",
@@ -95,7 +96,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
         "Pricebook2": {
             "name": "Pricebook2",
             "table_name": "pricebook2",
-            "primary_key": "id",
+            **({"primary_key": "id"} if is_incremental else {}),
             "write_disposition": "replace",
             "endpoint": {
                 "data_selector": "records",
@@ -109,7 +110,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
         "PricebookEntry": {
             "name": "PricebookEntry",
             "table_name": "pricebook_entry",
-            "primary_key": "id",
+            **({"primary_key": "id"} if is_incremental else {}),
             "write_disposition": "replace",
             "endpoint": {
                 "data_selector": "records",
@@ -120,10 +121,24 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             },
             "table_format": "delta",
         },
+        "Order": {
+            "name": "Order",
+            "table_name": "order",
+            **({"primary_key": "id"} if is_incremental else {}),
+            "write_disposition": "replace",
+            "endpoint": {
+                "data_selector": "records",
+                "path": "/services/data/v61.0/query",
+                "params": {
+                    "q": "SELECT FIELDS(STANDARD) FROM Order",
+                },
+            },
+            "table_format": "delta",
+        },
         "Account": {
             "name": "Account",
             "table_name": "account",
-            "primary_key": "Id",
+            **({"primary_key": "Id"} if is_incremental else {}),
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -157,7 +172,7 @@ class SalesforceEndpointPaginator(BasePaginator):
         super().__init__()
         self.instance_url = instance_url
 
-    def update_state(self, response: Response) -> None:
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         res = response.json()
 
         self._next_page = None
@@ -193,7 +208,7 @@ def salesforce_source(
             "paginator": SalesforceEndpointPaginator(instance_url=instance_url),
         },
         "resource_defaults": {
-            "primary_key": "id",
+            **({"primary_key": "id"} if is_incremental else {}),
         },
         "resources": [get_resource(endpoint, is_incremental)],
     }

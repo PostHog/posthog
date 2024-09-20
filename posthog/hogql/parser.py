@@ -907,16 +907,16 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitColumnExprWinFunctionTarget(self, ctx: HogQLParser.ColumnExprWinFunctionTargetContext):
         return ast.WindowFunction(
             name=self.visit(ctx.identifier(0)),
-            exprs=self.visit(ctx.columnExprList()) if ctx.columnExprList() else [],
-            args=self.visit(ctx.columnArgList()) if ctx.columnArgList() else [],
+            exprs=self.visit(ctx.columnExprs) if ctx.columnExprs else [],
+            args=self.visit(ctx.columnArgList) if ctx.columnArgList else [],
             over_identifier=self.visit(ctx.identifier(1)),
         )
 
     def visitColumnExprWinFunction(self, ctx: HogQLParser.ColumnExprWinFunctionContext):
         return ast.WindowFunction(
             name=self.visit(ctx.identifier()),
-            exprs=self.visit(ctx.columnExprList()) if ctx.columnExprList() else [],
-            args=self.visit(ctx.columnArgList()) if ctx.columnArgList() else [],
+            exprs=self.visit(ctx.columnExprs) if ctx.columnExprs else [],
+            args=self.visit(ctx.columnArgList) if ctx.columnArgList else [],
             over_expr=self.visit(ctx.windowExpr()) if ctx.windowExpr() else None,
         )
 
@@ -925,10 +925,13 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitColumnExprFunction(self, ctx: HogQLParser.ColumnExprFunctionContext):
         name = self.visit(ctx.identifier())
-        column_expr_list = ctx.columnExprList()
-        parameters = self.visit(column_expr_list) if column_expr_list is not None else None
-        column_arg_list = ctx.columnArgList()
-        args = self.visit(column_arg_list) if column_arg_list is not None else []
+
+        parameters: list[ast.Expr] | None = self.visit(ctx.columnExprs) if ctx.columnExprs is not None else None
+        # two sets of parameters fn()(), return an empty list for the first even if no parameters
+        if ctx.LPAREN(1) and parameters is None:
+            parameters = []
+
+        args: list[ast.Expr] = self.visit(ctx.columnArgList) if ctx.columnArgList is not None else []
         distinct = True if ctx.DISTINCT() else False
         return ast.Call(name=name, params=parameters, args=args, distinct=distinct)
 
@@ -941,16 +944,10 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitColumnExprTagElement(self, ctx: HogQLParser.ColumnExprTagElementContext):
         return self.visit(ctx.hogqlxTagElement())
 
-    def visitColumnArgList(self, ctx: HogQLParser.ColumnArgListContext):
-        return [self.visit(arg) for arg in ctx.columnArgExpr()]
-
-    def visitColumnArgExpr(self, ctx: HogQLParser.ColumnArgExprContext):
-        return self.visitChildren(ctx)
-
     def visitColumnLambdaExpr(self, ctx: HogQLParser.ColumnLambdaExprContext):
         return ast.Lambda(
             args=[self.visit(identifier) for identifier in ctx.identifier()],
-            expr=self.visit(ctx.columnExpr()),
+            expr=self.visit(ctx.columnExpr() or ctx.block()),
         )
 
     def visitWithExprList(self, ctx: HogQLParser.WithExprListContext):
@@ -1082,6 +1079,11 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.Call(
             name="ifNull",
             args=[self.visit(ctx.columnExpr(0)), self.visit(ctx.columnExpr(1))],
+        )
+
+    def visitColumnExprCall(self, ctx: HogQLParser.ColumnExprCallContext):
+        return ast.ExprCall(
+            expr=self.visit(ctx.columnExpr()), args=self.visit(ctx.columnExprList()) if ctx.columnExprList() else []
         )
 
     def visitHogqlxTagElementClosed(self, ctx: HogQLParser.HogqlxTagElementClosedContext):

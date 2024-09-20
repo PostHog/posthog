@@ -4,6 +4,7 @@ import {
     IconBrackets,
     IconCorrelationAnalysis,
     IconCursor,
+    IconFlask,
     IconFunnels,
     IconGraph,
     IconHogQL,
@@ -17,6 +18,7 @@ import {
     IconStickiness,
     IconTrends,
     IconUserPaths,
+    IconVideoCamera,
     IconWarning,
 } from '@posthog/icons'
 import { LemonSelectOptions } from '@posthog/lemon-ui'
@@ -297,6 +299,18 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: true,
     },
+    [NodeKind.WebGoalsQuery]: {
+        name: 'Goals',
+        description: 'View goal conversions',
+        icon: IconPieChart,
+        inMenu: true,
+    },
+    [NodeKind.WebExternalClicksTableQuery]: {
+        name: 'External click urls',
+        description: 'View clicks on external links',
+        icon: IconPieChart,
+        inMenu: true,
+    },
     [NodeKind.HogQuery]: {
         name: 'Hog',
         description: 'Hog query',
@@ -313,6 +327,24 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         name: 'Error Tracking',
         description: 'List and explore exception groups',
         icon: IconWarning,
+        inMenu: false,
+    },
+    [NodeKind.RecordingsQuery]: {
+        name: 'Session Recordings',
+        description: 'View available recordings',
+        icon: IconVideoCamera,
+        inMenu: false,
+    },
+    [NodeKind.ExperimentTrendQuery]: {
+        name: 'Experiment Result',
+        description: 'View experiment trend result',
+        icon: IconFlask,
+        inMenu: false,
+    },
+    [NodeKind.ExperimentFunnelQuery]: {
+        name: 'Experiment Funnel',
+        description: 'View experiment funnel result',
+        icon: IconFlask,
         inMenu: false,
     },
 }

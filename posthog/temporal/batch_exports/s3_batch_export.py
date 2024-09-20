@@ -441,7 +441,7 @@ async def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tupl
     except IndexError:
         # This is the error we expect when no details as the sequence will be empty.
         interval_start = inputs.data_interval_start
-        logger.debug(
+        await logger.adebug(
             "Did not receive details from previous activity Execution. Export will start from the beginning %s",
             interval_start,
         )
@@ -449,12 +449,12 @@ async def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tupl
         # We still start from the beginning, but we make a point to log unexpected errors.
         # Ideally, any new exceptions should be added to the previous block after the first time and we will never land here.
         interval_start = inputs.data_interval_start
-        logger.warning(
+        await logger.awarning(
             "Did not receive details from previous activity Execution due to an unexpected error. Export will start from the beginning %s",
             interval_start,
         )
     else:
-        logger.info(
+        await logger.ainfo(
             "Received details from previous activity. Export will attempt to resume from %s",
             interval_start,
         )
@@ -464,7 +464,7 @@ async def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tupl
             # Even if we receive details we cannot resume a brotli compressed upload as we have lost the compressor state.
             interval_start = inputs.data_interval_start
 
-            logger.info(
+            await logger.ainfo(
                 f"Export will start from the beginning as we are using brotli compression: %s",
                 interval_start,
             )
@@ -502,7 +502,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
     files.
     """
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="S3")
-    logger.info(
+    await logger.ainfo(
         "Batch exporting range %s - %s to S3: %s",
         inputs.data_interval_start,
         inputs.data_interval_end,
@@ -557,14 +557,14 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
                 error: Exception | None,
             ):
                 if error is not None:
-                    logger.debug("Error while writing part %d", s3_upload.part_number + 1, exc_info=error)
-                    logger.warn(
+                    await logger.adebug("Error while writing part %d", s3_upload.part_number + 1, exc_info=error)
+                    await logger.awarn(
                         "An error was detected while writing part %d. Partial part will not be uploaded in case it can be retried.",
                         s3_upload.part_number + 1,
                     )
                     return
 
-                logger.debug(
+                await logger.adebug(
                     "Uploading %s part %s containing %s records with size %s bytes",
                     "last " if last else "",
                     s3_upload.part_number + 1,
@@ -725,6 +725,8 @@ class S3BatchExportWorkflow(PostHogWorkflow):
                 "ClientError",
                 # An S3 bucket doesn't exist.
                 "NoSuchBucket",
+                # Couldn't connect to custom S3 endpoint
+                "EndpointConnectionError",
             ],
             finish_inputs=finish_inputs,
         )

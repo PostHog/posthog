@@ -8,14 +8,13 @@ from django.conf import settings
 
 from posthog.caching.warming import schedule_warming_for_teams_task
 from posthog.celery import app
-from posthog.tasks.alerts.checks import check_all_alerts_task
+from posthog.tasks.alerts.checks import check_all_alerts_task, checks_cleanup_task
 from posthog.tasks.integrations import refresh_integrations
 from posthog.tasks.tasks import (
     calculate_cohort,
     calculate_decide_usage,
     calculate_replay_embeddings,
     check_async_migration_health,
-    check_data_import_row_limits,
     check_flags_to_rollback,
     clean_stale_partials,
     clear_clickhouse_deleted_person,
@@ -244,9 +243,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     sender.add_periodic_task(
-        crontab(hour="*", minute="20"),
+        crontab(hour="*", minute="45"),
         check_all_alerts_task.s(),
-        name="detect alerts' anomalies and notify about them",
+        name="check alerts for matches and send notifications",
+    )
+
+    sender.add_periodic_task(
+        crontab(hour="8", minute="0"),
+        checks_cleanup_task.s(),
+        name="clean up old alert checks",
     )
 
     if settings.EE_AVAILABLE:
@@ -309,13 +314,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
             name="delete expired exported assets",
         )
 
-    sender.add_periodic_task(
-        crontab(minute="*/20"),
-        check_data_import_row_limits.s(),
-        name="check external data rows synced",
-    )
     # Every 20 minutes try to retrieve and calculate total rows synced in period
-
     sender.add_periodic_task(
         crontab(minute="*/20"),
         calculate_external_data_rows_synced.s(),

@@ -1,29 +1,21 @@
-import { IconFastForward, IconPause, IconPlay } from '@posthog/icons'
-import { LemonMenu, LemonSwitch } from '@posthog/lemon-ui'
+import { IconPause, IconPlay } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { IconFullScreen, IconSync } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import {
-    PLAYBACK_SPEEDS,
-    sessionRecordingPlayerLogic,
-} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { SessionPlayerState } from '~/types'
 
 import { PlayerMetaLinks } from '../PlayerMetaLinks'
-import { playerSettingsLogic } from '../playerSettingsLogic'
+import { PlayerSettings } from '../PlayerSettings'
 import { SeekSkip, Timestamp } from './PlayerControllerTime'
 import { Seekbar } from './Seekbar'
 
-export function PlayerController({ linkIconsOnly }: { linkIconsOnly: boolean }): JSX.Element {
+export function PlayerController({ iconsOnly }: { iconsOnly: boolean }): JSX.Element {
     const { playingState, isFullScreen, endReached } = useValues(sessionRecordingPlayerLogic)
     const { togglePlayPause, setIsFullScreen } = useActions(sessionRecordingPlayerLogic)
-
-    const { speed, skipInactivitySetting } = useValues(playerSettingsLogic)
-    const { setSpeed, setSkipInactivitySetting } = useActions(playerSettingsLogic)
 
     const showPause = playingState === SessionPlayerState.PLAY
 
@@ -54,44 +46,19 @@ export function PlayerController({ linkIconsOnly }: { linkIconsOnly: boolean }):
                         </LemonButton>
                         <SeekSkip direction="backward" />
                         <SeekSkip direction="forward" />
-                        <LemonMenu
-                            data-attr="session-recording-speed-select"
-                            items={PLAYBACK_SPEEDS.map((speedToggle) => ({
-                                label: `${speedToggle}x`,
-                                onClick: () => setSpeed(speedToggle),
-                            }))}
+                        <LemonButton
+                            size="small"
+                            onClick={() => setIsFullScreen(!isFullScreen)}
+                            tooltip={`${!isFullScreen ? 'Go' : 'Exit'} full screen (F)`}
                         >
-                            <LemonButton size="small" tooltip="Playback speed" sideIcon={null}>
-                                {speed}x
-                            </LemonButton>
-                        </LemonMenu>
-                        <LemonSwitch
-                            data-attr="skip-inactivity"
-                            checked={skipInactivitySetting}
-                            onChange={setSkipInactivitySetting}
-                            tooltip={skipInactivitySetting ? 'Skipping inactivity' : 'Skip inactivity'}
-                            handleContent={
-                                <IconFastForward
-                                    className={clsx(
-                                        'p-0.5',
-                                        skipInactivitySetting ? 'text-primary-3000' : 'text-border-bold'
-                                    )}
-                                />
-                            }
-                        />
+                            <IconFullScreen
+                                className={clsx('text-2xl', isFullScreen ? 'text-link' : 'text-primary-alt')}
+                            />
+                        </LemonButton>
                     </div>
-                    <div className="flex pl-2">
-                        <Tooltip title={`${!isFullScreen ? 'Go' : 'Exit'} full screen (F)`}>
-                            <LemonButton size="small" onClick={() => setIsFullScreen(!isFullScreen)}>
-                                <IconFullScreen
-                                    className={clsx('text-2xl', isFullScreen ? 'text-link' : 'text-primary-alt')}
-                                />
-                            </LemonButton>
-                        </Tooltip>
-                    </div>
+                    <PlayerSettings />
                 </div>
-
-                <PlayerMetaLinks iconsOnly={linkIconsOnly} />
+                <PlayerMetaLinks iconsOnly={iconsOnly} />
             </div>
         </div>
     )

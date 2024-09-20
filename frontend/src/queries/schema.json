@@ -1,16 +1,142 @@
 {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "definitions": {
-        "AbsoluteThreshold": {
+        "AIActionsNode": {
             "additionalProperties": false,
             "properties": {
-                "lower": {
-                    "type": ["number", "null"]
+                "custom_name": {
+                    "type": "string"
                 },
-                "upper": {
-                    "type": ["number", "null"]
+                "event": {
+                    "description": "The event or `null` for all events.",
+                    "type": ["string", "null"]
+                },
+                "fixedProperties": {
+                    "items": {
+                        "$ref": "#/definitions/AIPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "kind": {
+                    "const": "EventsNode",
+                    "type": "string"
+                },
+                "math": {
+                    "$ref": "#/definitions/MathType"
+                },
+                "math_group_type_index": {
+                    "enum": [0, 1, 2, 3, 4],
+                    "type": "number"
+                },
+                "math_property": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "orderBy": {
+                    "description": "Columns to order by",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AIPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "type": "object"
                 }
             },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "AIEventsNode": {
+            "additionalProperties": false,
+            "properties": {
+                "custom_name": {
+                    "type": "string"
+                },
+                "event": {
+                    "description": "The event or `null` for all events.",
+                    "type": ["string", "null"]
+                },
+                "fixedProperties": {
+                    "items": {
+                        "$ref": "#/definitions/AIPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "kind": {
+                    "const": "EventsNode",
+                    "type": "string"
+                },
+                "math": {
+                    "$ref": "#/definitions/MathType"
+                },
+                "math_group_type_index": {
+                    "enum": [0, 1, 2, 3, 4],
+                    "type": "number"
+                },
+                "math_property": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "orderBy": {
+                    "description": "Columns to order by",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AIPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "type": "object"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "AIPropertyFilter": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/EventPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/PersonPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/SessionPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/CohortPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/GroupPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/FeaturePropertyFilter"
+                }
+            ]
+        },
+        "ActionConversionGoal": {
+            "additionalProperties": false,
+            "properties": {
+                "actionId": {
+                    "type": "integer"
+                }
+            },
+            "required": ["actionId"],
             "type": "object"
         },
         "ActionsNode": {
@@ -195,14 +321,143 @@
             "enum": ["numeric", "duration", "duration_ms", "percentage", "percentage_scaled"],
             "type": "string"
         },
-        "AnomalyCondition": {
+        "AlertCheck": {
             "additionalProperties": false,
             "properties": {
-                "absoluteThreshold": {
-                    "$ref": "#/definitions/AbsoluteThreshold"
+                "calculated_value": {
+                    "type": "number"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "state": {
+                    "type": "string"
+                },
+                "targets_notified": {
+                    "type": "boolean"
                 }
             },
-            "required": ["absoluteThreshold"],
+            "required": ["id", "created_at", "calculated_value", "state", "targets_notified"],
+            "type": "object"
+        },
+        "AlertCondition": {
+            "additionalProperties": false,
+            "type": "object"
+        },
+        "AlertType": {
+            "additionalProperties": false,
+            "properties": {
+                "checks": {
+                    "items": {
+                        "$ref": "#/definitions/AlertCheck"
+                    },
+                    "type": "array"
+                },
+                "condition": {
+                    "$ref": "#/definitions/AlertCondition"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "$ref": "#/definitions/UserBasicType"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "insight": {
+                    "type": "number"
+                },
+                "last_notified_at": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "state": {
+                    "type": "string"
+                },
+                "subscribed_users": {
+                    "items": {
+                        "$ref": "#/definitions/UserBasicType"
+                    },
+                    "type": "array"
+                },
+                "threshold": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "configuration": {
+                            "$ref": "#/definitions/InsightThreshold"
+                        }
+                    },
+                    "required": ["configuration"],
+                    "type": "object"
+                }
+            },
+            "required": [
+                "checks",
+                "condition",
+                "created_at",
+                "created_by",
+                "enabled",
+                "id",
+                "insight",
+                "last_notified_at",
+                "name",
+                "state",
+                "subscribed_users",
+                "threshold"
+            ],
+            "type": "object"
+        },
+        "AlertTypeBase": {
+            "additionalProperties": false,
+            "properties": {
+                "condition": {
+                    "$ref": "#/definitions/AlertCondition"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "insight": {
+                    "type": "number"
+                },
+                "name": {
+                    "type": "string"
+                }
+            },
+            "required": ["name", "condition", "enabled", "insight"],
+            "type": "object"
+        },
+        "AlertTypeWrite": {
+            "additionalProperties": false,
+            "properties": {
+                "condition": {
+                    "$ref": "#/definitions/AlertCondition"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "insight": {
+                    "type": "number"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "subscribed_users": {
+                    "items": {
+                        "type": "integer"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["condition", "enabled", "insight", "name", "subscribed_users"],
             "type": "object"
         },
         "AnyDataNode": {
@@ -250,13 +505,25 @@
                     "$ref": "#/definitions/WebStatsTableQuery"
                 },
                 {
+                    "$ref": "#/definitions/WebExternalClicksTableQuery"
+                },
+                {
                     "$ref": "#/definitions/WebTopClicksQuery"
+                },
+                {
+                    "$ref": "#/definitions/WebGoalsQuery"
                 },
                 {
                     "$ref": "#/definitions/SessionAttributionExplorerQuery"
                 },
                 {
                     "$ref": "#/definitions/ErrorTrackingQuery"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentFunnelQuery"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentTrendQuery"
                 }
             ]
         },
@@ -270,6 +537,19 @@
                 },
                 {
                     "$ref": "#/definitions/DataWarehouseNode"
+                }
+            ]
+        },
+        "AnyFilterLike": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/AnyPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/PropertyGroupFilter"
+                },
+                {
+                    "$ref": "#/definitions/PropertyGroupFilterValue"
                 }
             ]
         },
@@ -986,6 +1266,9 @@
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
+                },
+                "isUdf": {
+                    "type": "boolean"
                 },
                 "is_cached": {
                     "type": "boolean"
@@ -1781,6 +2064,178 @@
             ],
             "type": "object"
         },
+        "CachedWebExternalClicksTableQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "columns": {
+                    "items": {},
+                    "type": "array"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "limit": {
+                    "type": "integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "offset": {
+                    "type": "integer"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "results": {
+                    "items": {},
+                    "type": "array"
+                },
+                "samplingRate": {
+                    "$ref": "#/definitions/SamplingRate"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "types": {
+                    "items": {},
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
+        "CachedWebGoalsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "columns": {
+                    "items": {},
+                    "type": "array"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "limit": {
+                    "type": "integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "offset": {
+                    "type": "integer"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "results": {
+                    "items": {},
+                    "type": "array"
+                },
+                "samplingRate": {
+                    "$ref": "#/definitions/SamplingRate"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "types": {
+                    "items": {},
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
         "CachedWebOverviewQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -2165,6 +2620,10 @@
                 "label": {
                     "type": "string"
                 },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator",
+                    "default": "in"
+                },
                 "type": {
                     "const": "cohort",
                     "type": "string"
@@ -2173,7 +2632,7 @@
                     "type": "integer"
                 }
             },
-            "required": ["key", "type", "value"],
+            "required": ["key", "operator", "type", "value"],
             "type": "object"
         },
         "CompareFilter": {
@@ -2188,6 +2647,36 @@
             },
             "type": "object"
         },
+        "ConditionalFormattingRule": {
+            "additionalProperties": false,
+            "properties": {
+                "bytecode": {
+                    "items": {},
+                    "type": "array"
+                },
+                "color": {
+                    "type": "string"
+                },
+                "colorMode": {
+                    "enum": ["light", "dark"],
+                    "type": "string"
+                },
+                "columnName": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "input": {
+                    "type": "string"
+                },
+                "templateId": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "templateId", "columnName", "bytecode", "input", "color"],
+            "type": "object"
+        },
         "CountPerActorMathType": {
             "enum": [
                 "avg_count_per_actor",
@@ -2199,6 +2688,16 @@
                 "p99_count_per_actor"
             ],
             "type": "string"
+        },
+        "CustomEventConversionGoal": {
+            "additionalProperties": false,
+            "properties": {
+                "customEventName": {
+                    "type": "string"
+                }
+            },
+            "required": ["customEventName"],
+            "type": "object"
         },
         "DashboardFilter": {
             "additionalProperties": false,
@@ -2569,6 +3068,60 @@
                                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                                     "type": "string"
                                 },
+                                "hasMore": {
+                                    "type": "boolean"
+                                },
+                                "hogql": {
+                                    "description": "Generated HogQL query.",
+                                    "type": "string"
+                                },
+                                "limit": {
+                                    "type": "integer"
+                                },
+                                "modifiers": {
+                                    "$ref": "#/definitions/HogQLQueryModifiers",
+                                    "description": "Modifiers used when performing the query"
+                                },
+                                "offset": {
+                                    "type": "integer"
+                                },
+                                "query_status": {
+                                    "$ref": "#/definitions/QueryStatus",
+                                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                                },
+                                "results": {
+                                    "items": {},
+                                    "type": "array"
+                                },
+                                "samplingRate": {
+                                    "$ref": "#/definitions/SamplingRate"
+                                },
+                                "timings": {
+                                    "description": "Measured timings for different parts of the query generation process",
+                                    "items": {
+                                        "$ref": "#/definitions/QueryTiming"
+                                    },
+                                    "type": "array"
+                                },
+                                "types": {
+                                    "items": {},
+                                    "type": "array"
+                                }
+                            },
+                            "required": ["results"],
+                            "type": "object"
+                        },
+                        {
+                            "additionalProperties": false,
+                            "properties": {
+                                "columns": {
+                                    "items": {},
+                                    "type": "array"
+                                },
+                                "error": {
+                                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                                    "type": "string"
+                                },
                                 "hogql": {
                                     "description": "Generated HogQL query.",
                                     "type": "string"
@@ -2576,6 +3129,60 @@
                                 "modifiers": {
                                     "$ref": "#/definitions/HogQLQueryModifiers",
                                     "description": "Modifiers used when performing the query"
+                                },
+                                "query_status": {
+                                    "$ref": "#/definitions/QueryStatus",
+                                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                                },
+                                "results": {
+                                    "items": {},
+                                    "type": "array"
+                                },
+                                "samplingRate": {
+                                    "$ref": "#/definitions/SamplingRate"
+                                },
+                                "timings": {
+                                    "description": "Measured timings for different parts of the query generation process",
+                                    "items": {
+                                        "$ref": "#/definitions/QueryTiming"
+                                    },
+                                    "type": "array"
+                                },
+                                "types": {
+                                    "items": {},
+                                    "type": "array"
+                                }
+                            },
+                            "required": ["results"],
+                            "type": "object"
+                        },
+                        {
+                            "additionalProperties": false,
+                            "properties": {
+                                "columns": {
+                                    "items": {},
+                                    "type": "array"
+                                },
+                                "error": {
+                                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                                    "type": "string"
+                                },
+                                "hasMore": {
+                                    "type": "boolean"
+                                },
+                                "hogql": {
+                                    "description": "Generated HogQL query.",
+                                    "type": "string"
+                                },
+                                "limit": {
+                                    "type": "integer"
+                                },
+                                "modifiers": {
+                                    "$ref": "#/definitions/HogQLQueryModifiers",
+                                    "description": "Modifiers used when performing the query"
+                                },
+                                "offset": {
+                                    "type": "integer"
                                 },
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
@@ -2701,6 +3308,40 @@
                             },
                             "required": ["results"],
                             "type": "object"
+                        },
+                        {
+                            "additionalProperties": false,
+                            "properties": {
+                                "insight": {
+                                    "const": "FUNNELS",
+                                    "type": "string"
+                                },
+                                "results": {
+                                    "additionalProperties": {
+                                        "$ref": "#/definitions/ExperimentVariantFunnelResult"
+                                    },
+                                    "type": "object"
+                                }
+                            },
+                            "required": ["insight", "results"],
+                            "type": "object"
+                        },
+                        {
+                            "additionalProperties": false,
+                            "properties": {
+                                "insight": {
+                                    "const": "TRENDS",
+                                    "type": "string"
+                                },
+                                "results": {
+                                    "additionalProperties": {
+                                        "$ref": "#/definitions/ExperimentVariantTrendResult"
+                                    },
+                                    "type": "object"
+                                }
+                            },
+                            "required": ["insight", "results"],
+                            "type": "object"
                         }
                     ]
                 },
@@ -2802,13 +3443,25 @@
                             "$ref": "#/definitions/WebStatsTableQuery"
                         },
                         {
+                            "$ref": "#/definitions/WebExternalClicksTableQuery"
+                        },
+                        {
                             "$ref": "#/definitions/WebTopClicksQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/WebGoalsQuery"
                         },
                         {
                             "$ref": "#/definitions/SessionAttributionExplorerQuery"
                         },
                         {
                             "$ref": "#/definitions/ErrorTrackingQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/ExperimentFunnelQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/ExperimentTrendQuery"
                         }
                     ],
                     "description": "Source of the events"
@@ -3048,6 +3701,9 @@
                     "type": "array"
                 },
                 "hogql_value": {
+                    "type": "string"
+                },
+                "id": {
                     "type": "string"
                 },
                 "name": {
@@ -3406,12 +4062,6 @@
                 "description": {
                     "type": ["string", "null"]
                 },
-                "events": {
-                    "items": {
-                        "type": "object"
-                    },
-                    "type": "array"
-                },
                 "exception_type": {
                     "type": ["string", "null"]
                 },
@@ -3471,14 +4121,18 @@
         "ErrorTrackingQuery": {
             "additionalProperties": false,
             "properties": {
+                "assignee": {
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
-                },
-                "eventColumns": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
                 },
                 "filterGroup": {
                     "$ref": "#/definitions/PropertyGroupFilter"
@@ -3502,9 +4156,6 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
-                },
-                "offset": {
-                    "type": "integer"
                 },
                 "order": {
                     "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
@@ -3780,7 +4431,7 @@
                 "fixedProperties": {
                     "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
                     "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
+                        "$ref": "#/definitions/AnyFilterLike"
                     },
                     "type": "array"
                 },
@@ -3921,6 +4572,203 @@
                 }
             },
             "required": ["columns", "hogql", "results", "types"],
+            "type": "object"
+        },
+        "ExperimentFunnelQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "experiment_id": {
+                    "type": "integer"
+                },
+                "kind": {
+                    "const": "ExperimentFunnelQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/ExperimentFunnelQueryResponse"
+                },
+                "source": {
+                    "$ref": "#/definitions/FunnelsQuery"
+                }
+            },
+            "required": ["experiment_id", "kind", "source"],
+            "type": "object"
+        },
+        "ExperimentFunnelQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "insight": {
+                    "const": "FUNNELS",
+                    "type": "string"
+                },
+                "results": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/ExperimentVariantFunnelResult"
+                    },
+                    "type": "object"
+                }
+            },
+            "required": ["insight", "results"],
+            "type": "object"
+        },
+        "ExperimentTrendQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "count_source": {
+                    "$ref": "#/definitions/TrendsQuery"
+                },
+                "experiment_id": {
+                    "type": "integer"
+                },
+                "exposure_source": {
+                    "$ref": "#/definitions/TrendsQuery"
+                },
+                "kind": {
+                    "const": "ExperimentTrendQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/ExperimentTrendQueryResponse"
+                }
+            },
+            "required": ["count_source", "experiment_id", "exposure_source", "kind"],
+            "type": "object"
+        },
+        "ExperimentTrendQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "insight": {
+                    "const": "TRENDS",
+                    "type": "string"
+                },
+                "results": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/ExperimentVariantTrendResult"
+                    },
+                    "type": "object"
+                }
+            },
+            "required": ["insight", "results"],
+            "type": "object"
+        },
+        "ExperimentVariantFunnelResult": {
+            "additionalProperties": false,
+            "properties": {
+                "failure_count": {
+                    "type": "number"
+                },
+                "success_count": {
+                    "type": "number"
+                }
+            },
+            "required": ["success_count", "failure_count"],
+            "type": "object"
+        },
+        "ExperimentVariantTrendResult": {
+            "additionalProperties": false,
+            "properties": {
+                "count": {
+                    "type": "number"
+                },
+                "exposure": {
+                    "type": "number"
+                }
+            },
+            "required": ["count", "exposure"],
+            "type": "object"
+        },
+        "ExperimentalAITrendsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "aggregation_group_type_index": {
+                    "description": "Groups aggregation",
+                    "type": "integer"
+                },
+                "breakdownFilter": {
+                    "additionalProperties": false,
+                    "description": "Breakdown of the events and actions",
+                    "properties": {
+                        "breakdown_hide_other_aggregation": {
+                            "type": ["boolean", "null"]
+                        },
+                        "breakdown_histogram_bin_count": {
+                            "type": "integer"
+                        },
+                        "breakdown_limit": {
+                            "type": "integer"
+                        },
+                        "breakdowns": {
+                            "items": {
+                                "$ref": "#/definitions/Breakdown"
+                            },
+                            "maxLength": 3,
+                            "type": "array"
+                        }
+                    },
+                    "type": "object"
+                },
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter",
+                    "description": "Compare to date range"
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/InsightDateRange",
+                    "description": "Date range for the query"
+                },
+                "filterTestAccounts": {
+                    "default": false,
+                    "description": "Exclude internal and test users by applying the respective filters",
+                    "type": "boolean"
+                },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType",
+                    "default": "day",
+                    "description": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
+                },
+                "kind": {
+                    "const": "TrendsQuery",
+                    "type": "string"
+                },
+                "properties": {
+                    "default": [],
+                    "description": "Property filters for all series",
+                    "items": {
+                        "$ref": "#/definitions/AIPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
+                },
+                "series": {
+                    "description": "Events and actions to include",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/AIEventsNode"
+                            },
+                            {
+                                "$ref": "#/definitions/AIActionsNode"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                },
+                "trendsFilter": {
+                    "$ref": "#/definitions/TrendsFilter",
+                    "description": "Properties specific to the trends insight"
+                }
+            },
+            "required": ["kind", "series"],
             "type": "object"
         },
         "FeaturePropertyFilter": {
@@ -4466,6 +5314,9 @@
                 "layout": {
                     "$ref": "#/definitions/FunnelLayout",
                     "default": "vertical"
+                },
+                "useUdf": {
+                    "type": "boolean"
                 }
             },
             "type": "object"
@@ -4612,6 +5463,9 @@
                     "description": "Generated HogQL query.",
                     "type": "string"
                 },
+                "isUdf": {
+                    "type": "boolean"
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
@@ -4744,6 +5598,21 @@
                     "$ref": "#/definitions/PersonsNode"
                 }
             ]
+        },
+        "HedgehogColorOptions": {
+            "enum": ["green", "red", "blue", "purple", "dark", "light", "sepia", "invert", "invert-hue", "greyscale"],
+            "type": "string"
+        },
+        "HogCompileResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "bytecode": {
+                    "items": {},
+                    "type": "array"
+                }
+            },
+            "required": ["bytecode"],
+            "type": "object"
         },
         "HogLanguage": {
             "enum": ["hog", "hogJson", "hogQL", "hogQLExpr", "hogTemplate"],
@@ -5038,7 +5907,7 @@
                     "type": "string"
                 },
                 "propertyGroupsMode": {
-                    "enum": ["enabled", "disabled"],
+                    "enum": ["enabled", "disabled", "optimized"],
                     "type": "string"
                 },
                 "s3TableUseInvalidColumns": {
@@ -5478,6 +6347,15 @@
         "InsightShortId": {
             "type": "string"
         },
+        "InsightThreshold": {
+            "additionalProperties": false,
+            "properties": {
+                "absoluteThreshold": {
+                    "$ref": "#/definitions/InsightsThresholdAbsolute"
+                }
+            },
+            "type": "object"
+        },
         "InsightVizNode": {
             "additionalProperties": false,
             "properties": {
@@ -5780,6 +6658,18 @@
             "required": ["kind"],
             "type": "object"
         },
+        "InsightsThresholdAbsolute": {
+            "additionalProperties": false,
+            "properties": {
+                "lower": {
+                    "type": "number"
+                },
+                "upper": {
+                    "type": "number"
+                }
+            },
+            "type": "object"
+        },
         "IntervalType": {
             "enum": ["minute", "hour", "day", "week", "month"],
             "type": "string"
@@ -5951,6 +6841,32 @@
             "required": ["key", "operator", "type"],
             "type": "object"
         },
+        "MatchedRecording": {
+            "additionalProperties": false,
+            "properties": {
+                "events": {
+                    "items": {
+                        "$ref": "#/definitions/MatchedRecordingEvent"
+                    },
+                    "type": "array"
+                },
+                "session_id": {
+                    "type": "string"
+                }
+            },
+            "required": ["events"],
+            "type": "object"
+        },
+        "MatchedRecordingEvent": {
+            "additionalProperties": false,
+            "properties": {
+                "uuid": {
+                    "type": "string"
+                }
+            },
+            "required": ["uuid"],
+            "type": "object"
+        },
         "MathType": {
             "anyOf": [
                 {
@@ -5969,6 +6885,32 @@
                     "$ref": "#/definitions/HogQLMathType"
                 }
             ]
+        },
+        "MinimalHedgehogConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "accessories": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "color": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/HedgehogColorOptions"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "use_as_profile": {
+                    "type": "boolean"
+                }
+            },
+            "required": ["use_as_profile", "color", "accessories"],
+            "type": "object"
         },
         "MultipleBreakdownOptions": {
             "additionalProperties": false,
@@ -6003,6 +6945,7 @@
                 "FunnelsActorsQuery",
                 "FunnelCorrelationActorsQuery",
                 "SessionsTimelineQuery",
+                "RecordingsQuery",
                 "SessionAttributionExplorerQuery",
                 "ErrorTrackingQuery",
                 "DataTableNode",
@@ -6021,6 +6964,10 @@
                 "WebOverviewQuery",
                 "WebTopClicksQuery",
                 "WebStatsTableQuery",
+                "WebExternalClicksTableQuery",
+                "WebGoalsQuery",
+                "ExperimentFunnelQuery",
+                "ExperimentTrendQuery",
                 "DatabaseSchemaQuery"
             ],
             "type": "string"
@@ -6292,6 +7239,37 @@
             "required": ["key", "operator", "type"],
             "type": "object"
         },
+        "PersonType": {
+            "additionalProperties": false,
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "distinct_ids": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "is_identified": {
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "properties": {
+                    "type": "object"
+                },
+                "uuid": {
+                    "type": "string"
+                }
+            },
+            "required": ["distinct_ids", "properties"],
+            "type": "object"
+        },
         "PersonsNode": {
             "additionalProperties": false,
             "deprecated": "Use `ActorsQuery` instead.",
@@ -6441,7 +7419,9 @@
                 "between",
                 "not_between",
                 "min",
-                "max"
+                "max",
+                "in",
+                "not_in"
             ],
             "type": "string"
         },
@@ -6457,6 +7437,9 @@
                 "client_query_id": {
                     "description": "Client provided query ID. Can be used to retrieve the status or cancel the query.",
                     "type": "string"
+                },
+                "filters_override": {
+                    "$ref": "#/definitions/DashboardFilter"
                 },
                 "query": {
                     "$ref": "#/definitions/QuerySchema",
@@ -6996,6 +7979,60 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "limit": {
+                            "type": "integer"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "offset": {
+                            "type": "integer"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "results": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "samplingRate": {
+                            "$ref": "#/definitions/SamplingRate"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "types": {
+                            "items": {},
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "columns": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
                         "hogql": {
                             "description": "Generated HogQL query.",
                             "type": "string"
@@ -7003,6 +8040,60 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "results": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "samplingRate": {
+                            "$ref": "#/definitions/SamplingRate"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "types": {
+                            "items": {},
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "columns": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "limit": {
+                            "type": "integer"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "offset": {
+                            "type": "integer"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -7127,6 +8218,40 @@
                         }
                     },
                     "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "insight": {
+                            "const": "FUNNELS",
+                            "type": "string"
+                        },
+                        "results": {
+                            "additionalProperties": {
+                                "$ref": "#/definitions/ExperimentVariantFunnelResult"
+                            },
+                            "type": "object"
+                        }
+                    },
+                    "required": ["insight", "results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "insight": {
+                            "const": "TRENDS",
+                            "type": "string"
+                        },
+                        "results": {
+                            "additionalProperties": {
+                                "$ref": "#/definitions/ExperimentVariantTrendResult"
+                            },
+                            "type": "object"
+                        }
+                    },
+                    "required": ["insight", "results"],
                     "type": "object"
                 },
                 {
@@ -7433,6 +8558,60 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "limit": {
+                            "type": "integer"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "offset": {
+                            "type": "integer"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "results": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "samplingRate": {
+                            "$ref": "#/definitions/SamplingRate"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "types": {
+                            "items": {},
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "columns": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
                         "hogql": {
                             "description": "Generated HogQL query.",
                             "type": "string"
@@ -7440,6 +8619,60 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "results": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "samplingRate": {
+                            "$ref": "#/definitions/SamplingRate"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "types": {
+                            "items": {},
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "columns": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "limit": {
+                            "type": "integer"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "offset": {
+                            "type": "integer"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -7569,6 +8802,40 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "insight": {
+                            "const": "FUNNELS",
+                            "type": "string"
+                        },
+                        "results": {
+                            "additionalProperties": {
+                                "$ref": "#/definitions/ExperimentVariantFunnelResult"
+                            },
+                            "type": "object"
+                        }
+                    },
+                    "required": ["insight", "results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "insight": {
+                            "const": "TRENDS",
+                            "type": "string"
+                        },
+                        "results": {
+                            "additionalProperties": {
+                                "$ref": "#/definitions/ExperimentVariantTrendResult"
+                            },
+                            "type": "object"
+                        }
+                    },
+                    "required": ["insight", "results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
@@ -7616,6 +8883,9 @@
                         "hogql": {
                             "description": "Generated HogQL query.",
                             "type": "string"
+                        },
+                        "isUdf": {
+                            "type": "boolean"
                         },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
@@ -7912,13 +9182,25 @@
                     "$ref": "#/definitions/WebStatsTableQuery"
                 },
                 {
+                    "$ref": "#/definitions/WebExternalClicksTableQuery"
+                },
+                {
                     "$ref": "#/definitions/WebTopClicksQuery"
+                },
+                {
+                    "$ref": "#/definitions/WebGoalsQuery"
                 },
                 {
                     "$ref": "#/definitions/SessionAttributionExplorerQuery"
                 },
                 {
                     "$ref": "#/definitions/ErrorTrackingQuery"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentFunnelQuery"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentTrendQuery"
                 },
                 {
                     "$ref": "#/definitions/DataVisualizationNode"
@@ -8068,14 +9350,6 @@
                             "$ref": "#/definitions/DurationType"
                         },
                         {
-                            "const": "console_log_level",
-                            "type": "string"
-                        },
-                        {
-                            "const": "console_log_query",
-                            "type": "string"
-                        },
-                        {
                             "const": "snapshot_source",
                             "type": "string"
                         },
@@ -8100,6 +9374,124 @@
                 }
             },
             "required": ["key", "operator", "type"],
+            "type": "object"
+        },
+        "RecordingsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "actions": {
+                    "items": {
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "console_log_filters": {
+                    "items": {
+                        "$ref": "#/definitions/LogEntryPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "date_from": {
+                    "type": ["string", "null"]
+                },
+                "date_to": {
+                    "type": ["string", "null"]
+                },
+                "events": {
+                    "items": {
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "filter_test_accounts": {
+                    "type": "boolean"
+                },
+                "having_predicates": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "kind": {
+                    "const": "RecordingsQuery",
+                    "type": "string"
+                },
+                "limit": {
+                    "type": "integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "type": "integer"
+                },
+                "operand": {
+                    "$ref": "#/definitions/FilterLogicalOperator"
+                },
+                "order": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/DurationType"
+                        },
+                        {
+                            "const": "start_time",
+                            "type": "string"
+                        },
+                        {
+                            "const": "console_error_count",
+                            "type": "string"
+                        },
+                        {
+                            "const": "click_count",
+                            "type": "string"
+                        },
+                        {
+                            "const": "keypress_count",
+                            "type": "string"
+                        },
+                        {
+                            "const": "mouse_activity_count",
+                            "type": "string"
+                        }
+                    ]
+                },
+                "person_uuid": {
+                    "type": "string"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "$ref": "#/definitions/RecordingsQueryResponse"
+                },
+                "session_ids": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["kind", "order"],
+            "type": "object"
+        },
+        "RecordingsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "has_next": {
+                    "type": "boolean"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/SessionRecordingType"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results", "has_next"],
             "type": "object"
         },
         "RefreshType": {
@@ -8625,6 +10017,88 @@
             "required": ["key", "operator", "type"],
             "type": "object"
         },
+        "SessionRecordingType": {
+            "additionalProperties": false,
+            "properties": {
+                "active_seconds": {
+                    "type": "number"
+                },
+                "click_count": {
+                    "type": "number"
+                },
+                "console_error_count": {
+                    "type": "number"
+                },
+                "console_log_count": {
+                    "type": "number"
+                },
+                "console_warn_count": {
+                    "type": "number"
+                },
+                "distinct_id": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "end_time": {
+                    "description": "When the recording ends in ISO format.",
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "inactive_seconds": {
+                    "type": "number"
+                },
+                "keypress_count": {
+                    "type": "number"
+                },
+                "matching_events": {
+                    "description": "List of matching events. *",
+                    "items": {
+                        "$ref": "#/definitions/MatchedRecording"
+                    },
+                    "type": "array"
+                },
+                "mouse_activity_count": {
+                    "description": "count of all mouse activity in the recording, not just clicks",
+                    "type": "number"
+                },
+                "person": {
+                    "$ref": "#/definitions/PersonType"
+                },
+                "recording_duration": {
+                    "description": "Length of recording in seconds.",
+                    "type": "number"
+                },
+                "snapshot_source": {
+                    "enum": ["web", "mobile", "unknown"],
+                    "type": "string"
+                },
+                "start_time": {
+                    "description": "When the recording starts in ISO format.",
+                    "type": "string"
+                },
+                "start_url": {
+                    "type": "string"
+                },
+                "storage": {
+                    "description": "Where this recording information was loaded from",
+                    "enum": ["object_storage_lts", "object_storage"],
+                    "type": "string"
+                },
+                "summary": {
+                    "type": "string"
+                },
+                "viewed": {
+                    "description": "Whether this recording has been viewed already.",
+                    "type": "boolean"
+                }
+            },
+            "required": ["id", "viewed", "recording_duration", "start_time", "end_time", "snapshot_source"],
+            "type": "object"
+        },
         "SessionsTimelineQuery": {
             "additionalProperties": false,
             "properties": {
@@ -8862,6 +10336,12 @@
                 "columns": {
                     "items": {
                         "$ref": "#/definitions/ChartAxis"
+                    },
+                    "type": "array"
+                },
+                "conditionalFormatting": {
+                    "items": {
+                        "$ref": "#/definitions/ConditionalFormattingRule"
                     },
                     "type": "array"
                 }
@@ -9264,6 +10744,35 @@
             "required": ["results"],
             "type": "object"
         },
+        "UserBasicType": {
+            "additionalProperties": false,
+            "properties": {
+                "distinct_id": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "first_name": {
+                    "type": "string"
+                },
+                "hedgehog_config": {
+                    "$ref": "#/definitions/MinimalHedgehogConfig"
+                },
+                "id": {
+                    "type": "number"
+                },
+                "is_email_verified": {},
+                "last_name": {
+                    "type": "string"
+                },
+                "uuid": {
+                    "type": "string"
+                }
+            },
+            "required": ["distinct_id", "email", "first_name", "id", "uuid"],
+            "type": "object"
+        },
         "VizSpecificOptions": {
             "additionalProperties": false,
             "description": "Chart specific rendering options. Use ChartRenderingMetadata for non-serializable values, e.g. onClick handlers",
@@ -9298,6 +10807,16 @@
             },
             "type": "object"
         },
+        "WebAnalyticsConversionGoal": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/ActionConversionGoal"
+                },
+                {
+                    "$ref": "#/definitions/CustomEventConversionGoal"
+                }
+            ]
+        },
         "WebAnalyticsPropertyFilter": {
             "anyOf": [
                 {
@@ -9316,6 +10835,229 @@
                 "$ref": "#/definitions/WebAnalyticsPropertyFilter"
             },
             "type": "array"
+        },
+        "WebExternalClicksTableQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "conversionGoal": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/WebAnalyticsConversionGoal"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "WebExternalClicksTableQuery",
+                    "type": "string"
+                },
+                "limit": {
+                    "type": "integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
+                },
+                "response": {
+                    "$ref": "#/definitions/WebExternalClicksTableQueryResponse"
+                },
+                "sampling": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "enabled": {
+                            "type": "boolean"
+                        },
+                        "forceSamplingRate": {
+                            "$ref": "#/definitions/SamplingRate"
+                        }
+                    },
+                    "type": "object"
+                },
+                "stripQueryParams": {
+                    "type": "boolean"
+                },
+                "useSessionsTable": {
+                    "deprecated": "ignored, always treated as enabled *",
+                    "type": "boolean"
+                }
+            },
+            "required": ["kind", "properties"],
+            "type": "object"
+        },
+        "WebExternalClicksTableQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "columns": {
+                    "items": {},
+                    "type": "array"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "limit": {
+                    "type": "integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "type": "integer"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "results": {
+                    "items": {},
+                    "type": "array"
+                },
+                "samplingRate": {
+                    "$ref": "#/definitions/SamplingRate"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "types": {
+                    "items": {},
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
+        "WebGoalsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "conversionGoal": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/WebAnalyticsConversionGoal"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "WebGoalsQuery",
+                    "type": "string"
+                },
+                "limit": {
+                    "type": "integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
+                },
+                "response": {
+                    "$ref": "#/definitions/WebGoalsQueryResponse"
+                },
+                "sampling": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "enabled": {
+                            "type": "boolean"
+                        },
+                        "forceSamplingRate": {
+                            "$ref": "#/definitions/SamplingRate"
+                        }
+                    },
+                    "type": "object"
+                },
+                "useSessionsTable": {
+                    "deprecated": "ignored, always treated as enabled *",
+                    "type": "boolean"
+                }
+            },
+            "required": ["kind", "properties"],
+            "type": "object"
+        },
+        "WebGoalsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "columns": {
+                    "items": {},
+                    "type": "array"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "limit": {
+                    "type": "integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "type": "integer"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "results": {
+                    "items": {},
+                    "type": "array"
+                },
+                "samplingRate": {
+                    "$ref": "#/definitions/SamplingRate"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "types": {
+                    "items": {},
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
         },
         "WebOverviewItem": {
             "additionalProperties": false,
@@ -9348,6 +11090,16 @@
             "properties": {
                 "compare": {
                     "type": "boolean"
+                },
+                "conversionGoal": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/WebAnalyticsConversionGoal"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
@@ -9439,6 +11191,7 @@
                 "Page",
                 "InitialPage",
                 "ExitPage",
+                "ExitClick",
                 "InitialChannelType",
                 "InitialReferringDomain",
                 "InitialUTMSource",
@@ -9461,6 +11214,16 @@
             "properties": {
                 "breakdownBy": {
                     "$ref": "#/definitions/WebStatsBreakdown"
+                },
+                "conversionGoal": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/WebAnalyticsConversionGoal"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
@@ -9571,6 +11334,16 @@
         "WebTopClicksQuery": {
             "additionalProperties": false,
             "properties": {
+                "conversionGoal": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/WebAnalyticsConversionGoal"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },

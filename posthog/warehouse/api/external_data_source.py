@@ -16,7 +16,7 @@ from posthog.warehouse.data_load.service import (
     delete_external_data_schedule,
     cancel_external_data_workflow,
     delete_data_import_folder,
-    is_any_external_data_job_paused,
+    is_any_external_data_schema_paused,
     trigger_external_data_source_workflow,
 )
 from posthog.warehouse.models import ExternalDataSource, ExternalDataSchema, ExternalDataJob
@@ -24,6 +24,12 @@ from posthog.warehouse.api.external_data_schema import ExternalDataSchemaSeriali
 from posthog.hogql.database.database import create_hogql_database
 from posthog.temporal.data_imports.pipelines.stripe import validate_credentials as validate_stripe_credentials
 from posthog.temporal.data_imports.pipelines.zendesk import validate_credentials as validate_zendesk_credentials
+from posthog.temporal.data_imports.pipelines.vitally import validate_credentials as validate_vitally_credentials
+from posthog.temporal.data_imports.pipelines.bigquery import (
+    validate_credentials as validate_bigquery_credentials,
+    get_schemas as get_bigquery_schemas,
+    filter_incremental_fields as filter_bigquery_incremental_fields,
+)
 from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING,
     PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING,
@@ -33,6 +39,8 @@ from posthog.temporal.data_imports.pipelines.hubspot.auth import (
     get_hubspot_access_token_from_code,
 )
 from posthog.warehouse.models.external_data_schema import (
+    filter_mssql_incremental_fields,
+    filter_mysql_incremental_fields,
     filter_postgres_incremental_fields,
     filter_snowflake_incremental_fields,
     get_sql_schemas_for_source_type,
@@ -55,6 +63,8 @@ logger = structlog.get_logger(__name__)
 def get_generic_sql_error(source_type: ExternalDataSource.Type):
     if source_type == ExternalDataSource.Type.MYSQL:
         name = "MySQL"
+    elif source_type == ExternalDataSource.Type.MSSQL:
+        name = "SQL database"
     else:
         name = "Postgres"
 
@@ -76,10 +86,16 @@ SnowflakeErrors = {
     "This session does not have a current database": "Database specified not found",
     "Verify the account name is correct": "Can't find an account with the specified account ID",
 }
+MSSQLErrors = {
+    "Login failed for user": "Login failed for database",
+    "Adaptive Server is unavailable or does not exist": "Could not connect to SQL server - check server host and port",
+    "connection timed out": "Could not connect to SQL server - check server firewall settings",
+}
 
 
 class ExternalDataJobSerializers(serializers.ModelSerializer):
     schema = serializers.SerializerMethodField(read_only=True)
+    status = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = ExternalDataJob
@@ -103,6 +119,12 @@ class ExternalDataJobSerializers(serializers.ModelSerializer):
             "latest_error",
             "workflow_run_id",
         ]
+
+    def get_status(self, instance: ExternalDataJob):
+        if instance.status == ExternalDataJob.Status.CANCELLED:
+            return "Billing limits"
+
+        return instance.status
 
     def get_schema(self, instance: ExternalDataJob):
         return SimpleExternalDataSchemaSerializer(
@@ -158,7 +180,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
         if any_failures:
             return ExternalDataSchema.Status.ERROR
         elif any_cancelled:
-            return ExternalDataSchema.Status.CANCELLED
+            return "Billing limits"
         elif any_paused:
             return ExternalDataSchema.Status.PAUSED
         elif any_running:
@@ -249,10 +271,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             elif self.prefix_exists(source_type, prefix):
                 return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Prefix already exists"})
 
-        if is_any_external_data_job_paused(self.team_id):
+        if is_any_external_data_schema_paused(self.team_id):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Monthly sync limit reached. Please contact PostHog support to increase your limit."},
+                data={"message": "Monthly sync limit reached. Please increase your billing limit to resume syncing."},
             )
 
         # TODO: remove dummy vars
@@ -264,7 +286,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             new_source_model = self._handle_zendesk_source(request, *args, **kwargs)
         elif source_type == ExternalDataSource.Type.SALESFORCE:
             new_source_model = self._handle_salesforce_source(request, *args, **kwargs)
-        elif source_type in [ExternalDataSource.Type.POSTGRES, ExternalDataSource.Type.MYSQL]:
+        elif source_type == ExternalDataSource.Type.VITALLY:
+            new_source_model = self._handle_vitally_source(request, *args, **kwargs)
+        elif source_type in [
+            ExternalDataSource.Type.POSTGRES,
+            ExternalDataSource.Type.MYSQL,
+            ExternalDataSource.Type.MSSQL,
+        ]:
             try:
                 new_source_model, sql_schemas = self._handle_sql_source(request, *args, **kwargs)
             except InternalPostgresError:
@@ -275,15 +303,23 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 raise
         elif source_type == ExternalDataSource.Type.SNOWFLAKE:
             new_source_model, snowflake_schemas = self._handle_snowflake_source(request, *args, **kwargs)
+        elif source_type == ExternalDataSource.Type.BIGQUERY:
+            new_source_model, bigquery_schemas = self._handle_bigquery_source(request, *args, **kwargs)
         else:
             raise NotImplementedError(f"Source type {source_type} not implemented")
 
         payload = request.data["payload"]
         schemas = payload.get("schemas", None)
-        if source_type in [ExternalDataSource.Type.POSTGRES, ExternalDataSource.Type.MYSQL]:
+        if source_type in [
+            ExternalDataSource.Type.POSTGRES,
+            ExternalDataSource.Type.MYSQL,
+            ExternalDataSource.Type.MSSQL,
+        ]:
             default_schemas = sql_schemas
         elif source_type == ExternalDataSource.Type.SNOWFLAKE:
             default_schemas = snowflake_schemas
+        elif source_type == ExternalDataSource.Type.BIGQUERY:
+            default_schemas = bigquery_schemas
         else:
             default_schemas = list(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[source_type])
 
@@ -366,6 +402,28 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             status="Running",
             source_type=source_type,
             job_inputs={"stripe_secret_key": client_secret, "stripe_account_id": account_id},
+            prefix=prefix,
+        )
+
+        return new_source_model
+
+    def _handle_vitally_source(self, request: Request, *args: Any, **kwargs: Any) -> ExternalDataSource:
+        payload = request.data["payload"]
+        secret_token = payload.get("secret_token")
+        region = payload.get("region")
+        subdomain = payload.get("subdomain", None)
+        prefix = request.data.get("prefix", None)
+        source_type = request.data["source_type"]
+
+        # TODO: remove dummy vars
+        new_source_model = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            team=self.team,
+            status="Running",
+            source_type=source_type,
+            job_inputs={"secret_token": secret_token, "region": region, "subdomain": subdomain},
             prefix=prefix,
         )
 
@@ -520,7 +578,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ssh_tunnel,
         )
 
-        return new_source_model, schemas
+        return new_source_model, list(schemas.keys())
 
     def _handle_snowflake_source(
         self, request: Request, *args: Any, **kwargs: Any
@@ -558,7 +616,51 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         schemas = get_snowflake_schemas(account_id, database, warehouse, user, password, schema, role)
 
-        return new_source_model, schemas
+        return new_source_model, list(schemas.keys())
+
+    def _handle_bigquery_source(
+        self, request: Request, *args: Any, **kwargs: Any
+    ) -> tuple[ExternalDataSource, list[Any]]:
+        payload = request.data["payload"]
+        prefix = request.data.get("prefix", None)
+        source_type = request.data["source_type"]
+
+        dataset_id = payload.get("dataset_id")
+        key_file = payload.get("key_file", {})
+        project_id = key_file.get("project_id")
+        private_key = key_file.get("private_key")
+        private_key_id = key_file.get("private_key_id")
+        client_email = key_file.get("client_email")
+        token_uri = key_file.get("token_uri")
+
+        new_source_model = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            team=self.team,
+            status="Running",
+            source_type=source_type,
+            job_inputs={
+                "dataset_id": dataset_id,
+                "project_id": project_id,
+                "private_key": private_key,
+                "private_key_id": private_key_id,
+                "client_email": client_email,
+                "token_uri": token_uri,
+            },
+            prefix=prefix,
+        )
+
+        schemas = get_bigquery_schemas(
+            dataset_id=dataset_id,
+            project_id=project_id,
+            private_key=private_key,
+            private_key_id=private_key_id,
+            client_email=client_email,
+            token_uri=token_uri,
+        )
+
+        return new_source_model, list(schemas.keys())
 
     def prefix_required(self, source_type: str) -> bool:
         source_type_exists = (
@@ -618,10 +720,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def reload(self, request: Request, *args: Any, **kwargs: Any):
         instance: ExternalDataSource = self.get_object()
 
-        if is_any_external_data_job_paused(self.team_id):
+        if is_any_external_data_schema_paused(self.team_id):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Monthly sync limit reached. Please contact PostHog support to increase your limit."},
+                data={"message": "Monthly sync limit reached. Please increase your billing limit to resume syncing."},
             )
 
         try:
@@ -666,9 +768,69 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": "Invalid credentials: Zendesk credentials are incorrect"},
                 )
+        elif source_type == ExternalDataSource.Type.VITALLY:
+            secret_token = request.data.get("secret_token", "")
+            region = request.data.get("region", "")
+            subdomain = request.data.get("subdomain", "")
+            if not validate_vitally_credentials(subdomain=subdomain, secret_token=secret_token, region=region):
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Invalid credentials: Zendesk credentials are incorrect"},
+                )
+        elif source_type == ExternalDataSource.Type.BIGQUERY:
+            dataset_id = request.data.get("dataset_id", "")
+            key_file = request.data.get("key_file", {})
+            if not validate_bigquery_credentials(dataset_id=dataset_id, key_file=key_file):
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Invalid credentials: BigQuery credentials are incorrect"},
+                )
+
+            project_id = key_file.get("project_id")
+            private_key = key_file.get("private_key")
+            private_key_id = key_file.get("private_key_id")
+            client_email = key_file.get("client_email")
+            token_uri = key_file.get("token_uri")
+
+            bq_schemas = get_bigquery_schemas(
+                dataset_id=dataset_id,
+                project_id=project_id,
+                private_key=private_key,
+                private_key_id=private_key_id,
+                client_email=client_email,
+                token_uri=token_uri,
+            )
+
+            filtered_results = [
+                (table_name, filter_bigquery_incremental_fields(columns)) for table_name, columns in bq_schemas.items()
+            ]
+
+            result_mapped_to_options = [
+                {
+                    "table": table_name,
+                    "should_sync": False,
+                    "incremental_fields": [
+                        {"label": column_name, "type": column_type, "field": column_name, "field_type": column_type}
+                        for column_name, column_type in columns
+                    ],
+                    "incremental_available": True,
+                    "incremental_field": columns[0][0] if len(columns) > 0 and len(columns[0]) > 0 else None,
+                    "sync_type": None,
+                }
+                for table_name, columns in filtered_results
+            ]
+
+            return Response(status=status.HTTP_200_OK, data=result_mapped_to_options)
 
         # Get schemas and validate SQL credentials
-        if source_type in [ExternalDataSource.Type.POSTGRES, ExternalDataSource.Type.MYSQL]:
+        if source_type in [
+            ExternalDataSource.Type.POSTGRES,
+            ExternalDataSource.Type.MYSQL,
+            ExternalDataSource.Type.MSSQL,
+        ]:
+            # Importing pymssql requires mssql drivers to be installed locally - see posthog/warehouse/README.md
+            from pymssql import OperationalError as MSSQLOperationalError
+
             host = request.data.get("host", None)
             port = request.data.get("port", None)
             database = request.data.get("dbname", None)
@@ -761,6 +923,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": exposed_error or get_generic_sql_error(source_type)},
                 )
+            except MSSQLOperationalError as e:
+                error_msg = " ".join(str(n) for n in e.args)
+                exposed_error = self._expose_mssql_error(error_msg)
+
+                if exposed_error is None:
+                    capture_exception(e)
+
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": exposed_error or get_generic_sql_error(source_type)},
+                )
             except BaseSSHTunnelForwarderError as e:
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
@@ -768,16 +941,25 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
             except Exception as e:
                 capture_exception(e)
-                logger.exception("Could not fetch Postgres schemas", exc_info=e)
+                logger.exception("Could not fetch schemas", exc_info=e)
 
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": get_generic_sql_error(source_type)},
                 )
 
-            filtered_results = [
-                (table_name, filter_postgres_incremental_fields(columns)) for table_name, columns in result.items()
-            ]
+            if source_type == ExternalDataSource.Type.POSTGRES:
+                filtered_results = [
+                    (table_name, filter_postgres_incremental_fields(columns)) for table_name, columns in result.items()
+                ]
+            elif source_type == ExternalDataSource.Type.MYSQL:
+                filtered_results = [
+                    (table_name, filter_mysql_incremental_fields(columns)) for table_name, columns in result.items()
+                ]
+            elif source_type == ExternalDataSource.Type.MSSQL:
+                filtered_results = [
+                    (table_name, filter_mssql_incremental_fields(columns)) for table_name, columns in result.items()
+                ]
 
             result_mapped_to_options = [
                 {
@@ -936,6 +1118,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         for key, value in PostgresErrors.items():
             if key in error_msg:
+                return value
+        return None
+
+    def _expose_mssql_error(self, error: str) -> str | None:
+        for key, value in MSSQLErrors.items():
+            if key in error:
                 return value
         return None
 

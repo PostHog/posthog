@@ -7,11 +7,6 @@ use tracing::instrument;
 // TODO: Add integration tests across repos to ensure this doesn't happen.
 pub const TEAM_FLAGS_CACHE_PREFIX: &str = "posthog:1:team_feature_flags_";
 
-// TODO: Hmm, revisit when dealing with groups, but seems like
-// ideal to just treat it as a u8 and do our own validation on top
-#[derive(Debug, Deserialize)]
-pub enum GroupTypeIndex {}
-
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OperatorType {
@@ -42,7 +37,7 @@ pub struct PropertyFilter {
     pub operator: Option<OperatorType>,
     #[serde(rename = "type")]
     pub prop_type: String,
-    pub group_type_index: Option<i8>,
+    pub group_type_index: Option<i32>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -68,7 +63,7 @@ pub struct MultivariateFlagOptions {
 pub struct FlagFilters {
     pub groups: Vec<FlagGroupType>,
     pub multivariate: Option<MultivariateFlagOptions>,
-    pub aggregation_group_type_index: Option<i8>,
+    pub aggregation_group_type_index: Option<i32>,
     pub payloads: Option<serde_json::Value>,
     pub super_groups: Option<Vec<FlagGroupType>>,
 }
@@ -101,7 +96,7 @@ pub struct FeatureFlagRow {
 }
 
 impl FeatureFlag {
-    pub fn get_group_type_index(&self) -> Option<i8> {
+    pub fn get_group_type_index(&self) -> Option<i32> {
         self.filters.aggregation_group_type_index
     }
 
@@ -195,7 +190,7 @@ impl FeatureFlagList {
         team_id: i32,
         flags: &FeatureFlagList,
     ) -> Result<(), FlagError> {
-        let payload = serde_json::to_string(flags).map_err(|e| {
+        let payload = serde_json::to_string(&flags.flags).map_err(|e| {
             tracing::error!("Failed to serialize flags: {}", e);
             FlagError::DataParsingError
         })?;
@@ -242,7 +237,10 @@ mod tests {
             .await
             .expect("Failed to fetch flags from redis");
         assert_eq!(flags_from_redis.flags.len(), 1);
-        let flag = flags_from_redis.flags.get(0).expect("Empty flags in redis");
+        let flag = flags_from_redis
+            .flags
+            .first()
+            .expect("Empty flags in redis");
         assert_eq!(flag.key, "flag1");
         assert_eq!(flag.team_id, team.id);
         assert_eq!(flag.filters.groups.len(), 1);
@@ -293,7 +291,7 @@ mod tests {
             .expect("Failed to fetch flags from pg");
 
         assert_eq!(flags_from_pg.flags.len(), 1);
-        let flag = flags_from_pg.flags.get(0).expect("Flags should be in pg");
+        let flag = flags_from_pg.flags.first().expect("Flags should be in pg");
 
         assert_eq!(flag.key, "flag1");
         assert_eq!(flag.team_id, team.id);
@@ -419,13 +417,11 @@ mod tests {
     async fn test_fetch_empty_team_from_pg() {
         let client = setup_pg_client(None).await;
 
-        match FeatureFlagList::from_pg(client.clone(), 1234)
+        let FeatureFlagList { flags } = FeatureFlagList::from_pg(client.clone(), 1234)
             .await
-            .expect("Failed to fetch flags from pg")
+            .expect("Failed to fetch flags from pg");
         {
-            FeatureFlagList { flags } => {
-                assert_eq!(flags.len(), 0);
-            }
+            assert_eq!(flags.len(), 0);
         }
     }
 
@@ -1392,23 +1388,46 @@ mod tests {
         }
 
         // Fetch flags from both sources
-        let redis_flags = FeatureFlagList::from_redis(redis_client, team.id)
+        let mut redis_flags = FeatureFlagList::from_redis(redis_client, team.id)
             .await
             .expect("Failed to fetch flags from Redis");
-        let pg_flags = FeatureFlagList::from_pg(pg_client, team.id)
+        let mut pg_flags = FeatureFlagList::from_pg(pg_client, team.id)
             .await
             .expect("Failed to fetch flags from Postgres");
 
+        // Sort flags by key to ensure consistent order
+        redis_flags.flags.sort_by(|a, b| a.key.cmp(&b.key));
+        pg_flags.flags.sort_by(|a, b| a.key.cmp(&b.key));
+
         // Compare results
-        assert_eq!(redis_flags.flags.len(), pg_flags.flags.len());
+        assert_eq!(
+            redis_flags.flags.len(),
+            pg_flags.flags.len(),
+            "Number of flags mismatch"
+        );
+
         for (redis_flag, pg_flag) in redis_flags.flags.iter().zip(pg_flags.flags.iter()) {
-            assert_eq!(redis_flag.key, pg_flag.key);
-            assert_eq!(redis_flag.name, pg_flag.name);
-            assert_eq!(redis_flag.active, pg_flag.active);
-            assert_eq!(redis_flag.deleted, pg_flag.deleted);
+            assert_eq!(redis_flag.key, pg_flag.key, "Flag key mismatch");
+            assert_eq!(
+                redis_flag.name, pg_flag.name,
+                "Flag name mismatch for key: {}",
+                redis_flag.key
+            );
+            assert_eq!(
+                redis_flag.active, pg_flag.active,
+                "Flag active status mismatch for key: {}",
+                redis_flag.key
+            );
+            assert_eq!(
+                redis_flag.deleted, pg_flag.deleted,
+                "Flag deleted status mismatch for key: {}",
+                redis_flag.key
+            );
             assert_eq!(
                 redis_flag.filters.groups[0].rollout_percentage,
-                pg_flag.filters.groups[0].rollout_percentage
+                pg_flag.filters.groups[0].rollout_percentage,
+                "Flag rollout percentage mismatch for key: {}",
+                redis_flag.key
             );
         }
     }

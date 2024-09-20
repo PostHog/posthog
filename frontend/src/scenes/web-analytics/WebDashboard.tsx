@@ -2,14 +2,15 @@ import { IconExpand45, IconInfo, IconOpenSidebar, IconX } from '@posthog/icons'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { FeedbackNotice } from 'lib/components/FeedbackNotice'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
 import React, { useState } from 'react'
 import { WebAnalyticsErrorTrackingTile } from 'scenes/web-analytics/tiles/WebAnalyticsErrorTracking'
@@ -24,6 +25,7 @@ import {
     webAnalyticsLogic,
 } from 'scenes/web-analytics/webAnalyticsLogic'
 import { WebAnalyticsModal } from 'scenes/web-analytics/WebAnalyticsModal'
+import { WebConversionGoal } from 'scenes/web-analytics/WebConversionGoal'
 import { WebPropertyFilters } from 'scenes/web-analytics/WebPropertyFilters'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
@@ -40,6 +42,8 @@ const Filters = (): JSX.Element => {
     } = useValues(webAnalyticsLogic)
     const { setWebAnalyticsFilters, setDates } = useActions(webAnalyticsLogic)
     const { mobileLayout } = useValues(navigationLogic)
+    const { conversionGoal } = useValues(webAnalyticsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <div
@@ -54,6 +58,9 @@ const Filters = (): JSX.Element => {
                     setWebAnalyticsFilters={setWebAnalyticsFilters}
                     webAnalyticsFilters={webAnalyticsFilters}
                 />
+                {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOALS] || conversionGoal ? (
+                    <WebConversionGoal />
+                ) : null}
                 <ReloadAll />
             </div>
             <div className="bg-border h-px w-full mt-2" />
@@ -252,7 +259,7 @@ export const WebTabs = ({
                     )}
                 </h2>
 
-                {tabs.length > 3 ? (
+                {tabs.length > 4 ? (
                     <LemonSelect
                         size="small"
                         disabled={false}
@@ -326,7 +333,6 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
             <BindLogic logic={dataNodeCollectionLogic} props={{ key: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
                 <WebAnalyticsModal />
                 <VersionCheckerBanner />
-                <FeedbackNotice text="PostHog Web analytics is in open beta. Thanks for taking part! We'd love to hear what you think." />
                 <div className="WebAnalyticsDashboard w-full flex flex-col">
                     <WebAnalyticsLiveUserCount />
                     <Filters />

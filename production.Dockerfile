@@ -115,7 +115,7 @@ COPY hogvm hogvm/
 COPY posthog posthog/
 COPY ee ee/
 COPY --from=frontend-build /code/frontend/dist /code/frontend/dist
-RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 SECRET_KEY='unsafe secret key for collectstatic only' DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
+RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 STATIC_COLLECTION=1 DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
 
 
 #
@@ -141,7 +141,8 @@ RUN apt-get update && \
 #
 # ---------------------------------------------------------
 #
-FROM unit:python3.11
+# NOTE: newer images change the base image from bullseye to bookworm which makes compiled openssl versions have all sorts of issues
+FROM unit:1.32.0-python3.11 
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 ENV PYTHONUNBUFFERED 1
@@ -157,6 +158,12 @@ RUN apt-get update && \
     "libxmlsec1-dev" \
     "libxml2" \
     "gettext-base"
+
+# Install MS SQL dependencies
+RUN curl https://packages.microsoft.com/keys/microsoft.asc | tee /etc/apt/trusted.gpg.d/microsoft.asc
+RUN curl https://packages.microsoft.com/config/debian/11/prod.list | tee /etc/apt/sources.list.d/mssql-release.list
+RUN apt-get update
+RUN ACCEPT_EULA=Y apt-get install -y msodbcsql18
 
 # Install NodeJS 18.
 RUN apt-get install -y --no-install-recommends \

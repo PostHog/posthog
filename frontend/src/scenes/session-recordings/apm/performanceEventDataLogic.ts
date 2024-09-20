@@ -165,7 +165,9 @@ function filterUnwanted(events: PerformanceEvent[]): PerformanceEvent[] {
     // the browser can provide network events that we're not interested in,
     // like a navigation to "about:blank"
     return events.filter((event) => {
-        return !(event.entry_type === 'navigation' && event.name && event.name.startsWith('about:'))
+        const hasNoName = !event.name?.trim().length
+        const isNavigationToAbout = event.entry_type === 'navigation' && !!event.name && event.name.startsWith('about:')
+        return !(hasNoName || isNavigationToAbout)
     })
 }
 
@@ -179,7 +181,12 @@ function deduplicatePerformanceEvents(events: PerformanceEvent[]): PerformanceEv
     return events
         .reverse()
         .filter((event) => {
-            const key = `${event.entry_type}-${event.name}-${event.timestamp}-${event.window_id}`
+            // the timestamp isn't always exactly the same e.g. they could be one or two milliseconds apart
+            // just because of processing time.
+            // So we'll round down to the nearest 10ms
+            const reducedGranularityTimestamp =
+                typeof event.timestamp === 'number' ? Math.floor(event.timestamp / 10) * 10 : event.timestamp
+            const key = `${event.entry_type}-${event.name}-${reducedGranularityTimestamp}-${event.window_id}`
             // we only want to drop is_initial events
             if (seen.has(key) && event.is_initial) {
                 return false

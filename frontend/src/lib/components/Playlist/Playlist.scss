@@ -21,8 +21,8 @@
 
         &:not(.Playlist__list--collapsed) {
             width: 25%;
-            min-width: 305px;
-            max-width: 350px;
+            min-width: 285px;
+            max-width: 320px;
         }
 
         .text-link {
@@ -51,7 +51,7 @@
 
 .SessionRecordingPlaylistHeightWrapper {
     // NOTE: Somewhat random way to offset the various headers and tabs above the playlist
-    height: calc(100vh - 14rem);
+    height: calc(100vh - 15rem);
     min-height: 25rem;
 }
 

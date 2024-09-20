@@ -2,7 +2,15 @@ import { UniversalFiltersGroup } from 'lib/components/UniversalFilters/Universal
 import { dayjs } from 'lib/dayjs'
 import { range } from 'lib/utils'
 
-import { DataTableNode, DateRange, ErrorTrackingQuery, InsightVizNode, NodeKind } from '~/queries/schema'
+import {
+    DataTableNode,
+    DateRange,
+    ErrorTrackingGroup,
+    ErrorTrackingQuery,
+    EventsQuery,
+    InsightVizNode,
+    NodeKind,
+} from '~/queries/schema'
 import { AnyPropertyFilter, BaseMathType, ChartDisplayType, PropertyGroupFilter } from '~/types'
 
 export type SparklineConfig = {
@@ -35,19 +43,16 @@ const toStartOfIntervalFn = {
 export const errorTrackingQuery = ({
     order,
     dateRange,
+    assignee,
     filterTestAccounts,
     filterGroup,
     sparklineSelectedPeriod,
     columns,
     limit = 50,
-}: {
-    order: ErrorTrackingQuery['order']
-    dateRange: DateRange
-    filterTestAccounts: boolean
+}: Pick<ErrorTrackingQuery, 'order' | 'dateRange' | 'assignee' | 'filterTestAccounts' | 'limit'> & {
     filterGroup: UniversalFiltersGroup
     sparklineSelectedPeriod: string | null
     columns?: ('error' | 'volume' | 'occurrences' | 'sessions' | 'users' | 'assignee')[]
-    limit?: number
 }): DataTableNode => {
     const select: string[] = []
     if (!columns) {
@@ -69,6 +74,7 @@ export const errorTrackingQuery = ({
             select: select,
             order: order,
             dateRange: dateRange,
+            assignee: assignee,
             filterGroup: filterGroup as PropertyGroupFilter,
             filterTestAccounts: filterTestAccounts,
             limit: limit,
@@ -126,12 +132,65 @@ export const errorTrackingGroupQuery = ({
 }): ErrorTrackingQuery => {
     return {
         kind: NodeKind.ErrorTrackingQuery,
-        eventColumns: ['uuid', 'properties', 'timestamp', 'person'],
         fingerprint: fingerprint,
         dateRange: dateRange,
         filterGroup: filterGroup as PropertyGroupFilter,
         filterTestAccounts: filterTestAccounts,
     }
+}
+
+export const errorTrackingGroupEventsQuery = ({
+    select,
+    fingerprints,
+    dateRange,
+    filterTestAccounts,
+    filterGroup,
+    offset,
+}: {
+    select: string[]
+    fingerprints: ErrorTrackingGroup['fingerprint'][]
+    dateRange: DateRange
+    filterTestAccounts: boolean
+    filterGroup: UniversalFiltersGroup
+    offset: number
+}): EventsQuery => {
+    const group = filterGroup.values[0] as UniversalFiltersGroup
+    const properties = group.values as AnyPropertyFilter[]
+
+    const where = [
+        `has(${stringifyFingerprints(
+            fingerprints
+        )}, JSONExtract(ifNull(properties.$exception_fingerprint,'[]'),'Array(String)'))`,
+    ]
+
+    const query: EventsQuery = {
+        kind: NodeKind.EventsQuery,
+        event: '$exception',
+        select,
+        where,
+        properties,
+        filterTestAccounts: filterTestAccounts,
+        offset: offset,
+        limit: 50,
+    }
+
+    if (dateRange.date_from) {
+        query.after = dateRange.date_from
+    }
+    if (dateRange.date_to) {
+        query.before = dateRange.date_to
+    }
+
+    return query
+}
+
+// JSON.stringify wraps strings in double quotes and HogQL only supports single quote strings
+const stringifyFingerprints = (fingerprints: ErrorTrackingGroup['fingerprint'][]): string => {
+    const stringifiedFingerprints = fingerprints.map((fp) => {
+        const stringifiedParts = fp.map((s) => `'${s}'`)
+        return `[${stringifiedParts.join(',')}]`
+    })
+    return `[${stringifiedFingerprints.join(',')}]`
 }
 
 export const errorTrackingGroupBreakdownQuery = ({

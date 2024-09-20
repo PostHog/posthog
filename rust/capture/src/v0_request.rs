@@ -3,7 +3,7 @@ use std::io::prelude::*;
 
 use bytes::{Buf, Bytes};
 use flate2::read::GzDecoder;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use time::format_description::well_known::Iso8601;
 use time::OffsetDateTime;
@@ -11,6 +11,7 @@ use tracing::instrument;
 use uuid::Uuid;
 
 use crate::api::CaptureError;
+use crate::prometheus::report_dropped_events;
 use crate::token::validate_token;
 
 #[derive(Deserialize, Default)]
@@ -56,6 +57,20 @@ pub struct EventFormData {
     pub data: String,
 }
 
+pub fn empty_string_is_none<'de, D>(deserializer: D) -> Result<Option<Uuid>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let opt = Option::<String>::deserialize(deserializer)?;
+    match opt {
+        None => Ok(None),
+        Some(s) if s.is_empty() => Ok(None),
+        Some(s) => Uuid::parse_str(&s)
+            .map(Some)
+            .map_err(serde::de::Error::custom),
+    }
+}
+
 #[derive(Default, Debug, Deserialize, Serialize)]
 pub struct RawEvent {
     #[serde(
@@ -66,6 +81,7 @@ pub struct RawEvent {
     pub token: Option<String>,
     #[serde(alias = "$distinct_id", skip_serializing_if = "Option::is_none")]
     pub distinct_id: Option<Value>, // posthog-js accepts arbitrary values as distinct_id
+    #[serde(default, deserialize_with = "empty_string_is_none")]
     pub uuid: Option<Uuid>,
     pub event: String,
     #[serde(default)]
@@ -80,7 +96,7 @@ pub struct RawEvent {
     pub set_once: Option<HashMap<String, Value>>,
 }
 
-static GZIP_MAGIC_NUMBERS: [u8; 3] = [0x1f, 0x8b, 8];
+pub static GZIP_MAGIC_NUMBERS: [u8; 3] = [0x1f, 0x8b, 8];
 
 #[derive(Deserialize)]
 #[serde(untagged)]
@@ -109,22 +125,54 @@ impl RawRequest {
     /// Instead of trusting the parameter, we peek at the payload's first three bytes to
     /// detect gzip, fallback to uncompressed utf8 otherwise.
     #[instrument(skip_all)]
-    pub fn from_bytes(bytes: Bytes) -> Result<RawRequest, CaptureError> {
+    pub fn from_bytes(bytes: Bytes, limit: usize) -> Result<RawRequest, CaptureError> {
         tracing::debug!(len = bytes.len(), "decoding new event");
 
         let payload = if bytes.starts_with(&GZIP_MAGIC_NUMBERS) {
-            let mut d = GzDecoder::new(bytes.reader());
-            let mut s = String::new();
-            d.read_to_string(&mut s).map_err(|e| {
-                tracing::error!("failed to decode gzip: {}", e);
-                CaptureError::RequestDecodingError(String::from("invalid gzip data"))
-            })?;
-            s
+            let len = bytes.len();
+            let mut zipstream = GzDecoder::new(bytes.reader());
+            let chunk = &mut [0; 1024];
+            let mut buf = Vec::with_capacity(len);
+            loop {
+                let got = match zipstream.read(chunk) {
+                    Ok(got) => got,
+                    Err(e) => {
+                        tracing::error!("failed to read gzip stream: {}", e);
+                        return Err(CaptureError::RequestDecodingError(String::from(
+                            "invalid gzip data",
+                        )));
+                    }
+                };
+                if got == 0 {
+                    break;
+                }
+                buf.extend_from_slice(&chunk[..got]);
+                if buf.len() > limit {
+                    tracing::error!("GZIP decompression limit reached");
+                    report_dropped_events("event_too_big", 1);
+                    return Err(CaptureError::EventTooBig);
+                }
+            }
+            match String::from_utf8(buf) {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::error!("failed to decode gzip: {}", e);
+                    return Err(CaptureError::RequestDecodingError(String::from(
+                        "invalid gzip data",
+                    )));
+                }
+            }
         } else {
-            String::from_utf8(bytes.into()).map_err(|e| {
+            let s = String::from_utf8(bytes.into()).map_err(|e| {
                 tracing::error!("failed to decode body: {}", e);
                 CaptureError::RequestDecodingError(String::from("invalid body encoding"))
-            })?
+            })?;
+            if s.len() > limit {
+                tracing::error!("Request size limit reached");
+                report_dropped_events("event_too_big", 1);
+                return Err(CaptureError::EventTooBig);
+            }
+            s
         };
 
         tracing::debug!(json = payload, "decoded event data");
@@ -238,14 +286,29 @@ pub struct ProcessingContext {
 #[cfg(test)]
 mod tests {
     use crate::token::InvalidTokenReason;
+    use crate::v0_request::empty_string_is_none;
     use base64::Engine as _;
     use bytes::Bytes;
     use rand::distributions::Alphanumeric;
     use rand::Rng;
+    use serde::Deserialize;
     use serde_json::json;
+    use serde_json::Value;
+    use uuid::Uuid;
 
     use super::CaptureError;
     use super::RawRequest;
+
+    fn test_deserialize(json: Value) -> Result<Option<Uuid>, serde_json::Error> {
+        #[derive(Deserialize)]
+        struct TestStruct {
+            #[serde(deserialize_with = "empty_string_is_none")]
+            uuid: Option<Uuid>,
+        }
+
+        let result: TestStruct = serde_json::from_value(json)?;
+        Ok(result.uuid)
+    }
 
     #[test]
     fn decode_uncompressed_raw_event() {
@@ -256,7 +319,7 @@ mod tests {
                 .expect("payload is not base64"),
         );
 
-        let events = RawRequest::from_bytes(compressed_bytes)
+        let events = RawRequest::from_bytes(compressed_bytes, 1024)
             .expect("failed to parse")
             .events();
         assert_eq!(1, events.len());
@@ -278,7 +341,7 @@ mod tests {
                 .expect("payload is not base64"),
         );
 
-        let events = RawRequest::from_bytes(compressed_bytes)
+        let events = RawRequest::from_bytes(compressed_bytes, 2048)
             .expect("failed to parse")
             .events();
         assert_eq!(1, events.len());
@@ -295,7 +358,7 @@ mod tests {
     #[test]
     fn extract_distinct_id() {
         let parse_and_extract = |input: &'static str| -> Result<String, CaptureError> {
-            let parsed = RawRequest::from_bytes(input.into())
+            let parsed = RawRequest::from_bytes(input.into(), 2048)
                 .expect("failed to parse")
                 .events();
             parsed[0].extract_distinct_id()
@@ -363,7 +426,7 @@ mod tests {
             "distinct_id": distinct_id
         }]);
 
-        let parsed = RawRequest::from_bytes(input.to_string().into())
+        let parsed = RawRequest::from_bytes(input.to_string().into(), 2048)
             .expect("failed to parse")
             .events();
         assert_eq!(
@@ -375,7 +438,7 @@ mod tests {
     #[test]
     fn extract_and_verify_token() {
         let parse_and_extract = |input: &'static str| -> Result<String, CaptureError> {
-            RawRequest::from_bytes(input.into())
+            RawRequest::from_bytes(input.into(), 2048)
                 .expect("failed to parse")
                 .extract_and_verify_token()
         };
@@ -430,5 +493,30 @@ mod tests {
         // Return token from single event if present
         assert_extracted_token(r#"{"event":"e","$token":"single_token"}"#, "single_token");
         assert_extracted_token(r#"{"event":"e","api_key":"single_token"}"#, "single_token");
+    }
+
+    #[test]
+    fn test_empty_uuid_string_is_none() {
+        let json = serde_json::json!({"uuid": ""});
+        let result = test_deserialize(json);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), None);
+    }
+
+    #[test]
+    fn test_valid_uuid_is_some() {
+        let valid_uuid = "550e8400-e29b-41d4-a716-446655440000";
+        let json = serde_json::json!({"uuid": valid_uuid});
+        let result = test_deserialize(json);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Some(Uuid::parse_str(valid_uuid).unwrap()));
+    }
+
+    #[test]
+    fn test_invalid_uuid_is_error() {
+        let invalid_uuid = "not-a-uuid";
+        let json = serde_json::json!({"uuid": invalid_uuid});
+        let result = test_deserialize(json);
+        assert!(result.is_err());
     }
 }

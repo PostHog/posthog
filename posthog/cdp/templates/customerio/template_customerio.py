@@ -7,12 +7,13 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, Hog
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
     id="template-customerio",
-    name="Send events to Customer.io",
+    name="Customer.io",
     description="Identify or track events against customers in Customer.io",
     icon_url="/static/services/customerio.png",
+    category=["Email Marketing"],
     hog="""
 let action := inputs.action
-let name := event.name
+let name := event.event
 
 let hasIdentifier := false
 
@@ -28,13 +29,13 @@ if (not hasIdentifier) {
 }
 
 if (action == 'automatic') {
-    if (event.name in ('$identify', '$set')) {
+    if (event.event in ('$identify', '$set')) {
         action := 'identify'
         name := null
-    } else if (event.name == '$pageview') {
+    } else if (event.event == '$pageview') {
         action := 'page'
         name := event.properties.$current_url
-    } else if (event.name == '$screen') {
+    } else if (event.event == '$screen') {
         action := 'screen'
         name := event.properties.$screen_name
     } else {
@@ -43,6 +44,9 @@ if (action == 'automatic') {
 }
 
 let attributes := inputs.include_all_properties ? action == 'identify' ? person.properties : event.properties : {}
+if (inputs.include_all_properties and action != 'identify' and not empty(event.elements_chain)) {
+    attributes['$elements_chain'] := event.elements_chain
+}
 let timestamp := toInt(toUnixTimestamp(toDateTime(event.timestamp)))
 
 for (let key, value in inputs.attributes) {

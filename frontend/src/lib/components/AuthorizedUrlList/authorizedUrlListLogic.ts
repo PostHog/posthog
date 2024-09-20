@@ -37,16 +37,26 @@ export enum AuthorizedUrlListType {
     RECORDING_DOMAINS = 'RECORDING_DOMAINS',
 }
 
+/**
+ * Firefox does not allow you construct a new URL with e.g. https://*.example.com (which is to be fair more standards compliant than Chrome)
+ * when used to probe for e.g. for authorized urls we only care if the proposed URL has a path so we can safely replace the wildcard with a character
+ * NB this changes its input and shouldn't be used for general purpose URL parsing
+ */
+export function sanitizePossibleWildCardedURL(url: string): URL {
+    const deWildCardedURL = url.replace(/\*/g, 'x')
+    return new URL(deWildCardedURL)
+}
+
 export const validateProposedUrl = (
     proposedUrl: string,
     currentUrls: string[],
     onlyAllowDomains: boolean = false
 ): string | undefined => {
-    if (!onlyAllowDomains && !isURL(proposedUrl)) {
+    if (!isURL(proposedUrl)) {
         return 'Please enter a valid URL'
     }
 
-    if (onlyAllowDomains && !isDomain(proposedUrl)) {
+    if (onlyAllowDomains && !isDomain(sanitizePossibleWildCardedURL(proposedUrl))) {
         return "Please enter a valid domain (URLs with a path aren't allowed)"
     }
 
@@ -81,20 +91,21 @@ export function appEditorUrl(
     return '/api/user/redirect_to_site/' + encodeParams(params, '?')
 }
 
-export const checkUrlIsAuthorized = (url: string, authorizedUrls: string[]): boolean => {
+export const checkUrlIsAuthorized = (url: string | URL, authorizedUrls: string[]): boolean => {
     try {
-        const parsedUrl = new URL(url)
+        const parsedUrl = typeof url === 'string' ? sanitizePossibleWildCardedURL(url) : url
         const urlWithoutPath = parsedUrl.protocol + '//' + parsedUrl.host
         // Is this domain already in the list of urls?
-        const exactMatch = authorizedUrls.filter((url) => url.indexOf(urlWithoutPath) > -1).length > 0
+        const exactMatch =
+            authorizedUrls.filter((authorizedUrl) => authorizedUrl.indexOf(urlWithoutPath) > -1).length > 0
 
         if (exactMatch) {
             return true
         }
 
-        const wildcardMatch = !!authorizedUrls.find((url) => {
+        const wildcardMatch = !!authorizedUrls.find((authorizedUrl) => {
             // Matches something like `https://*.example.com` against the urlWithoutPath
-            const regex = new RegExp(url.replace(/\./g, '\\.').replace(/\*/g, '.*'))
+            const regex = new RegExp(authorizedUrl.replace(/\./g, '\\.').replace(/\*/g, '.*'))
             return urlWithoutPath.match(regex)
         })
 
@@ -112,14 +123,14 @@ export const filterNotAuthorizedUrls = (urls: string[], authorizedUrls: string[]
     const suggestedDomains: string[] = []
 
     urls.forEach((url) => {
-        const parsedUrl = new URL(url)
+        const parsedUrl = sanitizePossibleWildCardedURL(url)
         const urlWithoutPath = parsedUrl.protocol + '//' + parsedUrl.host
         // Have we already added this domain?
         if (suggestedDomains.indexOf(urlWithoutPath) > -1) {
             return
         }
 
-        if (!checkUrlIsAuthorized(url, authorizedUrls)) {
+        if (!checkUrlIsAuthorized(parsedUrl, authorizedUrls)) {
             suggestedDomains.push(urlWithoutPath)
         }
     })
@@ -230,7 +241,7 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
             [] as string[],
             {
                 setAuthorizedUrls: (_, { authorizedUrls }) => authorizedUrls,
-                addUrl: (state, { url }) => state.concat([url]),
+                addUrl: (state, { url }) => (!state.includes(url) ? state.concat([url]) : state),
                 updateUrl: (state, { index, url }) => Object.assign([...state], { [index]: url }),
                 removeUrl: (state, { index }) => {
                     const newUrls = [...state]

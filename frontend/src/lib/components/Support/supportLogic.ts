@@ -104,6 +104,11 @@ export const TARGET_AREA_TO_NAME = [
                 label: 'Onboarding',
             },
             {
+                value: 'sdk',
+                'data-attr': `support-form-target-area-onboarding`,
+                label: 'SDK / Implementation',
+            },
+            {
                 value: 'cohorts',
                 'data-attr': `support-form-target-area-cohorts`,
                 label: 'Cohorts',
@@ -131,7 +136,7 @@ export const TARGET_AREA_TO_NAME = [
             {
                 value: 'experiments',
                 'data-attr': `support-form-target-area-experiments`,
-                label: 'A/B testing',
+                label: 'Experiments',
             },
             {
                 value: 'data_warehouse',
@@ -539,7 +544,7 @@ export const supportLogic = kea<supportLogicType>([
 
                 actions.openSupportForm({
                     kind: Object.keys(SUPPORT_KIND_TO_SUBJECT).includes(kind) ? kind : null,
-                    target_area: Object.keys(TARGET_AREA_TO_NAME).includes(area) ? area : null,
+                    target_area: getLabelBasedOnTargetArea(area) ? area : null,
                     severity_level: Object.keys(SEVERITY_LEVEL_TO_NAME).includes(severity) ? severity : null,
                     isEmailFormOpen: isEmailFormOpen ?? 'false',
                 })

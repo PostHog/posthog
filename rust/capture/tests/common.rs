@@ -26,7 +26,9 @@ use tokio::time::timeout;
 use tracing::{debug, warn};
 
 use capture::config::{CaptureMode, Config, KafkaConfig};
-use capture::limiters::billing::QuotaResource;
+use capture::limiters::redis::{
+    QuotaResource, OVERFLOW_LIMITER_CACHE_KEY, QUOTA_LIMITER_CACHE_KEY,
+};
 use capture::server::serve;
 
 pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
@@ -41,6 +43,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
         kafka_producer_linger_ms: 0, // Send messages as soon as possible
         kafka_producer_queue_mib: 10,
         kafka_message_timeout_ms: 10000, // 10s, ACKs can be slow on low volumes, should be tuned
+        kafka_producer_message_max_bytes: 1000000, // 1MB, rdkafka default
         kafka_compression_codec: "none".to_string(),
         kafka_hosts: "kafka:9092".to_string(),
         kafka_topic: "events_plugin_ingestion".to_string(),
@@ -48,7 +51,11 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
         kafka_client_ingestion_warning_topic: "events_plugin_ingestion".to_string(),
         kafka_exceptions_topic: "events_plugin_ingestion".to_string(),
         kafka_heatmaps_topic: "events_plugin_ingestion".to_string(),
+        kafka_replay_overflow_topic: "session_recording_snapshot_item_overflow".to_string(),
         kafka_tls: false,
+        kafka_client_id: "".to_string(),
+        kafka_metadata_max_age_ms: 60000,
+        kafka_producer_max_retries: 2,
     },
     otel_url: None,
     otel_sampling_rate: 0.0,
@@ -56,6 +63,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     export_prometheus: false,
     redis_key_prefix: None,
     capture_mode: CaptureMode::Events,
+    concurrency_limit: None,
 });
 
 static TRACING_INIT: Once = Once::new();
@@ -152,7 +160,7 @@ impl EphemeralTopic {
         // TODO: check for name collision?
         let topic_name = random_string("events_", 16);
         let admin = AdminClient::from_config(&config).expect("failed to create admin client");
-        admin
+        let created = admin
             .create_topics(
                 &[NewTopic {
                     name: &topic_name,
@@ -164,6 +172,10 @@ impl EphemeralTopic {
             )
             .await
             .expect("failed to create topic");
+
+        for result in created {
+            result.expect("failed to create topic");
+        }
 
         let consumer: BaseConsumer = config.create().expect("failed to create consumer");
         let mut assignment = TopicPartitionList::new();
@@ -269,7 +281,27 @@ impl PrefixedRedis {
     }
 
     pub fn add_billing_limit(&self, res: QuotaResource, token: &str, until: time::Duration) {
-        let key = format!("{}@posthog/quota-limits/{}", self.key_prefix, res.as_str());
+        let key = format!(
+            "{}{}{}",
+            self.key_prefix,
+            QUOTA_LIMITER_CACHE_KEY,
+            res.as_str()
+        );
+        let score = OffsetDateTime::now_utc().add(until).unix_timestamp();
+        self.client
+            .get_connection()
+            .expect("failed to get connection")
+            .zadd::<String, i64, &str, i64>(key, token, score)
+            .expect("failed to insert in redis");
+    }
+
+    pub fn add_overflow_limit(&self, res: QuotaResource, token: &str, until: time::Duration) {
+        let key = format!(
+            "{}{}{}",
+            self.key_prefix,
+            OVERFLOW_LIMITER_CACHE_KEY,
+            res.as_str()
+        );
         let score = OffsetDateTime::now_utc().add(until).unix_timestamp();
         self.client
             .get_connection()

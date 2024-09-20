@@ -1,5 +1,4 @@
-use std::time::Duration;
-
+use crate::limiters::redis::RedisLimiter;
 use async_trait::async_trait;
 use health::HealthHandle;
 use metrics::{counter, gauge, histogram};
@@ -8,6 +7,7 @@ use rdkafka::message::{Header, OwnedHeaders};
 use rdkafka::producer::{DeliveryFuture, FutureProducer, FutureRecord, Producer};
 use rdkafka::util::Timeout;
 use rdkafka::ClientConfig;
+use std::time::Duration;
 use tokio::task::JoinSet;
 use tracing::log::{debug, error, info};
 use tracing::{info_span, instrument, Instrument};
@@ -114,6 +114,8 @@ pub struct KafkaSink {
     client_ingestion_warning_topic: String,
     exceptions_topic: String,
     heatmaps_topic: String,
+    replay_overflow_limiter: Option<RedisLimiter>,
+    replay_overflow_topic: String,
 }
 
 impl KafkaSink {
@@ -121,6 +123,7 @@ impl KafkaSink {
         config: KafkaConfig,
         liveness: HealthHandle,
         partition: Option<OverflowLimiter>,
+        replay_overflow_limiter: Option<RedisLimiter>,
     ) -> anyhow::Result<KafkaSink> {
         info!("connecting to Kafka brokers at {}...", config.kafka_hosts);
 
@@ -129,7 +132,19 @@ impl KafkaSink {
             .set("bootstrap.servers", &config.kafka_hosts)
             .set("statistics.interval.ms", "10000")
             .set("partitioner", "murmur2_random") // Compatibility with python-kafka
+            .set(
+                "metadata.max.age.ms",
+                config.kafka_metadata_max_age_ms.to_string(),
+            )
+            .set(
+                "message.send.max.retries",
+                config.kafka_producer_max_retries.to_string(),
+            )
             .set("linger.ms", config.kafka_producer_linger_ms.to_string())
+            .set(
+                "message.max.bytes",
+                config.kafka_producer_message_max_bytes.to_string(),
+            )
             .set(
                 "message.timeout.ms",
                 config.kafka_message_timeout_ms.to_string(),
@@ -139,6 +154,10 @@ impl KafkaSink {
                 "queue.buffering.max.kbytes",
                 (config.kafka_producer_queue_mib * 1024).to_string(),
             );
+
+        if !&config.kafka_client_id.is_empty() {
+            client_config.set("client.id", &config.kafka_client_id);
+        }
 
         if config.kafka_tls {
             client_config
@@ -165,6 +184,8 @@ impl KafkaSink {
             client_ingestion_warning_topic: config.kafka_client_ingestion_warning_topic,
             exceptions_topic: config.kafka_exceptions_topic,
             heatmaps_topic: config.kafka_heatmaps_topic,
+            replay_overflow_topic: config.kafka_replay_overflow_topic,
+            replay_overflow_limiter,
         })
     }
 
@@ -179,10 +200,14 @@ impl KafkaSink {
             CaptureError::NonRetryableSinkError
         })?;
 
+        let token = event.token.clone();
+        let data_type = event.data_type;
         let event_key = event.key();
-        let session_id = event.session_id.as_deref();
+        let session_id = event.session_id.clone();
 
-        let (topic, partition_key): (&str, Option<&str>) = match &event.data_type {
+        drop(event); // Events can be EXTREMELY memory hungry
+
+        let (topic, partition_key): (&str, Option<&str>) = match data_type {
             DataType::AnalyticsHistorical => (&self.historical_topic, Some(event_key.as_str())), // We never trigger overflow on historical events
             DataType::AnalyticsMain => {
                 // TODO: deprecate capture-led overflow or move logic in handler
@@ -202,10 +227,21 @@ impl KafkaSink {
             ),
             DataType::HeatmapMain => (&self.heatmaps_topic, Some(event_key.as_str())),
             DataType::ExceptionMain => (&self.exceptions_topic, Some(event_key.as_str())),
-            DataType::SnapshotMain => (
-                &self.main_topic,
-                Some(session_id.ok_or(CaptureError::MissingSessionId)?),
-            ),
+            DataType::SnapshotMain => {
+                let session_id = session_id
+                    .as_deref()
+                    .ok_or(CaptureError::MissingSessionId)?;
+                let is_overflowing = match &self.replay_overflow_limiter {
+                    None => false,
+                    Some(limiter) => limiter.is_limited(session_id).await,
+                };
+
+                if is_overflowing {
+                    (&self.replay_overflow_topic, Some(session_id))
+                } else {
+                    (&self.main_topic, Some(session_id))
+                }
+            }
         };
 
         match self.producer.send_result(FutureRecord {
@@ -216,7 +252,7 @@ impl KafkaSink {
             timestamp: None,
             headers: Some(OwnedHeaders::new().insert(Header {
                 key: "token",
-                value: Some(&event.token),
+                value: Some(&token),
             })),
         }) {
             Ok(ack) => Ok(ack),
@@ -328,7 +364,9 @@ mod tests {
     use std::num::NonZeroU32;
     use time::Duration;
 
-    async fn start_on_mocked_sink() -> (MockCluster<'static, DefaultProducerContext>, KafkaSink) {
+    async fn start_on_mocked_sink(
+        message_max_bytes: Option<u32>,
+    ) -> (MockCluster<'static, DefaultProducerContext>, KafkaSink) {
         let registry = HealthRegistry::new("liveness");
         let handle = registry
             .register("one".to_string(), Duration::seconds(30))
@@ -343,6 +381,7 @@ mod tests {
             kafka_producer_linger_ms: 0,
             kafka_producer_queue_mib: 50,
             kafka_message_timeout_ms: 500,
+            kafka_producer_message_max_bytes: message_max_bytes.unwrap_or(1000000),
             kafka_compression_codec: "none".to_string(),
             kafka_hosts: cluster.bootstrap_servers(),
             kafka_topic: "events_plugin_ingestion".to_string(),
@@ -350,9 +389,13 @@ mod tests {
             kafka_client_ingestion_warning_topic: "events_plugin_ingestion".to_string(),
             kafka_exceptions_topic: "events_plugin_ingestion".to_string(),
             kafka_heatmaps_topic: "events_plugin_ingestion".to_string(),
+            kafka_replay_overflow_topic: "session_recording_snapshot_item_overflow".to_string(),
             kafka_tls: false,
+            kafka_client_id: "".to_string(),
+            kafka_metadata_max_age_ms: 60000,
+            kafka_producer_max_retries: 2,
         };
-        let sink = KafkaSink::new(config, handle, limiter).expect("failed to create sink");
+        let sink = KafkaSink::new(config, handle, limiter, None).expect("failed to create sink");
         (cluster, sink)
     }
 
@@ -361,7 +404,7 @@ mod tests {
         // Uses a mocked Kafka broker that allows injecting write errors, to check error handling.
         // We test different cases in a single test to amortize the startup cost of the producer.
 
-        let (cluster, sink) = start_on_mocked_sink().await;
+        let (cluster, sink) = start_on_mocked_sink(Some(3000000)).await;
         let event: ProcessedEvent = ProcessedEvent {
             data_type: DataType::AnalyticsMain,
             uuid: uuid_v7(),
@@ -389,10 +432,31 @@ mod tests {
             .await
             .expect("failed to send initial event batch");
 
-        // Producer should reject a 2MB message, twice the default `message.max.bytes`
+        // Producer should accept a 2MB message as we set message.max.bytes to 3MB
         let big_data = rand::thread_rng()
             .sample_iter(Alphanumeric)
             .take(2_000_000)
+            .map(char::from)
+            .collect();
+        let big_event: ProcessedEvent = ProcessedEvent {
+            data_type: DataType::AnalyticsMain,
+            uuid: uuid_v7(),
+            distinct_id: "id1".to_string(),
+            ip: "".to_string(),
+            data: big_data,
+            now: "".to_string(),
+            sent_at: None,
+            token: "token1".to_string(),
+            session_id: None,
+        };
+        sink.send(big_event)
+            .await
+            .expect("failed to send event larger than default max size");
+
+        // Producer should reject a 4MB message
+        let big_data = rand::thread_rng()
+            .sample_iter(Alphanumeric)
+            .take(4_000_000)
             .map(char::from)
             .collect();
         let big_event: ProcessedEvent = ProcessedEvent {

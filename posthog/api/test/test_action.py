@@ -54,7 +54,9 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ],
             "created_at": ANY,
             "created_by": ANY,
+            "pinned_at": None,
             "deleted": False,
+            "creation_context": None,
             "is_calculating": False,
             "last_calculated_at": ANY,
             "team_id": self.team.id,
@@ -79,6 +81,9 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "match_url_count": 1,
                 "has_properties": False,
                 "deleted": False,
+                "pinned": False,
+                "pinned_at": None,
+                "creation_context": None,
             },
         )
 
@@ -100,7 +105,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         action = Action.objects.get(pk=response.json()["id"])
-        assert action.bytecode == ["_h", 32, "%/signup%", 32, "$current_url", 32, "properties", 1, 2, 17]
+        assert action.bytecode == ["_H", 1, 32, "%/signup%", 32, "$current_url", 32, "properties", 1, 2, 17]
 
     def test_cant_create_action_with_the_same_name(self, *args):
         original_action = Action.objects.create(name="user signed up", team=self.team)
@@ -128,6 +133,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(Action.objects.count(), count)
 
+    @freeze_time("2021-12-12")
     @patch("posthog.api.action.report_user_action")
     def test_update_action(self, patch_capture, *args):
         user = self._create_user("test_user_update")
@@ -159,6 +165,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "first_name": "person",
                     "email": "person@email.com",
                 },
+                "pinned_at": "2021-12-11T00:00:00Z",
             },
             HTTP_ORIGIN="http://testserver",
         )
@@ -213,6 +220,8 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "has_properties": True,
                 "updated_by_creator": False,
                 "deleted": False,
+                "pinned": True,
+                "pinned_at": "2021-12-12T00:00:00+00:00",
             },
         )
 

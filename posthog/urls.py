@@ -28,10 +28,7 @@ from posthog.api import (
     authentication,
     capture,
     decide,
-    organizations_router,
-    project_dashboards_router,
-    project_feature_flags_router,
-    projects_router,
+    hog_function_template,
     router,
     sharing,
     signup,
@@ -40,6 +37,7 @@ from posthog.api import (
     uploaded_media,
     user,
 )
+from .api.web_experiment import web_experiments
 from .api.utils import hostname_in_allowed_url_list
 from posthog.api.early_access_feature import early_access_features
 from posthog.api.survey import surveys
@@ -71,13 +69,7 @@ except ImportError:
         logger.warn(f"Could not import ee.urls", exc_info=True)
     pass
 else:
-    extend_api_router(
-        router,
-        projects_router=projects_router,
-        organizations_router=organizations_router,
-        project_dashboards_router=project_dashboards_router,
-        project_feature_flags_router=project_feature_flags_router,
-    )
+    extend_api_router()
 
 
 @requires_csrf_token
@@ -185,6 +177,7 @@ urlpatterns = [
     opt_slash_path("api/user/redirect_to_website", user.redirect_to_website),
     opt_slash_path("api/user/test_slack_webhook", user.test_slack_webhook),
     opt_slash_path("api/early_access_features", early_access_features),
+    opt_slash_path("api/web_experiments", web_experiments),
     opt_slash_path("api/surveys", surveys),
     opt_slash_path("api/signup", signup.SignupViewset.as_view()),
     opt_slash_path("api/social_signup", signup.SocialSignupViewset.as_view()),
@@ -236,6 +229,10 @@ urlpatterns = [
     path("year_in_posthog/2022/<str:user_uuid>/", year_in_posthog.render_2022),
     path("year_in_posthog/2023/<str:user_uuid>", year_in_posthog.render_2023),
     path("year_in_posthog/2023/<str:user_uuid>/", year_in_posthog.render_2023),
+    opt_slash_path(
+        "api/public_hog_function_templates",
+        hog_function_template.PublicHogFunctionTemplateViewSet.as_view({"get": "list"}),
+    ),
 ]
 
 if settings.DEBUG:

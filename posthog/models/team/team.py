@@ -1,9 +1,10 @@
 import re
 from decimal import Decimal
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any, Optional, cast
+from typing import TYPE_CHECKING, Optional, cast
+from uuid import UUID
 from zoneinfo import ZoneInfo
-
+from django.core.cache import cache
 import posthoganalytics
 import pydantic
 import pytz
@@ -26,6 +27,7 @@ from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.instance_setting import get_instance_setting
+from posthog.models.organization import OrganizationMembership
 from posthog.models.signals import mutable_receiver
 from posthog.models.utils import (
     UUIDClassicModel,
@@ -65,7 +67,7 @@ class TeamManager(models.Manager):
     def get_queryset(self):
         return super().get_queryset().defer(*DEPRECATED_ATTRS)
 
-    def set_test_account_filters(self, organization: Optional[Any]) -> list:
+    def set_test_account_filters(self, organization_id: Optional[UUID]) -> list:
         filters = [
             {
                 "key": "$host",
@@ -74,10 +76,12 @@ class TeamManager(models.Manager):
                 "type": "event",
             }
         ]
-        if organization:
-            example_emails = organization.members.only("email")
+        if organization_id:
+            example_emails_raw = OrganizationMembership.objects.filter(organization_id=organization_id).values_list(
+                "user__email", flat=True
+            )
             generic_emails = GenericEmails()
-            example_emails = [email.email for email in example_emails if not generic_emails.is_generic(email.email)]
+            example_emails = [email for email in example_emails_raw if not generic_emails.is_generic(email)]
             if len(example_emails) > 0:
                 example_email = re.search(r"@[\w.]+", example_emails[0])
                 if example_email:
@@ -87,16 +91,25 @@ class TeamManager(models.Manager):
                     ]
         return filters
 
-    def create_with_data(self, user: Any = None, default_dashboards: bool = True, **kwargs) -> "Team":
-        kwargs["test_account_filters"] = self.set_test_account_filters(kwargs.get("organization"))
+    def create_with_data(self, *, initiating_user: Optional["User"], **kwargs) -> "Team":
         team = cast("Team", self.create(**kwargs))
 
-        # Create default dashboards (skipped for demo projects)
-        if default_dashboards:
-            dashboard = Dashboard.objects.db_manager(self.db).create(name="My App Dashboard", pinned=True, team=team)
-            create_dashboard_from_template("DEFAULT_APP", dashboard)
-            team.primary_dashboard = dashboard
-            team.save()
+        if kwargs.get("is_demo"):
+            if initiating_user is None:
+                raise ValueError("initiating_user must be provided when creating a demo team")
+            team.kick_off_demo_data_generation(initiating_user)
+            return team  # Return quickly, as the demo data and setup will be created asynchronously
+
+        team.test_account_filters = self.set_test_account_filters(
+            kwargs.get("organization_id") or kwargs["organization"].id
+        )
+
+        # Create default dashboards
+        dashboard = Dashboard.objects.db_manager(self.db).create(name="My App Dashboard", pinned=True, team=team)
+        create_dashboard_from_template("DEFAULT_APP", dashboard)
+        team.primary_dashboard = dashboard
+
+        team.save()
         return team
 
     def create(self, **kwargs):
@@ -212,6 +225,7 @@ class Team(UUIDClassicModel):
     ingested_event = models.BooleanField(default=False)
     autocapture_opt_out = models.BooleanField(null=True, blank=True)
     autocapture_web_vitals_opt_in = models.BooleanField(null=True, blank=True)
+    autocapture_web_vitals_allowed_metrics = models.JSONField(null=True, blank=True)
     autocapture_exceptions_opt_in = models.BooleanField(null=True, blank=True)
     autocapture_exceptions_errors_to_ignore = models.JSONField(null=True, blank=True)
     session_recording_opt_in = models.BooleanField(default=False)
@@ -231,8 +245,8 @@ class Team(UUIDClassicModel):
     session_recording_linked_flag = models.JSONField(null=True, blank=True)
     session_recording_network_payload_capture_config = models.JSONField(null=True, blank=True)
     session_replay_config = models.JSONField(null=True, blank=True)
-    capture_console_log_opt_in = models.BooleanField(null=True, blank=True)
-    capture_performance_opt_in = models.BooleanField(null=True, blank=True)
+    capture_console_log_opt_in = models.BooleanField(null=True, blank=True, default=True)
+    capture_performance_opt_in = models.BooleanField(null=True, blank=True, default=True)
     surveys_opt_in = models.BooleanField(null=True, blank=True)
     heatmaps_opt_in = models.BooleanField(null=True, blank=True)
     session_recording_version = models.CharField(null=True, blank=True, max_length=24)
@@ -308,32 +322,33 @@ class Team(UUIDClassicModel):
 
     @property
     def person_on_events_mode(self) -> PersonsOnEventsMode:
+        if self.modifiers and self.modifiers.get("personsOnEventsMode") is not None:
+            # HogQL modifiers (which also act as the project-level setting) take precedence
+            mode = PersonsOnEventsMode(self.modifiers["personsOnEventsMode"])
+        else:
+            # Otherwise use the flag-based default
+            mode = self.person_on_events_mode_flag_based_default
+        tag_queries(person_on_events_mode=mode)
+        return mode
+
+    @property
+    def person_on_events_mode_flag_based_default(self) -> PersonsOnEventsMode:
         if self._person_on_events_person_id_override_properties_on_events:
-            tag_queries(person_on_events_mode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS)
             return PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
 
         if self._person_on_events_person_id_no_override_properties_on_events:
-            # also tag person_on_events_enabled for legacy compatibility
-            tag_queries(
-                person_on_events_enabled=True,
-                person_on_events_mode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
-            )
             return PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
 
-        if self._person_on_events_person_id_override_properties_joined:
-            tag_queries(
-                person_on_events_enabled=True,
-                person_on_events_mode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
-            )
-            return PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED
-
-        return PersonsOnEventsMode.DISABLED
+        return PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED
 
     # KLUDGE: DO NOT REFERENCE IN THE BACKEND!
     # Keeping this property for now only to be used by the frontend in certain cases
     @property
     def person_on_events_querying_enabled(self) -> bool:
-        return self.person_on_events_mode != PersonsOnEventsMode.DISABLED
+        return self.person_on_events_mode in (  # Whether person properties on events are in use by default
+            PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
+            PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
+        )
 
     @property
     def _person_on_events_person_id_no_override_properties_on_events(self) -> bool:
@@ -376,26 +391,6 @@ class Team(UUIDClassicModel):
             )
 
         return get_instance_setting("PERSON_ON_EVENTS_V2_ENABLED")
-
-    @property
-    def _person_on_events_person_id_override_properties_joined(self) -> bool:
-        # on PostHog Cloud, use the feature flag
-        if is_cloud():
-            return posthoganalytics.feature_enabled(
-                "persons-on-events-person-id-override-properties-joined",
-                str(self.uuid),
-                groups={"organization": str(self.organization_id)},
-                group_properties={
-                    "organization": {
-                        "id": str(self.organization_id),
-                        "created_at": self.organization.created_at,
-                    }
-                },
-                only_evaluate_locally=True,
-                send_feature_flag_events=False,
-            )
-
-        return False
 
     @property
     def strict_caching_enabled(self) -> bool:
@@ -445,6 +440,44 @@ class Team(UUIDClassicModel):
             except pydantic.ValidationError:
                 continue
         return filters
+
+    def reset_token_and_save(self, *, user: "User", is_impersonated_session: bool):
+        from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+
+        old_token = self.api_token
+        self.api_token = generate_random_token_project()
+        self.save()
+        set_team_in_cache(old_token, None)
+        log_activity(
+            organization_id=self.organization_id,
+            team_id=self.pk,
+            user=cast("User", user),
+            was_impersonated=is_impersonated_session,
+            scope="Team",
+            item_id=self.pk,
+            activity="updated",
+            detail=Detail(
+                name=str(self.name),
+                changes=[
+                    Change(
+                        type="Team",
+                        action="changed",
+                        field="api_token",
+                    )
+                ],
+            ),
+        )
+
+    def get_is_generating_demo_data(self) -> bool:
+        cache_key = f"is_generating_demo_data_{self.id}"
+        return cache.get(cache_key) == "True"
+
+    def kick_off_demo_data_generation(self, initiating_user: "User") -> None:
+        from posthog.tasks.demo_create_data import create_data_for_demo_team
+
+        cache_key = f"is_generating_demo_data_{self.id}"
+        cache.set(cache_key, "True")  # Create an item in the cache that we can use to see if the demo data is ready
+        create_data_for_demo_team.delay(self.id, initiating_user.id, cache_key)
 
     def all_users_with_access(self) -> QuerySet["User"]:
         from ee.models.explicit_team_membership import ExplicitTeamMembership

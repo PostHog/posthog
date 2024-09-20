@@ -26,4 +26,4 @@ RUN cat /code/cloud_settings.py > /code/posthog/settings/cloud.py
 
 USER posthog
 
-RUN DATABASE_URL='postgres:///' REDIS_URL='redis:///' SECRET_KEY='no' python manage.py collectstatic --noinput
+RUN DATABASE_URL='postgres:///' REDIS_URL='redis:///' STATIC_COLLECTION=1 python manage.py collectstatic --noinput

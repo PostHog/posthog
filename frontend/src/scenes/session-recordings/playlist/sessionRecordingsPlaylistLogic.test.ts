@@ -8,16 +8,35 @@ import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/t
 import { sessionRecordingDataLogic } from '../player/sessionRecordingDataLogic'
 import {
     convertLegacyFiltersToUniversalFilters,
-    convertUniversalFiltersToLegacyFilters,
+    convertUniversalFiltersToRecordingsQuery,
     DEFAULT_RECORDING_FILTERS,
     sessionRecordingsPlaylistLogic,
 } from './sessionRecordingsPlaylistLogic'
 
 describe('sessionRecordingsPlaylistLogic', () => {
     let logic: ReturnType<typeof sessionRecordingsPlaylistLogic.build>
-    const aRecording = { id: 'abc', viewed: false, recording_duration: 10, console_error_count: 50 }
-    const bRecording = { id: 'def', viewed: false, recording_duration: 10, console_error_count: 100 }
+    const aRecording = {
+        id: 'abc',
+        viewed: false,
+        recording_duration: 10,
+        start_time: '2023-10-12T16:55:36.404000Z',
+        console_error_count: 50,
+    }
+    const bRecording = {
+        id: 'def',
+        viewed: false,
+        recording_duration: 10,
+        start_time: '2023-05-12T16:55:36.404000Z',
+        console_error_count: 100,
+    }
     const listOfSessionRecordings = [aRecording, bRecording]
+    const offsetRecording = {
+        id: `recording_offset_by_${listOfSessionRecordings.length}`,
+        viewed: false,
+        recording_duration: 10,
+        start_time: '2023-08-12T16:55:36.404000Z',
+        console_error_count: 75,
+    }
 
     beforeEach(() => {
         useMocks({
@@ -54,7 +73,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                         return [
                             200,
                             {
-                                results: [`List of recordings offset by ${listOfSessionRecordings.length}`],
+                                results: [offsetRecording],
                             },
                         ]
                     } else if (
@@ -67,7 +86,10 @@ describe('sessionRecordingsPlaylistLogic', () => {
                                 results: ['Recordings filtered by date'],
                             },
                         ]
-                    } else if (JSON.parse(searchParams.get('session_recording_duration') ?? '{}')['value'] === 600) {
+                    } else if (
+                        (searchParams.get('having_predicates')?.length || 0) > 0 &&
+                        JSON.parse(searchParams.get('having_predicates') || '[]')[0]['value'] === 600
+                    ) {
                         return [
                             200,
                             {
@@ -164,6 +186,11 @@ describe('sessionRecordingsPlaylistLogic', () => {
         })
 
         describe('ordering', () => {
+            afterEach(() => {
+                logic.actions.setOrderBy('start_time')
+                logic.actions.loadSessionRecordings()
+            })
+
             it('is set by setOrderBy, loads filtered results and orders the non pinned recordings', async () => {
                 await expectLogic(logic, () => {
                     logic.actions.setOrderBy('console_error_count')
@@ -176,21 +203,22 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 expect(logic.values.otherRecordings.map((r) => r.console_error_count)).toEqual([100, 50])
             })
 
-            it('adds an offset when not using latest ordering', async () => {
+            it('adds an offset', async () => {
                 await expectLogic(logic, () => {
-                    logic.actions.setOrderBy('console_error_count')
+                    logic.actions.loadSessionRecordings()
                 })
-                    .toDispatchActionsInAnyOrder(['loadSessionRecordingsSuccess'])
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
                     .toMatchValues({
                         sessionRecordings: listOfSessionRecordings,
                     })
 
                 await expectLogic(logic, () => {
-                    logic.actions.maybeLoadSessionRecordings('newer')
+                    logic.actions.loadSessionRecordings('older')
                 })
                     .toDispatchActions(['loadSessionRecordingsSuccess'])
                     .toMatchValues({
-                        sessionRecordings: [...listOfSessionRecordings, 'List of recordings offset by 2'],
+                        // reorganises recordings based on start_time
+                        sessionRecordings: [aRecording, offsetRecording, bRecording],
                     })
             })
         })
@@ -303,6 +331,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 expect(router.values.searchParams.filters).toHaveProperty('date_to', '2021-10-20')
             })
         })
+
         describe('duration filter', () => {
             it('is set by setFilters and fetches results from server and sets the url', async () => {
                 await expectLogic(logic, () => {
@@ -367,8 +396,9 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     .toFinishAllListeners()
                     .toMatchValues({
                         sessionRecordingsResponse: {
-                            results: listOfSessionRecordings,
+                            order: 'start_time',
                             has_next: undefined,
+                            results: listOfSessionRecordings,
                         },
                         sessionRecordings: listOfSessionRecordings,
                     })
@@ -379,6 +409,8 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     .toFinishAllListeners()
                     .toMatchValues({
                         sessionRecordingsResponse: {
+                            has_next: undefined,
+                            order: 'start_time',
                             results: [
                                 {
                                     ...aRecording,
@@ -611,8 +643,8 @@ describe('sessionRecordingsPlaylistLogic', () => {
                                 type: FilterLogicalOperator.And,
                                 values: [
                                     {
-                                        type: PropertyFilterType.Recording,
-                                        key: 'console_log_level',
+                                        type: PropertyFilterType.LogEntry,
+                                        key: 'level',
                                         operator: PropertyOperator.IContains,
                                         value: ['warn', 'error'],
                                     },
@@ -634,8 +666,8 @@ describe('sessionRecordingsPlaylistLogic', () => {
                                 type: FilterLogicalOperator.And,
                                 values: [
                                     {
-                                        type: PropertyFilterType.Recording,
-                                        key: 'console_log_query',
+                                        type: PropertyFilterType.LogEntry,
+                                        key: 'message',
                                         operator: PropertyOperator.Exact,
                                         value: 'this is a test',
                                     },
@@ -668,8 +700,8 @@ describe('sessionRecordingsPlaylistLogic', () => {
                                 type: FilterLogicalOperator.And,
                                 values: [
                                     {
-                                        type: PropertyFilterType.Recording,
-                                        key: 'console_log_level',
+                                        type: PropertyFilterType.LogEntry,
+                                        key: 'level',
                                         operator: PropertyOperator.IContains,
                                         value: ['warn', 'error'],
                                     },
@@ -707,9 +739,9 @@ describe('sessionRecordingsPlaylistLogic', () => {
         })
     })
 
-    describe('convertUniversalFiltersToLegacyFilters', () => {
+    describe('convertUniversalFiltersToRecordingsQuery', () => {
         it('expands the visited_page filter to a pageview with $current_url property', () => {
-            const result = convertUniversalFiltersToLegacyFilters({
+            const result = convertUniversalFiltersToRecordingsQuery({
                 ...DEFAULT_RECORDING_FILTERS,
                 filter_group: {
                     type: FilterLogicalOperator.And,
@@ -808,15 +840,15 @@ describe('sessionRecordingsPlaylistLogic', () => {
                                 { key: 'email', value: ['email@posthog.com'], operator: 'exact', type: 'person' },
                                 { key: 'email', value: ['test@posthog.com'], operator: 'exact', type: 'person' },
                                 {
-                                    key: 'console_log_level',
+                                    key: 'level',
                                     operator: 'exact',
-                                    type: 'recording',
+                                    type: 'log_entry',
                                     value: ['info', 'warn'],
                                 },
                                 {
-                                    key: 'console_log_query',
+                                    key: 'message',
                                     operator: 'exact',
-                                    type: 'recording',
+                                    type: 'log_entry',
                                     value: ['this is a query log'],
                                 },
                             ],

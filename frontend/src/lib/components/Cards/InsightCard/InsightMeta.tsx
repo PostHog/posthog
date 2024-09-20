@@ -1,5 +1,3 @@
-// eslint-disable-next-line no-restricted-imports
-import { PieChartFilled } from '@ant-design/icons'
 import { useValues } from 'kea'
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
@@ -46,6 +44,7 @@ interface InsightMetaProps
         | 'showEditingControls'
         | 'showDetailsControls'
         | 'moreButtons'
+        | 'filtersOverride'
     > {
     insight: QueryBasedInsightModel
     areDetailsShown?: boolean
@@ -57,6 +56,7 @@ export function InsightMeta({
     ribbonColor,
     dashboardId,
     updateColor,
+    filtersOverride,
     removeFromDashboard,
     deleteWithUndo,
     refresh,
@@ -100,7 +100,7 @@ export function InsightMeta({
             topHeading={<TopHeading insight={insight} />}
             meta={
                 <>
-                    <Link to={urls.insightView(short_id)}>
+                    <Link to={urls.insightView(short_id, filtersOverride)}>
                         <h4 title={name} data-attr="insight-card-title">
                             {name || <i>{summary}</i>}
                             {loading && (
@@ -128,17 +128,11 @@ export function InsightMeta({
                 </>
             }
             metaDetails={<InsightDetails insight={insight} />}
-            samplingNotice={
-                samplingFactor && samplingFactor < 1 ? (
-                    <Tooltip title={`Results calculated from ${100 * samplingFactor}% of users`}>
-                        <PieChartFilled className="mr-2" style={{ color: 'var(--primary-3000-hover)' }} />
-                    </Tooltip>
-                ) : null
-            }
+            samplingFactor={samplingFactor}
             moreButtons={
                 <>
                     <>
-                        <LemonButton to={urls.insightView(short_id)} fullWidth>
+                        <LemonButton to={urls.insightView(short_id, filtersOverride)} fullWidth>
                             View
                         </LemonButton>
                         {refresh && (

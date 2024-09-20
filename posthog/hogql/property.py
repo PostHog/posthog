@@ -275,7 +275,7 @@ def property_to_expr(
         | DataWarehousePersonPropertyFilter
     ),
     team: Team,
-    scope: Literal["event", "person", "session", "replay", "replay_entity", "replay_pdi"] = "event",
+    scope: Literal["event", "person", "session", "replay", "replay_entity"] = "event",
 ) -> ast.Expr:
     if isinstance(property, dict):
         try:
@@ -345,6 +345,7 @@ def property_to_expr(
         or property.type == "data_warehouse"
         or property.type == "data_warehouse_person_property"
         or property.type == "session"
+        or property.type == "recording"
         or property.type == "log_entry"
     ):
         if (scope == "person" and property.type != "person") or (scope == "session" and property.type != "session"):
@@ -367,7 +368,7 @@ def property_to_expr(
                 raise QueryError("Data warehouse person property filter value must be a string")
         elif property.type == "group":
             chain = [f"group_{property.group_type_index}", "properties"]
-        elif property.type in ["data_warehouse", "log_entry"]:
+        elif property.type in ["recording", "data_warehouse", "log_entry"]:
             chain = []
         elif property.type == "session" and scope in ["event", "replay"]:
             chain = ["session"]
@@ -376,7 +377,11 @@ def property_to_expr(
         else:
             chain = ["properties"]
 
-        expr: ast.Expr = ast.Field(chain=[*chain, property.key])
+        field = ast.Field(chain=[*chain, property.key])
+        expr: ast.Expr = field
+
+        if property.type == "recording" and property.key == "snapshot_source":
+            expr = ast.Call(name="argMinMerge", args=[field])
 
         if isinstance(value, list):
             if len(value) == 0:
@@ -489,7 +494,9 @@ def property_to_expr(
         cohort = Cohort.objects.get(team=team, id=property.value)
         return ast.CompareOperation(
             left=ast.Field(chain=["id" if scope == "person" else "person_id"]),
-            op=ast.CompareOperationOp.InCohort,
+            op=ast.CompareOperationOp.NotInCohort
+            if property.operator == PropertyOperator.NOT_IN.value
+            else ast.CompareOperationOp.InCohort,
             right=ast.Constant(value=cohort.pk),
         )
 
@@ -545,23 +552,26 @@ def action_to_expr(action: Action) -> ast.Expr:
             if step.text is not None:
                 value = step.text
                 if step.text_matching == "regex":
-                    match = ast.CompareOperationOp.Regex
-                elif step.text_matching == "contains":
-                    match = ast.CompareOperationOp.ILike
-                    value = f"%{value}%"
-                else:
-                    match = ast.CompareOperationOp.Eq
-
-                exprs.append(
-                    parse_expr(
-                        "arrayExists(x -> {match}, elements_chain_texts)",
-                        {
-                            "match": ast.CompareOperation(
-                                op=match, left=ast.Field(chain=["x"]), right=ast.Constant(value=value)
-                            )
-                        },
+                    exprs.append(
+                        parse_expr(
+                            "arrayExists(x -> x =~ {value}, elements_chain_texts)",
+                            {"value": ast.Constant(value=value)},
+                        )
                     )
-                )
+                elif step.text_matching == "contains":
+                    exprs.append(
+                        parse_expr(
+                            "arrayExists(x -> x ilike {value}, elements_chain_texts)",
+                            {"value": ast.Constant(value=f"%{value}%")},
+                        )
+                    )
+                else:
+                    exprs.append(
+                        parse_expr(
+                            "arrayExists(x -> x = {value}, elements_chain_texts)",
+                            {"value": ast.Constant(value=value)},
+                        )
+                    )
         if step.url:
             if step.url_matching == "exact":
                 expr = parse_expr(

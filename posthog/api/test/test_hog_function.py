@@ -2,9 +2,12 @@ import json
 from typing import Any, Optional
 from unittest.mock import ANY, patch
 
+from django.db import connection
+from freezegun import freeze_time
 from inline_snapshot import snapshot
 from rest_framework import status
 
+from hogvm.python.operation import HOGQL_BYTECODE_VERSION
 from posthog.constants import AvailableFeature
 from posthog.models.action.action import Action
 from posthog.models.hog_functions.hog_function import DEFAULT_STATE, HogFunction
@@ -57,6 +60,12 @@ EXAMPLE_FULL = {
         "filter_test_accounts": True,
     },
 }
+
+
+def get_db_field_value(field, model_id):
+    cursor = connection.cursor()
+    cursor.execute(f"select {field} from posthog_hogfunction where id='{model_id}';")
+    return cursor.fetchone()[0]
 
 
 class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -140,10 +149,10 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "updated_at": ANY,
             "enabled": False,
             "hog": "fetch(inputs.url);",
-            "bytecode": ["_h", 32, "url", 32, "inputs", 1, 2, 2, "fetch", 1, 35],
+            "bytecode": ["_H", HOGQL_BYTECODE_VERSION, 32, "url", 32, "inputs", 1, 2, 2, "fetch", 1, 35],
             "inputs_schema": [],
             "inputs": {},
-            "filters": {"bytecode": ["_h", 29]},
+            "filters": {"bytecode": ["_H", HOGQL_BYTECODE_VERSION, 29]},
             "icon_url": None,
             "template": None,
             "masking": None,
@@ -167,9 +176,12 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "id": template_webhook.id,
             "status": template_webhook.status,
             "icon_url": template_webhook.icon_url,
+            "category": template_webhook.category,
             "inputs_schema": template_webhook.inputs_schema,
             "hog": template_webhook.hog,
             "filters": None,
+            "masking": None,
+            "sub_templates": response.json()["template"]["sub_templates"],
         }
 
     def test_deletes_via_update(self, *args):
@@ -261,8 +273,10 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "secret": True,
             }
         }
-        # Check not returned
-        res = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data={**payload})
+        # Fernet encryption is deterministic, but has a temporal component and utilizes os.urandom() for the IV
+        with freeze_time("2024-01-01T00:01:00Z"):
+            with patch("os.urandom", return_value=b"\x00" * 16):
+                res = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data={**payload})
         assert res.status_code == status.HTTP_201_CREATED, res.json()
         assert res.json()["inputs"] == expectation
         res = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{res.json()['id']}")
@@ -270,50 +284,61 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # Finally check the DB has the real value
         obj = HogFunction.objects.get(id=res.json()["id"])
-        assert obj.inputs["url"]["value"] == "I AM SECRET"
+        assert obj.inputs == {}
+        assert obj.encrypted_inputs == {
+            "url": {
+                "bytecode": [
+                    "_H",
+                    1,
+                    32,
+                    "I AM SECRET",
+                ],
+                "value": "I AM SECRET",
+            },
+        }
+
+        raw_encrypted_inputs = get_db_field_value("encrypted_inputs", obj.id)
+
+        assert (
+            raw_encrypted_inputs
+            == "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAAKvzDjuLG689YjjVhmmbXAtZSRoucXuT8VtokVrCotIx3ttPcVufoVt76dyr2phbuotMldKMVv_Y6uzMDZFjX1WLE6eeZEhBJqFv8fQacoHXhDbDh5fvL7DTr1sc2R_DmTwvPQDiSss790vZ6d_vm1Q="
+        )
 
     def test_secret_inputs_not_updated_if_not_changed(self, *args):
         payload = {
             "name": "Fetch URL",
             "hog": "fetch(inputs.url);",
             "inputs_schema": [
-                {"key": "url", "type": "string", "label": "Webhook URL", "secret": True, "required": True},
+                {"key": "secret1", "type": "string", "label": "Secret 1", "secret": True, "required": True},
+                {"key": "secret2", "type": "string", "label": "Secret 2", "secret": True, "required": False},
             ],
             "inputs": {
-                "url": {
+                "secret1": {
                     "value": "I AM SECRET",
                 },
             },
         }
-        expectation = {"url": {"secret": True}}
         res = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data={**payload})
-        assert res.json()["inputs"] == expectation, res.json()
+        assert res.json()["inputs"] == {"secret1": {"secret": True}}, res.json()
         res = self.client.patch(
             f"/api/projects/{self.team.id}/hog_functions/{res.json()['id']}",
             data={
                 "inputs": {
-                    "url": {
+                    "secret1": {
                         "secret": True,
+                    },
+                    "secret2": {
+                        "value": "I AM ALSO SECRET",
                     },
                 },
             },
         )
-        assert res.json()["inputs"] == expectation
+        assert res.json()["inputs"] == {"secret1": {"secret": True}, "secret2": {"secret": True}}, res.json()
 
         # Finally check the DB has the real value
         obj = HogFunction.objects.get(id=res.json()["id"])
-        assert obj.inputs["url"]["value"] == "I AM SECRET"
-
-        # And check we can still update it
-        res = self.client.patch(
-            f"/api/projects/{self.team.id}/hog_functions/{res.json()['id']}",
-            data={"inputs": {"url": {"value": "I AM A NEW SECRET"}}},
-        )
-        assert res.json()["inputs"] == expectation
-
-        # Finally check the DB has the real value
-        obj = HogFunction.objects.get(id=res.json()["id"])
-        assert obj.inputs["url"]["value"] == "I AM A NEW SECRET"
+        assert obj.encrypted_inputs["secret1"]["value"] == "I AM SECRET"
+        assert obj.encrypted_inputs["secret2"]["value"] == "I AM ALSO SECRET"
 
     def test_generates_hog_bytecode(self, *args):
         response = self.client.post(
@@ -325,7 +350,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         # JSON loads for one line comparison
         assert response.json()["bytecode"] == json.loads(
-            '["_h", 33, 0, 33, 3, 36, 0, 15, 40, 45, 33, 1, 36, 0, 6, 37, 0, 32, "headers", 32, "x-count", 36, 0, 42, 1, 32, "body", 32, "payload", 32, "inputs", 1, 2, 32, "method", 32, "method", 32, "inputs", 1, 2, 42, 3, 32, "url", 32, "inputs", 1, 2, 2, "fetch", 2, 35, 39, -52, 35]'
+            f'["_H", {HOGQL_BYTECODE_VERSION}, 33, 0, 33, 3, 36, 0, 15, 40, 45, 33, 1, 36, 0, 6, 37, 0, 32, "url", 32, "inputs", 1, 2, 32, "headers", 32, "x-count", 36, 0, 42, 1, 32, "body", 32, "payload", 32, "inputs", 1, 2, 32, "method", 32, "method", 32, "inputs", 1, 2, 42, 3, 2, "fetch", 2, 35, 39, -52, 35]'
         ), response.json()
 
     def test_generates_inputs_bytecode(self, *args):
@@ -334,7 +359,12 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.json()["inputs"] == {
             "url": {
                 "value": "http://localhost:2080/0e02d917-563f-4050-9725-aad881b69937",
-                "bytecode": ["_h", 32, "http://localhost:2080/0e02d917-563f-4050-9725-aad881b69937"],
+                "bytecode": [
+                    "_H",
+                    HOGQL_BYTECODE_VERSION,
+                    32,
+                    "http://localhost:2080/0e02d917-563f-4050-9725-aad881b69937",
+                ],
             },
             "payload": {
                 "value": {
@@ -345,18 +375,48 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "event_url": "{f'{event.url}-test'}",
                 },
                 "bytecode": {
-                    "event": ["_h", 32, "event", 1, 1],
-                    "groups": ["_h", 32, "groups", 1, 1],
-                    "nested": {"foo": ["_h", 32, "url", 32, "event", 1, 2]},
-                    "person": ["_h", 32, "person", 1, 1],
-                    "event_url": ["_h", 32, "-test", 32, "url", 32, "event", 1, 2, 2, "concat", 2],
+                    "event": ["_H", HOGQL_BYTECODE_VERSION, 32, "event", 1, 1],
+                    "groups": ["_H", HOGQL_BYTECODE_VERSION, 32, "groups", 1, 1],
+                    "nested": {"foo": ["_H", HOGQL_BYTECODE_VERSION, 32, "url", 32, "event", 1, 2]},
+                    "person": ["_H", HOGQL_BYTECODE_VERSION, 32, "person", 1, 1],
+                    "event_url": [
+                        "_H",
+                        HOGQL_BYTECODE_VERSION,
+                        32,
+                        "url",
+                        32,
+                        "event",
+                        1,
+                        2,
+                        32,
+                        "-test",
+                        2,
+                        "concat",
+                        2,
+                    ],
                 },
             },
             "method": {"value": "POST"},
             "headers": {
                 "value": {"version": "v={event.properties.$lib_version}"},
                 "bytecode": {
-                    "version": ["_h", 32, "$lib_version", 32, "properties", 32, "event", 1, 3, 32, "v=", 2, "concat", 2]
+                    "version": [
+                        "_H",
+                        HOGQL_BYTECODE_VERSION,
+                        32,
+                        "v=",
+                        32,
+                        "$lib_version",
+                        32,
+                        "properties",
+                        32,
+                        "event",
+                        1,
+                        3,
+                        2,
+                        "concat",
+                        2,
+                    ]
                 },
             },
         }
@@ -394,7 +454,46 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "actions": [{"id": f"{action.id}", "name": "Test Action", "type": "actions", "order": 1}],
             "filter_test_accounts": True,
             "bytecode": [
-                "_h",
+                "_H",
+                HOGQL_BYTECODE_VERSION,
+                32,
+                "%@posthog.com%",
+                32,
+                "email",
+                32,
+                "properties",
+                32,
+                "person",
+                1,
+                3,
+                20,
+                32,
+                "$pageview",
+                32,
+                "event",
+                1,
+                1,
+                11,
+                3,
+                2,
+                32,
+                "%@posthog.com%",
+                32,
+                "email",
+                32,
+                "properties",
+                32,
+                "person",
+                1,
+                3,
+                20,
+                32,
+                "$pageview",
+                32,
+                "event",
+                1,
+                1,
+                11,
                 32,
                 "%docs%",
                 32,
@@ -404,46 +503,8 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 1,
                 2,
                 17,
-                32,
-                "$pageview",
-                32,
-                "event",
-                1,
-                1,
-                11,
                 3,
                 2,
-                32,
-                "%@posthog.com%",
-                32,
-                "email",
-                32,
-                "properties",
-                32,
-                "person",
-                1,
-                3,
-                20,
-                3,
-                2,
-                32,
-                "$pageview",
-                32,
-                "event",
-                1,
-                1,
-                11,
-                32,
-                "%@posthog.com%",
-                32,
-                "email",
-                32,
-                "properties",
-                32,
-                "person",
-                1,
-                3,
-                20,
                 3,
                 2,
                 4,
@@ -465,7 +526,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "ttl": 60,
                 "threshold": 20,
                 "hash": "{person.properties.email}",
-                "bytecode": ["_h", 32, "email", 32, "properties", 32, "person", 1, 3],
+                "bytecode": ["_H", HOGQL_BYTECODE_VERSION, 32, "email", 32, "properties", 32, "person", 1, 3],
             }
         )
 

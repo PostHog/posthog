@@ -29,6 +29,7 @@ from posthog.models import (
     Plugin,
     PluginConfig,
     PluginSourceFile,
+    Project,
 )
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.feature_flag.feature_flag import FeatureFlagHashKeyOverride
@@ -160,7 +161,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         assert response["sessionRecording"] == {
             "endpoint": "/s/",
             "recorderVersion": "v2",
-            "consoleLogRecordingEnabled": False,
+            "consoleLogRecordingEnabled": True,
             "sampleRate": None,
             "linkedFlag": None,
             "minimumDurationMilliseconds": None,
@@ -189,12 +190,15 @@ class TestDecide(BaseTest, QueryMatchingTest):
     def test_user_performance_opt_in(self, *args):
         # :TRICKY: Test for regression around caching
         response = self._post_decide().json()
-        self.assertEqual(response["capturePerformance"], False)
+        self.assertEqual(
+            response["capturePerformance"],
+            {"network_timing": True, "web_vitals": False, "web_vitals_allowed_metrics": None},
+        )
 
-        self._update_team({"capture_performance_opt_in": True})
+        self._update_team({"capture_performance_opt_in": False})
 
         response = self._post_decide().json()
-        self.assertEqual(response["capturePerformance"], {"network_timing": True, "web_vitals": False})
+        self.assertEqual(response["capturePerformance"], False)
 
     def test_session_recording_sample_rate(self, *args):
         # :TRICKY: Test for regression around caching
@@ -376,14 +380,33 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
     def test_web_vitals_autocapture_opt_in(self, *args):
         response = self._post_decide().json()
-        self.assertEqual(response["capturePerformance"], False)
+        self.assertEqual(
+            response["capturePerformance"],
+            {"web_vitals": False, "network_timing": True, "web_vitals_allowed_metrics": None},
+        )
 
         self._update_team({"autocapture_web_vitals_opt_in": True})
 
         response = self._post_decide().json()
         self.assertEqual(
             response["capturePerformance"],
-            {"web_vitals": True, "network_timing": False},
+            {"web_vitals": True, "network_timing": True, "web_vitals_allowed_metrics": None},
+        )
+
+    def test_web_vitals_autocapture_allowed_metrics(self, *args):
+        response = self._post_decide().json()
+        self.assertEqual(
+            response["capturePerformance"],
+            {"web_vitals": False, "network_timing": True, "web_vitals_allowed_metrics": None},
+        )
+
+        self._update_team({"autocapture_web_vitals_opt_in": True})
+        self._update_team({"autocapture_web_vitals_allowed_metrics": ["CLS", "FCP"]})
+
+        response = self._post_decide().json()
+        self.assertEqual(
+            response["capturePerformance"],
+            {"web_vitals": True, "network_timing": True, "web_vitals_allowed_metrics": ["CLS", "FCP"]},
         )
 
     def test_user_session_recording_opt_in_wildcard_domain(self, *args):
@@ -402,7 +425,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         assert response["sessionRecording"] == {
             "endpoint": "/s/",
             "recorderVersion": "v2",
-            "consoleLogRecordingEnabled": False,
+            "consoleLogRecordingEnabled": True,
             "sampleRate": None,
             "linkedFlag": None,
             "minimumDurationMilliseconds": None,
@@ -429,7 +452,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         assert response["sessionRecording"] == {
             "endpoint": "/s/",
             "recorderVersion": "v2",
-            "consoleLogRecordingEnabled": False,
+            "consoleLogRecordingEnabled": True,
             "sampleRate": None,
             "linkedFlag": None,
             "minimumDurationMilliseconds": None,
@@ -463,7 +486,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         assert response["sessionRecording"] == {
             "endpoint": "/s/",
             "recorderVersion": "v2",
-            "consoleLogRecordingEnabled": False,
+            "consoleLogRecordingEnabled": True,
             "sampleRate": None,
             "linkedFlag": None,
             "minimumDurationMilliseconds": None,
@@ -477,7 +500,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         assert response["sessionRecording"] == {
             "endpoint": "/s/",
             "recorderVersion": "v2",
-            "consoleLogRecordingEnabled": False,
+            "consoleLogRecordingEnabled": True,
             "sampleRate": None,
             "linkedFlag": None,
             "minimumDurationMilliseconds": None,
@@ -491,7 +514,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         assert response["sessionRecording"] == {
             "endpoint": "/s/",
             "recorderVersion": "v2",
-            "consoleLogRecordingEnabled": False,
+            "consoleLogRecordingEnabled": True,
             "sampleRate": None,
             "linkedFlag": None,
             "minimumDurationMilliseconds": None,
@@ -510,7 +533,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         assert response["sessionRecording"] == {
             "endpoint": "/s/",
             "recorderVersion": "v2",
-            "consoleLogRecordingEnabled": False,
+            "consoleLogRecordingEnabled": True,
             "sampleRate": None,
             "linkedFlag": None,
             "minimumDurationMilliseconds": None,
@@ -2625,6 +2648,40 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide({"distinct_id": "example_id", "api_key": None, "project_id": self.team.id})
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
+    def test_short_circuited_team(self, *args):
+        short_circuited_team_token = "short_circuited_team_token"
+
+        _, short_circuited_team = Project.objects.create_with_team(
+            organization=self.organization,
+            team_fields={
+                "api_token": short_circuited_team_token,
+                "test_account_filters": [
+                    {
+                        "key": "email",
+                        "value": "@posthog.com",
+                        "operator": "not_icontains",
+                        "type": "person",
+                    }
+                ],
+                "has_completed_onboarding_for": {"product_analytics": True},
+            },
+            initiating_user=self.user,
+        )
+        with self.settings(DECIDE_SHORT_CIRCUITED_TEAM_IDS=[short_circuited_team.id]):
+            response = self._post_decide(
+                {
+                    "distinct_id": "example_id",
+                    "api_key": short_circuited_team_token,
+                    "project_id": short_circuited_team.id,
+                }
+            )
+            self.assertEqual(response.status_code, status.HTTP_422_UNPROCESSABLE_ENTITY)
+            response_data = response.json()
+            self.assertEqual(
+                response_data["detail"],
+                f"Team with ID {short_circuited_team.id} cannot access the /decide endpoint.Please contact us at hey@posthog.com",
+            )
+
     def test_invalid_payload_on_decide_endpoint(self, *args):
         invalid_payloads = [
             base64.b64encode(b"1-1").decode("utf-8"),
@@ -2848,7 +2905,10 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
         self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
         self.assertEqual(response["siteApps"], [])
-        self.assertEqual(response["capturePerformance"], {"network_timing": True, "web_vitals": False})
+        self.assertEqual(
+            response["capturePerformance"],
+            {"network_timing": True, "web_vitals": False, "web_vitals_allowed_metrics": None},
+        )
         self.assertEqual(response["featureFlags"], {})
         self.assertEqual(
             response["autocaptureExceptions"],
@@ -2873,7 +2933,10 @@ class TestDecide(BaseTest, QueryMatchingTest):
             )
             self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
             self.assertEqual(response["siteApps"], [])
-            self.assertEqual(response["capturePerformance"], {"network_timing": True, "web_vitals": False})
+            self.assertEqual(
+                response["capturePerformance"],
+                {"network_timing": True, "web_vitals": False, "web_vitals_allowed_metrics": None},
+            )
             self.assertEqual(
                 response["autocaptureExceptions"],
                 {"endpoint": "/e/"},
@@ -3665,7 +3728,10 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
             )
             self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
             self.assertEqual(response["siteApps"], [])
-            self.assertEqual(response["capturePerformance"], {"network_timing": True, "web_vitals": False})
+            self.assertEqual(
+                response["capturePerformance"],
+                {"network_timing": True, "web_vitals": False, "web_vitals_allowed_metrics": None},
+            )
             self.assertEqual(response["featureFlags"], {"no-props": True})
             self.assertEqual(response["errorsWhileComputingFlags"], True)
 

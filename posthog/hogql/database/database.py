@@ -82,7 +82,6 @@ from posthog.schema import (
     PersonsOnEventsMode,
     SessionTableVersion,
 )
-from posthog.utils import get_instance_region
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.external_data_source import ExternalDataSource
@@ -249,8 +248,9 @@ def create_hogql_database(
             join_function=join_with_persons_table,
         )
 
-    if modifiers.sessionTableVersion == SessionTableVersion.V2 or (
-        get_instance_region() == "EU" and modifiers.sessionTableVersion == SessionTableVersion.AUTO
+    if (
+        modifiers.sessionTableVersion == SessionTableVersion.V2
+        or modifiers.sessionTableVersion == SessionTableVersion.AUTO
     ):
         raw_sessions = RawSessionsTableV2()
         database.raw_sessions = raw_sessions
@@ -748,15 +748,24 @@ def serialize_fields(
                     )
                 )
         elif isinstance(field, LazyJoin):
-            is_view = isinstance(field.resolve_table(context), SavedQuery)
+            resolved_table = field.resolve_table(context)
+
+            if isinstance(resolved_table, SavedQuery):
+                type = DatabaseSerializedFieldType.VIEW
+                id = str(resolved_table.id)
+            else:
+                type = DatabaseSerializedFieldType.LAZY_TABLE
+                id = None
+
             field_output.append(
                 DatabaseSchemaField(
                     name=field_key,
                     hogql_value=hogql_value,
-                    type=DatabaseSerializedFieldType.VIEW if is_view else DatabaseSerializedFieldType.LAZY_TABLE,
+                    type=type,
                     schema_valid=schema_valid,
                     table=field.resolve_table(context).to_printed_hogql(),
                     fields=list(field.resolve_table(context).fields.keys()),
+                    id=id or field_key,
                 )
             )
         elif isinstance(field, VirtualTable):

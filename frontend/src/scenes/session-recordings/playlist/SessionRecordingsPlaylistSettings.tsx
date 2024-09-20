@@ -1,44 +1,32 @@
-import { LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonSegmentedButton, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { DurationTypeSelect } from 'scenes/session-recordings/filters/DurationTypeSelect'
 
-import { playerSettingsLogic } from '../player/playerSettingsLogic'
-import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
+import { PlaybackMode, playerSettingsLogic } from '../player/playerSettingsLogic'
 
 export function SessionRecordingsPlaylistSettings(): JSX.Element {
-    const { autoplayDirection, durationTypeToShow, hideViewedRecordings } = useValues(playerSettingsLogic)
-    const { setAutoplayDirection, setDurationTypeToShow, setHideViewedRecordings } = useActions(playerSettingsLogic)
-    const { orderBy } = useValues(sessionRecordingsPlaylistLogic)
+    const { hideViewedRecordings, playbackMode } = useValues(playerSettingsLogic)
+    const { setHideViewedRecordings, setPlaybackMode } = useActions(playerSettingsLogic)
 
     return (
         <div className="relative flex flex-col gap-2 p-3 border-b">
-            <Tooltip
-                title={
-                    <div className="text-center">
-                        Autoplay next recording
-                        <br />({!autoplayDirection ? 'off' : autoplayDirection})
-                    </div>
-                }
-                placement="right"
-            >
-                <div className="flex flex-row items-center justify-between space-x-2">
-                    <span className="text-black font-medium">Autoplay</span>
-
-                    <LemonSelect
-                        value={autoplayDirection}
-                        aria-label="Autoplay next recording"
-                        onChange={setAutoplayDirection}
-                        dropdownMatchSelectWidth={false}
-                        options={[
-                            { value: null, label: 'off' },
-                            { value: 'newer', label: 'newer recordings' },
-                            { value: 'older', label: 'older recordings' },
-                        ]}
-                        size="small"
-                    />
-                </div>
-            </Tooltip>
+            <div className="flex justify-between items-center">
+                <span className="text-black font-medium">Playback mode</span>
+                <LemonSegmentedButton
+                    value={playbackMode}
+                    options={[
+                        {
+                            value: PlaybackMode.Recording,
+                            label: 'Recordings',
+                        },
+                        {
+                            value: PlaybackMode.Waterfall,
+                            label: 'Waterfall',
+                        },
+                    ]}
+                    onChange={setPlaybackMode}
+                    size="xsmall"
+                />
+            </div>
             <div className="flex flex-row items-center justify-between space-x-2">
                 <span className="text-black font-medium">Hide viewed</span>
                 <LemonSwitch
@@ -47,16 +35,6 @@ export function SessionRecordingsPlaylistSettings(): JSX.Element {
                     onChange={() => setHideViewedRecordings(!hideViewedRecordings)}
                 />
             </div>
-            {orderBy === 'start_time' && (
-                <div className="flex flex-row items-center justify-between space-x-2">
-                    <span className="text-black font-medium">Show</span>
-                    <DurationTypeSelect
-                        value={durationTypeToShow}
-                        onChange={(value) => setDurationTypeToShow(value)}
-                        onChangeEventDescription="session recording list duration type to show selected"
-                    />
-                </div>
-            )}
         </div>
     )
 }

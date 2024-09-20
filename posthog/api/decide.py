@@ -10,7 +10,7 @@ from rest_framework import status
 from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
 
-from posthog.api.geoip import get_geoip_properties
+from posthog.geoip import get_geoip_properties
 from posthog.api.survey import SURVEY_TARGETING_FLAG_PREFIX
 from posthog.api.utils import get_project_id, get_token, hostname_in_allowed_url_list, parse_domain
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
@@ -52,7 +52,8 @@ def on_permitted_recording_domain(team: Team, request: HttpRequest) -> bool:
     # TODO this is a short term fix for beta testers
     # TODO we will match on the app identifier in the origin instead and allow users to auth those
     is_authorized_mobile_client: bool = user_agent is not None and any(
-        keyword in user_agent for keyword in ["posthog-android", "posthog-ios"]
+        keyword in user_agent
+        for keyword in ["posthog-android", "posthog-ios", "posthog-react-native", "posthog-flutter"]
     )
 
     return is_authorized_web_client or is_authorized_mobile_client
@@ -140,6 +141,17 @@ def get_decide(request: HttpRequest):
             team = user.teams.get(id=project_id)
 
         if team:
+            if team.id in settings.DECIDE_SHORT_CIRCUITED_TEAM_IDS:
+                return cors_response(
+                    request,
+                    generate_exception_response(
+                        "decide",
+                        f"Team with ID {team.id} cannot access the /decide endpoint."
+                        f"Please contact us at hey@posthog.com",
+                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    ),
+                )
+
             token = cast(str, token)  # we know it's not None if we found a team
             structlog.contextvars.bind_contextvars(team_id=team.id)
 
@@ -207,10 +219,14 @@ def get_decide(request: HttpRequest):
 
             capture_network_timing = True if team.capture_performance_opt_in else False
             capture_web_vitals = True if team.autocapture_web_vitals_opt_in else False
+            autocapture_web_vitals_allowed_metrics = None
+            if capture_web_vitals:
+                autocapture_web_vitals_allowed_metrics = team.autocapture_web_vitals_allowed_metrics
             response["capturePerformance"] = (
                 {
                     "network_timing": capture_network_timing,
                     "web_vitals": capture_web_vitals,
+                    "web_vitals_allowed_metrics": autocapture_web_vitals_allowed_metrics,
                 }
                 if capture_network_timing or capture_web_vitals
                 else False

@@ -102,7 +102,11 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
             schema=schema,
             reset_pipeline=reset_pipeline,
         )
-    elif model.pipeline.source_type in [ExternalDataSource.Type.POSTGRES, ExternalDataSource.Type.MYSQL]:
+    elif model.pipeline.source_type in [
+        ExternalDataSource.Type.POSTGRES,
+        ExternalDataSource.Type.MYSQL,
+        ExternalDataSource.Type.MSSQL,
+    ]:
         from posthog.temporal.data_imports.pipelines.sql_database import sql_source_for_type
 
         host = model.pipeline.job_inputs.get("host")
@@ -277,6 +281,60 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
             team_id=inputs.team_id,
             job_id=inputs.run_id,
             is_incremental=schema.is_incremental,
+        )
+
+        return await _run(
+            job_inputs=job_inputs,
+            source=source,
+            logger=logger,
+            inputs=inputs,
+            schema=schema,
+            reset_pipeline=reset_pipeline,
+        )
+    elif model.pipeline.source_type == ExternalDataSource.Type.VITALLY:
+        from posthog.temporal.data_imports.pipelines.vitally import vitally_source
+
+        source = vitally_source(
+            secret_token=model.pipeline.job_inputs.get("secret_token"),
+            region=model.pipeline.job_inputs.get("region"),
+            subdomain=model.pipeline.job_inputs.get("subdomain"),
+            endpoint=schema.name,
+            team_id=inputs.team_id,
+            job_id=inputs.run_id,
+            is_incremental=schema.is_incremental,
+        )
+
+        return await _run(
+            job_inputs=job_inputs,
+            source=source,
+            logger=logger,
+            inputs=inputs,
+            schema=schema,
+            reset_pipeline=reset_pipeline,
+        )
+    elif model.pipeline.source_type == ExternalDataSource.Type.BIGQUERY:
+        # from posthog.temporal.data_imports.pipelines.bigquery import bigquery_source
+        from posthog.temporal.data_imports.pipelines.sql_database import bigquery_source
+
+        dataset_id = model.pipeline.job_inputs.get("dataset_id")
+        project_id = model.pipeline.job_inputs.get("project_id")
+        private_key = model.pipeline.job_inputs.get("private_key")
+        private_key_id = model.pipeline.job_inputs.get("private_key_id")
+        client_email = model.pipeline.job_inputs.get("client_email")
+        token_uri = model.pipeline.job_inputs.get("token_uri")
+
+        source = bigquery_source(
+            dataset_id=dataset_id,
+            project_id=project_id,
+            private_key=private_key,
+            private_key_id=private_key_id,
+            client_email=client_email,
+            token_uri=token_uri,
+            table_name=schema.name,
+            incremental_field=schema.sync_type_config.get("incremental_field") if schema.is_incremental else None,
+            incremental_field_type=schema.sync_type_config.get("incremental_field_type")
+            if schema.is_incremental
+            else None,
         )
 
         return await _run(

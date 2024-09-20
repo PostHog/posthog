@@ -1,20 +1,20 @@
-import { convertJSToHog } from '@posthog/hogvm'
 import express from 'express'
 import { DateTime } from 'luxon'
 
 import { Hub } from '../types'
 import { status } from '../utils/status'
 import { delay } from '../utils/utils'
-import { AsyncFunctionExecutor } from './async-function-executor'
+import { FetchExecutor } from './fetch-executor'
 import { HogExecutor } from './hog-executor'
 import { HogFunctionManager } from './hog-function-manager'
 import { HogWatcher, HogWatcherState } from './hog-watcher'
-import { HogFunctionInvocation, HogFunctionInvocationAsyncRequest, HogFunctionType, LogEntry } from './types'
+import { HogFunctionInvocationResult, HogFunctionType, LogEntry } from './types'
+import { createInvocation } from './utils'
 
 export class CdpApi {
     private hogExecutor: HogExecutor
     private hogFunctionManager: HogFunctionManager
-    private asyncFunctionExecutor: AsyncFunctionExecutor
+    private fetchExecutor: FetchExecutor
     private hogWatcher: HogWatcher
 
     constructor(
@@ -22,13 +22,13 @@ export class CdpApi {
         dependencies: {
             hogExecutor: HogExecutor
             hogFunctionManager: HogFunctionManager
-            asyncFunctionExecutor: AsyncFunctionExecutor
+            fetchExecutor: FetchExecutor
             hogWatcher: HogWatcher
         }
     ) {
         this.hogExecutor = dependencies.hogExecutor
         this.hogFunctionManager = dependencies.hogFunctionManager
-        this.asyncFunctionExecutor = dependencies.asyncFunctionExecutor
+        this.fetchExecutor = dependencies.fetchExecutor
         this.hogWatcher = dependencies.hogWatcher
     }
 
@@ -105,14 +105,6 @@ export class CdpApi {
                 return
             }
 
-            const invocation: HogFunctionInvocation = {
-                id,
-                globals: globals,
-                teamId: team.id,
-                hogFunctionId: id,
-                timings: [],
-            }
-
             // We use the provided config if given, otherwise the function's config
             // We use the provided config if given, otherwise the function's config
             const compoundConfiguration: HogFunctionType = {
@@ -120,64 +112,78 @@ export class CdpApi {
                 ...(configuration ?? {}),
             }
 
-            // TODO: Type the configuration better so we don't make mistakes here
             await this.hogFunctionManager.enrichWithIntegrations([compoundConfiguration])
 
-            let response = this.hogExecutor.execute(compoundConfiguration, invocation)
+            let lastResponse: HogFunctionInvocationResult | null = null
             const logs: LogEntry[] = []
 
-            while (response.asyncFunctionRequest) {
-                invocation.vmState = response.invocation.vmState
+            let count = 0
 
-                const asyncFunctionRequest = response.asyncFunctionRequest
+            while (!lastResponse || !lastResponse.finished) {
+                if (count > 5) {
+                    throw new Error('Too many iterations')
+                }
+                count += 1
 
-                if (mock_async_functions || asyncFunctionRequest.name !== 'fetch') {
-                    response.logs.push({
-                        level: 'info',
-                        timestamp: DateTime.now(),
-                        message: `Async function '${asyncFunctionRequest.name}' was mocked with arguments:`,
-                    })
+                let response: HogFunctionInvocationResult
 
-                    response.logs.push({
-                        level: 'info',
-                        timestamp: DateTime.now(),
-                        message: `${asyncFunctionRequest.name}(${asyncFunctionRequest.args
-                            .map((x) => JSON.stringify(x, null, 2))
-                            .join(', ')})`,
-                    })
+                const invocation =
+                    lastResponse?.invocation ||
+                    createInvocation(
+                        {
+                            ...globals,
+                            project: {
+                                id: team.id,
+                                name: team.name,
+                                url: `${this.hub.SITE_URL ?? 'http://localhost:8000'}/project/${team.id}`,
+                            },
+                        },
+                        compoundConfiguration
+                    )
 
-                    // Add the state, simulating what executeAsyncResponse would do
-                    invocation.vmState!.stack.push(convertJSToHog({ status: 200, body: {} }))
+                if (invocation.queue === 'fetch') {
+                    if (mock_async_functions) {
+                        // Add the state, simulating what executeAsyncResponse would do
+
+                        // Re-parse the fetch args for the logging
+                        const fetchArgs = {
+                            ...invocation.queueParameters,
+                        }
+
+                        response = {
+                            invocation: {
+                                ...invocation,
+                                queue: 'hog',
+                                queueParameters: { response: { status: 200, body: '{}' } },
+                            },
+                            finished: false,
+                            logs: [
+                                {
+                                    level: 'info',
+                                    timestamp: DateTime.now(),
+                                    message: `Async function 'fetch' was mocked with arguments:`,
+                                },
+                                {
+                                    level: 'info',
+                                    timestamp: DateTime.now(),
+                                    message: `fetch(${JSON.stringify(fetchArgs, null, 2)})`,
+                                },
+                            ],
+                        }
+                    } else {
+                        response = await this.fetchExecutor!.executeLocally(invocation)
+                    }
                 } else {
-                    const asyncInvocationRequest: HogFunctionInvocationAsyncRequest = {
-                        state: '', // WE don't care about the state for this level of testing
-                        teamId: team.id,
-                        hogFunctionId: hogFunction.id,
-                        asyncFunctionRequest,
-                    }
-                    const asyncRes = await this.asyncFunctionExecutor!.execute(asyncInvocationRequest, {
-                        sync: true,
-                    })
-
-                    if (!asyncRes || asyncRes.asyncFunctionResponse.error) {
-                        response.logs.push({
-                            level: 'error',
-                            timestamp: DateTime.now(),
-                            message: 'Failed to execute async function',
-                        })
-                    }
-                    invocation.vmState!.stack.push(convertJSToHog(asyncRes?.asyncFunctionResponse.response ?? null))
+                    response = this.hogExecutor.execute(invocation)
                 }
 
                 logs.push(...response.logs)
-                response = this.hogExecutor.execute(compoundConfiguration, invocation)
+                lastResponse = response
             }
 
-            logs.push(...response.logs)
-
             res.json({
-                status: response.finished ? 'success' : 'error',
-                error: String(response.error),
+                status: lastResponse.finished ? 'success' : 'error',
+                error: String(lastResponse.error),
                 logs: logs,
             })
         } catch (e) {

@@ -28,8 +28,15 @@ thiserror = { workspace = true }
 serde-pickle = { version = "1.1.1"}
 sha1 = "0.10.6"
 regex = "1.10.4"
+maxminddb = "0.17"
 sqlx = { workspace = true }
 uuid = { workspace = true }
+base64.workspace = true
+flate2.workspace = true
+common-alloc = { path = "../common/alloc" }
+health = { path = "../common/health" }
+common-metrics = { path = "../common/metrics" }
+tower = { workspace = true }
 
 [lints]
 workspace = true
@@ -37,4 +44,4 @@ workspace = true
 [dev-dependencies]
 assert-json-diff = { workspace = true }
 reqwest = { workspace = true }
-
+futures = "0.3.30" 

@@ -64,3 +64,15 @@ print(has(arr, 'banana'))
 print(has('banananas', 'banana'))
 print(has('banananas', 'foo'))
 print(has(['1', '2'], '1'))
+
+print(indexOf([1,2,3], 1)) // 1
+print(indexOf([1,2,3], 2)) // 2
+print(indexOf([1,2,3], 3)) // 3
+print(indexOf([1,2,3], 4)) // 0
+
+print(arrayCount(x -> x > 2, [1,2,3,4,5])) // 3
+
+print('------')
+let c := [1,2,3]
+print(c[1], c[2], c[3], c[4])
+print(c[-1], c[-2], c[-3], c[-4])

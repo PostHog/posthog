@@ -17,7 +17,7 @@ from .action import Action
 from .action.action_step import ActionStep
 from .activity_logging.activity_log import ActivityLog
 from .activity_logging.notification_viewed import NotificationViewed
-from .alert import Alert
+from .alert import AlertConfiguration
 from .annotation import Annotation
 from .async_deletion import AsyncDeletion, DeletionType
 from .async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
@@ -35,6 +35,7 @@ from .event_buffer import EventBuffer
 from .event_definition import EventDefinition
 from .event_property import EventProperty
 from .experiment import Experiment
+from .web_experiment import WebExperiment
 from .exported_asset import ExportedAsset
 from .feature_flag import FeatureFlag
 from .feedback.survey import Survey
@@ -75,7 +76,7 @@ from .user import User, UserManager
 from .user_scene_personalisation import UserScenePersonalisation
 
 __all__ = [
-    "Alert",
+    "AlertConfiguration",
     "Action",
     "ActionStep",
     "ActivityLog",

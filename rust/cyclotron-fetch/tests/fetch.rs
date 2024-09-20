@@ -1,4 +1,4 @@
-use std::{collections::HashMap, str::FromStr, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 use chrono::Duration;
 use cyclotron_core::{QueueManager, Worker};
@@ -25,7 +25,7 @@ pub async fn test_run_migrations(db: PgPool) {
 pub async fn test_completes_fetch(db: PgPool) {
     let context = Arc::new(get_app_test_context(db.clone()).await);
     let producer = QueueManager::from_pool(db.clone());
-    let return_worker = Worker::from_pool(db.clone());
+    let return_worker = Worker::from_pool(db.clone(), Default::default());
     let server = MockServer::start();
 
     let mock = server.mock(|when, then| {
@@ -34,7 +34,7 @@ pub async fn test_completes_fetch(db: PgPool) {
     });
 
     let params = construct_params(server.url("/test"), HttpMethod::Get);
-    let job = construct_job(params);
+    let job = construct_job(params, None);
     producer.create_job(job).await.unwrap();
 
     let started = tick(context).await.unwrap();
@@ -44,14 +44,16 @@ pub async fn test_completes_fetch(db: PgPool) {
     let returned = wait_on_return(&return_worker, 1, false).await.unwrap();
 
     let response: FetchResult =
-        serde_json::from_str(returned[0].parameters.as_ref().unwrap()).unwrap();
+        serde_json::from_slice(returned[0].parameters.as_ref().unwrap()).unwrap();
 
     let FetchResult::Success { response } = response else {
         panic!("Expected success response");
     };
 
+    let body = String::from_utf8(returned[0].blob.clone().unwrap()).unwrap();
+
     assert_eq!(response.status, 200);
-    assert_eq!(response.body, "Hello, world!");
+    assert_eq!(body, "Hello, world!");
 
     mock.assert_hits(1);
 }
@@ -60,7 +62,7 @@ pub async fn test_completes_fetch(db: PgPool) {
 pub async fn test_returns_failure_after_retries(db: PgPool) {
     let context = Arc::new(get_app_test_context(db.clone()).await);
     let producer = QueueManager::from_pool(db.clone());
-    let return_worker = Worker::from_pool(db.clone());
+    let return_worker = Worker::from_pool(db.clone(), Default::default());
     let server = MockServer::start();
 
     let mock = server.mock(|when, then| {
@@ -71,7 +73,7 @@ pub async fn test_returns_failure_after_retries(db: PgPool) {
     let mut params = construct_params(server.url("/test"), HttpMethod::Get);
     params.max_tries = Some(2);
 
-    let job = construct_job(params);
+    let job = construct_job(params, None);
     producer.create_job(job).await.unwrap();
 
     // Tick twice for retry
@@ -86,7 +88,7 @@ pub async fn test_returns_failure_after_retries(db: PgPool) {
     let returned = wait_on_return(&return_worker, 1, false).await.unwrap();
 
     let response: FetchResult =
-        serde_json::from_str(returned[0].parameters.as_ref().unwrap()).unwrap();
+        serde_json::from_slice(returned[0].parameters.as_ref().unwrap()).unwrap();
 
     let FetchResult::Failure { trace } = response else {
         panic!("Expected failure response");
@@ -95,7 +97,6 @@ pub async fn test_returns_failure_after_retries(db: PgPool) {
     assert!(trace.len() == 2);
     for attempt in trace {
         assert_eq!(attempt.status, Some(500));
-        assert_eq!(attempt.body, Some("test server error body".to_string()));
     }
 
     mock.assert_hits(2);
@@ -105,7 +106,7 @@ pub async fn test_returns_failure_after_retries(db: PgPool) {
 pub fn fetch_discards_bad_metadata(db: PgPool) {
     let context = Arc::new(get_app_test_context(db.clone()).await);
     let producer = QueueManager::from_pool(db.clone());
-    let return_worker = Worker::from_pool(db.clone());
+    let return_worker = Worker::from_pool(db.clone(), Default::default());
     let server = MockServer::start();
 
     let mock = server.mock(|when, then| {
@@ -114,8 +115,8 @@ pub fn fetch_discards_bad_metadata(db: PgPool) {
     });
 
     let params = construct_params(server.url("/test"), HttpMethod::Get);
-    let mut job = construct_job(params);
-    job.metadata = Some("bad json".to_string());
+    let mut job = construct_job(params, None);
+    job.metadata = Some("bad json".as_bytes().to_owned());
     producer.create_job(job).await.unwrap();
 
     let started = tick(context).await.unwrap();
@@ -125,14 +126,16 @@ pub fn fetch_discards_bad_metadata(db: PgPool) {
     let returned = wait_on_return(&return_worker, 1, false).await.unwrap();
 
     let response: FetchResult =
-        serde_json::from_str(returned[0].parameters.as_ref().unwrap()).unwrap();
+        serde_json::from_slice(returned[0].parameters.as_ref().unwrap()).unwrap();
 
     let FetchResult::Success { response } = response else {
         panic!("Expected success response");
     };
 
+    let body = String::from_utf8(returned[0].blob.clone().unwrap()).unwrap();
+
     assert_eq!(response.status, 200);
-    assert_eq!(response.body, "Hello, world!");
+    assert_eq!(body, "Hello, world!");
 
     mock.assert_hits(1);
 }
@@ -141,7 +144,7 @@ pub fn fetch_discards_bad_metadata(db: PgPool) {
 pub fn fetch_with_minimum_params_works(db: PgPool) {
     let context = Arc::new(get_app_test_context(db.clone()).await);
     let producer = QueueManager::from_pool(db.clone());
-    let return_worker = Worker::from_pool(db.clone());
+    let return_worker = Worker::from_pool(db.clone(), Default::default());
     let server = MockServer::start();
 
     let mock = server.mock(|when, then| {
@@ -150,7 +153,7 @@ pub fn fetch_with_minimum_params_works(db: PgPool) {
     });
 
     let params = construct_params(server.url("/test"), HttpMethod::Get);
-    let mut job = construct_job(params);
+    let mut job = construct_job(params, None);
 
     let url = server.url("/test");
     let manual_params = json!({
@@ -160,7 +163,7 @@ pub fn fetch_with_minimum_params_works(db: PgPool) {
     })
     .to_string();
 
-    job.parameters = Some(manual_params);
+    job.parameters = Some(manual_params.as_bytes().to_owned());
 
     producer.create_job(job).await.unwrap();
 
@@ -171,14 +174,16 @@ pub fn fetch_with_minimum_params_works(db: PgPool) {
     let returned = wait_on_return(&return_worker, 1, false).await.unwrap();
 
     let response: FetchResult =
-        serde_json::from_str(returned[0].parameters.as_ref().unwrap()).unwrap();
+        serde_json::from_slice(returned[0].parameters.as_ref().unwrap()).unwrap();
 
     let FetchResult::Success { response } = response else {
         panic!("Expected success response");
     };
 
+    let body = String::from_utf8(returned[0].blob.clone().unwrap()).unwrap();
+
     assert_eq!(response.status, 200);
-    assert_eq!(response.body, "Hello, world!");
+    assert_eq!(body, "Hello, world!");
 
     mock.assert_hits(1);
 }
@@ -187,7 +192,7 @@ pub fn fetch_with_minimum_params_works(db: PgPool) {
 pub async fn test_completes_fetch_with_headers(db: PgPool) {
     let context = Arc::new(get_app_test_context(db.clone()).await);
     let producer = QueueManager::from_pool(db.clone());
-    let return_worker = Worker::from_pool(db.clone());
+    let return_worker = Worker::from_pool(db.clone(), Default::default());
     let server = MockServer::start();
 
     let mock = server.mock(|when, then| {
@@ -202,7 +207,7 @@ pub async fn test_completes_fetch_with_headers(db: PgPool) {
     headers.insert("X-Test".to_string(), "test".to_string());
     params.headers = Some(headers);
 
-    let job = construct_job(params);
+    let job = construct_job(params, None);
     producer.create_job(job).await.unwrap();
 
     let started = tick(context).await.unwrap();
@@ -212,14 +217,16 @@ pub async fn test_completes_fetch_with_headers(db: PgPool) {
     let returned = wait_on_return(&return_worker, 1, false).await.unwrap();
 
     let response: FetchResult =
-        serde_json::from_str(returned[0].parameters.as_ref().unwrap()).unwrap();
+        serde_json::from_slice(returned[0].parameters.as_ref().unwrap()).unwrap();
 
     let FetchResult::Success { response } = response else {
         panic!("Expected success response");
     };
 
+    let body = String::from_utf8(returned[0].blob.clone().unwrap()).unwrap();
+
     assert_eq!(response.status, 200);
-    assert_eq!(response.body, "Hello, world!");
+    assert_eq!(body, "Hello, world!");
 
     mock.assert_hits(1);
 }
@@ -228,7 +235,7 @@ pub async fn test_completes_fetch_with_headers(db: PgPool) {
 pub async fn test_completes_fetch_with_body(db: PgPool) {
     let context = Arc::new(get_app_test_context(db.clone()).await);
     let producer = QueueManager::from_pool(db.clone());
-    let return_worker = Worker::from_pool(db.clone());
+    let return_worker = Worker::from_pool(db.clone(), Default::default());
     let server = MockServer::start();
 
     let mock = server.mock(|when, then| {
@@ -236,10 +243,9 @@ pub async fn test_completes_fetch_with_body(db: PgPool) {
         then.status(200).body("Hello, world!");
     });
 
-    let mut params = construct_params(server.url("/test"), HttpMethod::Post);
-    params.body = Some("test body".to_string());
+    let params = construct_params(server.url("/test"), HttpMethod::Post);
 
-    let job = construct_job(params);
+    let job = construct_job(params, Some("test body".to_string().into()));
     producer.create_job(job).await.unwrap();
 
     let started = tick(context).await.unwrap();
@@ -249,14 +255,16 @@ pub async fn test_completes_fetch_with_body(db: PgPool) {
     let returned = wait_on_return(&return_worker, 1, false).await.unwrap();
 
     let response: FetchResult =
-        serde_json::from_str(returned[0].parameters.as_ref().unwrap()).unwrap();
+        serde_json::from_slice(returned[0].parameters.as_ref().unwrap()).unwrap();
 
     let FetchResult::Success { response } = response else {
         panic!("Expected success response");
     };
 
+    let body = String::from_utf8(returned[0].blob.clone().unwrap()).unwrap();
+
     assert_eq!(response.status, 200);
-    assert_eq!(response.body, "Hello, world!");
+    assert_eq!(body, "Hello, world!");
 
     mock.assert_hits(1);
 }
@@ -265,7 +273,7 @@ pub async fn test_completes_fetch_with_body(db: PgPool) {
 pub async fn test_completes_fetch_with_vm_state(db: PgPool) {
     let context = Arc::new(get_app_test_context(db.clone()).await);
     let producer = QueueManager::from_pool(db.clone());
-    let return_worker = Worker::from_pool(db.clone());
+    let return_worker = Worker::from_pool(db.clone(), Default::default());
     let server = MockServer::start();
 
     let mock = server.mock(|when, then| {
@@ -274,8 +282,8 @@ pub async fn test_completes_fetch_with_vm_state(db: PgPool) {
     });
 
     let params = construct_params(server.url("/test"), HttpMethod::Get);
-    let mut job = construct_job(params);
-    job.vm_state = Some(json!({"test": "state"}).to_string());
+    let mut job = construct_job(params, None);
+    job.vm_state = Some(json!({"test": "state"}).to_string().into_bytes());
     producer.create_job(job).await.unwrap();
 
     let started = tick(context).await.unwrap();
@@ -284,18 +292,21 @@ pub async fn test_completes_fetch_with_vm_state(db: PgPool) {
 
     let returned = wait_on_return(&return_worker, 1, true).await.unwrap();
 
-    let state = serde_json::Value::from_str(returned[0].vm_state.as_ref().unwrap()).unwrap();
+    let state: serde_json::Value =
+        serde_json::from_slice(returned[0].vm_state.as_ref().unwrap()).unwrap();
     assert_eq!(state, json!({"test": "state"}));
 
     let response: FetchResult =
-        serde_json::from_str(returned[0].parameters.as_ref().unwrap()).unwrap();
+        serde_json::from_slice(returned[0].parameters.as_ref().unwrap()).unwrap();
 
     let FetchResult::Success { response } = response else {
         panic!("Expected success response");
     };
 
+    let body = String::from_utf8(returned[0].blob.clone().unwrap()).unwrap();
+
     assert_eq!(response.status, 200);
-    assert_eq!(response.body, "Hello, world!");
+    assert_eq!(body, "Hello, world!");
 
     mock.assert_hits(1);
 }

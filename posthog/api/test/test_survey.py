@@ -6,16 +6,14 @@ from unittest.mock import ANY
 import pytest
 from django.core.cache import cache
 from django.test.client import Client
-
 from freezegun.api import freeze_time
-from posthog.api.survey import nh3_clean_with_allow_list
-from posthog.models.cohort.cohort import Cohort
 from nanoid import generate
 from rest_framework import status
 
+from posthog.api.survey import nh3_clean_with_allow_list
 from posthog.constants import AvailableFeature
-from posthog.models import FeatureFlag, Action
-
+from posthog.models import Action, FeatureFlag
+from posthog.models.cohort.cohort import Cohort
 from posthog.models.feedback.survey import Survey
 from posthog.test.base import (
     APIBaseTest,
@@ -2555,10 +2553,12 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                                         "created_by": None,
                                         "deleted": False,
                                         "is_calculating": False,
+                                        "creation_context": None,
                                         "last_calculated_at": ANY,
                                         "team_id": self.team.id,
                                         "is_action": True,
                                         "bytecode_error": None,
+                                        "pinned_at": None,
                                         "tags": [],
                                     }
                                 ]

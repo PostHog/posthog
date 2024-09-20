@@ -1,7 +1,9 @@
 from inline_snapshot import snapshot
+
+from hogvm.python.operation import HOGQL_BYTECODE_VERSION
 from posthog.cdp.templates.webhook.template_webhook import template as template_webhook
 from posthog.management.commands.migrate_action_webhooks import migrate_action_webhooks
-from posthog.models.action.action import Action
+from posthog.models import Action
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.test.base import BaseTest
 
@@ -25,11 +27,29 @@ class TestMigrateActionWebhooks(BaseTest):
             team_id=self.team.id,
             slack_message_format="[event] triggered by [person]",
             post_to_slack=True,
+            steps_json=[
+                {
+                    "event": None,  # All events
+                }
+            ],
         )
 
     def test_dry_run(self):
         migrate_action_webhooks(action_ids=[], team_ids=[], dry_run=True)
         assert not HogFunction.objects.exists()
+        self.action.refresh_from_db()
+        assert self.action.post_to_slack is True  # no change
+
+    def test_inert_run(self):
+        migrate_action_webhooks(action_ids=[], team_ids=[], inert=True)
+        assert HogFunction.objects.exists()
+        hog = HogFunction.objects.first()
+        assert hog is not None
+        assert "print" in hog.hog
+        assert "fetch" not in hog.hog
+        self.action.refresh_from_db()
+        assert self.action.post_to_slack is True  # no change
+        assert hog.name == f"[CDP-TEST-HIDDEN] Webhook for action {self.action.id} (Test Action)"
 
     def test_only_specified_team(self):
         migrate_action_webhooks(action_ids=[], team_ids=[9999])
@@ -54,7 +74,7 @@ class TestMigrateActionWebhooks(BaseTest):
         assert hog_function.name == f"Webhook for action {self.action.id} (Test Action)"
         assert hog_function.filters == {
             "actions": [{"id": f"{self.action.id}", "name": "Test Action", "type": "actions", "order": 0}],
-            "bytecode": ["_h", 29, 3, 1, 4, 1],
+            "bytecode": ["_H", HOGQL_BYTECODE_VERSION, 29, 3, 1, 4, 1],
         }
         assert hog_function.hog == template_webhook.hog
         assert hog_function.inputs_schema == template_webhook.inputs_schema

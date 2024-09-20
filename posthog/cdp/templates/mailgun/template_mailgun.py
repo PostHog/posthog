@@ -7,15 +7,16 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 template_mailgun_send_email: HogFunctionTemplate = HogFunctionTemplate(
     status="alpha",
     id="template-mailgun-send-email",
-    name="Send an email via Mailgun",
+    name="Mailgun",
     description="Send emails using the Mailgun HTTP API",
     icon_url="/static/services/mailgun.png",
+    category=["Email Marketing"],
     hog="""
 if (empty(inputs.template.to)) {
     return false
 }
 
-fn multiPartFormEncode(data) {
+fun multiPartFormEncode(data) {
     let boundary := f'---011000010111000001101001'
     let bodyBoundary := f'--{boundary}\\r\\n'
     let body := bodyBoundary
