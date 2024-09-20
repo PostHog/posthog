@@ -28,15 +28,17 @@ from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import report_user_action
 from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
 from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters_to_dict
 from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
 from posthog.models.user import User
-from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle, PersonalApiKeyRateThrottle
+from posthog.rate_limit import (
+    AIBurstRateThrottle,
+    AISustainedRateThrottle,
+    HogQLQueryThrottle,
+    ClickHouseBurstRateThrottle,
+    ClickHouseSustainedRateThrottle,
+)
 from posthog.schema import QueryRequest, QueryResponseAlternative, QueryStatusResponse
-
-
-class QueryThrottle(PersonalApiKeyRateThrottle):
-    scope = "query"
-    rate = "120/hour"
 
 
 class ServerSentEventRenderer(BaseRenderer):
@@ -58,8 +60,10 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     def get_throttles(self):
         if self.action in ("draft_sql", "chat"):
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
-        else:
-            return [QueryThrottle()]
+        if query := self.request.data.get("query"):
+            if query.get("kind") == "HogQLQuery":
+                return [HogQLQueryThrottle()]
+        return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
 
     @extend_schema(
         request=QueryRequest,
@@ -70,6 +74,11 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     @monitor(feature=Feature.QUERY, endpoint="query", method="POST")
     def create(self, request, *args, **kwargs) -> Response:
         data = self.get_model(request.data, QueryRequest)
+        if data.filters_override is not None:
+            data.query = apply_dashboard_filters_to_dict(
+                data.query.model_dump(), data.filters_override.model_dump(), self.team
+            )  # type: ignore
+
         client_query_id = data.client_query_id or uuid.uuid4().hex
         execution_mode = execution_mode_from_refresh(data.refresh)
         response_status: int = status.HTTP_200_OK

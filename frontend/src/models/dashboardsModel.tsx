@@ -92,7 +92,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
                         return { count: 0, next: null, previous: null, results: [] }
                     }
                     const dashboards: PaginatedResponse<DashboardType> = await api.get(
-                        url || `api/projects/${teamLogic.values.currentTeamId}/dashboards/?limit=100`
+                        url || `api/projects/${teamLogic.values.currentTeamId}/dashboards/?limit=2000`
                     )
 
                     return {
@@ -270,6 +270,10 @@ export const dashboardsModel = kea<dashboardsModelType>([
             }
         },
         addDashboardSuccess: ({ dashboard }) => {
+            if (router.values.location.pathname.includes('onboarding')) {
+                // don't send a toast if we're in onboarding
+                return
+            }
             lemonToast.success(<>Dashboard created</>, {
                 button: {
                     label: 'View',

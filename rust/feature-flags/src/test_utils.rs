@@ -1,13 +1,13 @@
 use anyhow::Error;
 use axum::async_trait;
 use serde_json::{json, Value};
-use sqlx::{pool::PoolConnection, postgres::PgRow, Error as SqlxError, Postgres};
+use sqlx::{pool::PoolConnection, postgres::PgRow, Error as SqlxError, PgPool, Postgres};
 use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::{
     config::{Config, DEFAULT_TEST_CONFIG},
-    database::{Client, CustomDatabaseError, PgClient},
+    database::{get_pool, Client, CustomDatabaseError},
     flag_definitions::{self, FeatureFlag, FeatureFlagRow},
     redis::{Client as RedisClientTrait, RedisClient},
     team::{self, Team},
@@ -130,12 +130,12 @@ pub fn create_flag_from_json(json_value: Option<String>) -> Vec<FeatureFlag> {
     flags
 }
 
-pub async fn setup_pg_client(config: Option<&Config>) -> Arc<PgClient> {
+pub async fn setup_pg_client(config: Option<&Config>) -> Arc<PgPool> {
     let config = config.unwrap_or(&DEFAULT_TEST_CONFIG);
     Arc::new(
-        PgClient::new_read_client(config)
+        get_pool(&config.read_database_url, config.max_pg_connections)
             .await
-            .expect("Failed to create pg read client"),
+            .expect("Failed to create Postgres client"),
     )
 }
 
@@ -163,7 +163,7 @@ pub async fn setup_invalid_pg_client() -> Arc<dyn Client + Send + Sync> {
     Arc::new(MockPgClient)
 }
 
-pub async fn insert_new_team_in_pg(client: Arc<PgClient>) -> Result<Team, Error> {
+pub async fn insert_new_team_in_pg(client: Arc<PgPool>) -> Result<Team, Error> {
     const ORG_ID: &str = "019026a4be8000005bf3171d00629163";
 
     client.run_query(
@@ -207,11 +207,35 @@ pub async fn insert_new_team_in_pg(client: Arc<PgClient>) -> Result<Team, Error>
 
     assert_eq!(res.rows_affected(), 1);
 
+    // Insert group type mappings
+    let group_types = vec![
+        ("project", 0),
+        ("organization", 1),
+        ("instance", 2),
+        ("customer", 3),
+        ("team", 4),
+    ];
+
+    for (group_type, group_type_index) in group_types {
+        let res = sqlx::query(
+            r#"INSERT INTO posthog_grouptypemapping
+            (group_type, group_type_index, name_singular, name_plural, team_id)
+            VALUES
+            ($1, $2, NULL, NULL, $3)"#,
+        )
+        .bind(group_type)
+        .bind(group_type_index)
+        .bind(team.id)
+        .execute(&mut *conn)
+        .await?;
+
+        assert_eq!(res.rows_affected(), 1);
+    }
     Ok(team)
 }
 
 pub async fn insert_flag_for_team_in_pg(
-    client: Arc<PgClient>,
+    client: Arc<PgPool>,
     team_id: i32,
     flag: Option<FeatureFlagRow>,
 ) -> Result<FeatureFlagRow, Error> {
@@ -260,7 +284,7 @@ pub async fn insert_flag_for_team_in_pg(
 }
 
 pub async fn insert_person_for_team_in_pg(
-    client: Arc<PgClient>,
+    client: Arc<PgPool>,
     team_id: i32,
     distinct_id: String,
     properties: Option<Value>,

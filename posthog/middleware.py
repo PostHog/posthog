@@ -307,9 +307,6 @@ class CHQueries:
             http_user_agent=request.META.get("HTTP_USER_AGENT"),
         )
 
-        if hasattr(user, "current_team_id") and user.current_team_id:
-            tag_queries(team_id=user.current_team_id)
-
         try:
             response: HttpResponse = self.get_response(request)
 

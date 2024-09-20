@@ -530,6 +530,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 session_id="111",
                 first_timestamp=timezone.now(),
                 team_id=self.team.pk,
+                ensure_analytics_event_in_session=False,
             )
 
             response = execute_hogql_query(

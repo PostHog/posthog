@@ -2,7 +2,7 @@
 /// This ensures there are no mismatches between implementations.
 use feature_flags::flag_matching::{FeatureFlagMatch, FeatureFlagMatcher};
 
-use feature_flags::test_utils::create_flag_from_json;
+use feature_flags::test_utils::{create_flag_from_json, setup_pg_client};
 use serde_json::json;
 
 #[tokio::test]
@@ -104,15 +104,18 @@ async fn it_is_consistent_with_rollout_calculation_for_simple_flags() {
         false, true, true,
     ];
 
-    for i in 0..1000 {
+    for (i, result) in results.iter().enumerate().take(1000) {
+        let database_client = setup_pg_client(None).await;
+
         let distinct_id = format!("distinct_id_{}", i);
 
-        let feature_flag_match = FeatureFlagMatcher::new(distinct_id, None, None)
-            .get_match(&flags[0])
-            .await
-            .unwrap();
+        let feature_flag_match =
+            FeatureFlagMatcher::new(distinct_id, 1, database_client, None, None, None)
+                .get_match(&flags[0], None)
+                .await
+                .unwrap();
 
-        if results[i] {
+        if *result {
             assert_eq!(
                 feature_flag_match,
                 FeatureFlagMatch {
@@ -1186,15 +1189,17 @@ async fn it_is_consistent_with_rollout_calculation_for_multivariate_flags() {
         Some("first-variant".to_string()),
     ];
 
-    for i in 0..1000 {
+    for (i, result) in results.iter().enumerate().take(1000) {
+        let database_client = setup_pg_client(None).await;
         let distinct_id = format!("distinct_id_{}", i);
 
-        let feature_flag_match = FeatureFlagMatcher::new(distinct_id, None, None)
-            .get_match(&flags[0])
-            .await
-            .unwrap();
+        let feature_flag_match =
+            FeatureFlagMatcher::new(distinct_id, 1, database_client, None, None, None)
+                .get_match(&flags[0], None)
+                .await
+                .unwrap();
 
-        if results[i].is_some() {
+        if result.is_some() {
             assert_eq!(
                 feature_flag_match,
                 FeatureFlagMatch {

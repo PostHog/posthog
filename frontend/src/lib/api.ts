@@ -12,8 +12,10 @@ import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import {
     AlertType,
     AlertTypeWrite,
+    DashboardFilter,
     DatabaseSerializedFieldType,
     ErrorTrackingGroup,
+    HogCompileResponse,
     QuerySchema,
     QueryStatusResponse,
     RecordingsQuery,
@@ -336,6 +338,10 @@ class ApiRequest {
 
     public pluginConfig(id: number, teamId?: TeamType['id']): ApiRequest {
         return this.pluginConfigs(teamId).addPathComponent(id)
+    }
+
+    public hog(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('hog')
     }
 
     public hogFunctions(teamId?: TeamType['id']): ApiRequest {
@@ -909,7 +915,8 @@ const api = {
         loadInsight(
             shortId: InsightModel['short_id'],
             basic?: boolean,
-            refresh?: RefreshType
+            refresh?: RefreshType,
+            filtersOverride?: DashboardFilter | null
         ): Promise<PaginatedResponse<Partial<InsightModel>>> {
             return new ApiRequest()
                 .insights()
@@ -918,6 +925,7 @@ const api = {
                         short_id: encodeURIComponent(shortId),
                         basic,
                         refresh,
+                        filters_override: filtersOverride,
                     })
                 )
                 .get()
@@ -1649,7 +1657,11 @@ const api = {
             return results
         },
     },
-
+    hog: {
+        async create(hog: string): Promise<HogCompileResponse> {
+            return await new ApiRequest().hog().create({ data: { hog } })
+        },
+    },
     hogFunctions: {
         async list(params?: { filters?: any }): Promise<PaginatedResponse<HogFunctionType>> {
             return await new ApiRequest().hogFunctions().withQueryString(params).get()
@@ -2224,7 +2236,7 @@ const api = {
         async get(id: IntegrationType['id']): Promise<IntegrationType> {
             return await new ApiRequest().integration(id).get()
         },
-        async create(data: Partial<IntegrationType>): Promise<IntegrationType> {
+        async create(data: Partial<IntegrationType> | FormData): Promise<IntegrationType> {
             return await new ApiRequest().integrations().create({ data })
         },
         async delete(integrationId: IntegrationType['id']): Promise<IntegrationType> {
@@ -2312,7 +2324,8 @@ const api = {
         options?: ApiMethodOptions,
         queryId?: string,
         refresh?: boolean,
-        async?: boolean
+        async?: boolean,
+        filtersOverride?: DashboardFilter | null
     ): Promise<
         T extends { [response: string]: any }
             ? T['response'] extends infer P | undefined
@@ -2321,9 +2334,10 @@ const api = {
             : Record<string, any>
     > {
         const refreshParam: RefreshType | undefined = refresh && async ? 'force_async' : async ? 'async' : refresh
-        return await new ApiRequest()
-            .query()
-            .create({ ...options, data: { query, client_query_id: queryId, refresh: refreshParam } })
+        return await new ApiRequest().query().create({
+            ...options,
+            data: { query, client_query_id: queryId, refresh: refreshParam, filters_override: filtersOverride },
+        })
     },
 
     chatURL: (): string => {

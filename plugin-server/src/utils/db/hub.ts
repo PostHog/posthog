@@ -8,6 +8,7 @@ import { types as pgTypes } from 'pg'
 import { ConnectionOptions } from 'tls'
 
 import { getPluginServerCapabilities } from '../../capabilities'
+import { EncryptedFields } from '../../cdp/encryption-utils'
 import { buildIntegerMatcher, defaultConfig } from '../../config/config'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from '../../config/constants'
 import { KAFKA_JOBS } from '../../config/kafka-topics'
@@ -188,7 +189,6 @@ export async function createHub(
         pluginConfigsPerTeam: new Map(),
         pluginConfigSecrets: new Map(),
         pluginConfigSecretLookup: new Map(),
-
         pluginSchedule: null,
 
         teamManager,
@@ -205,6 +205,7 @@ export async function createHub(
             serverConfig.APP_METRICS_FLUSH_FREQUENCY_MS,
             serverConfig.APP_METRICS_FLUSH_MAX_QUEUE_SIZE
         ),
+        encryptedFields: new EncryptedFields(serverConfig),
     }
 
     return hub as Hub
