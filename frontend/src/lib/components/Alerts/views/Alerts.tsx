@@ -37,13 +37,13 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
                     <>
                         <LemonTableLink
                             to={urls.alert(alert.id)}
+                            className={alert.enabled ? '' : 'text-muted'}
                             title={
                                 <>
-                                    <AlertStateIndicator alert={alert} />
+                                    {alert.enabled ? <AlertStateIndicator alert={alert} /> : null}
                                     {name}
                                 </>
                             }
-                            // description={insight.description}
                         />
                     </>
                 )
@@ -71,21 +71,23 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
 
     return (
         <>
-            <EditAlertModal
-                onClose={() => push(urls.alerts())}
-                isOpen={!!alertId}
-                alertId={alertId === null ? undefined : alertId}
-                onEditSuccess={loadAlerts}
-            />
+            {alertId !== null ? (
+                <EditAlertModal
+                    onClose={() => push(urls.alerts())}
+                    isOpen
+                    alertId={alertId}
+                    onEditSuccess={loadAlerts}
+                />
+            ) : null}
+
             <LemonTable
                 loading={alertsLoading}
                 columns={columns}
                 dataSource={alertsSortedByState}
                 noSortingCancellation
                 rowKey="id"
-                loadingSkeletonRows={15}
+                loadingSkeletonRows={5}
                 nouns={['alert', 'alerts']}
-                // TODO: Ani render full row as dimmed for enabled/disabled alerts
                 rowClassName={(alert) => (alert.state === 'firing' ? 'highlighted' : null)}
             />
         </>

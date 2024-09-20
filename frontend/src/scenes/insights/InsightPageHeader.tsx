@@ -46,6 +46,7 @@ import {
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     // insightSceneLogic
     const { insightMode, itemId, alertId } = useValues(insightSceneLogic)
+
     const { setInsightMode } = useActions(insightSceneLogic)
 
     // insightLogic
@@ -117,7 +118,8 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                     <EditAlertModal
                         onClose={() => push(urls.insightAlerts(insight.short_id as InsightShortId))}
                         isOpen={!!alertId}
-                        alertId={alertId === null ? undefined : alertId}
+                        alertId={alertId === null || alertId === 'new' ? undefined : alertId}
+                        insight={insight}
                         onEditSuccess={loadAlerts}
                     />
                     <NewDashboardModal />

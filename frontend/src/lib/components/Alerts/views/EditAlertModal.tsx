@@ -1,4 +1,4 @@
-import { LemonCheckbox, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonInput, LemonSelect, SpinnerOverlay } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { AlertStateIndicator } from 'lib/components/Alerts/views/ManageAlertsModal'
@@ -13,11 +13,16 @@ import { alphabet } from 'lib/utils'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
 import { AlertType } from '~/queries/schema'
+import { QueryBasedInsightModel } from '~/types'
 
-import { alertLogic, AlertLogicProps } from '../alertLogic'
+import { alertFormLogic, AlertFormType } from '../alertFormLogic'
+import { alertLogic } from '../alertLogic'
 
-interface EditAlertProps extends AlertLogicProps {
+interface EditAlertProps {
     isOpen: boolean | undefined
+    alertId?: string
+    insight?: Partial<QueryBasedInsightModel>
+    onEditSuccess: () => void
     onClose?: () => void
 }
 
@@ -58,147 +63,194 @@ export function AlertState({ alert }: { alert: AlertType }): JSX.Element | null 
     )
 }
 
-export function EditAlertModal({ alertId, onClose, isOpen, onEditSuccess }: EditAlertProps): JSX.Element {
-    const alertLogicProps = { alertId, onEditSuccess }
-    const logic = alertLogic(alertLogicProps)
+export function EditAlertModal({ alertId, onClose, isOpen, onEditSuccess, insight }: EditAlertProps): JSX.Element {
+    if (!alertId && !insight) {
+        throw new Error('Must provide either an alertId or an insight to create alert for')
+    }
 
-    const { alert, isAlertSubmitting, alertChanged } = useValues(logic)
-    const { deleteAlert } = useActions(logic)
+    const { alert, alertLoading } = useValues(alertLogic({ alertId }))
+
+    if (alertLoading) {
+        return <SpinnerOverlay />
+    }
+
+    return (
+        <LemonModal onClose={onClose} isOpen={isOpen} width={600} simple title="">
+            {alert ? (
+                <EditAlertForm
+                    alert={alert}
+                    onClose={onClose}
+                    onEditSuccess={onEditSuccess}
+                    alertState={<AlertState alert={alert} />}
+                />
+            ) : alertId !== undefined ? (
+                // we have alertId but didn't get alert
+                <div className="p-4 text-center">
+                    <h2>Not found</h2>
+                    <p>This alert could not be found. It may have been deleted.</p>
+                </div>
+            ) : // we need to create a new alert
+            insight === undefined ? (
+                <div className="p-4 text-center">
+                    <p>Can only create new alert in context of an insight</p>
+                </div>
+            ) : (
+                <EditAlertForm
+                    alert={
+                        {
+                            id: undefined,
+                            name: '',
+                            created_by: null,
+                            created_at: '',
+                            enabled: true,
+                            threshold: {
+                                configuration: {
+                                    absoluteThreshold: {},
+                                },
+                            },
+                            subscribed_users: [],
+                            checks: [],
+                            insight: insight.id,
+                            insight_short_id: insight.short_id,
+                        } as AlertFormType
+                    }
+                    onClose={onClose}
+                    onEditSuccess={onEditSuccess}
+                />
+            )}
+        </LemonModal>
+    )
+}
+
+interface EditAlertFormProps {
+    alert: AlertFormType
+    onEditSuccess: () => void
+    onClose?: () => void
+    alertState?: JSX.Element
+}
+
+function EditAlertForm({ alert, onClose, onEditSuccess, alertState }: EditAlertFormProps): JSX.Element {
+    const formLogicProps = { alert, onEditSuccess, onCreateSuccess: onClose, onDeleteSuccess: onClose }
+    const formLogic = alertFormLogic(formLogicProps)
+    const { alert: alertForm, isAlertSubmitting, alertChanged } = useValues(formLogic)
+    const { deleteAlert } = useActions(formLogic)
+    const { setAlertValue } = useActions(formLogic)
 
     const trendsLogic = trendsDataLogic({ dashboardItemId: alert.insight_short_id })
     const { alertSeries, calculationIntervalsForAlerts } = useValues(trendsLogic)
 
-    const { setAlertValue } = useActions(logic)
+    const creatingNewAlert = alertForm.id === undefined
 
     return (
-        <LemonModal onClose={onClose} isOpen={isOpen} width={600} simple title="">
-            <Form
-                logic={alertLogic}
-                props={alertLogicProps}
-                formKey="alert"
-                enableFormOnSubmit
-                className="LemonModal__layout"
-            >
-                <LemonModal.Header>
-                    <div className="flex items-center gap-2">
-                        <LemonButton icon={<IconChevronLeft />} onClick={onClose} size="xsmall" />
+        <Form
+            logic={alertFormLogic}
+            props={formLogicProps}
+            formKey="alert"
+            enableFormOnSubmit
+            className="LemonModal__layout"
+        >
+            <LemonModal.Header>
+                <div className="flex items-center gap-2">
+                    <LemonButton icon={<IconChevronLeft />} onClick={onClose} size="xsmall" />
 
-                        <h3>{!alertId ? 'New' : 'Edit '} Alert</h3>
-                    </div>
-                </LemonModal.Header>
+                    <h3>{creatingNewAlert === undefined ? 'New' : 'Edit '} Alert</h3>
+                </div>
+            </LemonModal.Header>
 
-                <LemonModal.Content>
-                    {!alert ? (
-                        <div className="p-4 text-center">
-                            <h2>Not found</h2>
-                            <p>This alert could not be found. It may have been deleted.</p>
-                        </div>
-                    ) : (
-                        <>
-                            <div className="space-y-2">
-                                {alert?.created_by ? (
-                                    <UserActivityIndicator
-                                        at={alert.created_at}
-                                        by={alert.created_by}
-                                        prefix="Created"
-                                        className="mb-4"
-                                    />
-                                ) : null}
+            <LemonModal.Content>
+                <div className="space-y-2">
+                    {alert.created_by ? (
+                        <UserActivityIndicator
+                            at={alert.created_at}
+                            by={alert.created_by}
+                            prefix="Created"
+                            className="mb-4"
+                        />
+                    ) : null}
 
-                                <LemonField name="name" label="Name">
-                                    <LemonInput placeholder="e.g. High error rate" data-attr="alert-name" />
-                                </LemonField>
+                    <LemonField name="name" label="Name">
+                        <LemonInput placeholder="e.g. High error rate" data-attr="alert-name" />
+                    </LemonField>
 
-                                <LemonField name="enabled">
-                                    <LemonCheckbox
-                                        checked={alert.enabled}
-                                        data-attr="alert-enabled"
-                                        fullWidth
-                                        label="Enabled"
-                                    />
-                                </LemonField>
+                    <LemonField name="enabled">
+                        <LemonCheckbox
+                            checked={alertForm?.enabled}
+                            data-attr="alert-enabled"
+                            fullWidth
+                            label="Enabled"
+                        />
+                    </LemonField>
 
-                                <LemonField name="series_index" label="Series">
-                                    <LemonSelect
-                                        fullWidth
-                                        data-attr="alert-series-index"
-                                        options={alertSeries.map(({ event }, index) => ({
-                                            label: `${alphabet[index]} - ${event}`,
-                                            value: index,
-                                        }))}
-                                    />
-                                </LemonField>
+                    <LemonField name="series_index" label="Series">
+                        <LemonSelect
+                            fullWidth
+                            data-attr="alert-series-index"
+                            options={alertSeries.map(({ event }, index) => ({
+                                label: `${alphabet[index]} - ${event}`,
+                                value: index,
+                            }))}
+                        />
+                    </LemonField>
 
-                                <LemonField name="calculation_interval" label="Calculation Interval">
-                                    <LemonSelect
-                                        fullWidth
-                                        data-attr="alert-calculation-interval"
-                                        options={calculationIntervalsForAlerts.map((interval) => ({
-                                            label: interval,
-                                            value: interval,
-                                        }))}
-                                    />
-                                </LemonField>
+                    <LemonField name="calculation_interval" label="Calculation Interval">
+                        <LemonSelect
+                            fullWidth
+                            data-attr="alert-calculation-interval"
+                            options={calculationIntervalsForAlerts.map((interval) => ({
+                                label: interval,
+                                value: interval,
+                            }))}
+                        />
+                    </LemonField>
 
-                                <Group name={['threshold', 'configuration', 'absoluteThreshold']}>
-                                    <span className="flex gap-10">
-                                        <LemonField
-                                            name="lower"
-                                            label="Lower threshold"
-                                            help="Notify if the value is strictly below"
-                                        >
-                                            <LemonInput
-                                                type="number"
-                                                className="w-20"
-                                                data-attr="alert-lower-threshold"
-                                            />
-                                        </LemonField>
-                                        <LemonField
-                                            name="upper"
-                                            label="Upper threshold"
-                                            help="Notify if the value is strictly above"
-                                        >
-                                            <LemonInput
-                                                type="number"
-                                                className="w-20"
-                                                data-attr="alert-upper-threshold"
-                                            />
-                                        </LemonField>
-                                    </span>
-                                </Group>
+                    <Group name={['threshold', 'configuration', 'absoluteThreshold']}>
+                        <span className="flex gap-10">
+                            <LemonField
+                                name="lower"
+                                label="Lower threshold"
+                                help="Notify if the value is strictly below"
+                            >
+                                <LemonInput type="number" className="w-20" data-attr="alert-lower-threshold" />
+                            </LemonField>
+                            <LemonField
+                                name="upper"
+                                label="Upper threshold"
+                                help="Notify if the value is strictly above"
+                            >
+                                <LemonInput type="number" className="w-20" data-attr="alert-upper-threshold" />
+                            </LemonField>
+                        </span>
+                    </Group>
 
-                                <MemberSelectMultiple
-                                    value={alert.subscribed_users?.map((u) => u.id) ?? []}
-                                    idKey="id"
-                                    onChange={(value) => setAlertValue('subscribed_users', value)}
-                                />
-                            </div>
-                            <AlertState alert={alert} />
-                        </>
-                    )}
-                </LemonModal.Content>
+                    <MemberSelectMultiple
+                        value={alertForm.subscribed_users?.map((u) => u.id) ?? []}
+                        idKey="id"
+                        onChange={(value) => setAlertValue('subscribed_users', value)}
+                    />
+                </div>
+                {alertState}
+            </LemonModal.Content>
 
-                <LemonModal.Footer>
-                    <div className="flex-1">
-                        {alert && (
-                            <LemonButton type="secondary" status="danger" onClick={deleteAlert}>
-                                Delete alert
-                            </LemonButton>
-                        )}
-                    </div>
-                    <LemonButton type="secondary" onClick={onClose}>
-                        Cancel
-                    </LemonButton>
-                    <LemonButton
-                        type="primary"
-                        htmlType="submit"
-                        loading={isAlertSubmitting}
-                        disabledReason={!alertChanged && 'No changes to save'}
-                    >
-                        {!alertId ? 'Create alert' : 'Save'}
-                    </LemonButton>
-                </LemonModal.Footer>
-            </Form>
-        </LemonModal>
+            <LemonModal.Footer>
+                <div className="flex-1">
+                    {!creatingNewAlert ? (
+                        <LemonButton type="secondary" status="danger" onClick={deleteAlert}>
+                            Delete alert
+                        </LemonButton>
+                    ) : null}
+                </div>
+                <LemonButton type="secondary" onClick={onClose}>
+                    Cancel
+                </LemonButton>
+                <LemonButton
+                    type="primary"
+                    htmlType="submit"
+                    loading={isAlertSubmitting}
+                    disabledReason={!alertChanged && 'No changes to save'}
+                >
+                    {creatingNewAlert ? 'Create alert' : 'Save'}
+                </LemonButton>
+            </LemonModal.Footer>
+        </Form>
     )
 }

@@ -20,7 +20,7 @@ export const areAlertsSupportedForInsight = (query?: Record<string, any> | null)
 }
 
 export const insightAlertsLogic = kea<insightAlertsLogicType>([
-    path(['lib', 'components', 'Alerts', 'alertsLogic']),
+    path(['lib', 'components', 'Alerts', 'insightAlertsLogic']),
     props({} as InsightAlertsLogicProps),
     key(({ insightId }) => `insight-${insightId}`),
     actions({
@@ -36,6 +36,7 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
             __default: [] as AlertType[],
             loadAlerts: async () => {
                 const response = await api.alerts.list(props.insightId)
+
                 return response.results
             },
         },
