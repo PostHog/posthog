@@ -47,6 +47,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
         loaded,
         hogFunction,
         willReEnableOnSave,
+        willEnableOnSave,
         globalsWithInputs,
         showPaygate,
         hasAddon,
@@ -118,7 +119,8 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                 onClick={submitConfiguration}
                 loading={isConfigurationSubmitting}
             >
-                {templateId ? 'Create' : willReEnableOnSave ? 'Save & re-enable' : 'Save'}
+                {templateId ? 'Create' : 'Save'}
+                {willReEnableOnSave ? ' & re-enable' : willEnableOnSave ? ' & enable' : ''}
             </LemonButton>
         </>
     )

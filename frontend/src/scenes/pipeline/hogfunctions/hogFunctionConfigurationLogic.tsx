@@ -124,7 +124,7 @@ const templateToConfiguration = (
         hog: template.hog,
         icon_url: template.icon_url,
         inputs,
-        enabled: false,
+        enabled: true,
     }
 }
 
@@ -453,6 +453,13 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             (s) => [s.configuration, s.hogFunction],
             (configuration, hogFunction) => {
                 return configuration?.enabled && (hogFunction?.status?.state ?? 0) >= 3
+            },
+        ],
+
+        willEnableOnSave: [
+            (s) => [s.configuration, s.hogFunction],
+            (configuration, hogFunction) => {
+                return configuration?.enabled && (!hogFunction || !hogFunction.enabled)
             },
         ],
         exampleInvocationGlobals: [
